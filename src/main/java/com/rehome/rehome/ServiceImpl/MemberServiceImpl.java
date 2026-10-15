@@ -1,6 +1,7 @@
 package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.request.UpdateMemberProfileRequest;
+import com.rehome.rehome.dto.response.MemberCodeResponse;
 import com.rehome.rehome.dto.response.MemberProfileResponse;
 import com.rehome.rehome.dto.response.MemberProfileUpdateResponse;
 import com.rehome.rehome.entity.Account;
@@ -78,6 +79,19 @@ public class MemberServiceImpl implements MemberService {
                 .fullName(memberProfile.getFullName())
                 .phone(account.getPhone())
                 .avatarUrl(memberProfile.getAvatarUrl())
+                .build();
+    }
+
+    @Override
+    public MemberCodeResponse getMemberCode(String email) {
+        Account account = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        MemberProfile memberProfile = memberProfileRepository.findByAccountId(account.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Hồ sơ Member không tồn tại"));
+
+        return MemberCodeResponse.builder()
+                .memberCode(memberProfile.getMemberCode())
                 .build();
     }
 }

@@ -43,6 +43,3 @@ jobs:
         run: ./mvnw -B clean verify
         env:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/rehome_test
-          SPRING_DATASOURCE_USERNAME: postgres
-          SPRING_DATASOURCE_PASSWORD: postgres

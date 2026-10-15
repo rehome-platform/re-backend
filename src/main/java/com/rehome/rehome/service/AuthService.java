@@ -1,5 +1,7 @@
 package com.rehome.rehome.service;
 
+import com.rehome.rehome.dto.request.ForgotPasswordRequest;
+import com.rehome.rehome.dto.request.GoogleLoginRequest;
 import com.rehome.rehome.dto.request.LoginRequest;
 import com.rehome.rehome.dto.request.RegisterRequest;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
@@ -12,6 +14,8 @@ public interface AuthService {
     OtpResponse register(RegisterRequest request);
 
     AuthResponse login(LoginRequest request);
+
+    AuthResponse loginWithGoogle(GoogleLoginRequest request);
 
     AuthResponse refreshToken(String requestRefreshToken);
 

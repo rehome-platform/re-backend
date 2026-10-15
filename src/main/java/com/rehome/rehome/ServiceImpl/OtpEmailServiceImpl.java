@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.mail.MailException;
 import org.springframework.mail.MailPreparationException;
+import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
@@ -104,5 +105,18 @@ public class OtpEmailServiceImpl implements OtpEmailService {
             log.error("Gửi email OTP thất bại: {}", ex.getMessage(), ex);
             throw ex;
         }
+    }
+
+    @Override
+    public void sendResetLink(String to, String link, long minutes) {
+        SimpleMailMessage msg = new SimpleMailMessage();
+        msg.setFrom(from);   // <-- thêm dòng này
+        msg.setTo(to);
+        msg.setSubject("Đặt lại mật khẩu Rehome");
+        msg.setText("Bạn đã yêu cầu đặt lại mật khẩu.\n\n"
+                + "Bấm vào link sau để đặt mật khẩu mới (hiệu lực " + minutes + " phút):\n"
+                + link + "\n\n"
+                + "Nếu bạn không yêu cầu, hãy bỏ qua email này.");
+        mailSender.send(msg);
     }
 }

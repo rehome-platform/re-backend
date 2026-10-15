@@ -1,5 +1,6 @@
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.dto.request.ForgotPasswordRequest;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.EmailOtp;
 import com.rehome.rehome.entity.enums.OtpPurpose;
@@ -14,19 +15,34 @@ import com.rehome.rehome.dto.response.OtpResponse;
 import com.rehome.rehome.exception.OtpException;
 import com.rehome.rehome.repository.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.mail.MailException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Locale;
 import java.util.UUID;
-
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class OtpServiceImpl implements OtpService {
+
+    private static final SecureRandom TOKEN_RANDOM = new SecureRandom();
+
+    @Value("${app.frontend-url}")
+    private String frontendUrl;
+
+    @Value("${app.reset-link-ttl-seconds:1800}")
+    private long resetLinkTtl;
+
     private final AccountRepository accounts;
     private final EmailOtpRepository otps;
     private final OtpEmailService otpEmailService;
@@ -124,5 +140,58 @@ public class OtpServiceImpl implements OtpService {
 
     private OtpException invalid() {
         return new OtpException(HttpStatus.BAD_REQUEST, "Mã xác thực không hợp lệ, hết hạn hoặc đã sử dụng.");
+    }
+
+
+    @Override
+    @Transactional
+    public void forgotPassword(ForgotPasswordRequest request) {
+        Account account = accounts.findByEmailIgnoreCase(request.getEmail()).orElse(null);
+        if (account == null) {
+            log.warn("forgot: không tìm thấy account cho email {}", request.getEmail());
+            return;
+        }
+        if (!account.isEnabled()) {
+            log.warn("forgot: account {} chưa enabled", account.getEmail());
+            return;
+        }
+
+        String key = account.getId() + ":" + OtpPurpose.FORGOT_PASSWORD;
+        EmailOtp otp = otps.findById(key).orElseGet(EmailOtp::new);
+        Instant now = Instant.now();
+
+        // Đang trong thời gian chờ: im lặng bỏ qua, KHÔNG ném 429
+        // (ném lỗi chỉ với email có thật sẽ lộ email đó tồn tại)
+        if (otp.getSentAt() != null && now.isBefore(otp.getSentAt().plusSeconds(resendSeconds))) {
+            log.warn("forgot: đang trong thời gian chờ {}s", resendSeconds);
+            return;
+        }
+
+        byte[] bytes = new byte[32];
+        TOKEN_RANDOM.nextBytes(bytes);
+        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+
+        if (otp.getId() == null) { // dòng mới: vô hiệu hóa phần OTP để không ai dùng được
+            otp.setId(key);
+            otp.setCodeHash(encoder.encode(UUID.randomUUID().toString()));
+            otp.setExpiresAt(now);
+            otp.setAttempts(0);
+            otp.setConsumed(true);
+        }
+        otp.setSentAt(now);
+        otp.setResetTokenHash(encoder.encode(token));
+        otp.setResetExpiresAt(now.plusSeconds(resetLinkTtl));
+        otps.save(otp);
+
+        String link = frontendUrl + "/reset-password?email="
+                + URLEncoder.encode(account.getEmail(), StandardCharsets.UTF_8)
+                + "&token=" + token;
+
+        try {
+            otpEmailService.sendResetLink(account.getEmail(), link, resetLinkTtl / 60);
+            log.info("forgot: đã gửi mail tới {}", account.getEmail());
+        } catch (MailException e) {
+            log.error("Không gửi được mail reset password", e);
+        }
     }
 }

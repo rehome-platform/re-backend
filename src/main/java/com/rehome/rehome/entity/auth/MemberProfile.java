@@ -12,6 +12,7 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@Data
 public class MemberProfile {
     // Dùng chung khóa với Account, quan hệ 1-1
     @Id

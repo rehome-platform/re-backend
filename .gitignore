@@ -59,3 +59,5 @@ replay_pid*
 
 # Local SMTP credentials
 config/mail-local.yml
+
+/.env

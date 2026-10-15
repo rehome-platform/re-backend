@@ -4,7 +4,7 @@ import com.rehome.rehome.dto.request.AddCartItemRequest;
 import com.rehome.rehome.dto.response.CartItemResponse;
 import com.rehome.rehome.dto.response.CartResponse;
 import com.rehome.rehome.dto.response.CartWarehouseGroupResponse;
-import com.rehome.rehome.entity.Account;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.marketplace.Cart;
 import com.rehome.rehome.entity.marketplace.CartItem;

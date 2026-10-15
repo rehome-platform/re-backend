@@ -1,7 +1,6 @@
 package com.rehome.rehome.entity.auth;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.rehome.rehome.entity.Account;
 import com.rehome.rehome.entity.enums.LegalChangeRequestStatus;
 import jakarta.persistence.*;
 import java.time.Instant;

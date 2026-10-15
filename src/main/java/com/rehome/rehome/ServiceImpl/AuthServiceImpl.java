@@ -3,22 +3,31 @@ package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.request.LoginRequest;
 import com.rehome.rehome.dto.request.RegisterRequest;
+import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
 import com.rehome.rehome.dto.response.AuthResponse;
 import com.rehome.rehome.dto.response.OtpResponse;
 
-import com.rehome.rehome.entity.Account;
-import com.rehome.rehome.entity.AccountStatus;
-import com.rehome.rehome.entity.OtpPurpose;
-import com.rehome.rehome.entity.RefreshToken;
-import com.rehome.rehome.entity.Role;
+import com.rehome.rehome.dto.response.RegisterOrganizationResponse;
+
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.MemberProfile;
 
+import com.rehome.rehome.entity.auth.OrganizationProfile;
+import com.rehome.rehome.entity.auth.RefreshToken;
+import com.rehome.rehome.entity.enums.AccountStatus;
+import com.rehome.rehome.entity.enums.OtpPurpose;
+import com.rehome.rehome.entity.enums.Role;
+import com.rehome.rehome.entity.enums.VerificationStatus;
 import com.rehome.rehome.exception.AccountAlreadyExistsException;
+import com.rehome.rehome.exception.AccountNotVerifiedException;
+import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.TokenRefreshException;
 
+import com.rehome.rehome.mapper.OrganizationProfileMapper;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 
+import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.security.JwtService;
 
 import com.rehome.rehome.service.AuthService;
@@ -35,6 +44,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+
 @Service
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
@@ -46,6 +57,8 @@ public class AuthServiceImpl implements AuthService {
     private final RefreshTokenService refreshTokenService;
     private final OtpService otpService;
     private final MemberProfileRepository memberProfileRepository;
+    private final OrganizationProfileRepository organizationProfileRepository;
+    private final OrganizationProfileMapper organizationProfileMapper;
 
     // ==================== REGISTER ====================
 
@@ -66,6 +79,7 @@ public class AuthServiceImpl implements AuthService {
                 .status(AccountStatus.ACTIVE)
                 .emailVerified(false)
                 .phone(request.getPhone())
+                .createdAt(Instant.now())
                 .build();
 
         accountRepository.save(account);
@@ -101,6 +115,10 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() -> new IllegalStateException(
                         "Account không tồn tại sau khi authenticate"
                 ));
+
+        if(!account.isEmailVerified()){
+            throw new AccountNotVerifiedException("Tài khoản chưa được xác thực. Vui lòng thử lại sau!!");
+        }
 
         return generateAuthResponse(account);
     }
@@ -172,5 +190,31 @@ public class AuthServiceImpl implements AuthService {
                 .accessToken(accessToken)
                 .refreshToken(refreshToken.getToken())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public RegisterOrganizationResponse registerOrganization(RegisterOrganizationRequest request) {
+        String email = request.getContactEmail().trim().toLowerCase();
+
+        if (accountRepository.existsByEmailIgnoreCase(email)) {
+            throw new AccountAlreadyExistsException("Email đã được sử dụng!!");
+        }
+        if (organizationProfileRepository.existsByTaxCode(request.getTaxCode())) {
+            throw new AccountAlreadyExistsException("Mã số thuế đã được sử dụng!!");
+        }
+
+        Account account = accountRepository.save(Account.builder()
+                .email(email)
+                .role(Role.ORGANIZATION)
+                .status(AccountStatus.ACTIVE)
+                .build());
+
+        OrganizationProfile organization = organizationProfileMapper.toEntity(request);
+        organization.setAccount(account);
+        organization.setVerificationStatus(VerificationStatus.PENDING);
+
+        organizationProfileRepository.save(organization);
+        return organizationProfileMapper.toResponse(organization);
     }
 }

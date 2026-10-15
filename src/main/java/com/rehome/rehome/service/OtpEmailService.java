@@ -1,6 +1,7 @@
 package com.rehome.rehome.service;
 
-import com.rehome.rehome.entity.OtpPurpose;
+
+import com.rehome.rehome.entity.enums.OtpPurpose;
 
 public interface OtpEmailService {
 

@@ -1,6 +1,6 @@
 package com.rehome.rehome.entity.marketplace;
 
-import com.rehome.rehome.entity.Account;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.StockMovementType;
 import jakarta.persistence.*;
 import java.time.Instant;

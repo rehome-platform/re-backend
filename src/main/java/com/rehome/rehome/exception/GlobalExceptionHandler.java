@@ -91,6 +91,16 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage(), req);
     }
 
+
+    @ExceptionHandler(AccountNotVerifiedException.class)
+    public ResponseEntity<ApiError> handleAccountNotVerified(
+            AccountNotVerifiedException ex,
+            HttpServletRequest req) {
+
+        return build(HttpStatus.FORBIDDEN, ex.getMessage(), req);
+    }
+
+
     private ResponseEntity<ApiError> build(HttpStatus status, String message, HttpServletRequest req) {
         ApiError error = ApiError.builder()
                 .timestamp(Instant.now())

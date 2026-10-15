@@ -1,4 +1,4 @@
-package com.rehome.rehome.entity;
+package com.rehome.rehome.entity.auth;
 
 import jakarta.persistence.*;
 import lombok.*;

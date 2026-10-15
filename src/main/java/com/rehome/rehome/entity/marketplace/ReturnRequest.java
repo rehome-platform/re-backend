@@ -1,6 +1,6 @@
 package com.rehome.rehome.entity.marketplace;
 
-import com.rehome.rehome.entity.Account;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.CounterfeitConclusion;
 import com.rehome.rehome.entity.enums.InvalidReturnChoice;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;

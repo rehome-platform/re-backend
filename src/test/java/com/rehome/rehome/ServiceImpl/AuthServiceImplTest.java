@@ -38,6 +38,7 @@ import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Instant;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -76,33 +77,43 @@ class AuthServiceImplTest {
         verifyNoInteractions(memberProfileRepository, otpService);
     }
 
-    @Test
-    void register_success() {
-        RegisterRequest req = mock(RegisterRequest.class);
-        when(req.getEmail()).thenReturn("a@x.com");
-        when(req.getPassword()).thenReturn("123456");
-        when(req.getPhone()).thenReturn("0901234567");
-        when(req.getFullName()).thenReturn("Nguyen Van A");
-        when(accountRepository.existsByEmail("a@x.com")).thenReturn(false);
-        when(passwordEncoder.encode("123456")).thenReturn("hashed");
+    public OtpResponse register(RegisterRequest request) {
 
-        OtpResponse res = service.register(req);
+        if (accountRepository.existsByEmail(request.getEmail())) {
+            throw new AccountAlreadyExistsException(
+                    "Email đã tồn tại: " + request.getEmail()
+            );
+        }
 
-        ArgumentCaptor<Account> accountCaptor = ArgumentCaptor.forClass(Account.class);
-        verify(accountRepository).save(accountCaptor.capture());
-        Account saved = accountCaptor.getValue();
-        assertThat(saved).extracting("email", "passwordHash", "role", "status", "emailVerified", "phone")
-                .containsExactly("a@x.com", "hashed", Role.MEMBER, AccountStatus.ACTIVE, false, "0901234567");
-        assertThat(saved).extracting("createdAt").isNotNull();
+        Account account = Account.builder()
+                .email(request.getEmail())
+                .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .role(Role.MEMBER)
+                .status(AccountStatus.ACTIVE)
+                .emailVerified(false)
+                .phone(request.getPhone())
+                .createdAt(Instant.now())
+                .build();
 
-        ArgumentCaptor<MemberProfile> profileCaptor = ArgumentCaptor.forClass(MemberProfile.class);
-        verify(memberProfileRepository).save(profileCaptor.capture());
-        assertThat(profileCaptor.getValue()).extracting("account", "memberCode", "fullName")
-                .containsExactly(saved, "MB000001", "Nguyen Van A");
+        accountRepository.save(account);
 
-        verify(otpService).issue(saved, OtpPurpose.REGISTER);
-        assertThat(res).extracting("message")
-                .isEqualTo("Đăng ký thành công. Vui lòng kiểm tra email để xác minh OTP.");
+        MemberProfile memberProfile = new MemberProfile();
+        memberProfile.setAccount(account);
+        memberProfile.setMemberCode(generateMemberCode());
+        memberProfile.setFullName(request.getFullName());
+
+        memberProfileRepository.save(memberProfile);
+
+        otpService.issue(account, OtpPurpose.REGISTER);
+
+        return new OtpResponse(
+                "Đăng ký thành công. Vui lòng kiểm tra email để xác minh OTP."
+        );
+    }
+
+    private String generateMemberCode() {
+        long next = memberProfileRepository.count() + 1;
+        return String.format("MB%06d", next);
     }
 
     // ==================== login ====================

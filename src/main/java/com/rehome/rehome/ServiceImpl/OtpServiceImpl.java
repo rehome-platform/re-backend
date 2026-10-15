@@ -1,5 +1,8 @@
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.auth.EmailOtp;
+import com.rehome.rehome.entity.enums.OtpPurpose;
 import com.rehome.rehome.service.OtpService;
 import com.rehome.rehome.service.OtpEmailService;
 import com.rehome.rehome.service.RefreshTokenService;
@@ -8,7 +11,6 @@ import com.rehome.rehome.dto.request.OtpRequest;
 import com.rehome.rehome.dto.request.VerifyOtpRequest;
 import com.rehome.rehome.dto.request.ResetPasswordRequest;
 import com.rehome.rehome.dto.response.OtpResponse;
-import com.rehome.rehome.entity.*;
 import com.rehome.rehome.exception.OtpException;
 import com.rehome.rehome.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -81,6 +83,10 @@ public class OtpServiceImpl implements OtpService {
         if (otp.isConsumed() || !Instant.now().isBefore(otp.getExpiresAt()) || otp.getAttempts() >= maxAttempts) {
             throw invalid();
         }
+        if(account.getEmail() == null){
+            throw new IllegalArgumentException("Email này chưa được đăng ký!!");
+        }
+
         if (!encoder.matches(request.otp(), otp.getCodeHash())) {
             otp.setAttempts(otp.getAttempts() + 1);
             throw invalid();

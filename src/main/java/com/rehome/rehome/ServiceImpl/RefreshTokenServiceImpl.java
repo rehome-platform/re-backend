@@ -1,9 +1,9 @@
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.auth.RefreshToken;
 import com.rehome.rehome.service.RefreshTokenService;
 
-import com.rehome.rehome.entity.RefreshToken;
-import com.rehome.rehome.entity.Account;
 import com.rehome.rehome.exception.TokenRefreshException;
 import com.rehome.rehome.repository.RefreshTokenRepository;
 import lombok.RequiredArgsConstructor;

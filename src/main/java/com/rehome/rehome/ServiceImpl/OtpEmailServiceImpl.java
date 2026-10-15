@@ -1,8 +1,8 @@
 
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.entity.enums.OtpPurpose;
 import com.rehome.rehome.service.OtpEmailService;
-import com.rehome.rehome.entity.OtpPurpose;
 
 import jakarta.mail.MessagingException;
 

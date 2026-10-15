@@ -1,11 +1,6 @@
 package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.response.PageResponse;
-import com.rehome.rehome.dto.response.ProductSummaryResponse;
-import com.rehome.rehome.entity.enums.ProductStatus;
-import com.rehome.rehome.entity.marketplace.Brand;
-import com.rehome.rehome.entity.marketplace.Category;
-import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.exception.BadRequestException;
@@ -14,13 +9,18 @@ import com.rehome.rehome.repository.ProductRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
@@ -28,92 +28,123 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
+@SuppressWarnings({"unchecked", "rawtypes"})
 class ProductServiceImplTest {
 
     @Mock ProductRepository productRepository;
     @Mock ProductPhotoRepository productPhotoRepository;
-
-    @InjectMocks
-    ProductServiceImpl productService;
-
-    Category category;
-    Brand brand;
-    ConsignmentReceipt receipt;
-    Product product;
+    @InjectMocks ProductServiceImpl service;
 
     @BeforeEach
-    void setup() {
-        category = Category.builder().name("Áo sơ mi").build();
-        brand = Brand.builder().name("Zara").build();
-        receipt = ConsignmentReceipt.builder().agreedPrice(new BigDecimal("330000")).build();
+    void setUp() {
+        stubRepositoryPage(Page.empty());
+    }
 
-        product = Product.builder()
-                .id("P-001")
-                .name("Áo sơ mi Zara trắng")
-                .size("M")
-                .conditionNote("LIKE_NEW")
-                .currentPrice(new BigDecimal("220000"))
-                .status(ProductStatus.ON_SALE)
-                .category(category)
-                .brand(brand)
-                .consignmentReceipt(receipt)
-                .build();
+    private void stubRepositoryPage(Page<Product> page) {
+        when(productRepository.findAll(ArgumentMatchers.<Specification<Product>>any(), any(Pageable.class)))
+                .thenReturn(page);
+    }
+
+    private Product product(String id, String name) {
+        Product p = mock(Product.class, RETURNS_DEEP_STUBS);
+        when(p.getId()).thenReturn(id);
+        when(p.getName()).thenReturn(name);
+        when(p.getBrand().getName()).thenReturn("Nike");
+        when(p.getCategory().getName()).thenReturn("Áo");
+        when(p.getSize()).thenReturn("M");
+        when(p.getConditionNote()).thenReturn("Còn 90%");
+        when(p.getConsignmentReceipt().getAgreedPrice()).thenReturn(new BigDecimal("100000"));
+        when(p.getCurrentPrice()).thenReturn(new BigDecimal("60000"));
+        return p;
+    }
+
+    private ProductPhoto photo(String productId, String url) {
+        ProductPhoto ph = mock(ProductPhoto.class, RETURNS_DEEP_STUBS);
+        when(ph.getProduct().getId()).thenReturn(productId);
+        when(ph.getImageUrl()).thenReturn(url);
+        return ph;
+    }
+
+    /** Gọi service với PageResponse.from bị mock, trả về Page đã map để kiểm tra nội dung. */
+    private Page callAndCapture(BigDecimal min, BigDecimal max, int page, int size) {
+        try (MockedStatic<PageResponse> mocked = mockStatic(PageResponse.class)) {
+            mocked.when(() -> PageResponse.from(any(Page.class))).thenReturn(mock(PageResponse.class));
+
+            service.getProducts("áo", null, null, min, max, null, page, size);
+
+            ArgumentCaptor<Page> captor = ArgumentCaptor.forClass(Page.class);
+            mocked.verify(() -> PageResponse.from(captor.capture()));
+            return captor.getValue();
+        }
     }
 
     @Test
-    void getProducts_mapsAllFieldsIncludingThumbnail() {
-        Page<Product> page = new PageImpl<>(List.of(product), PageRequest.of(0, 20), 1);
-        when(productRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
-
-        ProductPhoto photo = ProductPhoto.builder()
-                .product(product)
-                .imageUrl("https://cdn.rehome.vn/products/P-001/thumb.jpg")
-                .build();
-        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(List.of("P-001")))
-                .thenReturn(List.of(photo));
-
-        PageResponse<ProductSummaryResponse> result = productService.getProducts(
-                null, null, null, null, null, null, 0, 20);
-
-        assertThat(result.getTotalElements()).isEqualTo(1);
-        ProductSummaryResponse item = result.getContent().get(0);
-        assertThat(item.getId()).isEqualTo("P-001");
-        assertThat(item.getName()).isEqualTo("Áo sơ mi Zara trắng");
-        assertThat(item.getBrandName()).isEqualTo("Zara");
-        assertThat(item.getCategoryName()).isEqualTo("Áo sơ mi");
-        assertThat(item.getSize()).isEqualTo("M");
-        assertThat(item.getCondition()).isEqualTo("LIKE_NEW");
-        assertThat(item.getCurrentPrice()).isEqualTo(new BigDecimal("220000"));
-        assertThat(item.getOriginalPrice()).isEqualTo(new BigDecimal("330000"));
-        assertThat(item.getThumbnailUrl()).isEqualTo("https://cdn.rehome.vn/products/P-001/thumb.jpg");
-    }
-
-    @Test
-    void getProducts_returnsNullThumbnail_whenProductHasNoPhoto() {
-        Page<Product> page = new PageImpl<>(List.of(product), PageRequest.of(0, 20), 1);
-        when(productRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
-        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(List.of("P-001")))
-                .thenReturn(List.of());
-
-        PageResponse<ProductSummaryResponse> result = productService.getProducts(
-                null, null, null, null, null, null, 0, 20);
-
-        assertThat(result.getContent().get(0).getThumbnailUrl()).isNull();
-    }
-
-    @Test
-    void getProducts_throwsBadRequest_whenPriceMinGreaterThanPriceMax() {
-        assertThatThrownBy(() -> productService.getProducts(
-                null, null, null, new BigDecimal("500000"), new BigDecimal("100000"), null, 0, 20))
+    void getProducts_priceMinGreaterThanMax_throws() {
+        assertThatThrownBy(() -> service.getProducts(null, null, null,
+                new BigDecimal("200"), new BigDecimal("100"), null, 0, 10))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("priceMin không được lớn hơn priceMax.");
 
-        verify(productRepository, never()).findAll(any(Specification.class), any(Pageable.class));
+        verifyNoInteractions(productRepository, productPhotoRepository);
+    }
+
+    @Test
+    void getProducts_mapsFieldsAndUsesFirstPhotoAsThumbnail() {
+        Product p1 = product("p1", "Áo A");
+        Product p2 = product("p2", "Áo B"); // không có ảnh
+        stubRepositoryPage(new PageImpl<>(List.of(p1, p2)));
+        ProductPhoto first = photo("p1", "first.jpg");
+        ProductPhoto second = photo("p1", "second.jpg");
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(List.of("p1", "p2")))
+                .thenReturn(List.of(first, second));
+
+        Page mapped = callAndCapture(new BigDecimal("1"), new BigDecimal("2"), 2, 10);
+
+        List<?> content = mapped.getContent();
+        assertThat(content).hasSize(2);
+        assertThat(content.get(0))
+                .extracting("id", "name", "thumbnailUrl", "brandName", "categoryName",
+                        "size", "condition", "originalPrice", "currentPrice")
+                .containsExactly("p1", "Áo A", "first.jpg", "Nike", "Áo",
+                        "M", "Còn 90%", new BigDecimal("100000"), new BigDecimal("60000"));
+        assertThat(content.get(1)).extracting("id", "thumbnailUrl").containsExactly("p2", null);
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(productRepository).findAll(ArgumentMatchers.<Specification<Product>>any(), pageable.capture());
+        assertThat(pageable.getValue().getPageNumber()).isEqualTo(2);
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(10);
+        assertThat(pageable.getValue().getSort()).isEqualTo(Sort.by(Sort.Direction.DESC, "createdAt"));
+    }
+
+    @Test
+    void getProducts_negativePageAndZeroSize_areClamped() {
+        callAndCapture(null, null, -5, 0);
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(productRepository).findAll(ArgumentMatchers.<Specification<Product>>any(), pageable.capture());
+        assertThat(pageable.getValue().getPageNumber()).isZero();
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(1);
+    }
+
+    @Test
+    void getProducts_onlyPriceMin_noValidationError() {
+        Page mapped = callAndCapture(new BigDecimal("100"), null, 0, 10);
+        assertThat(mapped.getContent()).isEmpty();
+    }
+
+    @Test
+    void getProducts_onlyPriceMax_noValidationError() {
+        Page mapped = callAndCapture(null, new BigDecimal("100"), 0, 10);
+        assertThat(mapped.getContent()).isEmpty();
+    }
+
+    @Test
+    void getProducts_priceMinEqualsMax_isAllowed() {
+        Page mapped = callAndCapture(new BigDecimal("100"), new BigDecimal("100"), 0, 10);
+        assertThat(mapped.getContent()).isEmpty();
     }
 }

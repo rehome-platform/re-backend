@@ -4,7 +4,7 @@ import com.rehome.rehome.dto.request.UpdateMemberProfileRequest;
 import com.rehome.rehome.dto.response.MemberCodeResponse;
 import com.rehome.rehome.dto.response.MemberProfileResponse;
 import com.rehome.rehome.dto.response.MemberProfileUpdateResponse;
-import com.rehome.rehome.entity.Account;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.repository.AccountRepository;

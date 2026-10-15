@@ -1,6 +1,6 @@
 package com.rehome.rehome.entity.marketplace;
 
-import com.rehome.rehome.entity.Account;
+import com.rehome.rehome.entity.auth.Account;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;

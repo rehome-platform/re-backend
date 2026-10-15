@@ -1,6 +1,6 @@
 package com.rehome.rehome.entity.chat;
 
-import com.rehome.rehome.entity.Account;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ConversationType;
 import jakarta.persistence.*;
 import java.time.Instant;

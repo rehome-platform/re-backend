@@ -1,6 +1,6 @@
 package com.rehome.rehome.repository;
 
-import com.rehome.rehome.entity.Account;
+import com.rehome.rehome.entity.auth.Account;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
@@ -12,4 +12,5 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
     Optional<Account> findByEmailForUpdate(@org.springframework.data.repository.query.Param("email") String email);
     Optional<Account> findByEmail(String email);
     boolean existsByEmail(String email);
+    boolean existsByEmailIgnoreCase(String email);
 }

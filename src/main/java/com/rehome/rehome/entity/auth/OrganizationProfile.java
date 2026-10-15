@@ -1,10 +1,11 @@
 package com.rehome.rehome.entity.auth;
 
-import com.rehome.rehome.entity.Account;
 import com.rehome.rehome.entity.enums.VerificationStatus;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import lombok.*;
 import org.hibernate.annotations.ColumnDefault;
@@ -115,4 +116,10 @@ public class OrganizationProfile {
     // Số điện thoại tại điểm nhận, có thể khác contact_phone chung của tổ chức
     @Column(name = "donation_point_contact_phone", nullable = true, length = 255)
     private String donationPointContactPhone;
+
+    @Embedded
+    private OrganizationRepresentative representative;
+
+    @OneToMany(mappedBy = "organization", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<OrganizationDocument> documents = new ArrayList<>();
 }

@@ -1,5 +1,7 @@
 package com.rehome.rehome.controller;
 
+import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
+import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.AuthResponse;
 import com.rehome.rehome.dto.request.LoginRequest;
 import com.rehome.rehome.dto.request.RefreshTokenRequest;
@@ -8,6 +10,7 @@ import com.rehome.rehome.dto.response.OtpResponse;
 import com.rehome.rehome.dto.request.OtpRequest;
 import com.rehome.rehome.dto.request.VerifyOtpRequest;
 import com.rehome.rehome.dto.request.ResetPasswordRequest;
+import com.rehome.rehome.dto.response.RegisterOrganizationResponse;
 import com.rehome.rehome.service.OtpService;
 import com.rehome.rehome.service.AuthService;
 import jakarta.validation.Valid;
@@ -27,7 +30,7 @@ public class AuthController {
 
     @PostMapping("/register")
     public ResponseEntity<OtpResponse> register(@Valid @RequestBody RegisterRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(request));
+        return ResponseEntity.status(201).body(authService.register(request));
     }
 
     @PostMapping("/resend-otp")
@@ -39,7 +42,7 @@ public class AuthController {
     @PostMapping("/verify-otp")
     public ResponseEntity<OtpResponse> verifyOtp(
             @Valid @RequestBody VerifyOtpRequest request) {
-        return ResponseEntity.ok(otpService.verify(request));
+        return ResponseEntity.status(200).body(otpService.verify(request));
     }
 
     @PostMapping("/reset-password")
@@ -62,5 +65,14 @@ public class AuthController {
     public ResponseEntity<Void> logout(Authentication authentication) {
         authService.logout(authentication.getName());
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/register/organization")
+    public ResponseEntity<RegisterOrganizationResponse> registerOrganization(
+            @Valid @RequestBody RegisterOrganizationRequest request) {
+
+        RegisterOrganizationResponse result = authService.registerOrganization(request);
+        return ResponseEntity.status(201)
+                .body(result);
     }
 }

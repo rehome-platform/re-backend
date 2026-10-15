@@ -1,7 +1,8 @@
 package com.rehome.rehome.service;
 
-import com.rehome.rehome.entity.RefreshToken;
-import com.rehome.rehome.entity.Account;
+import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.auth.RefreshToken;
+
 import java.util.Optional;
 
 public interface RefreshTokenService {

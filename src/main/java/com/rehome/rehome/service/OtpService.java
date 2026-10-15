@@ -4,8 +4,8 @@ import com.rehome.rehome.dto.request.OtpRequest;
 import com.rehome.rehome.dto.request.VerifyOtpRequest;
 import com.rehome.rehome.dto.request.ResetPasswordRequest;
 import com.rehome.rehome.dto.response.OtpResponse;
-import com.rehome.rehome.entity.Account;
-import com.rehome.rehome.entity.OtpPurpose;
+import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.OtpPurpose;
 
 public interface OtpService {
 

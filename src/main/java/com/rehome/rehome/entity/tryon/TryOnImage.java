@@ -1,6 +1,6 @@
 package com.rehome.rehome.entity.tryon;
 
-import com.rehome.rehome.entity.Account;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.TryOnModelType;
 import com.rehome.rehome.entity.marketplace.Product;
 import jakarta.persistence.*;

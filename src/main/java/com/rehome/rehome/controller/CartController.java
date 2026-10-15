@@ -6,7 +6,6 @@ import com.rehome.rehome.dto.response.CartItemResponse;
 import com.rehome.rehome.dto.response.CartResponse;
 import com.rehome.rehome.service.CartService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -46,14 +45,9 @@ public class CartController {
         String email = authentication.getName();
         CartItemResponse item = cartService.addItem(email, request);
 
-        ApiResponse<CartItemResponse> response = ApiResponse.<CartItemResponse>builder()
-                .result(item)
-                .isSuccess(true)
-                .statusCode(HttpStatus.CREATED.value())
-                .message("Đã thêm vào giỏ")
-                .build();
+        ApiResponse<CartItemResponse> response = ApiResponse.success(item, "Đã thêm vào giỏ");
 
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        return ResponseEntity.ok(response);
     }
 
     @DeleteMapping("/items/{id}")
@@ -65,13 +59,8 @@ public class CartController {
         String email = authentication.getName();
         cartService.deleteItem(email, id);
 
-        ApiResponse<Void> response = ApiResponse.<Void>builder()
-                .result(null)
-                .isSuccess(true)
-                .statusCode(HttpStatus.NO_CONTENT.value())
-                .message("Đã xóa khỏi giỏ")
-                .build();
+        ApiResponse<Void> response = ApiResponse.success(null, "Đã xóa khỏi giỏ");
 
-        return ResponseEntity.status(HttpStatus.NO_CONTENT).body(response);
+        return ResponseEntity.ok(response);
     }
 }

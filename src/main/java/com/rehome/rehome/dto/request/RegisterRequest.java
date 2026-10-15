@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+
 public class RegisterRequest {
 
     @NotBlank(message = "email không được để trống")
@@ -19,4 +20,8 @@ public class RegisterRequest {
     @NotBlank(message = "password không được để trống")
     @Size(min = 6, message = "password phải có ít nhất 6 ký tự")
     private String password;
+
+    private String fullName;
+
+    private String phone;
 }

@@ -87,9 +87,6 @@ public class OtpServiceImpl implements OtpService {
             throw new IllegalArgumentException("Email này chưa được đăng ký!!");
         }
 
-        if(otp.getExpiresAt().isAfter(Instant.now())){
-            throw new OtpException(HttpStatus.BAD_REQUEST ,"Mã OTP đã hết hạn!!");
-        }
         if (!encoder.matches(request.otp(), otp.getCodeHash())) {
             otp.setAttempts(otp.getAttempts() + 1);
             throw invalid();

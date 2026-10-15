@@ -259,4 +259,44 @@ class CartServiceImplTest {
         assertThat(group2.getItems().get(0).getUnavailableReason()).isEqualTo("SOLD");
         assertThat(group2.getItems().get(0).getProduct().getThumbnailUrl()).isNull();
     }
+
+    @Test
+    void deleteItem_throwsNotFound_whenAccountDoesNotExist() {
+        UUID itemId = UUID.randomUUID();
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> cartService.deleteItem(email, itemId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Account không tồn tại");
+
+        verify(cartItemRepository, never()).delete(any());
+    }
+
+    @Test
+    void deleteItem_throwsNotFound_whenItemDoesNotBelongToMember() {
+        UUID itemId = UUID.randomUUID();
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(cartItemRepository.findByIdAndCart_Member_Id(itemId, member.getId()))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> cartService.deleteItem(email, itemId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy mục giỏ hàng.");
+
+        verify(cartItemRepository, never()).delete(any());
+    }
+
+    @Test
+    void deleteItem_deletesItem_onSuccess() {
+        Cart cart = Cart.builder().id(UUID.randomUUID()).member(member).build();
+        CartItem item = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(product).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(cartItemRepository.findByIdAndCart_Member_Id(item.getId(), member.getId()))
+                .thenReturn(Optional.of(item));
+
+        cartService.deleteItem(email, item.getId());
+
+        verify(cartItemRepository).delete(item);
+    }
 }

@@ -1,29 +1,36 @@
+
 server:
   port: 8080
 
 spring:
-  config:
-    import: optional:file:./config/mail-local.yml
-  mail:
-    host: ${MAIL_HOST:smtp.gmail.com}
-    port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME:}
-    password: ${MAIL_PASSWORD:}
-    properties:
-      mail.smtp.auth: ${MAIL_SMTP_AUTH:true}
-      mail.smtp.starttls.enable: ${MAIL_STARTTLS:true}
-      mail.smtp.connectiontimeout: 5000
-      mail.smtp.timeout: 5000
-      mail.smtp.writetimeout: 5000
   application:
     name: rehome
 
+  # ==================== EMAIL SMTP - BREVO ====================
+  mail:
+    host: ${MAIL_HOST:smtp-relay.brevo.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          connectiontimeout: 10000
+          timeout: 10000
+          writetimeout: 10000
+
+  # ==================== DATABASE - POSTGRESQL ====================
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:jwtdemo}
     driver-class-name: org.postgresql.Driver
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:123456}
 
+  # ==================== JPA / HIBERNATE ====================
   jpa:
     hibernate:
       ddl-auto: update
@@ -33,6 +40,7 @@ spring:
         format_sql: true
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
+# ==================== SWAGGER / OPENAPI ====================
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
@@ -41,15 +49,24 @@ springdoc:
   api-docs:
     path: /v3/api-docs
 
-# Cấu hình JWT - trong thực tế nên đưa secret ra biến môi trường, KHÔNG commit lên git
+# ==================== APPLICATION CONFIG ====================
 app:
+
+  # OTP
   otp:
-    from: ${MAIL_FROM:${MAIL_USERNAME:nguyennma5.com}}
+    from: ${MAIL_FROM:the.rehome1410@gmail.com}
     ttl-seconds: 300
     resend-seconds: 60
     max-attempts: 5
+
+  # JWT
   jwt:
-    # secret phải là chuỗi base64, đủ dài (>= 256 bit) cho HS256
     secret: ${JWT_SECRET:bG9jYWwtZGV2LW9ubHktcmVob21lLWp3dC1zZWNyZXQtMzItYnl0ZXM=}
-    access-token-expiration-ms: 900000        # 15 phút
-    refresh-token-expiration-ms: 604800000    # 7 ngày
+    access-token-expiration-ms: 900000
+    refresh-token-expiration-ms: 604800000
+
+# ==================== LOGGING ====================
+logging:
+  level:
+    org.springframework.mail: DEBUG
+    org.springframework.mail.javamail: DEBUG

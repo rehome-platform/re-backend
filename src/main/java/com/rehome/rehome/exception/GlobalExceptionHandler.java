@@ -74,6 +74,12 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(401, "Token không hợp lệ hoặc đã hết hạn."));
     }
 
+    @ExceptionHandler(TokenExpiredException.class)
+    public ResponseEntity<ApiResponse<?>> handleTokenExpiredException(AuthenticationException ex, HttpServletRequest req) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.error(401, "Token đã hết hạn."));
+    }
+
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ApiResponse<?>> handleAccessDeniedException(AccessDeniedException ex, HttpServletRequest req) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
@@ -94,8 +100,24 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleGeneral(Exception ex, HttpServletRequest req) {
+        ex.printStackTrace(); // tạm thời để debug
         return build(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage(), req);
     }
+
+
+    @ExceptionHandler(AccountNotVerifiedException.class)
+    public ResponseEntity<ApiError> handleAccountNotVerified(
+            AccountNotVerifiedException ex,
+            HttpServletRequest req) {
+
+        return build(HttpStatus.FORBIDDEN, ex.getMessage(), req);
+    }
+
+    @ExceptionHandler(AccountBannedException.class)
+    public ResponseEntity<ApiError> handleAccountBanned(AccountBannedException ex, HttpServletRequest req) {
+        return build(HttpStatus.FORBIDDEN, ex.getMessage(), req);
+    }
+
 
     private ResponseEntity<ApiError> build(HttpStatus status, String message, HttpServletRequest req) {
         ApiError error = ApiError.builder()

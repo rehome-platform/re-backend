@@ -6,7 +6,7 @@ import com.rehome.rehome.dto.response.CartItemResponse;
 import com.rehome.rehome.dto.response.CartProductResponse;
 import com.rehome.rehome.dto.response.CartResponse;
 import com.rehome.rehome.dto.response.CartWarehouseGroupResponse;
-import com.rehome.rehome.entity.Account;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.marketplace.Cart;
 import com.rehome.rehome.entity.marketplace.CartItem;
@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -157,5 +158,18 @@ public class CartServiceImpl implements CartService {
                 .groupedByWarehouse(groups)
                 .totalAmount(totalAmount)
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public void deleteItem(String email, UUID id) {
+
+        Account member = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        CartItem item = cartItemRepository.findByIdAndCart_Member_Id(id, member.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy mục giỏ hàng."));
+
+        cartItemRepository.delete(item);
     }
 }

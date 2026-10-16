@@ -1,6 +1,6 @@
 package com.rehome.rehome.entity.auth;
 
-import com.rehome.rehome.entity.Account;
+import com.rehome.rehome.generator.GeneratedMemberCode;
 import jakarta.persistence.*;
 import java.util.UUID;
 import lombok.*;
@@ -33,6 +33,7 @@ public class MemberProfile {
     private String avatarUrl;
 
     // Mã Member để tra cứu tại quầy
+    @GeneratedMemberCode
     @Column(name = "member_code", nullable = false, unique = true, length = 255)
     private String memberCode;
 }

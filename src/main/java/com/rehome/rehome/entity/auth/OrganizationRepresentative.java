@@ -4,24 +4,12 @@ import jakarta.persistence.*;
 import java.util.UUID;
 import lombok.*;
 
-@Entity
-@Table(name = "organization_representatives")
+@Embeddable
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
 public class OrganizationRepresentative {
-    // Khóa chính
-    @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name = "id", nullable = false)
-    private UUID id;
-
-    // Tổ chức có người đại diện này
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "organization_id", nullable = false, unique = true)
-    private OrganizationProfile organization;
 
     // Họ tên, phải khớp tên ghi trên giấy phép
     @Column(name = "full_name", nullable = false, length = 255)

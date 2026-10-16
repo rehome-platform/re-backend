@@ -23,12 +23,19 @@ spring:
           timeout: 10000
           writetimeout: 10000
 
-  # ==================== DATABASE - POSTGRESQL ====================
+  # ==================== DATABASE - POSTGRESQL (LOCAL) ====================
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:jwtdemo}
-    driver-class-name: org.postgresql.Driver
-    username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:123456}
+     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:jwtdemo}
+     driver-class-name: org.postgresql.Driver
+     username: ${DB_USERNAME:postgres}
+     password: ${DB_PASSWORD:123456}
+
+  # ==================== DATABASE - POSTGRESQL (SUPABASE - SESSION POOLER) ====================
+#  datasource:
+#    url: jdbc:postgresql://${DB_HOST:aws-0-ap-northeast-1.pooler.supabase.com}:${DB_PORT:5432}/${DB_NAME:postgres}
+#    driver-class-name: org.postgresql.Driver
+#    username: ${DB_USERNAME:postgres.vpfbafjjimdacmgtejwz}
+#    password: ${DB_PASSWORD}
 
   # ==================== JPA / HIBERNATE ====================
   jpa:
@@ -51,6 +58,8 @@ springdoc:
 
 # ==================== APPLICATION CONFIG ====================
 app:
+  frontend-url:
+    http://localhost:5500
 
   # OTP
   otp:
@@ -68,5 +77,8 @@ app:
 # ==================== LOGGING ====================
 logging:
   level:
-    org.springframework.mail: DEBUG
-    org.springframework.mail.javamail: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: DEBUG
+
+google:
+  client-id: ${GOOGLE_CLIENT_ID}

@@ -6,15 +6,18 @@ import com.rehome.rehome.dto.response.CartItemResponse;
 import com.rehome.rehome.dto.response.CartResponse;
 import com.rehome.rehome.service.CartService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/cart")
@@ -42,13 +45,22 @@ public class CartController {
         String email = authentication.getName();
         CartItemResponse item = cartService.addItem(email, request);
 
-        ApiResponse<CartItemResponse> response = ApiResponse.<CartItemResponse>builder()
-                .result(item)
-                .isSuccess(true)
-                .statusCode(HttpStatus.CREATED.value())
-                .message("Đã thêm vào giỏ")
-                .build();
+        ApiResponse<CartItemResponse> response = ApiResponse.success(item, "Đã thêm vào giỏ");
 
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        return ResponseEntity.ok(response);
+    }
+
+    @DeleteMapping("/items/{id}")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<Void>> deleteItem(
+            Authentication authentication,
+            @PathVariable UUID id) {
+
+        String email = authentication.getName();
+        cartService.deleteItem(email, id);
+
+        ApiResponse<Void> response = ApiResponse.success(null, "Đã xóa khỏi giỏ");
+
+        return ResponseEntity.ok(response);
     }
 }

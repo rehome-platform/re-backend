@@ -1,6 +1,7 @@
 package com.rehome.rehome.entity.marketplace;
 
-import com.rehome.rehome.entity.Account;
+
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ViolationReportStatus;
 import com.rehome.rehome.entity.enums.ViolationTargetType;
 import jakarta.persistence.*;

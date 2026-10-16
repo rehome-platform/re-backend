@@ -1,6 +1,9 @@
-package com.rehome.rehome.entity;
+package com.rehome.rehome.entity.auth;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+
+import com.rehome.rehome.entity.enums.AccountStatus;
+import com.rehome.rehome.entity.enums.Role;
 import jakarta.persistence.*;
 import lombok.*;
 import org.springframework.security.core.GrantedAuthority;

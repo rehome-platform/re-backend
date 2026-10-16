@@ -1,24 +1,34 @@
 
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.dto.request.ForgotPasswordRequest;
+import com.rehome.rehome.dto.request.GoogleLoginRequest;
 import com.rehome.rehome.dto.request.LoginRequest;
 import com.rehome.rehome.dto.request.RegisterRequest;
+import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
 import com.rehome.rehome.dto.response.AuthResponse;
 import com.rehome.rehome.dto.response.OtpResponse;
 
-import com.rehome.rehome.entity.Account;
-import com.rehome.rehome.entity.AccountStatus;
-import com.rehome.rehome.entity.OtpPurpose;
-import com.rehome.rehome.entity.RefreshToken;
-import com.rehome.rehome.entity.Role;
+import com.rehome.rehome.dto.response.RegisterOrganizationResponse;
+
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.MemberProfile;
 
-import com.rehome.rehome.exception.AccountAlreadyExistsException;
-import com.rehome.rehome.exception.TokenRefreshException;
+import com.rehome.rehome.entity.auth.OrganizationProfile;
+import com.rehome.rehome.entity.auth.RefreshToken;
+import com.rehome.rehome.entity.enums.AccountStatus;
+import com.rehome.rehome.entity.enums.OtpPurpose;
+import com.rehome.rehome.entity.enums.Role;
+import com.rehome.rehome.entity.enums.VerificationStatus;
+import com.rehome.rehome.exception.*;
 
+import com.rehome.rehome.mapper.OrganizationProfileMapper;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 
+import com.rehome.rehome.repository.OrganizationProfileRepository;
+import com.rehome.rehome.repository.RefreshTokenRepository;
+import com.rehome.rehome.security.GoogleTokenVerifier;
 import com.rehome.rehome.security.JwtService;
 
 import com.rehome.rehome.service.AuthService;
@@ -30,10 +40,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
 
 @Service
 @RequiredArgsConstructor
@@ -46,6 +59,9 @@ public class AuthServiceImpl implements AuthService {
     private final RefreshTokenService refreshTokenService;
     private final OtpService otpService;
     private final MemberProfileRepository memberProfileRepository;
+    private final OrganizationProfileRepository organizationProfileRepository;
+    private final OrganizationProfileMapper organizationProfileMapper;
+    private final GoogleTokenVerifier googleTokenVerifier;
 
     // ==================== REGISTER ====================
 
@@ -66,13 +82,13 @@ public class AuthServiceImpl implements AuthService {
                 .status(AccountStatus.ACTIVE)
                 .emailVerified(false)
                 .phone(request.getPhone())
+                .createdAt(Instant.now())
                 .build();
 
         accountRepository.save(account);
 
         MemberProfile memberProfile = new MemberProfile();
         memberProfile.setAccount(account);
-        memberProfile.setMemberCode("MB000001");
         memberProfile.setFullName(request.getFullName());
 
         memberProfileRepository.save(memberProfile);
@@ -101,6 +117,62 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() -> new IllegalStateException(
                         "Account không tồn tại sau khi authenticate"
                 ));
+
+        if(account.getStatus() == AccountStatus.BANNED){
+            throw new AccountBannedException("Tài khoản đã bị khoá!!");
+        }
+
+        if(!account.isEmailVerified()){
+            throw new AccountNotVerifiedException("Tài khoản chưa được xác thực. Vui lòng thử lại sau!!");
+        }
+
+        return generateAuthResponse(account);
+    }
+
+    @Transactional
+    @Override
+    public AuthResponse loginWithGoogle(GoogleLoginRequest request) {
+
+        GoogleTokenVerifier.GoogleUserInfo info =
+                googleTokenVerifier.verify(request.getIdToken());
+
+        Account account = accountRepository.findByEmail(info.email()).orElse(null);
+
+        if (account == null) {
+            // Tài khoản mới
+            account = accountRepository.saveAndFlush(Account.builder()
+                    .email(info.email())
+                    .googleId(info.googleId())
+                    .role(Role.MEMBER)
+                    .status(AccountStatus.ACTIVE)
+                    .emailVerified(true)
+                    .build());
+
+            MemberProfile memberProfile = new MemberProfile();
+            memberProfile.setAccount(account);
+            memberProfile.setFullName(info.name());
+            memberProfileRepository.save(memberProfile);
+
+        } else {
+            // Tài khoản đã tồn tại
+            if (account.getStatus() == AccountStatus.BANNED) {
+                throw new AccountBannedException("Tài khoản đã bị khoá!!");
+            }
+
+            if (account.getGoogleId() == null) {
+                account.setGoogleId(info.googleId());
+            } else if (!account.getGoogleId().equals(info.googleId())) {
+                throw new ConflictException("Email này đã liên kết với một tài khoản Google khác.");
+            }
+
+            if (!account.isEmailVerified()) {
+                // Xóa mật khẩu cũ để người đăng ký giả mạo trước đó không dùng được nữa
+                account.setPasswordHash(null);
+                account.setEmailVerified(true);
+            }
+
+            accountRepository.saveAndFlush(account);
+        }
 
         return generateAuthResponse(account);
     }
@@ -173,4 +245,31 @@ public class AuthServiceImpl implements AuthService {
                 .refreshToken(refreshToken.getToken())
                 .build();
     }
+
+    @Override
+    @Transactional
+    public RegisterOrganizationResponse registerOrganization(RegisterOrganizationRequest request) {
+        String email = request.getContactEmail().trim().toLowerCase();
+
+        if (accountRepository.existsByEmailIgnoreCase(email)) {
+            throw new AccountAlreadyExistsException("Email đã được sử dụng!!");
+        }
+        if (organizationProfileRepository.existsByTaxCode(request.getTaxCode())) {
+            throw new AccountAlreadyExistsException("Mã số thuế đã được sử dụng!!");
+        }
+
+        Account account = accountRepository.save(Account.builder()
+                .email(email)
+                .role(Role.ORGANIZATION)
+                .status(AccountStatus.ACTIVE)
+                .build());
+
+        OrganizationProfile organization = organizationProfileMapper.toEntity(request);
+        organization.setAccount(account);
+        organization.setVerificationStatus(VerificationStatus.PENDING);
+
+        organizationProfileRepository.save(organization);
+        return organizationProfileMapper.toResponse(organization);
+    }
+
 }

@@ -1,6 +1,5 @@
 package com.rehome.rehome.entity.auth;
 
-import com.rehome.rehome.entity.Account;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import jakarta.persistence.*;
 import java.util.UUID;

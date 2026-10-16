@@ -89,23 +89,4 @@ public class Account implements UserDetails {
         return passwordHash;
     }
 
-    @Override
-    public boolean isAccountNonExpired() {
-        return true;
-    }
-
-    @Override
-    public boolean isAccountNonLocked() {
-        return status == AccountStatus.ACTIVE;
-    }
-
-    @Override
-    public boolean isCredentialsNonExpired() {
-        return true;
-    }
-
-    @Override
-    public boolean isEnabled() {
-        return status == AccountStatus.ACTIVE && emailVerified;
-    }
 }

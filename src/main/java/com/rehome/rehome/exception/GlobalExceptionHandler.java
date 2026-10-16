@@ -55,6 +55,13 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.FORBIDDEN, ex.getMessage(), req);
     }
 
+    @ExceptionHandler(AppException.class)
+    public ResponseEntity<ApiResponse<Void>> handle(AppException ex) {
+        ErrorCode ec = ex.getErrorCode();
+        return ResponseEntity.status(ec.getStatus())
+                .body(new ApiResponse<>(null, false, ec.getStatus().value(), ec.name(), ec.getDefaultMessage()));
+    }
+
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<ApiError> handleBadCredentials(BadCredentialsException ex, HttpServletRequest req) {
         return build(HttpStatus.UNAUTHORIZED, "Sai email hoặc password", req);

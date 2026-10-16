@@ -1,10 +1,7 @@
 
 package com.rehome.rehome.ServiceImpl;
 
-import com.rehome.rehome.dto.request.ForgotPasswordRequest;
-import com.rehome.rehome.dto.request.GoogleLoginRequest;
-import com.rehome.rehome.dto.request.LoginRequest;
-import com.rehome.rehome.dto.request.RegisterRequest;
+import com.rehome.rehome.dto.request.*;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
 import com.rehome.rehome.dto.response.AuthResponse;
 import com.rehome.rehome.dto.response.OtpResponse;
@@ -118,12 +115,12 @@ public class AuthServiceImpl implements AuthService {
                         "Account không tồn tại sau khi authenticate"
                 ));
 
-        if(account.getStatus() == AccountStatus.BANNED){
-            throw new AccountBannedException("Tài khoản đã bị khoá!!");
+        if (account.getStatus() != AccountStatus.ACTIVE) {
+            throw new AppException(ErrorCode.ACCOUNT_BANNED);
         }
 
-        if(!account.isEmailVerified()){
-            throw new AccountNotVerifiedException("Tài khoản chưa được xác thực. Vui lòng thử lại sau!!");
+        if (!account.isEmailVerified()) {
+            throw new AppException(ErrorCode.EMAIL_NOT_VERIFIED);
         }
 
         return generateAuthResponse(account);
@@ -155,20 +152,21 @@ public class AuthServiceImpl implements AuthService {
 
         } else {
             // Tài khoản đã tồn tại
-            if (account.getStatus() == AccountStatus.BANNED) {
-                throw new AccountBannedException("Tài khoản đã bị khoá!!");
+            if (account.getStatus() != AccountStatus.ACTIVE) {
+                throw new AppException(ErrorCode.ACCOUNT_BANNED);
             }
 
             if (account.getGoogleId() == null) {
                 account.setGoogleId(info.googleId());
             } else if (!account.getGoogleId().equals(info.googleId())) {
-                throw new ConflictException("Email này đã liên kết với một tài khoản Google khác.");
+                throw new AppException(ErrorCode.GOOGLE_ACCOUNT_CONFLICT);
             }
 
             if (!account.isEmailVerified()) {
                 // Xóa mật khẩu cũ để người đăng ký giả mạo trước đó không dùng được nữa
                 account.setPasswordHash(null);
                 account.setEmailVerified(true);
+                refreshTokenService.revokeAllAccountTokens(account);
             }
 
             accountRepository.saveAndFlush(account);
@@ -194,10 +192,8 @@ public class AuthServiceImpl implements AuthService {
 
         Account account = refreshToken.getAccount();
 
-        if (!account.isEnabled()) {
-            throw new DisabledException(
-                    "Tài khoản chưa xác minh hoặc đã bị vô hiệu hóa."
-            );
+        if (account.getStatus() != AccountStatus.ACTIVE) {
+            throw new AppException(ErrorCode.ACCOUNT_BANNED);
         }
 
         String newAccessToken =
@@ -270,6 +266,25 @@ public class AuthServiceImpl implements AuthService {
 
         organizationProfileRepository.save(organization);
         return organizationProfileMapper.toResponse(organization);
+    }
+
+    @Override
+    public void changePassword(Account account, ChangePasswordRequest request) {
+        if (!request.getNewPassword().equals(request.getNewPasswordRepeat())) {
+            throw new AppException(ErrorCode.PASSWORD_CONFIRM_MISMATCH);
+        }
+        if (account.getPasswordHash() == null) {
+            throw new AppException(ErrorCode.PASSWORD_NOT_SET);
+        }
+        if (!passwordEncoder.matches(request.getOldPassword(), account.getPassword())) {
+            throw new AppException(ErrorCode.WRONG_PASSWORD);
+        }
+        if (passwordEncoder.matches(request.getNewPassword(), account.getPassword())) {
+            throw new AppException(ErrorCode.NEW_PASSWORD_SAME_AS_OLD);
+        }
+        account.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        accountRepository.save(account);
+        refreshTokenService.revokeAllAccountTokens(account);
     }
 
 }

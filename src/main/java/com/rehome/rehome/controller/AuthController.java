@@ -3,12 +3,14 @@ package com.rehome.rehome.controller;
 import com.rehome.rehome.dto.request.*;
 import com.rehome.rehome.dto.response.AuthResponse;
 import com.rehome.rehome.dto.response.OtpResponse;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.OtpService;
 import com.rehome.rehome.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -61,5 +63,14 @@ public class AuthController {
     @PostMapping("/password/reset")
     public ResponseEntity<OtpResponse> reset(@Valid @RequestBody ResetPasswordRequest request) {
         return ResponseEntity.ok(otpService.resetPassword(request));
+    }
+
+    @PostMapping("/password/change")
+    public ResponseEntity<String> changePassword(
+            @AuthenticationPrincipal Account account,
+            @Valid @RequestBody ChangePasswordRequest request
+    ) {
+        authService.changePassword(account, request);
+        return ResponseEntity.ok("Đổi mật khẩu thành công");
     }
 }

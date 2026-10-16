@@ -1,5 +1,6 @@
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.dto.request.GoogleLoginRequest;
 import com.rehome.rehome.dto.request.LoginRequest;
 import com.rehome.rehome.dto.request.RegisterRequest;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
@@ -14,13 +15,12 @@ import com.rehome.rehome.entity.enums.AccountStatus;
 import com.rehome.rehome.entity.enums.OtpPurpose;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.VerificationStatus;
-import com.rehome.rehome.exception.AccountAlreadyExistsException;
-import com.rehome.rehome.exception.AccountNotVerifiedException;
-import com.rehome.rehome.exception.TokenRefreshException;
+import com.rehome.rehome.exception.*;
 import com.rehome.rehome.mapper.OrganizationProfileMapper;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
+import com.rehome.rehome.security.GoogleTokenVerifier;
 import com.rehome.rehome.security.JwtService;
 import com.rehome.rehome.service.OtpService;
 import com.rehome.rehome.service.RefreshTokenService;
@@ -60,6 +60,8 @@ class AuthServiceImplTest {
     @Mock OrganizationProfileMapper organizationProfileMapper;
 
     @InjectMocks AuthServiceImpl service;
+    @Mock
+    GoogleTokenVerifier googleTokenVerifier;
 
     // ==================== register ====================
 
@@ -77,44 +79,170 @@ class AuthServiceImplTest {
         verifyNoInteractions(memberProfileRepository, otpService);
     }
 
-    public OtpResponse register(RegisterRequest request) {
+    @Test
+    void register_success() {
+        RegisterRequest req = mock(RegisterRequest.class);
+        when(req.getEmail()).thenReturn("a@x.com");
+        when(req.getPassword()).thenReturn("pw");
+        when(req.getPhone()).thenReturn("0909");
+        when(req.getFullName()).thenReturn("Nguyen A");
+        when(accountRepository.existsByEmail("a@x.com")).thenReturn(false);
+        when(passwordEncoder.encode("pw")).thenReturn("hashed");
 
-        if (accountRepository.existsByEmail(request.getEmail())) {
-            throw new AccountAlreadyExistsException(
-                    "Email đã tồn tại: " + request.getEmail()
-            );
-        }
+        OtpResponse res = service.register(req);
 
-        Account account = Account.builder()
-                .email(request.getEmail())
-                .passwordHash(passwordEncoder.encode(request.getPassword()))
-                .role(Role.MEMBER)
-                .status(AccountStatus.ACTIVE)
-                .emailVerified(false)
-                .phone(request.getPhone())
-                .createdAt(Instant.now())
-                .build();
+        ArgumentCaptor<Account> accCaptor = ArgumentCaptor.forClass(Account.class);
+        verify(accountRepository).save(accCaptor.capture());
+        Account saved = accCaptor.getValue();
+        assertThat(saved.getEmail()).isEqualTo("a@x.com");
+        assertThat(saved.getPasswordHash()).isEqualTo("hashed");
+        assertThat(saved.getRole()).isEqualTo(Role.MEMBER);
+        assertThat(saved.getStatus()).isEqualTo(AccountStatus.ACTIVE);
+        assertThat(saved.isEmailVerified()).isFalse();
+        assertThat(saved.getPhone()).isEqualTo("0909");
 
-        accountRepository.save(account);
+        ArgumentCaptor<MemberProfile> mpCaptor = ArgumentCaptor.forClass(MemberProfile.class);
+        verify(memberProfileRepository).save(mpCaptor.capture());
+        assertThat(mpCaptor.getValue().getAccount()).isSameAs(saved);
+        assertThat(mpCaptor.getValue().getFullName()).isEqualTo("Nguyen A");
 
-        MemberProfile memberProfile = new MemberProfile();
-        memberProfile.setAccount(account);
-        memberProfile.setMemberCode(generateMemberCode());
-        memberProfile.setFullName(request.getFullName());
-
-        memberProfileRepository.save(memberProfile);
-
-        otpService.issue(account, OtpPurpose.REGISTER);
-
-        return new OtpResponse(
-                "Đăng ký thành công. Vui lòng kiểm tra email để xác minh OTP."
-        );
+        verify(otpService).issue(saved, OtpPurpose.REGISTER);
+        assertThat(res).extracting("message")
+                .isEqualTo("Đăng ký thành công. Vui lòng kiểm tra email để xác minh OTP.");
     }
 
-    private String generateMemberCode() {
-        long next = memberProfileRepository.count() + 1;
-        return String.format("MB%06d", next);
+// ==================== login: banned ====================
+
+    @Test
+    void login_banned_throws() {
+        LoginRequest req = mock(LoginRequest.class);
+        when(req.getEmail()).thenReturn("a@x.com");
+        Account account = mock(Account.class);
+        when(account.getStatus()).thenReturn(AccountStatus.BANNED);
+        when(accountRepository.findByEmail("a@x.com")).thenReturn(Optional.of(account));
+
+        assertThatThrownBy(() -> service.login(req))
+                .isInstanceOf(AccountBannedException.class)
+                .hasMessage("Tài khoản đã bị khoá!!");
+
+        verifyNoInteractions(jwtService, refreshTokenService);
     }
+
+// ==================== loginWithGoogle ====================
+
+    private GoogleLoginRequest googleReq() {
+        GoogleLoginRequest r = mock(GoogleLoginRequest.class);
+        when(r.getIdToken()).thenReturn("idToken");
+        return r;
+    }
+
+    private GoogleTokenVerifier.GoogleUserInfo googleInfo(String email, String gid, String name) {
+        GoogleTokenVerifier.GoogleUserInfo info = mock(GoogleTokenVerifier.GoogleUserInfo.class);
+        when(info.email()).thenReturn(email);
+        when(info.googleId()).thenReturn(gid);
+        when(info.name()).thenReturn(name);
+        when(googleTokenVerifier.verify("idToken")).thenReturn(info);
+        return info;
+    }
+
+    private void stubTokens(Account account) {
+        when(jwtService.generateAccessToken(account)).thenReturn("access");
+        when(refreshTokenService.createRefreshToken(account))
+                .thenReturn(RefreshToken.builder().token("refresh").build());
+    }
+
+    @Test
+    void loginWithGoogle_newAccount_createsAccountAndProfile() {
+        googleInfo("g@x.com", "gid-1", "Google User");
+        when(accountRepository.findByEmail("g@x.com")).thenReturn(Optional.empty());
+        when(accountRepository.saveAndFlush(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(jwtService.generateAccessToken(any(Account.class))).thenReturn("access");
+        when(refreshTokenService.createRefreshToken(any(Account.class)))
+                .thenReturn(RefreshToken.builder().token("refresh").build());
+
+        AuthResponse res = service.loginWithGoogle(googleReq());
+
+        ArgumentCaptor<Account> accCaptor = ArgumentCaptor.forClass(Account.class);
+        verify(accountRepository).saveAndFlush(accCaptor.capture());
+        Account saved = accCaptor.getValue();
+        assertThat(saved.getEmail()).isEqualTo("g@x.com");
+        assertThat(saved.getGoogleId()).isEqualTo("gid-1");
+        assertThat(saved.getRole()).isEqualTo(Role.MEMBER);
+        assertThat(saved.getStatus()).isEqualTo(AccountStatus.ACTIVE);
+        assertThat(saved.isEmailVerified()).isTrue();
+
+        ArgumentCaptor<MemberProfile> mp = ArgumentCaptor.forClass(MemberProfile.class);
+        verify(memberProfileRepository).save(mp.capture());
+        assertThat(mp.getValue().getAccount()).isSameAs(saved);
+        assertThat(mp.getValue().getFullName()).isEqualTo("Google User");
+        assertThat(res).extracting("accessToken", "refreshToken").containsExactly("access", "refresh");
+    }
+
+    @Test
+    void loginWithGoogle_existingBanned_throws() {
+        googleInfo("g@x.com", "gid-1", "n");
+        Account account = mock(Account.class);
+        when(account.getStatus()).thenReturn(AccountStatus.BANNED);
+        when(accountRepository.findByEmail("g@x.com")).thenReturn(Optional.of(account));
+
+        assertThatThrownBy(() -> service.loginWithGoogle(googleReq()))
+                .isInstanceOf(AccountBannedException.class);
+
+        verify(accountRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void loginWithGoogle_googleIdMismatch_throwsConflict() {
+        googleInfo("g@x.com", "gid-NEW", "n");
+        Account account = mock(Account.class);
+        when(account.getStatus()).thenReturn(AccountStatus.ACTIVE);
+        when(account.getGoogleId()).thenReturn("gid-OLD");
+        when(accountRepository.findByEmail("g@x.com")).thenReturn(Optional.of(account));
+
+        assertThatThrownBy(() -> service.loginWithGoogle(googleReq()))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Email này đã liên kết với một tài khoản Google khác.");
+
+        verify(accountRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void loginWithGoogle_existingNoGoogleId_linksAndKeepsPassword() {
+        googleInfo("g@x.com", "gid-1", "n");
+        Account account = mock(Account.class);
+        when(account.getStatus()).thenReturn(AccountStatus.ACTIVE);
+        when(account.getGoogleId()).thenReturn(null);
+        when(account.isEmailVerified()).thenReturn(true);
+        when(accountRepository.findByEmail("g@x.com")).thenReturn(Optional.of(account));
+        stubTokens(account);
+
+        AuthResponse res = service.loginWithGoogle(googleReq());
+
+        verify(account).setGoogleId("gid-1");
+        verify(account, never()).setPasswordHash(any());
+        verify(accountRepository).saveAndFlush(account);
+        assertThat(res.getAccessToken()).isEqualTo("access");
+    }
+
+    @Test
+    void loginWithGoogle_existingSameGoogleId_unverified_clearsPasswordAndVerifies() {
+        googleInfo("g@x.com", "gid-1", "n");
+        Account account = mock(Account.class);
+        when(account.getStatus()).thenReturn(AccountStatus.ACTIVE);
+        when(account.getGoogleId()).thenReturn("gid-1");
+        when(account.isEmailVerified()).thenReturn(false);
+        when(accountRepository.findByEmail("g@x.com")).thenReturn(Optional.of(account));
+        stubTokens(account);
+
+        service.loginWithGoogle(googleReq());
+
+        verify(account, never()).setGoogleId(any());
+        verify(account).setPasswordHash(null);
+        verify(account).setEmailVerified(true);
+        verify(accountRepository).saveAndFlush(account);
+    }
+
+
 
     // ==================== login ====================
 

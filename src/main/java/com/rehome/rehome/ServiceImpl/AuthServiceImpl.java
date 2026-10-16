@@ -115,12 +115,12 @@ public class AuthServiceImpl implements AuthService {
                         "Account không tồn tại sau khi authenticate"
                 ));
 
-        if(account.getStatus() == AccountStatus.BANNED){
-            throw new AccountBannedException("Tài khoản đã bị khoá!!");
+        if (account.getStatus() != AccountStatus.ACTIVE) {
+            throw new AppException(ErrorCode.ACCOUNT_BANNED);
         }
 
-        if(!account.isEmailVerified()){
-            throw new AccountNotVerifiedException("Tài khoản chưa được xác thực. Vui lòng thử lại sau!!");
+        if (!account.isEmailVerified()) {
+            throw new AppException(ErrorCode.EMAIL_NOT_VERIFIED);
         }
 
         return generateAuthResponse(account);
@@ -152,20 +152,21 @@ public class AuthServiceImpl implements AuthService {
 
         } else {
             // Tài khoản đã tồn tại
-            if (account.getStatus() == AccountStatus.BANNED) {
-                throw new AccountBannedException("Tài khoản đã bị khoá!!");
+            if (account.getStatus() != AccountStatus.ACTIVE) {
+                throw new AppException(ErrorCode.ACCOUNT_BANNED);
             }
 
             if (account.getGoogleId() == null) {
                 account.setGoogleId(info.googleId());
             } else if (!account.getGoogleId().equals(info.googleId())) {
-                throw new ConflictException("Email này đã liên kết với một tài khoản Google khác.");
+                throw new AppException(ErrorCode.GOOGLE_ACCOUNT_CONFLICT);
             }
 
             if (!account.isEmailVerified()) {
                 // Xóa mật khẩu cũ để người đăng ký giả mạo trước đó không dùng được nữa
                 account.setPasswordHash(null);
                 account.setEmailVerified(true);
+                refreshTokenService.revokeAllAccountTokens(account);
             }
 
             accountRepository.saveAndFlush(account);

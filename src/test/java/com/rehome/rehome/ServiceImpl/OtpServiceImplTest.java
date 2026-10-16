@@ -1,5 +1,6 @@
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.dto.request.ForgotPasswordRequest;
 import com.rehome.rehome.dto.request.OtpRequest;
 import com.rehome.rehome.dto.request.ResetPasswordRequest;
 import com.rehome.rehome.dto.request.VerifyOtpRequest;
@@ -22,6 +23,7 @@ import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.mail.MailSendException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -49,18 +51,22 @@ class OtpServiceImplTest {
     private Account account;
     private final UUID id = UUID.randomUUID();
 
+
     @BeforeEach
     void setUp() {
         service = new OtpServiceImpl(accounts, otps, otpEmailService, encoder, refreshTokens);
         ReflectionTestUtils.setField(service, "ttl", 300L);
         ReflectionTestUtils.setField(service, "resendSeconds", 60L);
         ReflectionTestUtils.setField(service, "maxAttempts", 5);
+        ReflectionTestUtils.setField(service, "frontendUrl", "http://localhost:3000");
+        ReflectionTestUtils.setField(service, "resetLinkTtl", 1800L);
 
-        account = mock(Account.class);
+        account = mock(Account.class);                                   // phải có trước
         when(account.getId()).thenReturn(id);
         when(account.getEmail()).thenReturn("a@x.com");
         when(account.isEnabled()).thenReturn(true);
         when(accounts.findByEmailForUpdate("a@x.com")).thenReturn(Optional.of(account));
+        when(accounts.findByEmailIgnoreCase("a@x.com")).thenReturn(Optional.of(account));  // sau account = mock(...)
         when(encoder.encode(anyString())).thenReturn("hashed");
     }
 
@@ -433,5 +439,92 @@ class OtpServiceImplTest {
         verify(refreshTokens).deleteByAccount(account);
         assertThat(res).extracting("message")
                 .isEqualTo("Đặt lại mật khẩu thành công. Vui lòng đăng nhập.");
+    }
+
+    // ==================== forgotPassword ====================
+
+    private ForgotPasswordRequest forgotRequest(String email) {
+        ForgotPasswordRequest r = mock(ForgotPasswordRequest.class);
+        when(r.getEmail()).thenReturn(email);
+        return r;
+    }
+
+    @Test
+    void forgotPassword_accountNotFound_silentlyReturns() {
+        service.forgotPassword(forgotRequest("none@x.com"));
+
+        verifyNoInteractions(otps, otpEmailService);
+    }
+
+    @Test
+    void forgotPassword_accountNotEnabled_silentlyReturns() {
+        when(account.isEnabled()).thenReturn(false);
+
+        service.forgotPassword(forgotRequest("a@x.com"));
+
+        verifyNoInteractions(otps, otpEmailService);
+    }
+
+    @Test
+    void forgotPassword_withinCooldown_silentlyReturns() {
+        EmailOtp existing = otp(future(), 0, false);
+        existing.setId(key(OtpPurpose.FORGOT_PASSWORD));
+        existing.setSentAt(Instant.now().minusSeconds(10));
+        givenOtp(OtpPurpose.FORGOT_PASSWORD, existing);
+
+        service.forgotPassword(forgotRequest("a@x.com"));
+
+        verify(otps, never()).save(any());
+        verifyNoInteractions(otpEmailService);
+    }
+
+    @Test
+    void forgotPassword_newRow_invalidatesOtpPartAndSendsLink() {
+        when(otps.findById(key(OtpPurpose.FORGOT_PASSWORD))).thenReturn(Optional.empty());
+
+        service.forgotPassword(forgotRequest("a@x.com"));
+
+        ArgumentCaptor<EmailOtp> saved = ArgumentCaptor.forClass(EmailOtp.class);
+        verify(otps).save(saved.capture());
+        EmailOtp o = saved.getValue();
+        assertThat(o.getId()).isEqualTo(key(OtpPurpose.FORGOT_PASSWORD));
+        assertThat(o.isConsumed()).isTrue();
+        assertThat(o.getAttempts()).isZero();
+        assertThat(o.getCodeHash()).isEqualTo("hashed");
+        assertThat(o.getResetTokenHash()).isEqualTo("hashed");
+        assertThat(o.getSentAt()).isNotNull();
+        assertThat(o.getResetExpiresAt()).isAfter(Instant.now());
+
+        ArgumentCaptor<String> link = ArgumentCaptor.forClass(String.class);
+        verify(otpEmailService).sendResetLink(eq("a@x.com"), link.capture(), eq(30L));
+        assertThat(link.getValue())
+                .startsWith("http://localhost:3000/reset-password?email=a%40x.com&token=");
+    }
+
+    @Test
+    void forgotPassword_existingRowAfterCooldown_keepsIdAndSendsLink() {
+        EmailOtp existing = otp(past(), 3, true);
+        existing.setId(key(OtpPurpose.FORGOT_PASSWORD));
+        existing.setCodeHash("keepMe");
+        existing.setSentAt(Instant.now().minusSeconds(120));
+        givenOtp(OtpPurpose.FORGOT_PASSWORD, existing);
+
+        service.forgotPassword(forgotRequest("a@x.com"));
+
+        verify(otps).save(existing);
+        assertThat(existing.getCodeHash()).isEqualTo("keepMe");   // branch id != null: untouched
+        assertThat(existing.getResetTokenHash()).isEqualTo("hashed");
+        verify(otpEmailService).sendResetLink(eq("a@x.com"), anyString(), eq(30L));
+    }
+
+    @Test
+    void forgotPassword_mailFails_exceptionSwallowed() {
+        when(otps.findById(key(OtpPurpose.FORGOT_PASSWORD))).thenReturn(Optional.empty());
+        doThrow(new MailSendException("smtp down"))
+                .when(otpEmailService).sendResetLink(anyString(), anyString(), anyLong());
+
+        service.forgotPassword(forgotRequest("a@x.com"));   // must not throw
+
+        verify(otps).save(any(EmailOtp.class));
     }
 }

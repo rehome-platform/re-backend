@@ -1,10 +1,7 @@
 
 package com.rehome.rehome.ServiceImpl;
 
-import com.rehome.rehome.dto.request.ForgotPasswordRequest;
-import com.rehome.rehome.dto.request.GoogleLoginRequest;
-import com.rehome.rehome.dto.request.LoginRequest;
-import com.rehome.rehome.dto.request.RegisterRequest;
+import com.rehome.rehome.dto.request.*;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
 import com.rehome.rehome.dto.response.AuthResponse;
 import com.rehome.rehome.dto.response.OtpResponse;
@@ -270,6 +267,25 @@ public class AuthServiceImpl implements AuthService {
 
         organizationProfileRepository.save(organization);
         return organizationProfileMapper.toResponse(organization);
+    }
+
+    @Override
+    public void changePassword(Account account,ChangePasswordRequest changePasswordRequest) {
+        if (!changePasswordRequest.getNewPassword().equals(changePasswordRequest.getNewPasswordRepeat())) {
+            throw new BadRequestException("Mật khẩu xác nhận không khớp.");
+        }
+        if (account.getPasswordHash() == null) {
+            throw new BadRequestException("Tài khoản chưa có mật khẩu");
+        }
+        if (!passwordEncoder.matches(changePasswordRequest.getOldPassword(), account.getPassword())) {
+            throw new BadRequestException("WRONG_PASSWORD: mật khẩu cũ không đúng.");
+        }
+        if (passwordEncoder.matches(changePasswordRequest.getNewPassword(), account.getPassword())) {
+            throw new BadRequestException("Mật khẩu mới phải khác mật khẩu cũ.");
+        }
+        account.setPasswordHash(passwordEncoder.encode(changePasswordRequest.getNewPassword()));
+        accountRepository.save(account);
+        refreshTokenService.revokeAllAccountTokens(account); // nếu có
     }
 
 }

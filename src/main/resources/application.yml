@@ -6,22 +6,22 @@ spring:
   application:
     name: rehome
 
-  # ==================== EMAIL SMTP - BREVO ====================
-  mail:
-    host: ${MAIL_HOST:smtp-relay.brevo.com}
-    port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME}
-    password: ${MAIL_PASSWORD}
-    properties:
-      mail:
-        smtp:
-          auth: true
-          starttls:
-            enable: true
-            required: true
-          connectiontimeout: 10000
-          timeout: 10000
-          writetimeout: 10000
+  # ==================== EMAIL SMTP - BREVO (KHÔNG DÙNG - Render chặn port SMTP) ====================
+  # mail:
+  #   host: ${MAIL_HOST:smtp-relay.brevo.com}
+  #   port: ${MAIL_PORT:587}
+  #   username: ${MAIL_USERNAME}
+  #   password: ${MAIL_PASSWORD}
+  #   properties:
+  #     mail:
+  #       smtp:
+  #         auth: true
+  #         starttls:
+  #           enable: true
+  #           required: true
+  #         connectiontimeout: 10000
+  #         timeout: 10000
+  #         writetimeout: 10000
 
   # ==================== DATABASE - POSTGRESQL (LOCAL) ====================
   datasource:
@@ -46,6 +46,10 @@ spring:
       hibernate:
         format_sql: true
         dialect: org.hibernate.dialect.PostgreSQLDialect
+
+# ==================== EMAIL - BREVO REST API ====================
+brevo:
+  api-key: ${BREVO_API_KEY}
 
 # ==================== SWAGGER / OPENAPI ====================
 springdoc:

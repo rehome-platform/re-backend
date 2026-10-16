@@ -299,4 +299,52 @@ class CartServiceImplTest {
 
         verify(cartItemRepository).delete(item);
     }
+    @Test
+    void addItem_throwsNotFound_whenAccountDoesNotExist() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> cartService.addItem(email, new AddCartItemRequest("P-001")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Account không tồn tại");
+
+        verify(productRepository, never()).findById(any());
+    }
+
+    @Test
+    void getCart_keepsFirstPhoto_whenProductHasMultiplePhotos() {
+        Cart cart = Cart.builder().id(UUID.randomUUID()).member(member).build();
+        Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).name("Kho Quận 7").build();
+        ConsignmentReceipt receipt = ConsignmentReceipt.builder().agreedPrice(new BigDecimal("350000")).build();
+
+        Product p = Product.builder()
+                .id("Q7-AK-000845")
+                .name("Áo sơ mi Zara trắng")
+                .size("M")
+                .currentPrice(new BigDecimal("220000"))
+                .status(ProductStatus.ON_SALE)
+                .warehouse(warehouse)
+                .consignmentReceipt(receipt)
+                .build();
+
+        CartItem item = CartItem.builder()
+                .id(UUID.randomUUID())
+                .cart(cart)
+                .product(p)
+                .addedAt(Instant.parse("2026-10-13T09:00:00Z"))
+                .build();
+
+        ProductPhoto first = ProductPhoto.builder().product(p).imageUrl("https://cdn.rehome.vn/first.jpg").build();
+        ProductPhoto second = ProductPhoto.builder().product(p).imageUrl("https://cdn.rehome.vn/second.jpg").build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(cartRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(cart));
+        when(cartItemRepository.findAllByCartIdWithProduct(cart.getId())).thenReturn(List.of(item));
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(List.of("Q7-AK-000845")))
+                .thenReturn(List.of(first, second));
+
+        CartResponse response = cartService.getCart(email);
+
+        assertThat(response.getGroupedByWarehouse().get(0).getItems().get(0).getProduct().getThumbnailUrl())
+                .isEqualTo("https://cdn.rehome.vn/first.jpg");
+    }
 }

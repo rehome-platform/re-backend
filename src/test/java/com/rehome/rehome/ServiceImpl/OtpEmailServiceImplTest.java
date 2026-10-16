@@ -6,10 +6,12 @@ import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mail.MailPreparationException;
 import org.springframework.mail.MailSendException;
+import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 
 import java.io.IOException;
@@ -29,7 +31,7 @@ class OtpEmailServiceImplTest {
     @BeforeEach
     void setUp() {
         message = new MimeMessage(Session.getInstance(new Properties()));
-        when(mailSender.createMimeMessage()).thenReturn(message);
+        lenient().when(mailSender.createMimeMessage()).thenReturn(message);
     }
 
     private OtpEmailServiceImpl service(String from) throws IOException {
@@ -52,6 +54,23 @@ class OtpEmailServiceImplTest {
 
         verify(mailSender).send(message);
         assertThat(message.getSubject()).isEqualTo("ReHome - Mã OTP đặt lại mật khẩu");
+    }
+
+    @Test
+    void sendResetLink_sendsSimpleMailWithLinkAndMinutes() throws Exception {
+        service("noreply@rehome.vn")
+                .sendResetLink("user@x.com", "http://fe/reset?token=abc", 30);
+
+        ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(mailSender).send(captor.capture());
+        SimpleMailMessage msg = captor.getValue();
+
+        assertThat(msg.getFrom()).isEqualTo("noreply@rehome.vn");
+        assertThat(msg.getTo()).containsExactly("user@x.com");
+        assertThat(msg.getSubject()).isEqualTo("Đặt lại mật khẩu Rehome");
+        assertThat(msg.getText())
+                .contains("http://fe/reset?token=abc")
+                .contains("hiệu lực 30 phút");
     }
 
     @Test

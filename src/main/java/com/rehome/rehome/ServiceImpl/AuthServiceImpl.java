@@ -192,10 +192,8 @@ public class AuthServiceImpl implements AuthService {
 
         Account account = refreshToken.getAccount();
 
-        if (!account.isEnabled()) {
-            throw new DisabledException(
-                    "Tài khoản chưa xác minh hoặc đã bị vô hiệu hóa."
-            );
+        if (account.getStatus() != AccountStatus.ACTIVE) {
+            throw new AppException(ErrorCode.ACCOUNT_BANNED);
         }
 
         String newAccessToken =
@@ -271,22 +269,22 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public void changePassword(Account account,ChangePasswordRequest changePasswordRequest) {
-        if (!changePasswordRequest.getNewPassword().equals(changePasswordRequest.getNewPasswordRepeat())) {
-            throw new BadRequestException("Mật khẩu xác nhận không khớp.");
+    public void changePassword(Account account, ChangePasswordRequest request) {
+        if (!request.getNewPassword().equals(request.getNewPasswordRepeat())) {
+            throw new AppException(ErrorCode.PASSWORD_CONFIRM_MISMATCH);
         }
         if (account.getPasswordHash() == null) {
-            throw new BadRequestException("Tài khoản chưa có mật khẩu");
+            throw new AppException(ErrorCode.PASSWORD_NOT_SET);
         }
-        if (!passwordEncoder.matches(changePasswordRequest.getOldPassword(), account.getPassword())) {
-            throw new BadRequestException("WRONG_PASSWORD: mật khẩu cũ không đúng.");
+        if (!passwordEncoder.matches(request.getOldPassword(), account.getPassword())) {
+            throw new AppException(ErrorCode.WRONG_PASSWORD);
         }
-        if (passwordEncoder.matches(changePasswordRequest.getNewPassword(), account.getPassword())) {
-            throw new BadRequestException("Mật khẩu mới phải khác mật khẩu cũ.");
+        if (passwordEncoder.matches(request.getNewPassword(), account.getPassword())) {
+            throw new AppException(ErrorCode.NEW_PASSWORD_SAME_AS_OLD);
         }
-        account.setPasswordHash(passwordEncoder.encode(changePasswordRequest.getNewPassword()));
+        account.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         accountRepository.save(account);
-        refreshTokenService.revokeAllAccountTokens(account); // nếu có
+        refreshTokenService.revokeAllAccountTokens(account);
     }
 
 }

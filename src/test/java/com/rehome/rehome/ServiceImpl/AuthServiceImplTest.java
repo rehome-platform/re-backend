@@ -1,5 +1,6 @@
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.dto.request.ChangePasswordRequest;
 import com.rehome.rehome.dto.request.GoogleLoginRequest;
 import com.rehome.rehome.dto.request.LoginRequest;
 import com.rehome.rehome.dto.request.RegisterRequest;
@@ -34,11 +35,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.time.Instant;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -58,10 +57,17 @@ class AuthServiceImplTest {
     @Mock MemberProfileRepository memberProfileRepository;
     @Mock OrganizationProfileRepository organizationProfileRepository;
     @Mock OrganizationProfileMapper organizationProfileMapper;
+    @Mock GoogleTokenVerifier googleTokenVerifier;
 
     @InjectMocks AuthServiceImpl service;
-    @Mock
-    GoogleTokenVerifier googleTokenVerifier;
+
+    // ==================== helper ====================
+
+    private void assertAppError(Runnable action, ErrorCode expected) {
+        assertThatThrownBy(action::run)
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", expected);
+    }
 
     // ==================== register ====================
 
@@ -111,7 +117,40 @@ class AuthServiceImplTest {
                 .isEqualTo("Đăng ký thành công. Vui lòng kiểm tra email để xác minh OTP.");
     }
 
-// ==================== login: banned ====================
+    // ==================== login ====================
+
+    @Test
+    void login_success() {
+        LoginRequest req = mock(LoginRequest.class);
+        when(req.getEmail()).thenReturn("a@x.com");
+        when(req.getPassword()).thenReturn("pw");
+        Account account = mock(Account.class);
+        when(account.getStatus()).thenReturn(AccountStatus.ACTIVE);
+        when(account.isEmailVerified()).thenReturn(true);
+        when(accountRepository.findByEmail("a@x.com")).thenReturn(Optional.of(account));
+        when(jwtService.generateAccessToken(account)).thenReturn("access");
+        when(refreshTokenService.createRefreshToken(account))
+                .thenReturn(RefreshToken.builder().token("refresh").build());
+
+        AuthResponse res = service.login(req);
+
+        ArgumentCaptor<Authentication> authCaptor = ArgumentCaptor.forClass(Authentication.class);
+        verify(authenticationManager).authenticate(authCaptor.capture());
+        assertThat(authCaptor.getValue().getPrincipal()).isEqualTo("a@x.com");
+        assertThat(authCaptor.getValue().getCredentials()).isEqualTo("pw");
+        assertThat(res).extracting("accessToken", "refreshToken").containsExactly("access", "refresh");
+    }
+
+    @Test
+    void login_accountNotFound_throws() {
+        LoginRequest req = mock(LoginRequest.class);
+        when(req.getEmail()).thenReturn("a@x.com");
+        when(accountRepository.findByEmail("a@x.com")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.login(req))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Account không tồn tại sau khi authenticate");
+    }
 
     @Test
     void login_banned_throws() {
@@ -121,14 +160,39 @@ class AuthServiceImplTest {
         when(account.getStatus()).thenReturn(AccountStatus.BANNED);
         when(accountRepository.findByEmail("a@x.com")).thenReturn(Optional.of(account));
 
-        assertThatThrownBy(() -> service.login(req))
-                .isInstanceOf(AccountBannedException.class)
-                .hasMessage("Tài khoản đã bị khoá!!");
+        assertAppError(() -> service.login(req), ErrorCode.ACCOUNT_BANNED);
 
         verifyNoInteractions(jwtService, refreshTokenService);
     }
 
-// ==================== loginWithGoogle ====================
+    @Test
+    void login_statusNotActive_throwsBanned() {
+        LoginRequest req = mock(LoginRequest.class);
+        when(req.getEmail()).thenReturn("a@x.com");
+        Account account = mock(Account.class);
+        when(account.getStatus()).thenReturn(null); // status khác ACTIVE
+        when(accountRepository.findByEmail("a@x.com")).thenReturn(Optional.of(account));
+
+        assertAppError(() -> service.login(req), ErrorCode.ACCOUNT_BANNED);
+
+        verifyNoInteractions(jwtService, refreshTokenService);
+    }
+
+    @Test
+    void login_emailNotVerified_throws() {
+        LoginRequest req = mock(LoginRequest.class);
+        when(req.getEmail()).thenReturn("a@x.com");
+        Account account = mock(Account.class);
+        when(account.getStatus()).thenReturn(AccountStatus.ACTIVE);
+        when(account.isEmailVerified()).thenReturn(false);
+        when(accountRepository.findByEmail("a@x.com")).thenReturn(Optional.of(account));
+
+        assertAppError(() -> service.login(req), ErrorCode.EMAIL_NOT_VERIFIED);
+
+        verifyNoInteractions(jwtService, refreshTokenService);
+    }
+
+    // ==================== loginWithGoogle ====================
 
     private GoogleLoginRequest googleReq() {
         GoogleLoginRequest r = mock(GoogleLoginRequest.class);
@@ -185,8 +249,7 @@ class AuthServiceImplTest {
         when(account.getStatus()).thenReturn(AccountStatus.BANNED);
         when(accountRepository.findByEmail("g@x.com")).thenReturn(Optional.of(account));
 
-        assertThatThrownBy(() -> service.loginWithGoogle(googleReq()))
-                .isInstanceOf(AccountBannedException.class);
+        assertAppError(() -> service.loginWithGoogle(googleReq()), ErrorCode.ACCOUNT_BANNED);
 
         verify(accountRepository, never()).saveAndFlush(any());
     }
@@ -199,9 +262,7 @@ class AuthServiceImplTest {
         when(account.getGoogleId()).thenReturn("gid-OLD");
         when(accountRepository.findByEmail("g@x.com")).thenReturn(Optional.of(account));
 
-        assertThatThrownBy(() -> service.loginWithGoogle(googleReq()))
-                .isInstanceOf(ConflictException.class)
-                .hasMessage("Email này đã liên kết với một tài khoản Google khác.");
+        assertAppError(() -> service.loginWithGoogle(googleReq()), ErrorCode.GOOGLE_ACCOUNT_CONFLICT);
 
         verify(accountRepository, never()).saveAndFlush(any());
     }
@@ -239,57 +300,8 @@ class AuthServiceImplTest {
         verify(account, never()).setGoogleId(any());
         verify(account).setPasswordHash(null);
         verify(account).setEmailVerified(true);
+        verify(refreshTokenService).revokeAllAccountTokens(account);
         verify(accountRepository).saveAndFlush(account);
-    }
-
-
-
-    // ==================== login ====================
-
-    @Test
-    void login_success() {
-        LoginRequest req = mock(LoginRequest.class);
-        when(req.getEmail()).thenReturn("a@x.com");
-        when(req.getPassword()).thenReturn("pw");
-        Account account = mock(Account.class);
-        when(account.isEmailVerified()).thenReturn(true);
-        when(accountRepository.findByEmail("a@x.com")).thenReturn(Optional.of(account));
-        when(jwtService.generateAccessToken(account)).thenReturn("access");
-        when(refreshTokenService.createRefreshToken(account))
-                .thenReturn(RefreshToken.builder().token("refresh").build());
-
-        AuthResponse res = service.login(req);
-
-        ArgumentCaptor<Authentication> authCaptor = ArgumentCaptor.forClass(Authentication.class);
-        verify(authenticationManager).authenticate(authCaptor.capture());
-        assertThat(authCaptor.getValue().getPrincipal()).isEqualTo("a@x.com");
-        assertThat(authCaptor.getValue().getCredentials()).isEqualTo("pw");
-        assertThat(res).extracting("accessToken", "refreshToken").containsExactly("access", "refresh");
-    }
-
-    @Test
-    void login_accountNotFound_throws() {
-        LoginRequest req = mock(LoginRequest.class);
-        when(req.getEmail()).thenReturn("a@x.com");
-        when(accountRepository.findByEmail("a@x.com")).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.login(req))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("Account không tồn tại sau khi authenticate");
-    }
-
-    @Test
-    void login_emailNotVerified_throws() {
-        LoginRequest req = mock(LoginRequest.class);
-        when(req.getEmail()).thenReturn("a@x.com");
-        Account account = mock(Account.class);
-        when(account.isEmailVerified()).thenReturn(false);
-        when(accountRepository.findByEmail("a@x.com")).thenReturn(Optional.of(account));
-
-        assertThatThrownBy(() -> service.login(req))
-                .isInstanceOf(AccountNotVerifiedException.class);
-
-        verifyNoInteractions(jwtService, refreshTokenService);
     }
 
     // ==================== refreshToken ====================
@@ -303,15 +315,13 @@ class AuthServiceImplTest {
     }
 
     @Test
-    void refreshToken_accountDisabled_throws() {
+    void refreshToken_accountBanned_throws() {
         Account account = mock(Account.class);
-        when(account.isEnabled()).thenReturn(false);
+        when(account.getStatus()).thenReturn(AccountStatus.BANNED);
         RefreshToken rt = RefreshToken.builder().token("t").account(account).build();
         when(refreshTokenService.findByToken("t")).thenReturn(Optional.of(rt));
 
-        assertThatThrownBy(() -> service.refreshToken("t"))
-                .isInstanceOf(DisabledException.class)
-                .hasMessage("Tài khoản chưa xác minh hoặc đã bị vô hiệu hóa.");
+        assertAppError(() -> service.refreshToken("t"), ErrorCode.ACCOUNT_BANNED);
 
         verify(refreshTokenService).verifyExpiration(rt);
         verify(refreshTokenService, never()).deleteByAccount(any());
@@ -320,7 +330,7 @@ class AuthServiceImplTest {
     @Test
     void refreshToken_success_rotatesToken() {
         Account account = mock(Account.class);
-        when(account.isEnabled()).thenReturn(true);
+        when(account.getStatus()).thenReturn(AccountStatus.ACTIVE);
         RefreshToken old = RefreshToken.builder().token("old").account(account).build();
         when(refreshTokenService.findByToken("old")).thenReturn(Optional.of(old));
         when(jwtService.generateAccessToken(account)).thenReturn("newAccess");
@@ -419,5 +429,81 @@ class AuthServiceImplTest {
                 .containsExactly(savedAccount, VerificationStatus.PENDING);
         verify(organizationProfileRepository).save(org);
         assertThat(result).isSameAs(expected);
+    }
+
+    // ==================== changePassword ====================
+
+    private ChangePasswordRequest changePwReq(String oldPw, String newPw, String repeat) {
+        ChangePasswordRequest r = mock(ChangePasswordRequest.class);
+        when(r.getOldPassword()).thenReturn(oldPw);
+        when(r.getNewPassword()).thenReturn(newPw);
+        when(r.getNewPasswordRepeat()).thenReturn(repeat);
+        return r;
+    }
+
+    @Test
+    void changePassword_confirmMismatch_throws() {
+        Account account = mock(Account.class);
+        ChangePasswordRequest req = changePwReq("old", "new1", "new2");
+
+        assertAppError(() -> service.changePassword(account, req), ErrorCode.PASSWORD_CONFIRM_MISMATCH);
+
+        verify(accountRepository, never()).save(any());
+        verifyNoInteractions(refreshTokenService);
+    }
+
+    @Test
+    void changePassword_noPasswordHash_throws() {
+        Account account = mock(Account.class);
+        when(account.getPasswordHash()).thenReturn(null);
+        ChangePasswordRequest req = changePwReq("old", "new", "new");
+
+        assertAppError(() -> service.changePassword(account, req), ErrorCode.PASSWORD_NOT_SET);
+
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void changePassword_wrongOldPassword_throws() {
+        Account account = mock(Account.class);
+        when(account.getPasswordHash()).thenReturn("hash");
+        when(account.getPassword()).thenReturn("hash");
+        when(passwordEncoder.matches("old", "hash")).thenReturn(false);
+        ChangePasswordRequest req = changePwReq("old", "new", "new");
+
+        assertAppError(() -> service.changePassword(account, req), ErrorCode.WRONG_PASSWORD);
+
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void changePassword_newSameAsOld_throws() {
+        Account account = mock(Account.class);
+        when(account.getPasswordHash()).thenReturn("hash");
+        when(account.getPassword()).thenReturn("hash");
+        when(passwordEncoder.matches("old", "hash")).thenReturn(true);
+        when(passwordEncoder.matches("new", "hash")).thenReturn(true); // mới trùng cũ
+        ChangePasswordRequest req = changePwReq("old", "new", "new");
+
+        assertAppError(() -> service.changePassword(account, req), ErrorCode.NEW_PASSWORD_SAME_AS_OLD);
+
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void changePassword_success_savesAndRevokesTokens() {
+        Account account = mock(Account.class);
+        when(account.getPasswordHash()).thenReturn("hash");
+        when(account.getPassword()).thenReturn("hash");
+        when(passwordEncoder.matches("old", "hash")).thenReturn(true);
+        when(passwordEncoder.matches("new", "hash")).thenReturn(false);
+        when(passwordEncoder.encode("new")).thenReturn("newHash");
+        ChangePasswordRequest req = changePwReq("old", "new", "new");
+
+        service.changePassword(account, req);
+
+        verify(account).setPasswordHash("newHash");
+        verify(accountRepository).save(account);
+        verify(refreshTokenService).revokeAllAccountTokens(account);
     }
 }

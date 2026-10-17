@@ -7,6 +7,7 @@ import com.rehome.rehome.dto.request.VerifyOtpRequest;
 import com.rehome.rehome.dto.response.OtpResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.EmailOtp;
+import com.rehome.rehome.entity.enums.AccountStatus;
 import com.rehome.rehome.entity.enums.OtpPurpose;
 import com.rehome.rehome.exception.OtpException;
 import com.rehome.rehome.repository.AccountRepository;
@@ -64,7 +65,8 @@ class OtpServiceImplTest {
         account = mock(Account.class);                                   // phải có trước
         when(account.getId()).thenReturn(id);
         when(account.getEmail()).thenReturn("a@x.com");
-        when(account.isEnabled()).thenReturn(true);
+        when(account.getStatus()).thenReturn(AccountStatus.ACTIVE);      // thay cho isEnabled()
+        when(account.isEmailVerified()).thenReturn(true);
         when(accounts.findByEmailForUpdate("a@x.com")).thenReturn(Optional.of(account));
         when(accounts.findByEmailIgnoreCase("a@x.com")).thenReturn(Optional.of(account));  // sau account = mock(...)
         when(encoder.encode(anyString())).thenReturn("hashed");
@@ -99,6 +101,14 @@ class OtpServiceImplTest {
 
     private void assertInvalid(ThrowingCallable call) {
         assertThatThrownBy(call).isInstanceOf(OtpException.class).hasMessage(INVALID);
+    }
+
+    private void givenBanned() {
+        when(account.getStatus()).thenReturn(AccountStatus.BANNED);
+    }
+
+    private void givenUnverified() {
+        when(account.isEmailVerified()).thenReturn(false);
     }
 
     private OtpRequest otpRequest(String email, OtpPurpose purpose) {
@@ -206,7 +216,7 @@ class OtpServiceImplTest {
 
     @Test
     void resend_registerNotVerified_issues() {
-        when(account.isEmailVerified()).thenReturn(false);
+        givenUnverified();
         OtpServiceImpl spy = spyWithNoopIssue();
 
         OtpResponse res = spy.resend(otpRequest("a@x.com", OtpPurpose.REGISTER));
@@ -226,8 +236,7 @@ class OtpServiceImplTest {
     }
 
     @Test
-    void resend_forgotPasswordEnabled_issues() {
-        when(account.isEnabled()).thenReturn(true);
+    void resend_forgotPasswordEligible_issues() {
         OtpServiceImpl spy = spyWithNoopIssue();
 
         spy.resend(otpRequest("a@x.com", OtpPurpose.FORGOT_PASSWORD));
@@ -236,8 +245,18 @@ class OtpServiceImplTest {
     }
 
     @Test
-    void resend_forgotPasswordDisabled_doesNotIssue() {
-        when(account.isEnabled()).thenReturn(false);
+    void resend_forgotPasswordBanned_doesNotIssue() {
+        givenBanned();
+        OtpServiceImpl spy = spyWithNoopIssue();
+
+        spy.resend(otpRequest("a@x.com", OtpPurpose.FORGOT_PASSWORD));
+
+        verify(spy, never()).issue(any(), any());
+    }
+
+    @Test
+    void resend_forgotPasswordUnverified_doesNotIssue() {
+        givenUnverified();
         OtpServiceImpl spy = spyWithNoopIssue();
 
         spy.resend(otpRequest("a@x.com", OtpPurpose.FORGOT_PASSWORD));
@@ -321,8 +340,18 @@ class OtpServiceImplTest {
     }
 
     @Test
-    void verify_forgotPassword_accountDisabled_invalid() {
-        when(account.isEnabled()).thenReturn(false);
+    void verify_forgotPassword_accountBanned_invalid() {
+        givenBanned();
+        givenOtp(OtpPurpose.FORGOT_PASSWORD, otp(future(), 0, false));
+        when(encoder.matches("123456", "codeHash")).thenReturn(true);
+        VerifyOtpRequest req = verifyRequest("a@x.com", "123456", OtpPurpose.FORGOT_PASSWORD);
+
+        assertInvalid(() -> service.verify(req));
+    }
+
+    @Test
+    void verify_forgotPassword_accountUnverified_invalid() {
+        givenUnverified();
         givenOtp(OtpPurpose.FORGOT_PASSWORD, otp(future(), 0, false));
         when(encoder.matches("123456", "codeHash")).thenReturn(true);
         VerifyOtpRequest req = verifyRequest("a@x.com", "123456", OtpPurpose.FORGOT_PASSWORD);
@@ -380,13 +409,25 @@ class OtpServiceImplTest {
     }
 
     @Test
-    void resetPassword_accountDisabled_invalid() {
-        when(account.isEnabled()).thenReturn(false);
+    void resetPassword_accountBanned_invalid() {
+        givenBanned();
         givenOtp(OtpPurpose.FORGOT_PASSWORD, resetOtp("rtHash", future()));
         when(encoder.matches("rt", "rtHash")).thenReturn(true);
         ResetPasswordRequest req = resetRequest("a@x.com", "newPw", "newPw");
 
         assertInvalid(() -> service.resetPassword(req));
+        verifyNoInteractions(refreshTokens);
+    }
+
+    @Test
+    void resetPassword_accountUnverified_invalid() {
+        givenUnverified();
+        givenOtp(OtpPurpose.FORGOT_PASSWORD, resetOtp("rtHash", future()));
+        when(encoder.matches("rt", "rtHash")).thenReturn(true);
+        ResetPasswordRequest req = resetRequest("a@x.com", "newPw", "newPw");
+
+        assertInvalid(() -> service.resetPassword(req));
+        verifyNoInteractions(refreshTokens);
     }
 
     @Test
@@ -457,8 +498,17 @@ class OtpServiceImplTest {
     }
 
     @Test
-    void forgotPassword_accountNotEnabled_silentlyReturns() {
-        when(account.isEnabled()).thenReturn(false);
+    void forgotPassword_accountBanned_silentlyReturns() {
+        givenBanned();
+
+        service.forgotPassword(forgotRequest("a@x.com"));
+
+        verifyNoInteractions(otps, otpEmailService);
+    }
+
+    @Test
+    void forgotPassword_accountUnverified_silentlyReturns() {
+        givenUnverified();
 
         service.forgotPassword(forgotRequest("a@x.com"));
 

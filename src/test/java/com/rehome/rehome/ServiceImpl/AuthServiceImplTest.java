@@ -378,12 +378,21 @@ class AuthServiceImplTest {
         return r;
     }
 
+    private Account currentAccount() {
+        return Account.builder()
+                .email("member@chiase.org")
+                .role(Role.MEMBER)
+                .status(AccountStatus.ACTIVE)
+                .build();
+    }
+
     @Test
     void registerOrganization_emailExists_throws() {
+        Account current = currentAccount();
         RegisterOrganizationRequest req = orgRequest("  Contact@Chiase.ORG ", "0312345678");
         when(accountRepository.existsByEmailIgnoreCase("contact@chiase.org")).thenReturn(true);
 
-        assertThatThrownBy(() -> service.registerOrganization(req))
+        assertThatThrownBy(() -> service.registerOrganization(current, req))
                 .isInstanceOf(AccountAlreadyExistsException.class)
                 .hasMessage("Email đã được sử dụng!!");
 
@@ -393,11 +402,12 @@ class AuthServiceImplTest {
 
     @Test
     void registerOrganization_taxCodeExists_throws() {
+        Account current = currentAccount();
         RegisterOrganizationRequest req = orgRequest("contact@chiase.org", "0312345678");
         when(accountRepository.existsByEmailIgnoreCase("contact@chiase.org")).thenReturn(false);
         when(organizationProfileRepository.existsByTaxCode("0312345678")).thenReturn(true);
 
-        assertThatThrownBy(() -> service.registerOrganization(req))
+        assertThatThrownBy(() -> service.registerOrganization(current, req))
                 .isInstanceOf(AccountAlreadyExistsException.class)
                 .hasMessage("Mã số thuế đã được sử dụng!!");
 
@@ -407,6 +417,7 @@ class AuthServiceImplTest {
 
     @Test
     void registerOrganization_success() {
+        Account current = currentAccount();
         RegisterOrganizationRequest req = orgRequest("  Contact@Chiase.ORG ", "0312345678");
         when(accountRepository.existsByEmailIgnoreCase("contact@chiase.org")).thenReturn(false);
         when(organizationProfileRepository.existsByTaxCode("0312345678")).thenReturn(false);
@@ -417,11 +428,12 @@ class AuthServiceImplTest {
         RegisterOrganizationResponse expected = mock(RegisterOrganizationResponse.class);
         when(organizationProfileMapper.toResponse(org)).thenReturn(expected);
 
-        RegisterOrganizationResponse result = service.registerOrganization(req);
+        RegisterOrganizationResponse result = service.registerOrganization(current, req);
 
         ArgumentCaptor<Account> accountCaptor = ArgumentCaptor.forClass(Account.class);
         verify(accountRepository).save(accountCaptor.capture());
         Account savedAccount = accountCaptor.getValue();
+        assertThat(savedAccount).isNotSameAs(current);
         assertThat(savedAccount).extracting("email", "role", "status")
                 .containsExactly("contact@chiase.org", Role.ORGANIZATION, AccountStatus.ACTIVE);
 

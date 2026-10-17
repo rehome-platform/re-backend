@@ -244,7 +244,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     @Transactional
-    public RegisterOrganizationResponse registerOrganization(RegisterOrganizationRequest request) {
+    public RegisterOrganizationResponse registerOrganization(Account account,RegisterOrganizationRequest request) {
         String email = request.getContactEmail().trim().toLowerCase();
 
         if (accountRepository.existsByEmailIgnoreCase(email)) {
@@ -254,7 +254,7 @@ public class AuthServiceImpl implements AuthService {
             throw new AccountAlreadyExistsException("Mã số thuế đã được sử dụng!!");
         }
 
-        Account account = accountRepository.save(Account.builder()
+        account = accountRepository.save(Account.builder()
                 .email(email)
                 .role(Role.ORGANIZATION)
                 .status(AccountStatus.ACTIVE)

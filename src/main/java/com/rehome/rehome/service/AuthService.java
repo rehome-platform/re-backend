@@ -19,7 +19,7 @@ public interface AuthService {
 
     void logout(String email);
 
-    RegisterOrganizationResponse registerOrganization(RegisterOrganizationRequest request);
+    RegisterOrganizationResponse registerOrganization(Account account,RegisterOrganizationRequest request);
 
     void changePassword(Account account, ChangePasswordRequest changePasswordRequest);
 }

@@ -3,6 +3,7 @@ package com.rehome.rehome.ServiceImpl;
 import com.rehome.rehome.dto.request.ForgotPasswordRequest;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.EmailOtp;
+import com.rehome.rehome.entity.enums.AccountStatus;
 import com.rehome.rehome.entity.enums.OtpPurpose;
 import com.rehome.rehome.service.OtpService;
 import com.rehome.rehome.service.OtpEmailService;
@@ -30,6 +31,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.Locale;
 import java.util.UUID;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -53,6 +55,11 @@ public class OtpServiceImpl implements OtpService {
     @Value("${app.otp.ttl-seconds:300}") private long ttl;
     @Value("${app.otp.resend-seconds:60}") private long resendSeconds;
     @Value("${app.otp.max-attempts:5}") private int maxAttempts;
+
+    // Điều kiện cũ của isEnabled(): status ACTIVE && emailVerified
+    private boolean canResetPassword(Account account) {
+        return account.getStatus() == AccountStatus.ACTIVE && account.isEmailVerified();
+    }
 
     // Caller holds the account row lock (or is registering a new account).
     @Transactional
@@ -83,7 +90,7 @@ public class OtpServiceImpl implements OtpService {
     public OtpResponse resend(OtpRequest request) {
         accounts.findByEmailForUpdate(request.email()).ifPresent(account -> {
             if ((request.purpose() == OtpPurpose.REGISTER && !account.isEmailVerified())
-                    || (request.purpose() == OtpPurpose.FORGOT_PASSWORD && account.isEnabled())) {
+                    || (request.purpose() == OtpPurpose.FORGOT_PASSWORD && canResetPassword(account))) {
                 issue(account, request.purpose());
             }
         });
@@ -99,7 +106,7 @@ public class OtpServiceImpl implements OtpService {
         if (otp.isConsumed() || !Instant.now().isBefore(otp.getExpiresAt()) || otp.getAttempts() >= maxAttempts) {
             throw invalid();
         }
-        if(account.getEmail() == null){
+        if (account.getEmail() == null) {
             throw new IllegalArgumentException("Email này chưa được đăng ký!!");
         }
 
@@ -112,7 +119,7 @@ public class OtpServiceImpl implements OtpService {
             account.setEmailVerified(true);
             return new OtpResponse("Xác minh email thành công. Vui lòng đăng nhập.");
         }
-        if (!account.isEnabled()) throw invalid();
+        if (!canResetPassword(account)) throw invalid();
         otp.setConsumed(true);
         String resetToken = UUID.randomUUID().toString();
         otp.setResetTokenHash(encoder.encode(resetToken));
@@ -128,7 +135,7 @@ public class OtpServiceImpl implements OtpService {
         }
         Account account = accounts.findByEmailForUpdate(request.email()).orElseThrow(this::invalid);
         EmailOtp otp = otps.findById(account.getId() + ":" + OtpPurpose.FORGOT_PASSWORD).orElseThrow(this::invalid);
-        if (!account.isEnabled() || otp.getResetTokenHash() == null || otp.getResetExpiresAt() == null
+        if (!canResetPassword(account) || otp.getResetTokenHash() == null || otp.getResetExpiresAt() == null
                 || !Instant.now().isBefore(otp.getResetExpiresAt())
                 || !encoder.matches(request.resetToken(), otp.getResetTokenHash())) throw invalid();
         account.setPasswordHash(encoder.encode(request.newPassword()));
@@ -142,7 +149,6 @@ public class OtpServiceImpl implements OtpService {
         return new OtpException(HttpStatus.BAD_REQUEST, "Mã xác thực không hợp lệ, hết hạn hoặc đã sử dụng.");
     }
 
-
     @Override
     @Transactional
     public void forgotPassword(ForgotPasswordRequest request) {
@@ -151,8 +157,8 @@ public class OtpServiceImpl implements OtpService {
             log.warn("forgot: không tìm thấy account cho email {}", request.getEmail());
             return;
         }
-        if (!account.isEnabled()) {
-            log.warn("forgot: account {} chưa enabled", account.getEmail());
+        if (!canResetPassword(account)) {
+            log.warn("forgot: account {} không đủ điều kiện (bị khoá hoặc chưa verify)", account.getEmail());
             return;
         }
 

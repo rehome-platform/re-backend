@@ -61,6 +61,9 @@ class AuthServiceImplTest {
 
     @InjectMocks AuthServiceImpl service;
 
+
+    @InjectMocks OrganizationServiceImpl service1;
+
     // ==================== helper ====================
 
     private void assertAppError(Runnable action, ErrorCode expected) {
@@ -392,7 +395,7 @@ class AuthServiceImplTest {
         RegisterOrganizationRequest req = orgRequest("  Contact@Chiase.ORG ", "0312345678");
         when(accountRepository.existsByEmailIgnoreCase("contact@chiase.org")).thenReturn(true);
 
-        assertThatThrownBy(() -> service.registerOrganization(current, req))
+        assertThatThrownBy(() -> service1.registerOrganization(current, req))
                 .isInstanceOf(AccountAlreadyExistsException.class)
                 .hasMessage("Email đã được sử dụng!!");
 
@@ -407,7 +410,7 @@ class AuthServiceImplTest {
         when(accountRepository.existsByEmailIgnoreCase("contact@chiase.org")).thenReturn(false);
         when(organizationProfileRepository.existsByTaxCode("0312345678")).thenReturn(true);
 
-        assertThatThrownBy(() -> service.registerOrganization(current, req))
+        assertThatThrownBy(() -> service1.registerOrganization(current, req))
                 .isInstanceOf(AccountAlreadyExistsException.class)
                 .hasMessage("Mã số thuế đã được sử dụng!!");
 
@@ -428,7 +431,7 @@ class AuthServiceImplTest {
         RegisterOrganizationResponse expected = mock(RegisterOrganizationResponse.class);
         when(organizationProfileMapper.toResponse(org)).thenReturn(expected);
 
-        RegisterOrganizationResponse result = service.registerOrganization(current, req);
+        RegisterOrganizationResponse result = service1.registerOrganization(current, req);
 
         ArgumentCaptor<Account> accountCaptor = ArgumentCaptor.forClass(Account.class);
         verify(accountRepository).save(accountCaptor.capture());

@@ -78,6 +78,12 @@ app:
     access-token-expiration-ms: 900000
     refresh-token-expiration-ms: 604800000
 
+  # Order checkout - chưa tích hợp GHN, tạm phí ship cố định
+  order:
+    shipping-fee: 25000
+    payment-deadline-minutes: 15
+    tax-rate: 0
+
 # ==================== LOGGING ====================
 logging:
   level:

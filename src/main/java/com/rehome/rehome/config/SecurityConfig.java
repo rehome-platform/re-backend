@@ -1,5 +1,6 @@
 package com.rehome.rehome.config;
 
+import com.rehome.rehome.security.JwtAccessDeniedHandler;
 import com.rehome.rehome.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -29,6 +30,8 @@ public class SecurityConfig {
 
     private final UserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint; // MỚI: chưa đăng nhập -> 401
+    private final JwtAccessDeniedHandler jwtAccessDeniedHandler;           // MỚI: sai quyền -> 403
 
     private static final String[] PUBLIC_ENDPOINTS = {
             "/health",
@@ -47,11 +50,17 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // MỚI: trả lỗi theo format ApiResponse thay vì 403 trống mặc định
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(jwtAuthenticationEntryPoint)
+                        .accessDeniedHandler(jwtAccessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/products/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        // MỚI: API kho gần nhất (F-015) chỉ dành cho Member
+                        .requestMatchers("/warehouses/**").hasRole("MEMBER")
                         .requestMatchers(
                                 "/auth/password/forgot",
                                 "/auth/password/reset"   // sửa đúng path thật của bạn

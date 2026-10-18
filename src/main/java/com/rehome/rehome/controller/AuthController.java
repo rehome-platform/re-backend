@@ -1,6 +1,7 @@
 package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.*;
+import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.AuthResponse;
 import com.rehome.rehome.dto.response.OtpResponse;
 import com.rehome.rehome.entity.auth.Account;
@@ -22,55 +23,59 @@ public class AuthController {
     private final OtpService otpService;
 
     @PostMapping("/resend-otp")
-    public ResponseEntity<OtpResponse> resendOtp(
+    public ResponseEntity<ApiResponse<OtpResponse>> resendOtp(
             @Valid @RequestBody OtpRequest request) {
-        return ResponseEntity.ok(otpService.resend(request));
+        return ResponseEntity.ok(ApiResponse.success(otpService.resend(request)));
     }
 
     @PostMapping("/verify-otp")
-    public ResponseEntity<OtpResponse> verifyOtp(
+    public ResponseEntity<ApiResponse<OtpResponse>> verifyOtp(
             @Valid @RequestBody VerifyOtpRequest request) {
-        return ResponseEntity.status(200).body(otpService.verify(request));
+        return ResponseEntity.ok(ApiResponse.success(otpService.verify(request)));
     }
 
     @PostMapping("/login")
-    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ResponseEntity.ok(authService.login(request));
+    public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(authService.login(request)));
     }
 
     @PostMapping("/google")
-    public ResponseEntity<AuthResponse> loginWithGoogle(@Valid @RequestBody GoogleLoginRequest request) {
-        return ResponseEntity.ok(authService.loginWithGoogle(request));
+    public ResponseEntity<ApiResponse<AuthResponse>> loginWithGoogle(
+            @Valid @RequestBody GoogleLoginRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(authService.loginWithGoogle(request)));
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<AuthResponse> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
-        return ResponseEntity.ok(authService.refreshToken(request.getRefreshToken()));
+    public ResponseEntity<ApiResponse<AuthResponse>> refreshToken(
+            @Valid @RequestBody RefreshTokenRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(authService.refreshToken(request.getRefreshToken())));
     }
 
+    // Đổi 204 -> 200 vì 204 không có body, không đặt được ApiResponse
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(Authentication authentication) {
+    public ResponseEntity<ApiResponse<Void>> logout(Authentication authentication) {
         authService.logout(authentication.getName());
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.ok(ApiResponse.success(null, "Đăng xuất thành công"));
     }
 
+    // Luôn trả như nhau để không lộ email có tồn tại hay không
     @PostMapping("/password/forgot")
-    public ResponseEntity<Void> forgot(@Valid @RequestBody ForgotPasswordRequest request) {
+    public ResponseEntity<ApiResponse<Void>> forgot(@Valid @RequestBody ForgotPasswordRequest request) {
         otpService.forgotPassword(request);
-        return ResponseEntity.noContent().build();   // 204, luôn trả như nhau
+        return ResponseEntity.ok(ApiResponse.success(null));
     }
 
     @PostMapping("/password/reset")
-    public ResponseEntity<OtpResponse> reset(@Valid @RequestBody ResetPasswordRequest request) {
-        return ResponseEntity.ok(otpService.resetPassword(request));
+    public ResponseEntity<ApiResponse<OtpResponse>> reset(@Valid @RequestBody ResetPasswordRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(otpService.resetPassword(request)));
     }
 
     @PostMapping("/password/change")
-    public ResponseEntity<String> changePassword(
+    public ResponseEntity<ApiResponse<Void>> changePassword(
             @AuthenticationPrincipal Account account,
             @Valid @RequestBody ChangePasswordRequest request
     ) {
         authService.changePassword(account, request);
-        return ResponseEntity.ok("Đổi mật khẩu thành công");
+        return ResponseEntity.ok(ApiResponse.success(null, "Đổi mật khẩu thành công"));
     }
 }

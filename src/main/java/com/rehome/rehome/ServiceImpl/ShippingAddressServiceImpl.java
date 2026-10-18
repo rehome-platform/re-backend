@@ -3,6 +3,7 @@ package com.rehome.rehome.ServiceImpl;
 import com.rehome.rehome.dto.request.AddShippingAddressRequest;
 import com.rehome.rehome.dto.response.CreateShippingAddressResponse;
 import com.rehome.rehome.dto.response.ShippingAddressResponse;
+import com.rehome.rehome.dto.response.UpdateShippingAddressResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.marketplace.ShippingAddress;
 import com.rehome.rehome.exception.BadRequestException;
@@ -15,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -79,6 +81,44 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
                 .id(address.getId().toString())
                 .recipientName(address.getRecipientName())
                 .isDefault(address.getIsDefault())
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public UpdateShippingAddressResponse updateAddress(String email, UUID id, AddShippingAddressRequest request) {
+
+        if (!StringUtils.hasText(request.getRecipientName())) {
+            throw new BadRequestException("recipientName là bắt buộc.");
+        }
+        if (!StringUtils.hasText(request.getPhone())) {
+            throw new BadRequestException("phone là bắt buộc.");
+        }
+        if (!StringUtils.hasText(request.getAddressDetail())) {
+            throw new BadRequestException("addressDetail là bắt buộc.");
+        }
+
+        Account member = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        ShippingAddress address = shippingAddressRepository.findById(id)
+                .filter(a -> a.getMember().getId().equals(member.getId()))
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy địa chỉ."));
+
+        boolean isDefault = Boolean.TRUE.equals(request.getIsDefault());
+        if (isDefault && !Boolean.TRUE.equals(address.getIsDefault())) {
+            shippingAddressRepository.clearDefaultForMember(member.getId());
+        }
+
+        address.setRecipientName(request.getRecipientName());
+        address.setPhone(request.getPhone());
+        address.setAddressDetail(request.getAddressDetail());
+        address.setIsDefault(isDefault);
+        shippingAddressRepository.save(address);
+
+        return UpdateShippingAddressResponse.builder()
+                .id(address.getId().toString())
+                .phone(address.getPhone())
                 .build();
     }
 }

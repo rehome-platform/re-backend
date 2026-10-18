@@ -3,6 +3,7 @@ package com.rehome.rehome.ServiceImpl;
 import com.rehome.rehome.dto.request.AddShippingAddressRequest;
 import com.rehome.rehome.dto.response.CreateShippingAddressResponse;
 import com.rehome.rehome.dto.response.ShippingAddressResponse;
+import com.rehome.rehome.dto.response.UpdateShippingAddressResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.marketplace.ShippingAddress;
 import com.rehome.rehome.exception.BadRequestException;
@@ -191,6 +192,175 @@ class ShippingAddressServiceImplTest {
         CreateShippingAddressResponse response = shippingAddressService.createAddress(email, request);
 
         assertThat(response.getIsDefault()).isFalse();
+        verify(shippingAddressRepository, never()).clearDefaultForMember(any());
+    }
+
+    @Test
+    void updateAddress_throwsBadRequest_whenRecipientNameIsBlank() {
+        AddShippingAddressRequest request = new AddShippingAddressRequest("  ", "0912345678", "12 Nguyễn Trãi", true);
+        UUID addressId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> shippingAddressService.updateAddress(email, addressId, request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("recipientName là bắt buộc.");
+
+        verify(accountRepository, never()).findByEmail(any());
+    }
+
+    @Test
+    void updateAddress_throwsBadRequest_whenPhoneIsBlank() {
+        AddShippingAddressRequest request = new AddShippingAddressRequest("Tạ Thị Ngọc Anh", "", "12 Nguyễn Trãi", true);
+        UUID addressId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> shippingAddressService.updateAddress(email, addressId, request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("phone là bắt buộc.");
+    }
+
+    @Test
+    void updateAddress_throwsBadRequest_whenAddressDetailIsBlank() {
+        AddShippingAddressRequest request = new AddShippingAddressRequest("Tạ Thị Ngọc Anh", "0912345678", null, true);
+        UUID addressId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> shippingAddressService.updateAddress(email, addressId, request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("addressDetail là bắt buộc.");
+    }
+
+    @Test
+    void updateAddress_throwsNotFound_whenAccountDoesNotExist() {
+        AddShippingAddressRequest request = new AddShippingAddressRequest(
+                "Tạ Thị Ngọc Anh", "0912345679", "12 Nguyễn Trãi, Q.1, TP.HCM", true);
+        UUID addressId = UUID.randomUUID();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> shippingAddressService.updateAddress(email, addressId, request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Account không tồn tại");
+
+        verify(shippingAddressRepository, never()).save(any());
+    }
+
+    @Test
+    void updateAddress_throwsNotFound_whenAddressDoesNotExist() {
+        AddShippingAddressRequest request = new AddShippingAddressRequest(
+                "Tạ Thị Ngọc Anh", "0912345679", "12 Nguyễn Trãi, Q.1, TP.HCM", true);
+        UUID addressId = UUID.randomUUID();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> shippingAddressService.updateAddress(email, addressId, request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy địa chỉ.");
+
+        verify(shippingAddressRepository, never()).save(any());
+    }
+
+    @Test
+    void updateAddress_throwsNotFound_whenAddressBelongsToAnotherMember() {
+        AddShippingAddressRequest request = new AddShippingAddressRequest(
+                "Tạ Thị Ngọc Anh", "0912345679", "12 Nguyễn Trãi, Q.1, TP.HCM", true);
+        UUID addressId = UUID.randomUUID();
+
+        Account anotherMember = Account.builder().id(UUID.randomUUID()).email("other@example.com").build();
+        ShippingAddress existing = ShippingAddress.builder()
+                .id(addressId)
+                .member(anotherMember)
+                .recipientName("Nguyễn Văn A")
+                .phone("0987654321")
+                .addressDetail("45 Lê Lợi, Q.3, TP.HCM")
+                .isDefault(false)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> shippingAddressService.updateAddress(email, addressId, request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy địa chỉ.");
+
+        verify(shippingAddressRepository, never()).save(any());
+    }
+
+    @Test
+    void updateAddress_updatesFieldsAndClearsPreviousDefault_whenIsDefaultBecomesTrue() {
+        AddShippingAddressRequest request = new AddShippingAddressRequest(
+                "Tạ Thị Ngọc Anh", "0912345679", "12 Nguyễn Trãi, Q.1, TP.HCM", true);
+        UUID addressId = UUID.randomUUID();
+
+        ShippingAddress existing = ShippingAddress.builder()
+                .id(addressId)
+                .member(member)
+                .recipientName("Tên cũ")
+                .phone("0900000000")
+                .addressDetail("Địa chỉ cũ")
+                .isDefault(false)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(existing));
+
+        UpdateShippingAddressResponse response = shippingAddressService.updateAddress(email, addressId, request);
+
+        assertThat(response.getId()).isEqualTo(addressId.toString());
+        assertThat(response.getPhone()).isEqualTo("0912345679");
+
+        verify(shippingAddressRepository).clearDefaultForMember(member.getId());
+
+        ArgumentCaptor<ShippingAddress> captor = ArgumentCaptor.forClass(ShippingAddress.class);
+        verify(shippingAddressRepository).save(captor.capture());
+        assertThat(captor.getValue().getRecipientName()).isEqualTo("Tạ Thị Ngọc Anh");
+        assertThat(captor.getValue().getPhone()).isEqualTo("0912345679");
+        assertThat(captor.getValue().getAddressDetail()).isEqualTo("12 Nguyễn Trãi, Q.1, TP.HCM");
+        assertThat(captor.getValue().getIsDefault()).isTrue();
+    }
+
+    @Test
+    void updateAddress_doesNotClearDefault_whenAddressIsAlreadyDefault() {
+        AddShippingAddressRequest request = new AddShippingAddressRequest(
+                "Tạ Thị Ngọc Anh", "0912345679", "12 Nguyễn Trãi, Q.1, TP.HCM", true);
+        UUID addressId = UUID.randomUUID();
+
+        ShippingAddress existing = ShippingAddress.builder()
+                .id(addressId)
+                .member(member)
+                .recipientName("Tên cũ")
+                .phone("0900000000")
+                .addressDetail("Địa chỉ cũ")
+                .isDefault(true)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(existing));
+
+        shippingAddressService.updateAddress(email, addressId, request);
+
+        verify(shippingAddressRepository, never()).clearDefaultForMember(any());
+    }
+
+    @Test
+    void updateAddress_doesNotClearDefault_whenIsDefaultIsFalseOrNull() {
+        AddShippingAddressRequest request = new AddShippingAddressRequest(
+                "Nguyễn Văn A", "0987654321", "45 Lê Lợi, Q.3, TP.HCM", null);
+        UUID addressId = UUID.randomUUID();
+
+        ShippingAddress existing = ShippingAddress.builder()
+                .id(addressId)
+                .member(member)
+                .recipientName("Tên cũ")
+                .phone("0900000000")
+                .addressDetail("Địa chỉ cũ")
+                .isDefault(false)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(existing));
+
+        UpdateShippingAddressResponse response = shippingAddressService.updateAddress(email, addressId, request);
+
+        assertThat(response.getPhone()).isEqualTo("0987654321");
         verify(shippingAddressRepository, never()).clearDefaultForMember(any());
     }
 }

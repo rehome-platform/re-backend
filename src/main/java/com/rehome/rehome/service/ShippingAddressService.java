@@ -14,4 +14,6 @@ public interface ShippingAddressService {
     CreateShippingAddressResponse createAddress(String email, AddShippingAddressRequest request);
 
     UpdateShippingAddressResponse updateAddress(String email, UUID id, AddShippingAddressRequest request);
+
+    void deleteAddress(String email, UUID id);
 }

@@ -121,4 +121,18 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
                 .phone(address.getPhone())
                 .build();
     }
+
+    @Override
+    @Transactional
+    public void deleteAddress(String email, UUID id) {
+
+        Account member = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        ShippingAddress address = shippingAddressRepository.findById(id)
+                .filter(a -> a.getMember().getId().equals(member.getId()))
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy địa chỉ."));
+
+        shippingAddressRepository.delete(address);
+    }
 }

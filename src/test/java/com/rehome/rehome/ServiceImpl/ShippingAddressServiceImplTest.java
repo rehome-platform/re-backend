@@ -363,4 +363,76 @@ class ShippingAddressServiceImplTest {
         assertThat(response.getPhone()).isEqualTo("0987654321");
         verify(shippingAddressRepository, never()).clearDefaultForMember(any());
     }
+
+    @Test
+    void deleteAddress_throwsNotFound_whenAccountDoesNotExist() {
+        UUID addressId = UUID.randomUUID();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> shippingAddressService.deleteAddress(email, addressId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Account không tồn tại");
+
+        verify(shippingAddressRepository, never()).delete(any());
+    }
+
+    @Test
+    void deleteAddress_throwsNotFound_whenAddressDoesNotExist() {
+        UUID addressId = UUID.randomUUID();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> shippingAddressService.deleteAddress(email, addressId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy địa chỉ.");
+
+        verify(shippingAddressRepository, never()).delete(any());
+    }
+
+    @Test
+    void deleteAddress_throwsNotFound_whenAddressBelongsToAnotherMember() {
+        UUID addressId = UUID.randomUUID();
+
+        Account anotherMember = Account.builder().id(UUID.randomUUID()).email("other@example.com").build();
+        ShippingAddress existing = ShippingAddress.builder()
+                .id(addressId)
+                .member(anotherMember)
+                .recipientName("Nguyễn Văn A")
+                .phone("0987654321")
+                .addressDetail("45 Lê Lợi, Q.3, TP.HCM")
+                .isDefault(false)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> shippingAddressService.deleteAddress(email, addressId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy địa chỉ.");
+
+        verify(shippingAddressRepository, never()).delete(any());
+    }
+
+    @Test
+    void deleteAddress_deletesAddress_onSuccess() {
+        UUID addressId = UUID.randomUUID();
+
+        ShippingAddress existing = ShippingAddress.builder()
+                .id(addressId)
+                .member(member)
+                .recipientName("Tạ Thị Ngọc Anh")
+                .phone("0912345678")
+                .addressDetail("12 Nguyễn Trãi, Q.1, TP.HCM")
+                .isDefault(false)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(existing));
+
+        shippingAddressService.deleteAddress(email, addressId);
+
+        verify(shippingAddressRepository).delete(existing);
+    }
 }

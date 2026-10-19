@@ -18,4 +18,6 @@ public interface OrganizationProfileRepository extends JpaRepository<Organizatio
     boolean existsByContactEmailIgnoreCaseAndAccountIdNot(String contactEmail, UUID accountId);
     boolean existsByTaxCodeAndAccountIdNot(String taxCode, UUID accountId);
     Optional<OrganizationProfile> findByAccountId(UUID accountId);
+
+
 }

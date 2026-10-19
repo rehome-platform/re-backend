@@ -22,7 +22,8 @@ public enum ErrorCode {
     ORGANIZATION_EMAIL_TAKEN(HttpStatus.CONFLICT, "Email liên hệ đã được sử dụng."),
     ORGANIZATION_TAX_CODE_TAKEN(HttpStatus.CONFLICT, "Mã số thuế đã được sử dụng."),
     ORGANIZATION_PROFILE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy hồ sơ tổ chức."),
-    ORGANIZATION_NOT_REJECTED(HttpStatus.FORBIDDEN, "Chỉ nộp lại hồ sơ khi trạng thái là REJECTED.");
+    ORGANIZATION_NOT_REJECTED(HttpStatus.FORBIDDEN, "Chỉ nộp lại hồ sơ khi trạng thái là REJECTED."),
+    NOT_ORGANIZATION_ACCOUNT(HttpStatus.FORBIDDEN, "Chỉ tài khoản tổ chức mới được nộp hồ sơ."); // <-- dấu ; ở đây
     private final HttpStatus status;
     private final String defaultMessage;
 }

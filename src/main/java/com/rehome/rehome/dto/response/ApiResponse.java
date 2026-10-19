@@ -94,4 +94,13 @@ public class ApiResponse<T> {
                 .message(message)
                 .build();
     }
+
+    public static <T> ApiResponse<T> success(T data, int statusCode, String message) {
+        return ApiResponse.<T>builder()
+                .result(data)
+                .isSuccess(true)
+                .statusCode(statusCode)
+                .message(message)
+                .build();
+    }
 }

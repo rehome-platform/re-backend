@@ -5,36 +5,41 @@ import com.rehome.rehome.dto.response.OrganizationResubmitResponse;
 import com.rehome.rehome.dto.response.RegisterOrganizationResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
+import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.VerificationStatus;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.OrganizationProfileMapper;
 import com.rehome.rehome.repository.AccountRepository;
-import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
-import com.rehome.rehome.security.GoogleTokenVerifier;
-import com.rehome.rehome.security.JwtService;
 import com.rehome.rehome.service.OrganizationService;
-import com.rehome.rehome.service.OtpService;
-import com.rehome.rehome.service.RefreshTokenService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.UUID;
+
 @Service
 @RequiredArgsConstructor
 public class OrganizationServiceImpl implements OrganizationService {
 
     private final OrganizationProfileRepository organizationProfileRepository;
     private final OrganizationProfileMapper organizationProfileMapper;
+    private final AccountRepository accountRepository;
 
     @Override
     @Transactional
-    public RegisterOrganizationResponse registerOrganization(Account account, RegisterOrganizationRequest request) {
+    public RegisterOrganizationResponse registerOrganization(UUID accountId, RegisterOrganizationRequest request) {
+        Account account = accountRepository.findById(accountId)
+                .orElseThrow(() -> new AppException(ErrorCode.UNAUTHORIZED));
+
+        if (account.getRole() != Role.ORGANIZATION) {
+            throw new AppException(ErrorCode.NOT_ORGANIZATION_ACCOUNT);
+        }
+
         String email = request.getContactEmail().trim().toLowerCase();
 
-        if (organizationProfileRepository.existsByAccountId(account.getId())) {
+        if (organizationProfileRepository.existsByAccountId(accountId)) {
             throw new AppException(ErrorCode.ORGANIZATION_PROFILE_ALREADY_EXISTS);
         }
         if (organizationProfileRepository.existsByContactEmailIgnoreCase(email)) {
@@ -45,7 +50,8 @@ public class OrganizationServiceImpl implements OrganizationService {
         }
 
         OrganizationProfile organization = organizationProfileMapper.toEntity(request);
-        organization.setAccount(account);
+        organization.setContactEmail(email);              // lưu bản đã chuẩn hóa
+        organization.setAccount(account);                 // account giờ là managed
         organization.setVerificationStatus(VerificationStatus.PENDING);
 
         organizationProfileRepository.save(organization);

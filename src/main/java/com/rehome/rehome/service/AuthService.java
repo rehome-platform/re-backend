@@ -10,7 +10,9 @@ import com.rehome.rehome.entity.auth.Account;
 
 public interface AuthService {
 
-    OtpResponse register(RegisterRequest request);
+    OtpResponse registerMember(RegisterRequest request);
+
+    OtpResponse registerOrganization(RegisterRequest request);
 
     AuthResponse login(LoginRequest request);
 

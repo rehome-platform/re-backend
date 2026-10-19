@@ -1,6 +1,7 @@
 package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.response.PageResponse;
+import com.rehome.rehome.dto.response.ProductDetailResponse;
 import com.rehome.rehome.dto.response.ProductSummaryResponse;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
@@ -69,5 +70,32 @@ public class ProductServiceImpl implements ProductService {
                 .build());
 
         return PageResponse.from(mapped);
+    }
+
+    @Override
+    public ProductDetailResponse getProductDetail(String id) {
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm."));
+
+        List<String> photos = productPhotoRepository.findByProduct_IdOrderByIdAsc(id).stream()
+                .map(ProductPhoto::getImageUrl)
+                .toList();
+
+        return ProductDetailResponse.builder()
+                .id(product.getId())
+                .name(product.getName())
+                .currentPrice(product.getCurrentPrice())
+                .originalPrice(product.getConsignmentReceipt().getAgreedPrice())
+                .status(product.getStatus())
+                .brandName(product.getBrand().getName())
+                .categoryName(product.getCategory().getName())
+                .size(product.getSize())
+                .condition(product.getConditionNote())
+                .description(product.getConditionNote())
+                .inspectionDate(product.getConsignmentReceipt().getConfirmedAt())
+                .warehouseId(product.getWarehouse().getId())
+                .warehouseName(product.getWarehouse().getName())
+                .photos(photos)
+                .build();
     }
 }

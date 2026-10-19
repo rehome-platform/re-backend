@@ -15,7 +15,9 @@ public class CartProductResponse {
     private String id;
     private String name;
     private String thumbnailUrl;
+    private String brandName;
     private String size;
+    private String condition;
     private BigDecimal originalPrice;
     private BigDecimal currentPrice;
 }

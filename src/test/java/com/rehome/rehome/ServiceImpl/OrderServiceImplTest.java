@@ -261,6 +261,45 @@ class OrderServiceImplTest {
     }
 
     @Test
+    void createOrders_buyNow_removesOrderedProductFromCart_whenAlsoPresentThere() {
+        Cart cart = Cart.builder().id(UUID.randomUUID()).member(member).build();
+        CartItem item1 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(product1).build();
+        CartItem item2 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(product2).build();
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"));
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
+        when(productRepository.findByIdForUpdate("Q7-AK-000845")).thenReturn(Optional.of(product1));
+        when(cartRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(cart));
+        when(cartItemRepository.findAllByCartIdWithProduct(cart.getId())).thenReturn(List.of(item1, item2));
+        stubOrderSaveAssignsId();
+
+        orderService.createOrders(email, request);
+
+        ArgumentCaptor<List<String>> idsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(cartItemRepository).deleteByCart_IdAndProduct_IdIn(eq(cart.getId()), idsCaptor.capture());
+        assertThat(idsCaptor.getValue()).containsExactly("Q7-AK-000845");
+    }
+
+    @Test
+    void createOrders_buyNow_doesNotTouchCart_whenOrderedProductNotInCart() {
+        Cart cart = Cart.builder().id(UUID.randomUUID()).member(member).build();
+        CartItem item2 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(product2).build();
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"));
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
+        when(productRepository.findByIdForUpdate("Q7-AK-000845")).thenReturn(Optional.of(product1));
+        when(cartRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(cart));
+        when(cartItemRepository.findAllByCartIdWithProduct(cart.getId())).thenReturn(List.of(item2));
+        stubOrderSaveAssignsId();
+
+        orderService.createOrders(email, request);
+
+        verify(cartItemRepository, never()).deleteByCart_IdAndProduct_IdIn(any(), any());
+    }
+
+    @Test
     void createOrders_usesCommissionRateOfCurrentTerm() {
         product1.setCurrentTerm((short) 2);
         CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"));

@@ -18,6 +18,7 @@ public interface CartItemRepository extends JpaRepository<CartItem, UUID> {
             "join fetch ci.product p " +
             "join fetch p.warehouse " +
             "join fetch p.consignmentReceipt " +
+            "join fetch p.brand " +
             "where ci.cart.id = :cartId " +
             "order by ci.addedAt desc")
     List<CartItem> findAllByCartIdWithProduct(@Param("cartId") UUID cartId);

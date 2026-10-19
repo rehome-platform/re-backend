@@ -9,6 +9,7 @@ import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.marketplace.Cart;
 import com.rehome.rehome.entity.marketplace.CartItem;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
+import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.Warehouse;
@@ -190,13 +191,18 @@ class CartServiceImplTest {
         ConsignmentReceipt receipt1 = ConsignmentReceipt.builder().agreedPrice(new BigDecimal("350000")).build();
         ConsignmentReceipt receipt2 = ConsignmentReceipt.builder().agreedPrice(new BigDecimal("450000")).build();
 
+        Brand brand1 = Brand.builder().id(UUID.randomUUID()).name("Zara").build();
+        Brand brand2 = Brand.builder().id(UUID.randomUUID()).name("Levi's").build();
+
         Product availableProduct = Product.builder()
                 .id("Q7-AK-000845")
                 .name("Áo sơ mi Zara trắng")
                 .size("M")
+                .conditionNote("Còn 90%")
                 .currentPrice(new BigDecimal("220000"))
                 .status(ProductStatus.ON_SALE)
                 .warehouse(warehouse1)
+                .brand(brand1)
                 .consignmentReceipt(receipt1)
                 .build();
 
@@ -204,9 +210,11 @@ class CartServiceImplTest {
                 .id("Q7-AK-000912")
                 .name("Quần jean Levi's xanh")
                 .size("30")
+                .conditionNote("Còn 80%")
                 .currentPrice(new BigDecimal("380000"))
                 .status(ProductStatus.SOLD)
                 .warehouse(warehouse2)
+                .brand(brand2)
                 .consignmentReceipt(receipt2)
                 .build();
 
@@ -250,6 +258,8 @@ class CartServiceImplTest {
                 .isEqualTo("https://cdn.rehome.vn/products/Q7-AK-000845/thumb.jpg");
         assertThat(group1.getItems().get(0).getProduct().getOriginalPrice()).isEqualTo(new BigDecimal("350000"));
         assertThat(group1.getItems().get(0).getProduct().getCurrentPrice()).isEqualTo(new BigDecimal("220000"));
+        assertThat(group1.getItems().get(0).getProduct().getBrandName()).isEqualTo("Zara");
+        assertThat(group1.getItems().get(0).getProduct().getCondition()).isEqualTo("Còn 90%");
 
         CartWarehouseGroupResponse group2 = response.getGroupedByWarehouse().get(1);
         assertThat(group2.getWarehouseId()).isEqualTo(warehouse2.getId().toString());
@@ -316,13 +326,16 @@ class CartServiceImplTest {
         Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).name("Kho Quận 7").build();
         ConsignmentReceipt receipt = ConsignmentReceipt.builder().agreedPrice(new BigDecimal("350000")).build();
 
+        Brand brand = Brand.builder().id(UUID.randomUUID()).name("Zara").build();
         Product p = Product.builder()
                 .id("Q7-AK-000845")
                 .name("Áo sơ mi Zara trắng")
                 .size("M")
+                .conditionNote("Còn 90%")
                 .currentPrice(new BigDecimal("220000"))
                 .status(ProductStatus.ON_SALE)
                 .warehouse(warehouse)
+                .brand(brand)
                 .consignmentReceipt(receipt)
                 .build();
 

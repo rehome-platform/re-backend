@@ -60,14 +60,14 @@ public class CartServiceImpl implements CartService {
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm."));
 
         if (product.getStatus() != ProductStatus.ON_SALE) {
-            throw new ConflictException("Sản phẩm không còn để bán.");
+            throw new ConflictException("Sản phẩm không còn để bán.", "PRODUCT_NOT_AVAILABLE");
         }
 
         Cart cart = cartRepository.findByMember_Id(member.getId())
                 .orElseGet(() -> cartRepository.save(Cart.builder().member(member).build()));
 
         if (cartItemRepository.existsByCart_IdAndProduct_Id(cart.getId(), product.getId())) {
-            throw new ConflictException("Sản phẩm đã có trong giỏ hàng.");
+            throw new ConflictException("Sản phẩm đã có trong giỏ hàng.", "ALREADY_IN_CART");
         }
 
         CartItem item = CartItem.builder()
@@ -135,7 +135,9 @@ public class CartServiceImpl implements CartService {
                                 .id(product.getId())
                                 .name(product.getName())
                                 .thumbnailUrl(thumbnailByProductId.get(product.getId()))
+                                .brandName(product.getBrand().getName())
                                 .size(product.getSize())
+                                .condition(product.getConditionNote())
                                 .originalPrice(product.getConsignmentReceipt().getAgreedPrice())
                                 .currentPrice(product.getCurrentPrice())
                                 .build())

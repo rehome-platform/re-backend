@@ -46,8 +46,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ApiResponse<?>> handleConflict(ConflictException ex, HttpServletRequest req) {
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(ApiResponse.error(409, ex.getMessage()));
+        ApiResponse<?> body = ex.getCode() != null
+                ? ApiResponse.error(409, ex.getCode(), ex.getMessage())
+                : ApiResponse.error(409, ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 
     @ExceptionHandler(TokenRefreshException.class)

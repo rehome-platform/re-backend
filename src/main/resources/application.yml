@@ -83,6 +83,8 @@ app:
     shipping-fee: 25000
     payment-deadline-minutes: 15
     tax-rate: 0
+    # F-058: chu kỳ job quét đơn PENDING_PAYMENT quá hạn để tự hủy và nhả hàng về sàn
+    auto-cancel-check-interval-ms: 60000
 
 # ==================== LOGGING ====================
 logging:

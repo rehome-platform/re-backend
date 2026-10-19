@@ -1,11 +1,13 @@
 package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.CreateOrderRequest;
+import com.rehome.rehome.dto.request.RateOrderRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
 import com.rehome.rehome.dto.response.OrderConfirmReceiptResponse;
 import com.rehome.rehome.dto.response.OrderDetailResponse;
 import com.rehome.rehome.dto.response.OrderListResponse;
+import com.rehome.rehome.dto.response.OrderRatingResponse;
 import com.rehome.rehome.dto.response.OrderResponse;
 import com.rehome.rehome.service.OrderService;
 import lombok.RequiredArgsConstructor;
@@ -97,5 +99,18 @@ public class OrderController {
         OrderConfirmReceiptResponse result = orderService.confirmReceipt(email, id);
 
         return ResponseEntity.ok(ApiResponse.success(result, "Đã xác nhận nhận hàng"));
+    }
+
+    @PostMapping("/{id}/rating")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<OrderRatingResponse>> rateOrder(
+            Authentication authentication,
+            @PathVariable UUID id,
+            @RequestBody RateOrderRequest request) {
+
+        String email = authentication.getName();
+        OrderRatingResponse result = orderService.rateOrder(email, id, request);
+
+        return ResponseEntity.ok(ApiResponse.success(result, "Đã ghi nhận đánh giá"));
     }
 }

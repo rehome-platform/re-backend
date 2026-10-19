@@ -95,6 +95,7 @@ class AuthServiceImplTest {
         when(req.getPassword()).thenReturn("pw");
         when(req.getPhone()).thenReturn("0909");
         when(req.getFullName()).thenReturn("Nguyen A");
+        when(req.getRole()).thenReturn(Role.MEMBER);
         when(accountRepository.existsByEmail("a@x.com")).thenReturn(false);
         when(passwordEncoder.encode("pw")).thenReturn("hashed");
 
@@ -390,31 +391,35 @@ class AuthServiceImplTest {
     }
 
     @Test
+    void registerOrganization_profileAlreadyExists_throws() {
+        Account current = currentAccount();
+        RegisterOrganizationRequest req = orgRequest("contact@chiase.org", "0312345678");
+        when(organizationProfileRepository.existsByAccountId(current.getId())).thenReturn(true);
+
+        assertAppError(() -> service1.registerOrganization(current, req), ErrorCode.ORGANIZATION_PROFILE_ALREADY_EXISTS);
+
+        verify(organizationProfileRepository, never()).save(any());
+    }
+
+    @Test
     void registerOrganization_emailExists_throws() {
         Account current = currentAccount();
         RegisterOrganizationRequest req = orgRequest("  Contact@Chiase.ORG ", "0312345678");
-        when(accountRepository.existsByEmailIgnoreCase("contact@chiase.org")).thenReturn(true);
+        when(organizationProfileRepository.existsByContactEmailIgnoreCase("contact@chiase.org")).thenReturn(true);
 
-        assertThatThrownBy(() -> service1.registerOrganization(current, req))
-                .isInstanceOf(AccountAlreadyExistsException.class)
-                .hasMessage("Email đã được sử dụng!!");
+        assertAppError(() -> service1.registerOrganization(current, req), ErrorCode.ORGANIZATION_EMAIL_TAKEN);
 
-        verifyNoInteractions(organizationProfileRepository);
-        verify(accountRepository, never()).save(any());
+        verify(organizationProfileRepository, never()).save(any());
     }
 
     @Test
     void registerOrganization_taxCodeExists_throws() {
         Account current = currentAccount();
         RegisterOrganizationRequest req = orgRequest("contact@chiase.org", "0312345678");
-        when(accountRepository.existsByEmailIgnoreCase("contact@chiase.org")).thenReturn(false);
         when(organizationProfileRepository.existsByTaxCode("0312345678")).thenReturn(true);
 
-        assertThatThrownBy(() -> service1.registerOrganization(current, req))
-                .isInstanceOf(AccountAlreadyExistsException.class)
-                .hasMessage("Mã số thuế đã được sử dụng!!");
+        assertAppError(() -> service1.registerOrganization(current, req), ErrorCode.ORGANIZATION_TAX_CODE_TAKEN);
 
-        verify(accountRepository, never()).save(any());
         verify(organizationProfileRepository, never()).save(any());
     }
 
@@ -422,9 +427,6 @@ class AuthServiceImplTest {
     void registerOrganization_success() {
         Account current = currentAccount();
         RegisterOrganizationRequest req = orgRequest("  Contact@Chiase.ORG ", "0312345678");
-        when(accountRepository.existsByEmailIgnoreCase("contact@chiase.org")).thenReturn(false);
-        when(organizationProfileRepository.existsByTaxCode("0312345678")).thenReturn(false);
-        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
 
         OrganizationProfile org = new OrganizationProfile();
         when(organizationProfileMapper.toEntity(req)).thenReturn(org);
@@ -433,15 +435,8 @@ class AuthServiceImplTest {
 
         RegisterOrganizationResponse result = service1.registerOrganization(current, req);
 
-        ArgumentCaptor<Account> accountCaptor = ArgumentCaptor.forClass(Account.class);
-        verify(accountRepository).save(accountCaptor.capture());
-        Account savedAccount = accountCaptor.getValue();
-        assertThat(savedAccount).isNotSameAs(current);
-        assertThat(savedAccount).extracting("email", "role", "status")
-                .containsExactly("contact@chiase.org", Role.ORGANIZATION, AccountStatus.ACTIVE);
-
         assertThat(org).extracting("account", "verificationStatus")
-                .containsExactly(savedAccount, VerificationStatus.PENDING);
+                .containsExactly(current, VerificationStatus.PENDING);
         verify(organizationProfileRepository).save(org);
         assertThat(result).isSameAs(expected);
     }

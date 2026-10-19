@@ -83,6 +83,8 @@ app:
     shipping-fee: 25000
     payment-deadline-minutes: 15
     tax-rate: 0
+    # F-058: chu kỳ job quét đơn PENDING_PAYMENT quá hạn để tự hủy và nhả hàng về sàn
+    auto-cancel-check-interval-ms: 60000
 
 # ==================== LOGGING ====================
 logging:
@@ -92,3 +94,14 @@ logging:
 
 google:
   client-id: ${GOOGLE_CLIENT_ID}
+
+# ==================== MOMO PAYMENT (SANDBOX) ====================
+momo:
+  partner-code: ${MOMO_PARTNER_CODE:MOMO}
+  return-url: ${MOMO_RETURN_URL:http://localhost:3000/}
+  end-point: ${MOMO_END_POINT:https://test-payment.momo.vn/v2/gateway/api}
+  ipn-url: ${MOMO_IPN_URL:http://localhost:8080/api/momo/ipn-handler}
+  access-key: ${MOMO_ACCESS_KEY:F8BBA842ECF85}
+  secret-key: ${MOMO_SECRET_KEY:K951B6PE1waDMi640xX08PD3vg6EkVlz}
+  # payWithMethod = hiện trang cho chọn Ví MoMo / ATM / VISA-Master-JCB; captureWallet = chỉ QR/app MoMo
+  request-type: ${MOMO_REQUEST_TYPE:payWithMethod}

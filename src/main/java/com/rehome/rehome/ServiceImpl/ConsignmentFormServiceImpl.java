@@ -1,6 +1,7 @@
 package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.request.ConsignmentFormRequest;
+import com.rehome.rehome.dto.response.ConsignmentFormDetailResponse;
 import com.rehome.rehome.dto.response.ConsignmentFormListItemResponse;
 import com.rehome.rehome.dto.response.ConsignmentFormResponse;
 import com.rehome.rehome.dto.response.PageResponse;
@@ -70,5 +71,17 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
                 : consignmentFormRepository.findByMemberIdAndStatus(account.getId(), status, pageable);
 
         return PageResponse.of(result.map(consignmentFormMapper::toListItem));
+    }
+
+    @Override
+    public ConsignmentFormDetailResponse getMyForm(Account account, UUID id) {
+        ConsignmentForm form = consignmentFormRepository.findById(id)
+                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));
+
+        if (!form.getMember().getId().equals(account.getId())) {
+            throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
+        }
+
+        return consignmentFormMapper.toDetail(form);
     }
 }

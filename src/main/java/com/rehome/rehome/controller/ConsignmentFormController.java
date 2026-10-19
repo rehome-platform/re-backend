@@ -1,10 +1,7 @@
 package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.ConsignmentFormRequest;
-import com.rehome.rehome.dto.response.ApiResponse;
-import com.rehome.rehome.dto.response.ConsignmentFormListItemResponse;
-import com.rehome.rehome.dto.response.ConsignmentFormResponse;
-import com.rehome.rehome.dto.response.PageResponse;
+import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
 import com.rehome.rehome.service.ConsignmentFormService;
@@ -16,6 +13,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/consignment-forms")
@@ -53,5 +52,13 @@ public class ConsignmentFormController {
                 consignmentFormService.getMyForms(account, status, page, size), 200));
     }
 
+    @GetMapping("/{id}")
+    @Operation(summary = "Chi tiết form ký gửi của tôi")
+    public ResponseEntity<ApiResponse<ConsignmentFormDetailResponse>> getMyForm(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal Account account) {
+        return ResponseEntity.ok(ApiResponse.success(
+                consignmentFormService.getMyForm(account, id), 200));
+    }
 
 }

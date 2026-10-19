@@ -3,13 +3,16 @@ package com.rehome.rehome.service;
 import com.rehome.rehome.dto.request.*;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
 import com.rehome.rehome.dto.response.AuthResponse;
+import com.rehome.rehome.dto.response.OrganizationResubmitResponse;
 import com.rehome.rehome.dto.response.OtpResponse;
 import com.rehome.rehome.dto.response.RegisterOrganizationResponse;
 import com.rehome.rehome.entity.auth.Account;
 
 public interface AuthService {
 
-    OtpResponse register(RegisterRequest request);
+    OtpResponse registerMember(RegisterRequest request);
+
+    OtpResponse registerOrganization(RegisterRequest request);
 
     AuthResponse login(LoginRequest request);
 
@@ -19,7 +22,7 @@ public interface AuthService {
 
     void logout(String email);
 
-    RegisterOrganizationResponse registerOrganization(Account account,RegisterOrganizationRequest request);
-
     void changePassword(Account account, ChangePasswordRequest changePasswordRequest);
+
+
 }

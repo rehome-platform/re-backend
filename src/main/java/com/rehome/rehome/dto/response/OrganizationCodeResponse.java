@@ -6,11 +6,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Data
-@NoArgsConstructor
 @AllArgsConstructor
+@NoArgsConstructor
 @Builder
-public class CreateShippingAddressResponse {
-    private String id;
-    private String recipientName;
-    private Boolean isDefault;
+public class OrganizationCodeResponse {
+    private String organizationCode;
 }

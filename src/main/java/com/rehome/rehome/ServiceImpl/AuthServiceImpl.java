@@ -4,6 +4,7 @@ package com.rehome.rehome.ServiceImpl;
 import com.rehome.rehome.dto.request.*;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
 import com.rehome.rehome.dto.response.AuthResponse;
+import com.rehome.rehome.dto.response.OrganizationResubmitResponse;
 import com.rehome.rehome.dto.response.OtpResponse;
 
 import com.rehome.rehome.dto.response.RegisterOrganizationResponse;
@@ -64,7 +65,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Transactional
     @Override
-    public OtpResponse register(RegisterRequest request) {
+    public OtpResponse registerMember(RegisterRequest request) {
 
         if (accountRepository.existsByEmail(request.getEmail())) {
             throw new AccountAlreadyExistsException(
@@ -89,6 +90,35 @@ public class AuthServiceImpl implements AuthService {
         memberProfile.setFullName(request.getFullName());
 
         memberProfileRepository.save(memberProfile);
+
+        otpService.issue(account, OtpPurpose.REGISTER);
+
+        return new OtpResponse(
+                "Đăng ký thành công. Vui lòng kiểm tra email để xác minh OTP."
+        );
+    }
+
+    @Transactional
+    @Override
+    public OtpResponse registerOrganization(RegisterRequest request) {
+
+        if (accountRepository.existsByEmail(request.getEmail())) {
+            throw new AccountAlreadyExistsException(
+                    "Email đã tồn tại: " + request.getEmail()
+            );
+        }
+
+        Account account = Account.builder()
+                .email(request.getEmail())
+                .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .role(Role.ORGANIZATION)
+                .status(AccountStatus.ACTIVE)
+                .emailVerified(false)
+                .phone(request.getPhone())
+                .createdAt(Instant.now())
+                .build();
+
+        accountRepository.save(account);
 
         otpService.issue(account, OtpPurpose.REGISTER);
 
@@ -122,6 +152,8 @@ public class AuthServiceImpl implements AuthService {
         if (!account.isEmailVerified()) {
             throw new AppException(ErrorCode.EMAIL_NOT_VERIFIED);
         }
+
+
 
         return generateAuthResponse(account);
     }
@@ -239,33 +271,8 @@ public class AuthServiceImpl implements AuthService {
         return AuthResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken.getToken())
+                .role(account.getRole())
                 .build();
-    }
-
-    @Override
-    @Transactional
-    public RegisterOrganizationResponse registerOrganization(Account account,RegisterOrganizationRequest request) {
-        String email = request.getContactEmail().trim().toLowerCase();
-
-        if (accountRepository.existsByEmailIgnoreCase(email)) {
-            throw new AccountAlreadyExistsException("Email đã được sử dụng!!");
-        }
-        if (organizationProfileRepository.existsByTaxCode(request.getTaxCode())) {
-            throw new AccountAlreadyExistsException("Mã số thuế đã được sử dụng!!");
-        }
-
-        account = accountRepository.save(Account.builder()
-                .email(email)
-                .role(Role.ORGANIZATION)
-                .status(AccountStatus.ACTIVE)
-                .build());
-
-        OrganizationProfile organization = organizationProfileMapper.toEntity(request);
-        organization.setAccount(account);
-        organization.setVerificationStatus(VerificationStatus.PENDING);
-
-        organizationProfileRepository.save(organization);
-        return organizationProfileMapper.toResponse(organization);
     }
 
     @Override

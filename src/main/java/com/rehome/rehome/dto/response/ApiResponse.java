@@ -64,6 +64,16 @@ public class ApiResponse<T> {
                 .build();
     }
 
+    public static <T> ApiResponse<T> error(int statusCode, String code, String message) {
+        return ApiResponse.<T>builder()
+                .result(null)
+                .isSuccess(false)
+                .statusCode(statusCode)
+                .code(code)
+                .message(message)
+                .build();
+    }
+
     // MỚI: lỗi có code để FE điều hướng màn hình
     public static <T> ApiResponse<T> error(ErrorCode ec) {
         return ApiResponse.<T>builder()
@@ -81,6 +91,15 @@ public class ApiResponse<T> {
                 .isSuccess(false)
                 .statusCode(ec.getStatus().value())
                 .code(ec.name())
+                .message(message)
+                .build();
+    }
+
+    public static <T> ApiResponse<T> success(T data, int statusCode, String message) {
+        return ApiResponse.<T>builder()
+                .result(data)
+                .isSuccess(true)
+                .statusCode(statusCode)
                 .message(message)
                 .build();
     }

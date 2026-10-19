@@ -1,6 +1,7 @@
 package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.RegisterRequest;
+import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.OtpResponse;
 import com.rehome.rehome.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -20,7 +21,7 @@ public class MemberProfileController {
 
     @PostMapping("/register")
     @Operation(summary = "Đăng ký tài khoản member")
-    public ResponseEntity<OtpResponse> register(@Valid @RequestBody RegisterRequest request) {
-        return ResponseEntity.status(201).body(authService.register(request));
+    public ResponseEntity<ApiResponse<OtpResponse>> register(@Valid @RequestBody RegisterRequest request) {
+        return ResponseEntity.status(201).body(ApiResponse.success(authService.registerMember(request), 201));
     }
 }

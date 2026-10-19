@@ -38,10 +38,20 @@ public class Order {
     @JoinColumn(name = "warehouse_id", nullable = false)
     private Warehouse warehouse;
 
-    // Địa chỉ giao hàng chọn lúc đặt
+    // Địa chỉ giao hàng chọn lúc đặt — chỉ để tham chiếu, không dùng để hiển thị
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "shipping_address_id", nullable = false)
     private ShippingAddress shippingAddress;
+
+    // Bản chụp lúc đặt hàng, không đổi theo khi Member sửa/xóa địa chỉ sau này
+    @Column(name = "shipping_recipient_name", nullable = true, length = 255)
+    private String shippingRecipientName;
+
+    @Column(name = "shipping_phone", nullable = true, length = 255)
+    private String shippingPhone;
+
+    @Column(name = "shipping_address_detail", nullable = true, length = 255)
+    private String shippingAddressDetail;
 
     // Tổng tiền sản phẩm, chưa gồm phí ship
     @Column(name = "subtotal", nullable = false, precision = 19, scale = 2)

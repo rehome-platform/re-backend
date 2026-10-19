@@ -16,6 +16,9 @@ public class OrderResponse {
     private String id;
     private String orderNo;
     private String warehouseId;
+    private String shippingRecipientName;
+    private String shippingPhone;
+    private String shippingAddressDetail;
     private BigDecimal subtotal;
     private BigDecimal shippingFee;
     private BigDecimal totalAmount;

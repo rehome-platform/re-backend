@@ -1,33 +1,47 @@
 package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.request.CreateOrderRequest;
+import com.rehome.rehome.dto.response.OrderCancelResponse;
+import com.rehome.rehome.dto.response.OrderDetailItemResponse;
+import com.rehome.rehome.dto.response.OrderDetailResponse;
 import com.rehome.rehome.dto.response.OrderListResponse;
 import com.rehome.rehome.dto.response.OrderResponse;
 import com.rehome.rehome.dto.response.OrderSummaryResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.CancelReason;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.TransactionStatus;
+import com.rehome.rehome.entity.enums.WalletTransactionType;
+import com.rehome.rehome.entity.enums.WalletType;
 import com.rehome.rehome.entity.marketplace.Cart;
 import com.rehome.rehome.entity.marketplace.CartItem;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
+import com.rehome.rehome.entity.marketplace.Payment;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.ShippingAddress;
+import com.rehome.rehome.entity.marketplace.Wallet;
+import com.rehome.rehome.entity.marketplace.WalletTransaction;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
+import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.CartItemRepository;
 import com.rehome.rehome.repository.CartRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
+import com.rehome.rehome.repository.PaymentRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.ShippingAddressRepository;
+import com.rehome.rehome.repository.WalletRepository;
+import com.rehome.rehome.repository.WalletTransactionRepository;
 import com.rehome.rehome.service.OrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -65,6 +79,9 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final ProductPhotoRepository productPhotoRepository;
+    private final PaymentRepository paymentRepository;
+    private final WalletRepository walletRepository;
+    private final WalletTransactionRepository walletTransactionRepository;
 
     // Phí ship cố định tạm thời, chưa tích hợp GHN
     @Value("${app.order.shipping-fee}")
@@ -300,6 +317,135 @@ public class OrderServiceImpl implements OrderService {
             counts.put(((OrderStatus) row[0]).name(), (Long) row[1]);
         }
         return counts;
+    }
+
+    @Override
+    public OrderDetailResponse getOrderDetail(String email, UUID orderId) {
+
+        Account buyer = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
+
+        if (!order.getBuyer().getId().equals(buyer.getId())) {
+            throw new ForbiddenException("Bạn không có quyền xem đơn này.");
+        }
+
+        List<OrderItem> orderItems = orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId);
+
+        List<String> productIds = orderItems.stream().map(oi -> oi.getProduct().getId()).distinct().toList();
+        Map<String, String> thumbnailByProductId = productPhotoRepository
+                .findByProduct_IdInOrderByIdAsc(productIds).stream()
+                .collect(Collectors.toMap(
+                        photo -> photo.getProduct().getId(),
+                        ProductPhoto::getImageUrl,
+                        (first, second) -> first
+                ));
+
+        List<OrderDetailItemResponse> items = orderItems.stream()
+                .map(oi -> {
+                    Product product = oi.getProduct();
+                    return OrderDetailItemResponse.builder()
+                            .productId(product.getId())
+                            .name(product.getName())
+                            .thumbnailUrl(thumbnailByProductId.get(product.getId()))
+                            .size(product.getSize())
+                            .brandName(product.getBrand().getName())
+                            .condition(product.getConditionNote())
+                            .priceAtOrder(oi.getPriceAtOrder())
+                            .build();
+                })
+                .toList();
+
+        Instant paidAt = paymentRepository.findByOrder_Id(orderId)
+                .map(Payment::getPaidAt)
+                .orElse(null);
+
+        return OrderDetailResponse.builder()
+                .id(order.getId().toString())
+                .orderNo(order.getOrderNo())
+                .status(order.getStatus().name())
+                .createdAt(order.getCreatedAt())
+                .paymentMethod(order.getPaymentMethod().name())
+                .paidAt(paidAt)
+                .subtotal(order.getSubtotal())
+                .shippingFee(order.getShippingFee())
+                .totalAmount(order.getTotalAmount())
+                .warehouseName(order.getWarehouse().getName())
+                .shippingRecipientName(order.getShippingRecipientName())
+                .shippingPhone(order.getShippingPhone())
+                .shippingAddressDetail(order.getShippingAddressDetail())
+                .items(items)
+                .ghnTrackingCode(order.getGhnTrackingCode())
+                .deliveredAt(order.getDeliveredAt())
+                .autoCompleteDeadline(order.getAutoCompleteDeadline())
+                .serviceRating(order.getServiceRating())
+                .ratedAt(order.getRatedAt())
+                .cancelReason(order.getCancelReason() != null ? order.getCancelReason().name() : null)
+                .cancelledAt(order.getCancelledAt())
+                .refundAmount(order.getRefundAmount())
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public OrderCancelResponse cancelOrder(String email, UUID orderId) {
+
+        Account buyer = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
+
+        if (!order.getBuyer().getId().equals(buyer.getId())) {
+            throw new ForbiddenException("Bạn không có quyền hủy đơn này.");
+        }
+
+        if (order.getStatus() == OrderStatus.PENDING_PAYMENT) {
+            throw new ConflictException("Đơn chưa thanh toán, không thể hủy theo cách này.", "ORDER_NOT_PAID_YET");
+        }
+        if (order.getStatus() == OrderStatus.CANCELLED) {
+            throw new ConflictException("Đơn đã hủy trước đó.", "ORDER_ALREADY_CANCELLED");
+        }
+        if (order.getStatus() != OrderStatus.PAID) {
+            throw new ConflictException("Đơn đã đóng gói, không thể hủy.", "CANNOT_CANCEL_AFTER_PACKING");
+        }
+
+        for (OrderItem item : orderItemRepository.findAllByOrder_Id(orderId)) {
+            Product product = productRepository.findByIdForUpdate(item.getProduct().getId()).orElse(null);
+            if (product != null && product.getStatus() == ProductStatus.RESERVED) {
+                product.setStatus(ProductStatus.ON_SALE);
+                productRepository.save(product);
+            }
+        }
+
+        Wallet wallet = walletRepository.findByMember_Id(buyer.getId())
+                .orElseGet(() -> Wallet.builder().member(buyer).build());
+        wallet.setBalance(wallet.getBalance().add(order.getTotalAmount()));
+        walletRepository.save(wallet);
+
+        WalletTransaction refundTransaction = WalletTransaction.builder()
+                .walletType(WalletType.MEMBER)
+                .walletId(wallet.getId())
+                .type(WalletTransactionType.REFUND)
+                .amount(order.getTotalAmount())
+                .relatedOrder(order)
+                .status(TransactionStatus.SUCCESS)
+                .note("Hoàn tiền hủy đơn " + order.getOrderNo())
+                .build();
+        walletTransactionRepository.save(refundTransaction);
+
+        order.setStatus(OrderStatus.CANCELLED);
+        order.setCancelReason(CancelReason.BUYER_CANCELLED);
+        order.setCancelledAt(Instant.now());
+        order.setRefundAmount(order.getTotalAmount());
+        orderRepository.save(order);
+
+        return OrderCancelResponse.builder()
+                .id(order.getId().toString())
+                .status(order.getStatus().name())
+                .build();
     }
 
     private Product lockAndValidateProduct(String productId) {

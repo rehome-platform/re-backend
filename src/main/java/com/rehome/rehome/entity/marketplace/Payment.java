@@ -41,6 +41,14 @@ public class Payment {
     @Column(name = "momo_transaction_id", nullable = true, length = 255)
     private String momoTransactionId;
 
+    // orderId gửi cho MoMo lúc tạo giao dịch (khác order_id nội bộ, dùng để map IPN về đúng Payment)
+    @Column(name = "momo_order_id", nullable = true, length = 255, unique = true)
+    private String momoOrderId;
+
+    // requestId gửi cho MoMo lúc tạo giao dịch
+    @Column(name = "momo_request_id", nullable = true, length = 255)
+    private String momoRequestId;
+
     // PENDING / SUCCESS / FAILED
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)

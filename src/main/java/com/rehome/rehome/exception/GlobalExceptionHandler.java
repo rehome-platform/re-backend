@@ -35,8 +35,29 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
-    public ResponseEntity<ApiError> handleInvalidJson(Exception ex, HttpServletRequest req) {
-        return build(HttpStatus.BAD_REQUEST, "JSON không hợp lệ. purpose phải là REGISTER hoặc FORGOT_PASSWORD.", req);
+    public ResponseEntity<ApiError> handleInvalidJson(
+            org.springframework.http.converter.HttpMessageNotReadableException ex,
+            HttpServletRequest req) {
+
+        String message = "Dữ liệu gửi lên không hợp lệ.";
+        Throwable cause = ex.getCause();
+
+        if (cause instanceof com.fasterxml.jackson.databind.exc.InvalidFormatException ife) {
+            String field = ife.getPath().isEmpty() ? "" :
+                    ife.getPath().get(ife.getPath().size() - 1).getFieldName();
+
+            if ("purpose".equals(field)) {
+                message = "purpose phải là REGISTER hoặc FORGOT_PASSWORD.";
+            } else if (ife.getTargetType() != null && ife.getTargetType().isEnum()) {
+                message = "Giá trị của '" + field + "' không hợp lệ.";
+            } else {
+                message = "Trường '" + field + "' sai định dạng.";
+            }
+        } else if (cause instanceof com.fasterxml.jackson.core.JsonParseException) {
+            message = "JSON không đúng cú pháp.";
+        }
+
+        return build(HttpStatus.BAD_REQUEST, message, req);
     }
 
     @ExceptionHandler(AccountAlreadyExistsException.class)

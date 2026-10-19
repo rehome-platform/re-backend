@@ -65,7 +65,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Transactional
     @Override
-    public OtpResponse register(RegisterRequest request) {
+    public OtpResponse registerMember(RegisterRequest request) {
 
         if (accountRepository.existsByEmail(request.getEmail())) {
             throw new AccountAlreadyExistsException(
@@ -76,7 +76,7 @@ public class AuthServiceImpl implements AuthService {
         Account account = Account.builder()
                 .email(request.getEmail())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
-                .role(request.getRole())
+                .role(Role.MEMBER)
                 .status(AccountStatus.ACTIVE)
                 .emailVerified(false)
                 .phone(request.getPhone())
@@ -90,6 +90,35 @@ public class AuthServiceImpl implements AuthService {
         memberProfile.setFullName(request.getFullName());
 
         memberProfileRepository.save(memberProfile);
+
+        otpService.issue(account, OtpPurpose.REGISTER);
+
+        return new OtpResponse(
+                "Đăng ký thành công. Vui lòng kiểm tra email để xác minh OTP."
+        );
+    }
+
+    @Transactional
+    @Override
+    public OtpResponse registerOrganization(RegisterRequest request) {
+
+        if (accountRepository.existsByEmail(request.getEmail())) {
+            throw new AccountAlreadyExistsException(
+                    "Email đã tồn tại: " + request.getEmail()
+            );
+        }
+
+        Account account = Account.builder()
+                .email(request.getEmail())
+                .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .role(Role.ORGANIZATION)
+                .status(AccountStatus.ACTIVE)
+                .emailVerified(false)
+                .phone(request.getPhone())
+                .createdAt(Instant.now())
+                .build();
+
+        accountRepository.save(account);
 
         otpService.issue(account, OtpPurpose.REGISTER);
 

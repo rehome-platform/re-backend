@@ -22,6 +22,6 @@ public class MemberProfileController {
     @PostMapping("/register")
     @Operation(summary = "Đăng ký tài khoản member")
     public ResponseEntity<ApiResponse<OtpResponse>> register(@Valid @RequestBody RegisterRequest request) {
-        return ResponseEntity.status(201).body(ApiResponse.success(authService.register(request), 201));
+        return ResponseEntity.status(201).body(ApiResponse.success(authService.registerMember(request), 201));
     }
 }

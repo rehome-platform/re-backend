@@ -1,6 +1,7 @@
 package com.rehome.rehome.service;
 
 import com.rehome.rehome.dto.request.ConsignmentFormRequest;
+import com.rehome.rehome.dto.response.ConsignmentFormDetailResponse;
 import com.rehome.rehome.dto.response.ConsignmentFormListItemResponse;
 import com.rehome.rehome.dto.response.ConsignmentFormResponse;
 import com.rehome.rehome.dto.response.PageResponse;
@@ -14,4 +15,6 @@ public interface ConsignmentFormService {
 
     PageResponse<ConsignmentFormListItemResponse> getMyForms(
             Account account, ConsignmentFormStatus status, int page, int size);
+
+    ConsignmentFormDetailResponse getMyForm(Account account, UUID id);
 }

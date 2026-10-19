@@ -1,6 +1,7 @@
 package com.rehome.rehome.mapper;
 
 import com.rehome.rehome.dto.request.ConsignmentFormRequest;
+import com.rehome.rehome.dto.response.ConsignmentFormDetailResponse;
 import com.rehome.rehome.dto.response.ConsignmentFormListItemResponse;
 import com.rehome.rehome.dto.response.ConsignmentFormResponse;
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
@@ -93,6 +94,16 @@ public class ConsignmentFormMapper {
                 form.getStatus(),
                 form.getProductName(),
                 form.getDesiredPrice()
+        );
+    }
+
+    public ConsignmentFormDetailResponse toDetail(ConsignmentForm form) {
+        return new ConsignmentFormDetailResponse(
+                form.getId(),
+                form.getStatus(),
+                form.getProductName(),
+                form.getRejectReason(),
+                form.getBringInDeadline()
         );
     }
 

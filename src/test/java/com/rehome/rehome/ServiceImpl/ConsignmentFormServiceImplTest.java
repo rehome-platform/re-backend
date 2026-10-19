@@ -1,6 +1,7 @@
 package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.request.ConsignmentFormRequest;
+import com.rehome.rehome.dto.response.ConsignmentFormDetailResponse;
 import com.rehome.rehome.dto.response.ConsignmentFormListItemResponse;
 import com.rehome.rehome.dto.response.ConsignmentFormResponse;
 import com.rehome.rehome.dto.response.PageResponse;
@@ -11,6 +12,8 @@ import com.rehome.rehome.entity.marketplace.Category;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.ConsignmentFormPhoto;
 import com.rehome.rehome.entity.marketplace.Warehouse;
+import com.rehome.rehome.exception.AppException;
+import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.ConsignmentFormMapper;
 import com.rehome.rehome.repository.BrandRepository;
 import com.rehome.rehome.repository.CategoryRepository;
@@ -31,6 +34,7 @@ import org.springframework.data.domain.*;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -179,5 +183,75 @@ class ConsignmentFormServiceImplTest {
         verify(consignmentFormRepository).findByMemberId(eq(account.getId()), captor.capture());
         assertThat(captor.getValue().getPageSize()).isEqualTo(expectedSize);
         assertThat(captor.getValue().getPageNumber()).isEqualTo(Math.max(page, 0));
+    }
+
+    private ConsignmentForm formOf(Account owner, ConsignmentFormStatus status) {
+        return ConsignmentForm.builder()
+                .id(UUID.randomUUID())
+                .member(owner)
+                .status(status)
+                .productName("Áo sơ mi Zara trắng")
+                .rejectReason("Ảnh không rõ tình trạng sản phẩm")
+                .build();
+    }
+
+    private void assertAppError(org.assertj.core.api.ThrowableAssert.ThrowingCallable call, ErrorCode expected) {
+        assertThatThrownBy(call)
+                .isInstanceOf(AppException.class)
+                .satisfies(e -> assertThat(((AppException) e).getErrorCode()).isEqualTo(expected));
+    }
+
+    @Test
+    void getMyForm_rejected_returnsDetailWithoutReceipt() {
+        Account owner = member();
+        ConsignmentForm form = formOf(owner, ConsignmentFormStatus.REJECTED);
+        ConsignmentFormDetailResponse dto = new ConsignmentFormDetailResponse(
+                form.getId(), ConsignmentFormStatus.REJECTED, form.getProductName(),
+                form.getRejectReason(), null);
+
+        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormMapper.toDetail(form)).thenReturn(dto);
+
+        assertThat(service.getMyForm(owner, form.getId())).isSameAs(dto);
+    }
+
+    @Test
+    void getMyForm_notFound_throws404() {
+        UUID id = UUID.randomUUID();
+        when(consignmentFormRepository.findById(id)).thenReturn(Optional.empty());
+
+        assertAppError(() -> service.getMyForm(member(), id), ErrorCode.CONSIGNMENT_FORM_NOT_FOUND);
+
+        verify(consignmentFormRepository).findById(id);
+        verifyNoInteractions(consignmentFormMapper);
+    }
+
+    @Test
+    void getMyForm_ownedByAnotherMember_throws403() {
+        Account owner = member();
+        Account other = member(); // phải có id khác owner
+        ConsignmentForm form = formOf(owner, ConsignmentFormStatus.PENDING);
+        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+
+        assertAppError(() -> service.getMyForm(other, form.getId()), ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
+
+        verifyNoInteractions(consignmentFormMapper);
+    }
+
+    @Test
+    void getMyForm_owner_returnsMappedDetail() {
+        Account owner = member();
+        ConsignmentForm form = formOf(owner, ConsignmentFormStatus.APPROVED);
+        ConsignmentFormDetailResponse dto = new ConsignmentFormDetailResponse(
+                form.getId(), ConsignmentFormStatus.APPROVED, form.getProductName(),
+                null, null);
+
+        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormMapper.toDetail(form)).thenReturn(dto);
+
+        ConsignmentFormDetailResponse result = service.getMyForm(owner, form.getId());
+
+        assertThat(result).isSameAs(dto);
+        verify(consignmentFormMapper).toDetail(form);
     }
 }

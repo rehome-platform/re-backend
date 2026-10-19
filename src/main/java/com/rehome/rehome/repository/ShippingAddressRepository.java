@@ -12,6 +12,8 @@ import java.util.UUID;
 public interface ShippingAddressRepository extends JpaRepository<ShippingAddress, UUID> {
     List<ShippingAddress> findByMember_IdOrderByIsDefaultDesc(UUID memberId);
 
+    long countByMember_Id(UUID memberId);
+
     @Modifying
     @Query("update ShippingAddress a set a.isDefault = false where a.member.id = :memberId and a.isDefault = true")
     void clearDefaultForMember(@Param("memberId") UUID memberId);

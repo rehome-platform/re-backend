@@ -2,11 +2,13 @@ package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.PageResponse;
+import com.rehome.rehome.dto.response.ProductDetailResponse;
 import com.rehome.rehome.dto.response.ProductSummaryResponse;
 import com.rehome.rehome.service.ProductService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,6 +37,12 @@ public class ProductController {
         PageResponse<ProductSummaryResponse> result = productService.getProducts(
                 search, categoryId, brandId, priceMin, priceMax, warehouseId, page, size);
 
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse<ProductDetailResponse>> getProductDetail(@PathVariable String id) {
+        ProductDetailResponse result = productService.getProductDetail(id);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 }

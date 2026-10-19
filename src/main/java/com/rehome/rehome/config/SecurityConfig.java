@@ -34,6 +34,7 @@ public class SecurityConfig {
     private final JwtAccessDeniedHandler jwtAccessDeniedHandler;           // MỚI: sai quyền -> 403
 
     private static final String[] PUBLIC_ENDPOINTS = {
+            "/health",
             "/api/auth/**",
             "/v3/api-docs/**",
             "/v3/api-docs.yaml",

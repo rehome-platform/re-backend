@@ -14,6 +14,11 @@ public class TestController {
         return Map.of("message", "Đây là endpoint public, không cần token");
     }
 
+    @GetMapping("/health")
+    public Map<String, String> health() {
+        return Map.of("status", "UP");
+    }
+
     @GetMapping("/api/account/me")
     public Map<String, String> me(Authentication authentication) {
         return Map.of(

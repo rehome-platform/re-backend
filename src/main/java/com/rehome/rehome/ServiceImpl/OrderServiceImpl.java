@@ -430,10 +430,12 @@ public class OrderServiceImpl implements OrderService {
         walletRepository.save(wallet);
 
         WalletTransaction refundTransaction = WalletTransaction.builder()
+                .transactionNo(generateTransactionNo())
                 .walletType(WalletType.MEMBER)
                 .walletId(wallet.getId())
                 .type(WalletTransactionType.REFUND)
                 .amount(order.getTotalAmount())
+                .balanceAfter(wallet.getBalance())
                 .relatedOrder(order)
                 .status(TransactionStatus.SUCCESS)
                 .note("Hoàn tiền hủy đơn " + order.getOrderNo())
@@ -488,11 +490,14 @@ public class OrderServiceImpl implements OrderService {
             walletRepository.save(sellerWallet);
 
             WalletTransaction payoutTransaction = WalletTransaction.builder()
+                    .transactionNo(generateTransactionNo())
                     .walletType(WalletType.MEMBER)
                     .walletId(sellerWallet.getId())
                     .type(WalletTransactionType.ORDER_PAYOUT)
                     .amount(payoutAmount)
+                    .balanceAfter(sellerWallet.getBalance())
                     .relatedOrder(order)
+                    .relatedOrderItem(item)
                     .status(TransactionStatus.SUCCESS)
                     .note("Thanh toán đơn hàng " + order.getOrderNo())
                     .build();
@@ -571,6 +576,12 @@ public class OrderServiceImpl implements OrderService {
     private String generateOrderNo() {
         String prefix = "OD-" + Year.now(ZoneOffset.UTC).getValue() + "-";
         long seq = orderRepository.countByOrderNoStartingWith(prefix) + 1;
+        return prefix + String.format("%06d", seq);
+    }
+
+    private String generateTransactionNo() {
+        String prefix = "WT-" + Year.now(ZoneOffset.UTC).getValue() + "-";
+        long seq = walletTransactionRepository.countByTransactionNoStartingWith(prefix) + 1;
         return prefix + String.format("%06d", seq);
     }
 }

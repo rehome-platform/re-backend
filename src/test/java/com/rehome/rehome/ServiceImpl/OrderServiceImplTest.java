@@ -846,6 +846,9 @@ class OrderServiceImplTest {
         assertThat(txCaptor.getValue().getType()).isEqualTo(WalletTransactionType.REFUND);
         assertThat(txCaptor.getValue().getAmount()).isEqualTo(new BigDecimal("245000"));
         assertThat(txCaptor.getValue().getRelatedOrder()).isEqualTo(order);
+        assertThat(txCaptor.getValue().getTransactionNo()).startsWith("WT-" + Year.now(ZoneOffset.UTC).getValue() + "-");
+        assertThat(txCaptor.getValue().getBalanceAfter()).isEqualByComparingTo(new BigDecimal("295000"));
+        assertThat(txCaptor.getValue().getRelatedOrderItem()).isNull();
 
         assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
         assertThat(order.getCancelReason()).isEqualTo(CancelReason.BUYER_CANCELLED);
@@ -1024,7 +1027,13 @@ class OrderServiceImplTest {
                     assertThat(tx.getType()).isEqualTo(WalletTransactionType.ORDER_PAYOUT);
                     assertThat(tx.getWalletType()).isEqualTo(WalletType.MEMBER);
                     assertThat(tx.getRelatedOrder()).isEqualTo(order);
+                    assertThat(tx.getTransactionNo()).isNotBlank();
+                    assertThat(tx.getBalanceAfter()).isNotNull();
+                    assertThat(tx.getRelatedOrderItem()).isNotNull();
                 });
+        assertThat(txCaptor.getAllValues())
+                .extracting(tx -> tx.getRelatedOrderItem().getProduct())
+                .containsExactlyInAnyOrder(product1, product2);
 
         assertThat(order.getStatus()).isEqualTo(OrderStatus.COMPLETED);
         assertThat(order.getCompletedAt()).isNotNull();

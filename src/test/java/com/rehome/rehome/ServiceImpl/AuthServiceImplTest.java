@@ -39,6 +39,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -80,7 +81,7 @@ class AuthServiceImplTest {
         when(req.getEmail()).thenReturn("a@x.com");
         when(accountRepository.existsByEmail("a@x.com")).thenReturn(true);
 
-        assertThatThrownBy(() -> service.register(req))
+        assertThatThrownBy(() -> service.registerMember(req))
                 .isInstanceOf(AccountAlreadyExistsException.class)
                 .hasMessage("Email đã tồn tại: a@x.com");
 
@@ -95,11 +96,10 @@ class AuthServiceImplTest {
         when(req.getPassword()).thenReturn("pw");
         when(req.getPhone()).thenReturn("0909");
         when(req.getFullName()).thenReturn("Nguyen A");
-        when(req.getRole()).thenReturn(Role.MEMBER);
         when(accountRepository.existsByEmail("a@x.com")).thenReturn(false);
         when(passwordEncoder.encode("pw")).thenReturn("hashed");
 
-        OtpResponse res = service.register(req);
+        OtpResponse res = service.registerMember(req);
 
         ArgumentCaptor<Account> accCaptor = ArgumentCaptor.forClass(Account.class);
         verify(accountRepository).save(accCaptor.capture());
@@ -384,8 +384,9 @@ class AuthServiceImplTest {
 
     private Account currentAccount() {
         return Account.builder()
+                .id(UUID.randomUUID())
                 .email("member@chiase.org")
-                .role(Role.MEMBER)
+                .role(Role.ORGANIZATION)
                 .status(AccountStatus.ACTIVE)
                 .build();
     }
@@ -394,9 +395,10 @@ class AuthServiceImplTest {
     void registerOrganization_profileAlreadyExists_throws() {
         Account current = currentAccount();
         RegisterOrganizationRequest req = orgRequest("contact@chiase.org", "0312345678");
+        when(accountRepository.findById(current.getId())).thenReturn(Optional.of(current));
         when(organizationProfileRepository.existsByAccountId(current.getId())).thenReturn(true);
 
-        assertAppError(() -> service1.registerOrganization(current, req), ErrorCode.ORGANIZATION_PROFILE_ALREADY_EXISTS);
+        assertAppError(() -> service1.registerOrganization(current.getId(), req), ErrorCode.ORGANIZATION_PROFILE_ALREADY_EXISTS);
 
         verify(organizationProfileRepository, never()).save(any());
     }
@@ -405,9 +407,10 @@ class AuthServiceImplTest {
     void registerOrganization_emailExists_throws() {
         Account current = currentAccount();
         RegisterOrganizationRequest req = orgRequest("  Contact@Chiase.ORG ", "0312345678");
+        when(accountRepository.findById(current.getId())).thenReturn(Optional.of(current));
         when(organizationProfileRepository.existsByContactEmailIgnoreCase("contact@chiase.org")).thenReturn(true);
 
-        assertAppError(() -> service1.registerOrganization(current, req), ErrorCode.ORGANIZATION_EMAIL_TAKEN);
+        assertAppError(() -> service1.registerOrganization(current.getId(), req), ErrorCode.ORGANIZATION_EMAIL_TAKEN);
 
         verify(organizationProfileRepository, never()).save(any());
     }
@@ -416,9 +419,10 @@ class AuthServiceImplTest {
     void registerOrganization_taxCodeExists_throws() {
         Account current = currentAccount();
         RegisterOrganizationRequest req = orgRequest("contact@chiase.org", "0312345678");
+        when(accountRepository.findById(current.getId())).thenReturn(Optional.of(current));
         when(organizationProfileRepository.existsByTaxCode("0312345678")).thenReturn(true);
 
-        assertAppError(() -> service1.registerOrganization(current, req), ErrorCode.ORGANIZATION_TAX_CODE_TAKEN);
+        assertAppError(() -> service1.registerOrganization(current.getId(), req), ErrorCode.ORGANIZATION_TAX_CODE_TAKEN);
 
         verify(organizationProfileRepository, never()).save(any());
     }
@@ -427,13 +431,14 @@ class AuthServiceImplTest {
     void registerOrganization_success() {
         Account current = currentAccount();
         RegisterOrganizationRequest req = orgRequest("  Contact@Chiase.ORG ", "0312345678");
+        when(accountRepository.findById(current.getId())).thenReturn(Optional.of(current));
 
         OrganizationProfile org = new OrganizationProfile();
         when(organizationProfileMapper.toEntity(req)).thenReturn(org);
         RegisterOrganizationResponse expected = mock(RegisterOrganizationResponse.class);
         when(organizationProfileMapper.toResponse(org)).thenReturn(expected);
 
-        RegisterOrganizationResponse result = service1.registerOrganization(current, req);
+        RegisterOrganizationResponse result = service1.registerOrganization(current.getId(), req);
 
         assertThat(org).extracting("account", "verificationStatus")
                 .containsExactly(current, VerificationStatus.PENDING);

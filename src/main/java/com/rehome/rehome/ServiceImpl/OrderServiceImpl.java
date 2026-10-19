@@ -101,6 +101,21 @@ public class OrderServiceImpl implements OrderService {
             for (String productId : requestedProductIds) {
                 lockedProducts.add(lockAndValidateProduct(productId));
             }
+
+            // Món vừa đặt mà cũng đang nằm trong giỏ thì dọn khỏi giỏ, để các món còn lại
+            // (ví dụ đã hết hàng) không bị kẹt theo.
+            Cart cart = cartRepository.findByMember_Id(buyer.getId()).orElse(null);
+            if (cart != null) {
+                Set<String> requestedIdSet = new HashSet<>(requestedProductIds);
+                for (CartItem ci : cartItemRepository.findAllByCartIdWithProduct(cart.getId())) {
+                    if (requestedIdSet.contains(ci.getProduct().getId())) {
+                        productIdsFromCart.add(ci.getProduct().getId());
+                    }
+                }
+                if (!productIdsFromCart.isEmpty()) {
+                    cartId = cart.getId();
+                }
+            }
         } else {
             Cart cart = cartRepository.findByMember_Id(buyer.getId())
                     .orElseThrow(() -> new BadRequestException("Giỏ hàng trống."));
@@ -173,7 +188,7 @@ public class OrderServiceImpl implements OrderService {
                     .build());
         }
 
-        if (cartId != null) {
+        if (cartId != null && !productIdsFromCart.isEmpty()) {
             cartItemRepository.deleteByCart_IdAndProduct_IdIn(cartId, new ArrayList<>(productIdsFromCart));
         }
 
@@ -185,7 +200,7 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm."));
 
         if (product.getStatus() != ProductStatus.ON_SALE) {
-            throw new ConflictException("Sản phẩm không còn để bán.");
+            throw new ConflictException("Sản phẩm không còn để bán.", "PRODUCT_NOT_AVAILABLE");
         }
         return product;
     }

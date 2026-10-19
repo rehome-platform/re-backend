@@ -1,6 +1,8 @@
 package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.response.PageResponse;
+import com.rehome.rehome.dto.response.ProductDetailResponse;
+import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.exception.BadRequestException;
@@ -24,7 +26,10 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -146,5 +151,57 @@ class ProductServiceImplTest {
     void getProducts_priceMinEqualsMax_isAllowed() {
         Page mapped = callAndCapture(new BigDecimal("100"), new BigDecimal("100"), 0, 10);
         assertThat(mapped.getContent()).isEmpty();
+    }
+
+    @Test
+    void getProductDetail_mapsAllFields() {
+        UUID warehouseId = UUID.randomUUID();
+        Instant inspectionDate = Instant.parse("2026-01-10T00:00:00Z");
+        Product p = mock(Product.class, RETURNS_DEEP_STUBS);
+        when(p.getId()).thenReturn("p1");
+        when(p.getName()).thenReturn("Áo A");
+        when(p.getCurrentPrice()).thenReturn(new BigDecimal("60000"));
+        when(p.getConsignmentReceipt().getAgreedPrice()).thenReturn(new BigDecimal("100000"));
+        when(p.getConsignmentReceipt().getConfirmedAt()).thenReturn(inspectionDate);
+        when(p.getStatus()).thenReturn(ProductStatus.ON_SALE);
+        when(p.getBrand().getName()).thenReturn("Nike");
+        when(p.getCategory().getName()).thenReturn("Áo");
+        when(p.getSize()).thenReturn("M");
+        when(p.getConditionNote()).thenReturn("Còn 90%");
+        when(p.getWarehouse().getId()).thenReturn(warehouseId);
+        when(p.getWarehouse().getName()).thenReturn("Kho Q7");
+        when(productRepository.findById("p1")).thenReturn(Optional.of(p));
+        ProductPhoto photoA = photo("p1", "a.jpg");
+        ProductPhoto photoB = photo("p1", "b.jpg");
+        when(productPhotoRepository.findByProduct_IdOrderByIdAsc("p1"))
+                .thenReturn(List.of(photoA, photoB));
+
+        ProductDetailResponse result = service.getProductDetail("p1");
+
+        assertThat(result.getId()).isEqualTo("p1");
+        assertThat(result.getName()).isEqualTo("Áo A");
+        assertThat(result.getCurrentPrice()).isEqualTo(new BigDecimal("60000"));
+        assertThat(result.getOriginalPrice()).isEqualTo(new BigDecimal("100000"));
+        assertThat(result.getStatus()).isEqualTo(ProductStatus.ON_SALE);
+        assertThat(result.getBrandName()).isEqualTo("Nike");
+        assertThat(result.getCategoryName()).isEqualTo("Áo");
+        assertThat(result.getSize()).isEqualTo("M");
+        assertThat(result.getCondition()).isEqualTo("Còn 90%");
+        assertThat(result.getDescription()).isEqualTo("Còn 90%");
+        assertThat(result.getInspectionDate()).isEqualTo(inspectionDate);
+        assertThat(result.getWarehouseId()).isEqualTo(warehouseId);
+        assertThat(result.getWarehouseName()).isEqualTo("Kho Q7");
+        assertThat(result.getPhotos()).containsExactly("a.jpg", "b.jpg");
+    }
+
+    @Test
+    void getProductDetail_notFound_throws() {
+        when(productRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getProductDetail("missing"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy sản phẩm.");
+
+        verifyNoInteractions(productPhotoRepository);
     }
 }

@@ -1,12 +1,11 @@
 package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.request.AddShippingAddressRequest;
-import com.rehome.rehome.dto.response.CreateShippingAddressResponse;
 import com.rehome.rehome.dto.response.ShippingAddressResponse;
-import com.rehome.rehome.dto.response.UpdateShippingAddressResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.marketplace.ShippingAddress;
 import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.ShippingAddressRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -155,13 +154,14 @@ class ShippingAddressServiceImplTest {
                 "Tạ Thị Ngọc Anh", "0912345678", "12 Nguyễn Trãi, Q.1, TP.HCM", true);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.countByMember_Id(member.getId())).thenReturn(1L);
         when(shippingAddressRepository.save(any())).thenAnswer(invocation -> {
             ShippingAddress saved = invocation.getArgument(0);
             saved.setId(UUID.randomUUID());
             return saved;
         });
 
-        CreateShippingAddressResponse response = shippingAddressService.createAddress(email, request);
+        ShippingAddressResponse response = shippingAddressService.createAddress(email, request);
 
         assertThat(response.getId()).isNotNull();
         assertThat(response.getRecipientName()).isEqualTo("Tạ Thị Ngọc Anh");
@@ -178,21 +178,56 @@ class ShippingAddressServiceImplTest {
     }
 
     @Test
-    void createAddress_doesNotClearDefault_whenIsDefaultIsFalseOrNull() {
+    void createAddress_doesNotClearDefault_whenIsDefaultIsFalseOrNull_andNotFirstAddress() {
         AddShippingAddressRequest request = new AddShippingAddressRequest(
                 "Nguyễn Văn A", "0987654321", "45 Lê Lợi, Q.3, TP.HCM", null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.countByMember_Id(member.getId())).thenReturn(1L);
         when(shippingAddressRepository.save(any())).thenAnswer(invocation -> {
             ShippingAddress saved = invocation.getArgument(0);
             saved.setId(UUID.randomUUID());
             return saved;
         });
 
-        CreateShippingAddressResponse response = shippingAddressService.createAddress(email, request);
+        ShippingAddressResponse response = shippingAddressService.createAddress(email, request);
 
         assertThat(response.getIsDefault()).isFalse();
         verify(shippingAddressRepository, never()).clearDefaultForMember(any());
+    }
+
+    @Test
+    void createAddress_forcesDefault_whenItIsMembersFirstAddress() {
+        AddShippingAddressRequest request = new AddShippingAddressRequest(
+                "Nguyễn Văn A", "0987654321", "45 Lê Lợi, Q.3, TP.HCM", null);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.countByMember_Id(member.getId())).thenReturn(0L);
+        when(shippingAddressRepository.save(any())).thenAnswer(invocation -> {
+            ShippingAddress saved = invocation.getArgument(0);
+            saved.setId(UUID.randomUUID());
+            return saved;
+        });
+
+        ShippingAddressResponse response = shippingAddressService.createAddress(email, request);
+
+        assertThat(response.getIsDefault()).isTrue();
+        verify(shippingAddressRepository).clearDefaultForMember(member.getId());
+    }
+
+    @Test
+    void createAddress_throwsConflict_whenMemberAlreadyHasMaxAddresses() {
+        AddShippingAddressRequest request = new AddShippingAddressRequest(
+                "Nguyễn Văn A", "0987654321", "45 Lê Lợi, Q.3, TP.HCM", null);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.countByMember_Id(member.getId())).thenReturn(5L);
+
+        assertThatThrownBy(() -> shippingAddressService.createAddress(email, request))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Đã đạt số lượng tối đa 5 địa chỉ.");
+
+        verify(shippingAddressRepository, never()).save(any());
     }
 
     @Test
@@ -302,7 +337,7 @@ class ShippingAddressServiceImplTest {
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(existing));
 
-        UpdateShippingAddressResponse response = shippingAddressService.updateAddress(email, addressId, request);
+        ShippingAddressResponse response = shippingAddressService.updateAddress(email, addressId, request);
 
         assertThat(response.getId()).isEqualTo(addressId.toString());
         assertThat(response.getPhone()).isEqualTo("0912345679");
@@ -358,7 +393,7 @@ class ShippingAddressServiceImplTest {
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(existing));
 
-        UpdateShippingAddressResponse response = shippingAddressService.updateAddress(email, addressId, request);
+        ShippingAddressResponse response = shippingAddressService.updateAddress(email, addressId, request);
 
         assertThat(response.getPhone()).isEqualTo("0987654321");
         verify(shippingAddressRepository, never()).clearDefaultForMember(any());
@@ -430,6 +465,52 @@ class ShippingAddressServiceImplTest {
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(existing));
+
+        shippingAddressService.deleteAddress(email, addressId);
+
+        verify(shippingAddressRepository).delete(existing);
+    }
+
+    @Test
+    void deleteAddress_throwsConflict_whenDefaultAndOtherAddressesExist() {
+        UUID addressId = UUID.randomUUID();
+
+        ShippingAddress existing = ShippingAddress.builder()
+                .id(addressId)
+                .member(member)
+                .recipientName("Tạ Thị Ngọc Anh")
+                .phone("0912345678")
+                .addressDetail("12 Nguyễn Trãi, Q.1, TP.HCM")
+                .isDefault(true)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(existing));
+        when(shippingAddressRepository.countByMember_Id(member.getId())).thenReturn(2L);
+
+        assertThatThrownBy(() -> shippingAddressService.deleteAddress(email, addressId))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Không thể xóa địa chỉ mặc định khi còn địa chỉ khác. Vui lòng đặt địa chỉ khác làm mặc định trước.");
+
+        verify(shippingAddressRepository, never()).delete(any());
+    }
+
+    @Test
+    void deleteAddress_allowsDeletingDefault_whenItIsTheOnlyAddress() {
+        UUID addressId = UUID.randomUUID();
+
+        ShippingAddress existing = ShippingAddress.builder()
+                .id(addressId)
+                .member(member)
+                .recipientName("Tạ Thị Ngọc Anh")
+                .phone("0912345678")
+                .addressDetail("12 Nguyễn Trãi, Q.1, TP.HCM")
+                .isDefault(true)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(existing));
+        when(shippingAddressRepository.countByMember_Id(member.getId())).thenReturn(1L);
 
         shippingAddressService.deleteAddress(email, addressId);
 

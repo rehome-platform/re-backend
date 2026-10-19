@@ -2,9 +2,7 @@ package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.AddShippingAddressRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
-import com.rehome.rehome.dto.response.CreateShippingAddressResponse;
 import com.rehome.rehome.dto.response.ShippingAddressResponse;
-import com.rehome.rehome.dto.response.UpdateShippingAddressResponse;
 import com.rehome.rehome.service.ShippingAddressService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -41,29 +39,29 @@ public class ShippingAddressController {
 
     @PostMapping
     @PreAuthorize("hasRole('MEMBER')")
-    public ResponseEntity<ApiResponse<CreateShippingAddressResponse>> createAddress(
+    public ResponseEntity<ApiResponse<ShippingAddressResponse>> createAddress(
             Authentication authentication,
             @RequestBody AddShippingAddressRequest request) {
 
         String email = authentication.getName();
-        CreateShippingAddressResponse address = shippingAddressService.createAddress(email, request);
+        ShippingAddressResponse address = shippingAddressService.createAddress(email, request);
 
-        ApiResponse<CreateShippingAddressResponse> response = ApiResponse.success(address, "Đã thêm địa chỉ");
+        ApiResponse<ShippingAddressResponse> response = ApiResponse.success(address, "Đã thêm địa chỉ");
 
         return ResponseEntity.ok(response);
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('MEMBER')")
-    public ResponseEntity<ApiResponse<UpdateShippingAddressResponse>> updateAddress(
+    public ResponseEntity<ApiResponse<ShippingAddressResponse>> updateAddress(
             Authentication authentication,
             @PathVariable UUID id,
             @RequestBody AddShippingAddressRequest request) {
 
         String email = authentication.getName();
-        UpdateShippingAddressResponse address = shippingAddressService.updateAddress(email, id, request);
+        ShippingAddressResponse address = shippingAddressService.updateAddress(email, id, request);
 
-        ApiResponse<UpdateShippingAddressResponse> response = ApiResponse.success(address, "Đã cập nhật địa chỉ");
+        ApiResponse<ShippingAddressResponse> response = ApiResponse.success(address, "Đã cập nhật địa chỉ");
 
         return ResponseEntity.ok(response);
     }

@@ -2,6 +2,7 @@ package com.rehome.rehome.service;
 
 import com.rehome.rehome.dto.request.CreateOrderRequest;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
+import com.rehome.rehome.dto.response.OrderConfirmReceiptResponse;
 import com.rehome.rehome.dto.response.OrderDetailResponse;
 import com.rehome.rehome.dto.response.OrderListResponse;
 import com.rehome.rehome.dto.response.OrderResponse;
@@ -17,4 +18,6 @@ public interface OrderService {
     OrderDetailResponse getOrderDetail(String email, UUID orderId);
 
     OrderCancelResponse cancelOrder(String email, UUID orderId);
+
+    OrderConfirmReceiptResponse confirmReceipt(String email, UUID orderId);
 }

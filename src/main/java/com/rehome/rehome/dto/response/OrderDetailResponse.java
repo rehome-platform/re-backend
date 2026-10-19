@@ -36,6 +36,7 @@ public class OrderDetailResponse {
     private String ghnTrackingCode;
     private Instant deliveredAt;
     private Instant autoCompleteDeadline;
+    private Instant completedAt;
     private Short serviceRating;
     private Instant ratedAt;
 

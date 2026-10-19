@@ -3,6 +3,7 @@ package com.rehome.rehome.controller;
 import com.rehome.rehome.dto.request.CreateOrderRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
+import com.rehome.rehome.dto.response.OrderConfirmReceiptResponse;
 import com.rehome.rehome.dto.response.OrderDetailResponse;
 import com.rehome.rehome.dto.response.OrderListResponse;
 import com.rehome.rehome.dto.response.OrderResponse;
@@ -84,5 +85,17 @@ public class OrderController {
         OrderCancelResponse result = orderService.cancelOrder(email, id);
 
         return ResponseEntity.ok(ApiResponse.success(result, "Đã hủy đơn, hoàn tiền vào ví"));
+    }
+
+    @PostMapping("/{id}/confirm-receipt")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<OrderConfirmReceiptResponse>> confirmReceipt(
+            Authentication authentication,
+            @PathVariable UUID id) {
+
+        String email = authentication.getName();
+        OrderConfirmReceiptResponse result = orderService.confirmReceipt(email, id);
+
+        return ResponseEntity.ok(ApiResponse.success(result, "Đã xác nhận nhận hàng"));
     }
 }

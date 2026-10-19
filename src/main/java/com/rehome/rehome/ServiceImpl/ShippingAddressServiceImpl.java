@@ -7,6 +7,7 @@ import com.rehome.rehome.entity.marketplace.ShippingAddress;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.ShippingAddressRepository;
 import com.rehome.rehome.service.ShippingAddressService;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,7 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
 
     private final AccountRepository accountRepository;
     private final ShippingAddressRepository shippingAddressRepository;
+    private final OrderRepository orderRepository;
 
     @Override
     public List<ShippingAddressResponse> getAddresses(String email) {
@@ -127,6 +129,12 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
         ShippingAddress address = shippingAddressRepository.findById(id)
                 .filter(a -> a.getMember().getId().equals(member.getId()))
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy địa chỉ."));
+
+        if (orderRepository.existsByShippingAddress_Id(id)) {
+            throw new ConflictException(
+                    "Địa chỉ đã được dùng cho đơn hàng, không thể xóa.",
+                    "ADDRESS_IN_USE");
+        }
 
         if (Boolean.TRUE.equals(address.getIsDefault())
                 && shippingAddressRepository.countByMember_Id(member.getId()) > 1) {

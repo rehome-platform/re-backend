@@ -22,6 +22,7 @@ public class ProductDetailResponse {
     private BigDecimal originalPrice;
     private ProductStatus status;
     private String brandName;
+    private UUID categoryId;
     private String categoryName;
     private String size;
     private String condition;

@@ -1,7 +1,10 @@
 package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.request.CreateOrderRequest;
+import com.rehome.rehome.dto.response.OrderListResponse;
 import com.rehome.rehome.dto.response.OrderResponse;
+import com.rehome.rehome.dto.response.OrderSummaryResponse;
+import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.OrderStatus;
@@ -12,6 +15,7 @@ import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.Product;
+import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.ShippingAddress;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.BadRequestException;
@@ -21,11 +25,15 @@ import com.rehome.rehome.repository.CartItemRepository;
 import com.rehome.rehome.repository.CartRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
+import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.ShippingAddressRepository;
 import com.rehome.rehome.service.OrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -56,6 +64,7 @@ public class OrderServiceImpl implements OrderService {
     private final ProductRepository productRepository;
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
+    private final ProductPhotoRepository productPhotoRepository;
 
     // Phí ship cố định tạm thời, chưa tích hợp GHN
     @Value("${app.order.shipping-fee}")
@@ -152,6 +161,9 @@ public class OrderServiceImpl implements OrderService {
                     .buyer(buyer)
                     .warehouse(warehouse)
                     .shippingAddress(shippingAddress)
+                    .shippingRecipientName(shippingAddress.getRecipientName())
+                    .shippingPhone(shippingAddress.getPhone())
+                    .shippingAddressDetail(shippingAddress.getAddressDetail())
                     .subtotal(subtotal)
                     .shippingFee(shippingFee)
                     .totalAmount(subtotal.add(shippingFee))
@@ -180,6 +192,9 @@ public class OrderServiceImpl implements OrderService {
                     .id(order.getId().toString())
                     .orderNo(order.getOrderNo())
                     .warehouseId(warehouse.getId().toString())
+                    .shippingRecipientName(order.getShippingRecipientName())
+                    .shippingPhone(order.getShippingPhone())
+                    .shippingAddressDetail(order.getShippingAddressDetail())
                     .subtotal(order.getSubtotal())
                     .shippingFee(order.getShippingFee())
                     .totalAmount(order.getTotalAmount())
@@ -193,6 +208,98 @@ public class OrderServiceImpl implements OrderService {
         }
 
         return responses;
+    }
+
+    @Override
+    public OrderListResponse getOrders(String email, String status, int page, int size) {
+
+        Account buyer = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        List<OrderStatus> statuses = parseStatuses(status);
+
+        PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        Page<Order> result = orderRepository.findByBuyer_IdAndStatusIn(buyer.getId(), statuses, pageable);
+
+        List<UUID> orderIds = result.getContent().stream().map(Order::getId).toList();
+        List<OrderItem> orderItems = orderItemRepository.findAllByOrder_IdInOrderByIdAsc(orderIds);
+
+        Map<UUID, List<OrderItem>> itemsByOrderId = orderItems.stream()
+                .collect(Collectors.groupingBy(oi -> oi.getOrder().getId(), LinkedHashMap::new, Collectors.toList()));
+
+        List<String> firstProductIds = itemsByOrderId.values().stream()
+                .filter(items -> !items.isEmpty())
+                .map(items -> items.get(0).getProduct().getId())
+                .distinct()
+                .toList();
+
+        Map<String, String> thumbnailByProductId = productPhotoRepository
+                .findByProduct_IdInOrderByIdAsc(firstProductIds).stream()
+                .collect(Collectors.toMap(
+                        photo -> photo.getProduct().getId(),
+                        ProductPhoto::getImageUrl,
+                        (first, second) -> first
+                ));
+
+        Page<OrderSummaryResponse> mapped = result.map(order -> {
+            List<OrderItem> items = itemsByOrderId.getOrDefault(order.getId(), List.of());
+            OrderItem firstItem = items.isEmpty() ? null : items.get(0);
+
+            return OrderSummaryResponse.builder()
+                    .id(order.getId().toString())
+                    .orderNo(order.getOrderNo())
+                    .status(order.getStatus().name())
+                    .totalAmount(order.getTotalAmount())
+                    .warehouseName(order.getWarehouse().getName())
+                    .itemCount(items.size())
+                    .firstItemName(firstItem != null ? firstItem.getProduct().getName() : null)
+                    .firstItemThumbnail(firstItem != null
+                            ? thumbnailByProductId.get(firstItem.getProduct().getId()) : null)
+                    .paymentDeadline(order.getPaymentDeadline())
+                    .deliveredAt(order.getDeliveredAt())
+                    .autoCompleteDeadline(order.getAutoCompleteDeadline())
+                    .serviceRating(order.getServiceRating())
+                    .build();
+        });
+
+        return OrderListResponse.builder()
+                .orders(PageResponse.from(mapped))
+                .statusCounts(buildStatusCounts(buyer.getId()))
+                .build();
+    }
+
+    private List<OrderStatus> parseStatuses(String status) {
+        if (!StringUtils.hasText(status)) {
+            return List.of(OrderStatus.values());
+        }
+
+        List<OrderStatus> statuses = new ArrayList<>();
+        for (String token : status.split(",")) {
+            String trimmed = token.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            try {
+                statuses.add(OrderStatus.valueOf(trimmed.toUpperCase()));
+            } catch (IllegalArgumentException ex) {
+                throw new BadRequestException("status không hợp lệ: " + trimmed);
+            }
+        }
+
+        return statuses.isEmpty() ? List.of(OrderStatus.values()) : statuses;
+    }
+
+    private Map<String, Long> buildStatusCounts(UUID buyerId) {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        for (OrderStatus s : OrderStatus.values()) {
+            counts.put(s.name(), 0L);
+        }
+        for (Object[] row : orderRepository.countGroupedByStatusForBuyer(buyerId)) {
+            counts.put(((OrderStatus) row[0]).name(), (Long) row[1]);
+        }
+        return counts;
     }
 
     private Product lockAndValidateProduct(String productId) {

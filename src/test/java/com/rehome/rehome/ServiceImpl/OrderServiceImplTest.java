@@ -1,7 +1,9 @@
 package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.request.CreateOrderRequest;
+import com.rehome.rehome.dto.response.OrderListResponse;
 import com.rehome.rehome.dto.response.OrderResponse;
+import com.rehome.rehome.dto.response.OrderSummaryResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
@@ -11,6 +13,7 @@ import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.Product;
+import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.ShippingAddress;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.BadRequestException;
@@ -20,6 +23,7 @@ import com.rehome.rehome.repository.CartItemRepository;
 import com.rehome.rehome.repository.CartRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
+import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.ShippingAddressRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,9 +33,13 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.Year;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -56,6 +64,7 @@ class OrderServiceImplTest {
     @Mock ProductRepository productRepository;
     @Mock OrderRepository orderRepository;
     @Mock OrderItemRepository orderItemRepository;
+    @Mock ProductPhotoRepository productPhotoRepository;
 
     @InjectMocks
     OrderServiceImpl orderService;
@@ -78,7 +87,11 @@ class OrderServiceImplTest {
         email = "member@example.com";
         member = Account.builder().id(UUID.randomUUID()).email(email).build();
 
-        address = ShippingAddress.builder().id(UUID.randomUUID()).member(member).build();
+        address = ShippingAddress.builder().id(UUID.randomUUID()).member(member)
+                .recipientName("Tạ Thị Ngọc Anh")
+                .phone("0912345678")
+                .addressDetail("12 Nguyễn Trãi, Q.1, TP.HCM")
+                .build();
 
         warehouse1 = Warehouse.builder().id(UUID.randomUUID()).name("Kho Quận 7").build();
         warehouse2 = Warehouse.builder().id(UUID.randomUUID()).name("Kho Bình Thạnh").build();
@@ -241,6 +254,9 @@ class OrderServiceImplTest {
         OrderResponse response = responses.get(0);
         assertThat(response.getId()).isNotNull();
         assertThat(response.getWarehouseId()).isEqualTo(warehouse1.getId().toString());
+        assertThat(response.getShippingRecipientName()).isEqualTo("Tạ Thị Ngọc Anh");
+        assertThat(response.getShippingPhone()).isEqualTo("0912345678");
+        assertThat(response.getShippingAddressDetail()).isEqualTo("12 Nguyễn Trãi, Q.1, TP.HCM");
         assertThat(response.getSubtotal()).isEqualTo(new BigDecimal("220000"));
         assertThat(response.getShippingFee()).isEqualTo(new BigDecimal("25000"));
         assertThat(response.getTotalAmount()).isEqualTo(new BigDecimal("245000"));
@@ -364,5 +380,144 @@ class OrderServiceImplTest {
 
         verify(orderRepository, never()).save(any());
         verify(cartItemRepository, never()).deleteByCart_IdAndProduct_IdIn(any(), any());
+    }
+
+    private ProductPhoto photo(Product product, String url) {
+        return ProductPhoto.builder().id(UUID.randomUUID()).product(product).imageUrl(url).build();
+    }
+
+    @Test
+    void getOrders_throwsNotFound_whenAccountDoesNotExist() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.getOrders(email, null, 0, 20))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Account không tồn tại");
+    }
+
+    @Test
+    void getOrders_throwsBadRequest_whenStatusValueIsInvalid() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+
+        assertThatThrownBy(() -> orderService.getOrders(email, "PAID,NOT_A_STATUS", 0, 20))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("status không hợp lệ: NOT_A_STATUS");
+
+        verify(orderRepository, never()).findByBuyer_IdAndStatusIn(any(), any(), any());
+    }
+
+    @Test
+    void getOrders_parsesCommaSeparatedStatuses_caseInsensitively() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findByBuyer_IdAndStatusIn(eq(member.getId()), any(), any(Pageable.class)))
+                .thenReturn(Page.empty());
+        when(orderRepository.countGroupedByStatusForBuyer(member.getId())).thenReturn(List.of());
+
+        orderService.getOrders(email, "paid, packing", 0, 20);
+
+        ArgumentCaptor<List<OrderStatus>> statusesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(orderRepository).findByBuyer_IdAndStatusIn(
+                eq(member.getId()), statusesCaptor.capture(), any(Pageable.class));
+        assertThat(statusesCaptor.getValue()).containsExactly(OrderStatus.PAID, OrderStatus.PACKING);
+    }
+
+    @Test
+    void getOrders_defaultsToAllStatuses_whenStatusIsBlank() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findByBuyer_IdAndStatusIn(eq(member.getId()), any(), any(Pageable.class)))
+                .thenReturn(Page.empty());
+        when(orderRepository.countGroupedByStatusForBuyer(member.getId())).thenReturn(List.of());
+
+        orderService.getOrders(email, "  ", 0, 20);
+
+        ArgumentCaptor<List<OrderStatus>> statusesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(orderRepository).findByBuyer_IdAndStatusIn(
+                eq(member.getId()), statusesCaptor.capture(), any(Pageable.class));
+        assertThat(statusesCaptor.getValue()).containsExactlyInAnyOrder(OrderStatus.values());
+    }
+
+    @Test
+    void getOrders_mapsSummaryFields_withFirstItemThumbnailAndFullStatusCounts() {
+        UUID orderId1 = UUID.randomUUID();
+        UUID orderId2 = UUID.randomUUID();
+        product1.setName("Áo A");
+        product2.setName("Áo B");
+        Instant paymentDeadline = Instant.parse("2026-01-10T00:00:00Z");
+        Instant deliveredAt = Instant.parse("2026-01-12T00:00:00Z");
+        Instant autoCompleteDeadline = Instant.parse("2026-01-15T00:00:00Z");
+
+        Order order1 = Order.builder()
+                .id(orderId1)
+                .orderNo("OD-2026-000001")
+                .buyer(member)
+                .warehouse(warehouse1)
+                .status(OrderStatus.SHIPPING)
+                .totalAmount(new BigDecimal("245000"))
+                .paymentDeadline(paymentDeadline)
+                .deliveredAt(deliveredAt)
+                .autoCompleteDeadline(autoCompleteDeadline)
+                .serviceRating((short) 5)
+                .build();
+
+        Order order2 = Order.builder()
+                .id(orderId2)
+                .orderNo("OD-2026-000002")
+                .buyer(member)
+                .warehouse(warehouse2)
+                .status(OrderStatus.PACKING)
+                .totalAmount(new BigDecimal("380000"))
+                .paymentDeadline(paymentDeadline)
+                .build();
+
+        OrderItem item1a = OrderItem.builder().id(UUID.randomUUID()).order(order1).product(product1).build();
+        OrderItem item1b = OrderItem.builder().id(UUID.randomUUID()).order(order1).product(product2).build();
+        OrderItem item2a = OrderItem.builder().id(UUID.randomUUID()).order(order2).product(product2).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findByBuyer_IdAndStatusIn(eq(member.getId()), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(order1, order2)));
+        when(orderItemRepository.findAllByOrder_IdInOrderByIdAsc(List.of(orderId1, orderId2)))
+                .thenReturn(List.of(item1a, item1b, item2a));
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(any()))
+                .thenReturn(List.of(photo(product1, "ao-a.jpg"), photo(product2, "ao-b.jpg")));
+        when(orderRepository.countGroupedByStatusForBuyer(member.getId()))
+                .thenReturn(List.of(
+                        new Object[]{OrderStatus.SHIPPING, 1L},
+                        new Object[]{OrderStatus.PACKING, 1L}));
+
+        OrderListResponse result = orderService.getOrders(email, null, 0, 20);
+
+        assertThat(result.getOrders().getContent()).hasSize(2);
+
+        OrderSummaryResponse summary1 = result.getOrders().getContent().get(0);
+        assertThat(summary1.getId()).isEqualTo(orderId1.toString());
+        assertThat(summary1.getOrderNo()).isEqualTo("OD-2026-000001");
+        assertThat(summary1.getStatus()).isEqualTo("SHIPPING");
+        assertThat(summary1.getTotalAmount()).isEqualTo(new BigDecimal("245000"));
+        assertThat(summary1.getWarehouseName()).isEqualTo("Kho Quận 7");
+        assertThat(summary1.getItemCount()).isEqualTo(2);
+        assertThat(summary1.getFirstItemName()).isEqualTo("Áo A");
+        assertThat(summary1.getFirstItemThumbnail()).isEqualTo("ao-a.jpg");
+        assertThat(summary1.getPaymentDeadline()).isEqualTo(paymentDeadline);
+        assertThat(summary1.getDeliveredAt()).isEqualTo(deliveredAt);
+        assertThat(summary1.getAutoCompleteDeadline()).isEqualTo(autoCompleteDeadline);
+        assertThat(summary1.getServiceRating()).isEqualTo((short) 5);
+
+        OrderSummaryResponse summary2 = result.getOrders().getContent().get(1);
+        assertThat(summary2.getId()).isEqualTo(orderId2.toString());
+        assertThat(summary2.getItemCount()).isEqualTo(1);
+        assertThat(summary2.getFirstItemName()).isEqualTo("Áo B");
+        assertThat(summary2.getFirstItemThumbnail()).isEqualTo("ao-b.jpg");
+        assertThat(summary2.getDeliveredAt()).isNull();
+        assertThat(summary2.getServiceRating()).isNull();
+
+        assertThat(result.getStatusCounts())
+                .containsEntry("SHIPPING", 1L)
+                .containsEntry("PACKING", 1L)
+                .containsEntry("PENDING_PAYMENT", 0L)
+                .containsEntry("PAID", 0L)
+                .containsEntry("DELIVERED", 0L)
+                .containsEntry("COMPLETED", 0L)
+                .containsEntry("CANCELLED", 0L);
     }
 }

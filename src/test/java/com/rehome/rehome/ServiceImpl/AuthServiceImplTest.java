@@ -134,6 +134,33 @@ class AuthServiceImplTest {
         verifyNoInteractions(memberProfileRepository, otpService);
     }
 
+    @Test
+    void register_organization_success() {
+        RegisterRequest req = mock(RegisterRequest.class);
+        when(req.getEmail()).thenReturn("org@x.com");
+        when(req.getPassword()).thenReturn("pw");
+        when(req.getPhone()).thenReturn("0909");
+        when(accountRepository.existsByEmail("org@x.com")).thenReturn(false);
+        when(passwordEncoder.encode("pw")).thenReturn("hashed");
+
+        OtpResponse res = service.registerOrganization(req);
+
+        ArgumentCaptor<Account> accCaptor = ArgumentCaptor.forClass(Account.class);
+        verify(accountRepository).save(accCaptor.capture());
+        Account saved = accCaptor.getValue();
+        assertThat(saved.getEmail()).isEqualTo("org@x.com");
+        assertThat(saved.getPasswordHash()).isEqualTo("hashed");
+        assertThat(saved.getRole()).isEqualTo(Role.ORGANIZATION);   // role do server gán
+        assertThat(saved.getStatus()).isEqualTo(AccountStatus.ACTIVE);
+        assertThat(saved.isEmailVerified()).isFalse();
+        assertThat(saved.getPhone()).isEqualTo("0909");
+
+        verify(otpService).issue(saved, OtpPurpose.REGISTER);
+        verifyNoInteractions(memberProfileRepository);               // org không tạo MemberProfile
+        assertThat(res).extracting("message")
+                .isEqualTo("Đăng ký thành công. Vui lòng kiểm tra email để xác minh OTP.");
+    }
+
     // ==================== login ====================
 
     @Test

@@ -1,11 +1,13 @@
 package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.request.CreateOrderRequest;
+import com.rehome.rehome.dto.request.RateOrderRequest;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
 import com.rehome.rehome.dto.response.OrderConfirmReceiptResponse;
 import com.rehome.rehome.dto.response.OrderDetailItemResponse;
 import com.rehome.rehome.dto.response.OrderDetailResponse;
 import com.rehome.rehome.dto.response.OrderListResponse;
+import com.rehome.rehome.dto.response.OrderRatingResponse;
 import com.rehome.rehome.dto.response.OrderResponse;
 import com.rehome.rehome.dto.response.OrderSummaryResponse;
 import com.rehome.rehome.dto.response.PageResponse;
@@ -387,6 +389,7 @@ public class OrderServiceImpl implements OrderService {
                 .cancelledAt(order.getCancelledAt())
                 .refundAmount(order.getRefundAmount())
                 .completedAt(order.getCompletedAt())
+                .ratingComment(order.getRatingComment())
                 .build();
     }
 
@@ -427,10 +430,12 @@ public class OrderServiceImpl implements OrderService {
         walletRepository.save(wallet);
 
         WalletTransaction refundTransaction = WalletTransaction.builder()
+                .transactionNo(generateTransactionNo())
                 .walletType(WalletType.MEMBER)
                 .walletId(wallet.getId())
                 .type(WalletTransactionType.REFUND)
                 .amount(order.getTotalAmount())
+                .balanceAfter(wallet.getBalance())
                 .relatedOrder(order)
                 .status(TransactionStatus.SUCCESS)
                 .note("Hoàn tiền hủy đơn " + order.getOrderNo())
@@ -485,11 +490,14 @@ public class OrderServiceImpl implements OrderService {
             walletRepository.save(sellerWallet);
 
             WalletTransaction payoutTransaction = WalletTransaction.builder()
+                    .transactionNo(generateTransactionNo())
                     .walletType(WalletType.MEMBER)
                     .walletId(sellerWallet.getId())
                     .type(WalletTransactionType.ORDER_PAYOUT)
                     .amount(payoutAmount)
+                    .balanceAfter(sellerWallet.getBalance())
                     .relatedOrder(order)
+                    .relatedOrderItem(item)
                     .status(TransactionStatus.SUCCESS)
                     .note("Thanh toán đơn hàng " + order.getOrderNo())
                     .build();
@@ -503,6 +511,41 @@ public class OrderServiceImpl implements OrderService {
         return OrderConfirmReceiptResponse.builder()
                 .id(order.getId().toString())
                 .status(order.getStatus().name())
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public OrderRatingResponse rateOrder(String email, UUID orderId, RateOrderRequest request) {
+
+        Account buyer = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
+
+        if (!order.getBuyer().getId().equals(buyer.getId())) {
+            throw new ForbiddenException("Bạn không có quyền đánh giá đơn này.");
+        }
+
+        if (request.getServiceRating() == null
+                || request.getServiceRating() < 1 || request.getServiceRating() > 5) {
+            throw new BadRequestException("serviceRating phải từ 1 đến 5.");
+        }
+
+        if (order.getStatus() != OrderStatus.COMPLETED) {
+            throw new ConflictException("Chỉ đánh giá đơn đã hoàn tất.", "ORDER_NOT_COMPLETED");
+        }
+
+        order.setServiceRating(request.getServiceRating());
+        order.setRatingComment(request.getComment());
+        order.setRatedAt(Instant.now());
+        orderRepository.save(order);
+
+        return OrderRatingResponse.builder()
+                .id(order.getId().toString())
+                .serviceRating(order.getServiceRating())
+                .comment(order.getRatingComment())
                 .build();
     }
 
@@ -533,6 +576,12 @@ public class OrderServiceImpl implements OrderService {
     private String generateOrderNo() {
         String prefix = "OD-" + Year.now(ZoneOffset.UTC).getValue() + "-";
         long seq = orderRepository.countByOrderNoStartingWith(prefix) + 1;
+        return prefix + String.format("%06d", seq);
+    }
+
+    private String generateTransactionNo() {
+        String prefix = "WT-" + Year.now(ZoneOffset.UTC).getValue() + "-";
+        long seq = walletTransactionRepository.countByTransactionNoStartingWith(prefix) + 1;
         return prefix + String.format("%06d", seq);
     }
 }

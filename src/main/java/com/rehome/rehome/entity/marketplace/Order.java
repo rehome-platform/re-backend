@@ -119,6 +119,10 @@ public class Order {
     @Column(name = "rated_at", nullable = true)
     private Instant ratedAt;
 
+    // Nhận xét của Member khi đánh giá — F-066
+    @Column(name = "rating_comment", nullable = true, columnDefinition = "text")
+    private String ratingComment;
+
     // Thời điểm đặt đơn — mốc chốt tỷ lệ hoa hồng theo kỳ
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

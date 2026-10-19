@@ -39,6 +39,7 @@ public class OrderDetailResponse {
     private Instant completedAt;
     private Short serviceRating;
     private Instant ratedAt;
+    private String ratingComment;
 
     private String cancelReason;
     private Instant cancelledAt;

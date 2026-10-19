@@ -1,10 +1,12 @@
 package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.request.CreateOrderRequest;
+import com.rehome.rehome.dto.request.RateOrderRequest;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
 import com.rehome.rehome.dto.response.OrderConfirmReceiptResponse;
 import com.rehome.rehome.dto.response.OrderDetailResponse;
 import com.rehome.rehome.dto.response.OrderListResponse;
+import com.rehome.rehome.dto.response.OrderRatingResponse;
 import com.rehome.rehome.dto.response.OrderResponse;
 import com.rehome.rehome.dto.response.OrderSummaryResponse;
 import com.rehome.rehome.entity.auth.Account;
@@ -844,6 +846,9 @@ class OrderServiceImplTest {
         assertThat(txCaptor.getValue().getType()).isEqualTo(WalletTransactionType.REFUND);
         assertThat(txCaptor.getValue().getAmount()).isEqualTo(new BigDecimal("245000"));
         assertThat(txCaptor.getValue().getRelatedOrder()).isEqualTo(order);
+        assertThat(txCaptor.getValue().getTransactionNo()).startsWith("WT-" + Year.now(ZoneOffset.UTC).getValue() + "-");
+        assertThat(txCaptor.getValue().getBalanceAfter()).isEqualByComparingTo(new BigDecimal("295000"));
+        assertThat(txCaptor.getValue().getRelatedOrderItem()).isNull();
 
         assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
         assertThat(order.getCancelReason()).isEqualTo(CancelReason.BUYER_CANCELLED);
@@ -1022,7 +1027,13 @@ class OrderServiceImplTest {
                     assertThat(tx.getType()).isEqualTo(WalletTransactionType.ORDER_PAYOUT);
                     assertThat(tx.getWalletType()).isEqualTo(WalletType.MEMBER);
                     assertThat(tx.getRelatedOrder()).isEqualTo(order);
+                    assertThat(tx.getTransactionNo()).isNotBlank();
+                    assertThat(tx.getBalanceAfter()).isNotNull();
+                    assertThat(tx.getRelatedOrderItem()).isNotNull();
                 });
+        assertThat(txCaptor.getAllValues())
+                .extracting(tx -> tx.getRelatedOrderItem().getProduct())
+                .containsExactlyInAnyOrder(product1, product2);
 
         assertThat(order.getStatus()).isEqualTo(OrderStatus.COMPLETED);
         assertThat(order.getCompletedAt()).isNotNull();
@@ -1060,5 +1071,133 @@ class OrderServiceImplTest {
         ArgumentCaptor<WalletTransaction> txCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
         verify(walletTransactionRepository).save(txCaptor.capture());
         assertThat(txCaptor.getValue().getAmount()).isEqualByComparingTo(new BigDecimal("90000"));
+    }
+
+    @Test
+    void rateOrder_throwsNotFound_whenAccountDoesNotExist() {
+        UUID orderId = UUID.randomUUID();
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest((short) 5, "Tốt")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Account không tồn tại");
+
+        verify(orderRepository, never()).findById(any());
+    }
+
+    @Test
+    void rateOrder_throwsNotFound_whenOrderDoesNotExist() {
+        UUID orderId = UUID.randomUUID();
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest((short) 5, "Tốt")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy đơn hàng.");
+    }
+
+    @Test
+    void rateOrder_throwsForbidden_whenOrderBelongsToAnotherBuyer() {
+        UUID orderId = UUID.randomUUID();
+        Account anotherMember = Account.builder().id(UUID.randomUUID()).email("other@example.com").build();
+        Order order = Order.builder().id(orderId).buyer(anotherMember).status(OrderStatus.COMPLETED).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest((short) 5, "Tốt")))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("Bạn không có quyền đánh giá đơn này.");
+
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void rateOrder_throwsBadRequest_whenServiceRatingIsNull() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).buyer(member).status(OrderStatus.COMPLETED).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest(null, "Tốt")))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("serviceRating phải từ 1 đến 5.");
+
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void rateOrder_throwsBadRequest_whenServiceRatingOutOfRange() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).buyer(member).status(OrderStatus.COMPLETED).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest((short) 6, "Tốt")))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("serviceRating phải từ 1 đến 5.");
+
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void rateOrder_throwsConflictWithCode_whenOrderNotCompleted() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).buyer(member).status(OrderStatus.SHIPPING).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest((short) 5, "Tốt")))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Chỉ đánh giá đơn đã hoàn tất.")
+                .satisfies(ex -> assertThat(((ConflictException) ex).getCode())
+                        .isEqualTo("ORDER_NOT_COMPLETED"));
+
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void rateOrder_savesServiceRatingAndComment_whenOrderCompleted() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).buyer(member).status(OrderStatus.COMPLETED).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        OrderRatingResponse response = orderService.rateOrder(
+                email, orderId, new RateOrderRequest((short) 5, "Đóng gói cẩn thận, giao nhanh"));
+
+        assertThat(response.getId()).isEqualTo(orderId.toString());
+        assertThat(response.getServiceRating()).isEqualTo((short) 5);
+        assertThat(response.getComment()).isEqualTo("Đóng gói cẩn thận, giao nhanh");
+
+        assertThat(order.getServiceRating()).isEqualTo((short) 5);
+        assertThat(order.getRatingComment()).isEqualTo("Đóng gói cẩn thận, giao nhanh");
+        assertThat(order.getRatedAt()).isNotNull();
+        verify(orderRepository).save(order);
+    }
+
+    @Test
+    void rateOrder_allowsOverwritingExistingRating() {
+        UUID orderId = UUID.randomUUID();
+        Instant firstRatedAt = Instant.parse("2026-01-01T00:00:00Z");
+        Order order = Order.builder().id(orderId).buyer(member).status(OrderStatus.COMPLETED)
+                .serviceRating((short) 2)
+                .ratingComment("Giao chậm")
+                .ratedAt(firstRatedAt)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        OrderRatingResponse response = orderService.rateOrder(
+                email, orderId, new RateOrderRequest((short) 5, "Sửa lại, giao ổn"));
+
+        assertThat(response.getServiceRating()).isEqualTo((short) 5);
+        assertThat(response.getComment()).isEqualTo("Sửa lại, giao ổn");
+        assertThat(order.getRatedAt()).isNotEqualTo(firstRatedAt);
     }
 }

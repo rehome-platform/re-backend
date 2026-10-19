@@ -24,6 +24,10 @@ public class WalletTransaction {
     @Column(name = "id", nullable = false)
     private UUID id;
 
+    // Mã hiển thị cho Member, ví dụ WT-2026-000123
+    @Column(name = "transaction_no", nullable = true, unique = true, length = 255)
+    private String transactionNo;
+
     // MEMBER / PLATFORM — quyết định wallet_id trỏ vào bảng nào
     @Enumerated(EnumType.STRING)
     @Column(name = "wallet_type", nullable = false)
@@ -42,10 +46,19 @@ public class WalletTransaction {
     @Column(name = "amount", nullable = false, precision = 19, scale = 2)
     private BigDecimal amount;
 
+    // Số dư của ví ngay sau bút toán này, ghi tại lúc tạo — không suy ra bằng cách replay lịch sử
+    @Column(name = "balance_after", nullable = true, precision = 19, scale = 2)
+    private BigDecimal balanceAfter;
+
     // Đơn liên quan, để Member xem doanh thu theo từng đơn
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "related_order_id", nullable = true)
     private Order relatedOrder;
+
+    // Món cụ thể liên quan — chỉ có với ORDER_PAYOUT, mỗi món một người bán khác nhau
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "related_order_item_id", nullable = true)
+    private OrderItem relatedOrderItem;
 
     // Bút toán đối ứng bên kia — ghi sổ kép, hai dòng bằng nhau và ngược dấu
     @ManyToOne(fetch = FetchType.LAZY, optional = true)

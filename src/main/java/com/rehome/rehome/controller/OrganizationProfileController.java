@@ -1,8 +1,10 @@
 package com.rehome.rehome.controller;
 
+import com.rehome.rehome.dto.request.RegisterRequest;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.OrganizationResubmitResponse;
+import com.rehome.rehome.dto.response.OtpResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.OrganizationService;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class OrganizationProfileController {
     private final OrganizationService organizationService;
+    private final AuthService authService;
 
     @PostMapping("/register/organization")
     @Operation(summary = "Đăng ký tài khoản tổ chức")
@@ -37,5 +40,11 @@ public class OrganizationProfileController {
         return ResponseEntity.ok(ApiResponse.success(
                 organizationService.resubmit(account, request),
                 "Đã nộp lại hồ sơ, chờ duyệt"));
+    }
+
+    @PostMapping("/register")
+    @Operation(summary = "Đăng ký tài khoản organization")
+    public ResponseEntity<ApiResponse<OtpResponse>> register(@Valid @RequestBody RegisterRequest request) {
+        return ResponseEntity.status(201).body(ApiResponse.success(authService.registerOrganization(request), 201));
     }
 }

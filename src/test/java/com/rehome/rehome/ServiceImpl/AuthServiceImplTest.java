@@ -75,12 +75,12 @@ class AuthServiceImplTest {
     // ==================== register ====================
 
     @Test
-    void register_emailExists_throws() {
+    void register_member_emailExists_throws() {
         RegisterRequest req = mock(RegisterRequest.class);
         when(req.getEmail()).thenReturn("a@x.com");
         when(accountRepository.existsByEmail("a@x.com")).thenReturn(true);
 
-        assertThatThrownBy(() -> service.register(req))
+        assertThatThrownBy(() -> service.registerMember(req))
                 .isInstanceOf(AccountAlreadyExistsException.class)
                 .hasMessage("Email đã tồn tại: a@x.com");
 
@@ -89,7 +89,7 @@ class AuthServiceImplTest {
     }
 
     @Test
-    void register_success() {
+    void register_member_success() {
         RegisterRequest req = mock(RegisterRequest.class);
         when(req.getEmail()).thenReturn("a@x.com");
         when(req.getPassword()).thenReturn("pw");
@@ -98,7 +98,53 @@ class AuthServiceImplTest {
         when(accountRepository.existsByEmail("a@x.com")).thenReturn(false);
         when(passwordEncoder.encode("pw")).thenReturn("hashed");
 
-        OtpResponse res = service.register(req);
+        OtpResponse res = service.registerMember(req);
+
+        ArgumentCaptor<Account> accCaptor = ArgumentCaptor.forClass(Account.class);
+        verify(accountRepository).save(accCaptor.capture());
+        Account saved = accCaptor.getValue();
+        assertThat(saved.getEmail()).isEqualTo("a@x.com");
+        assertThat(saved.getPasswordHash()).isEqualTo("hashed");
+        assertThat(saved.getRole()).isEqualTo(Role.MEMBER);
+        assertThat(saved.getStatus()).isEqualTo(AccountStatus.ACTIVE);
+        assertThat(saved.isEmailVerified()).isFalse();
+        assertThat(saved.getPhone()).isEqualTo("0909");
+
+        ArgumentCaptor<MemberProfile> mpCaptor = ArgumentCaptor.forClass(MemberProfile.class);
+        verify(memberProfileRepository).save(mpCaptor.capture());
+        assertThat(mpCaptor.getValue().getAccount()).isSameAs(saved);
+        assertThat(mpCaptor.getValue().getFullName()).isEqualTo("Nguyen A");
+
+        verify(otpService).issue(saved, OtpPurpose.REGISTER);
+        assertThat(res).extracting("message")
+                .isEqualTo("Đăng ký thành công. Vui lòng kiểm tra email để xác minh OTP.");
+    }
+
+    @Test
+    void register_organization_emailExists_throws() {
+        RegisterRequest req = mock(RegisterRequest.class);
+        when(req.getEmail()).thenReturn("a@x.com");
+        when(accountRepository.existsByEmail("a@x.com")).thenReturn(true);
+
+        assertThatThrownBy(() -> service.registerOrganization(req))
+                .isInstanceOf(AccountAlreadyExistsException.class)
+                .hasMessage("Email đã tồn tại: a@x.com");
+
+        verify(accountRepository, never()).save(any());
+        verifyNoInteractions(memberProfileRepository, otpService);
+    }
+
+    @Test
+    void register_organization_success() {
+        RegisterRequest req = mock(RegisterRequest.class);
+        when(req.getEmail()).thenReturn("a@x.com");
+        when(req.getPassword()).thenReturn("pw");
+        when(req.getPhone()).thenReturn("0909");
+        when(req.getFullName()).thenReturn("Nguyen A");
+        when(accountRepository.existsByEmail("a@x.com")).thenReturn(false);
+        when(passwordEncoder.encode("pw")).thenReturn("hashed");
+
+        OtpResponse res = service.registerOrganization(req);
 
         ArgumentCaptor<Account> accCaptor = ArgumentCaptor.forClass(Account.class);
         verify(accountRepository).save(accCaptor.capture());

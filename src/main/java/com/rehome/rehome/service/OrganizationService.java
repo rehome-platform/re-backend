@@ -6,7 +6,9 @@ import com.rehome.rehome.dto.response.OrganizationResubmitResponse;
 import com.rehome.rehome.dto.response.RegisterOrganizationResponse;
 import com.rehome.rehome.entity.auth.Account;
 
+import java.util.UUID;
+
 public interface OrganizationService {
-    RegisterOrganizationResponse registerOrganization(Account account, RegisterOrganizationRequest request);
+    RegisterOrganizationResponse registerOrganization(UUID accountId, RegisterOrganizationRequest request);
     OrganizationResubmitResponse resubmit(Account account, RegisterOrganizationRequest request);
 }

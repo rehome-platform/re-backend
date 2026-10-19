@@ -29,7 +29,7 @@ public class OrganizationProfileController {
             @Valid @RequestBody RegisterOrganizationRequest request,
             @AuthenticationPrincipal Account account) {
         return ResponseEntity.status(201)
-                .body(ApiResponse.success(organizationService.registerOrganization(account, request), 201));
+                .body(ApiResponse.success(organizationService.registerOrganization(account.getId(), request), 201));
     }
 
     @PutMapping("/me/registration")   // class có @RequestMapping("/organizations")
@@ -42,7 +42,7 @@ public class OrganizationProfileController {
                 "Đã nộp lại hồ sơ, chờ duyệt"));
     }
 
-    @PostMapping("/register")
+    @PostMapping("/register/account")
     @Operation(summary = "Đăng ký tài khoản organization")
     public ResponseEntity<ApiResponse<OtpResponse>> register(@Valid @RequestBody RegisterRequest request) {
         return ResponseEntity.status(201).body(ApiResponse.success(authService.registerOrganization(request), 201));

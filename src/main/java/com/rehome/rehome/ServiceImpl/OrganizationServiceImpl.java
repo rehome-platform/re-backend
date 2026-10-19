@@ -16,6 +16,9 @@ import com.rehome.rehome.service.OrganizationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.UUID;
+
 @Service
 @RequiredArgsConstructor
 public class OrganizationServiceImpl implements OrganizationService {
@@ -26,14 +29,17 @@ public class OrganizationServiceImpl implements OrganizationService {
 
     @Override
     @Transactional
-    public RegisterOrganizationResponse registerOrganization(Account account, RegisterOrganizationRequest request) {
-        String email = request.getContactEmail().trim().toLowerCase();
+    public RegisterOrganizationResponse registerOrganization(UUID accountId, RegisterOrganizationRequest request) {
+        Account account = accountRepository.findById(accountId)
+                .orElseThrow(() -> new AppException(ErrorCode.UNAUTHORIZED));
 
-        if(account.getRole() != Role.ORGANIZATION){
+        if (account.getRole() != Role.ORGANIZATION) {
             throw new AppException(ErrorCode.NOT_ORGANIZATION_ACCOUNT);
         }
 
-        if (organizationProfileRepository.existsByAccountId(account.getId())) {
+        String email = request.getContactEmail().trim().toLowerCase();
+
+        if (organizationProfileRepository.existsByAccountId(accountId)) {
             throw new AppException(ErrorCode.ORGANIZATION_PROFILE_ALREADY_EXISTS);
         }
         if (organizationProfileRepository.existsByContactEmailIgnoreCase(email)) {
@@ -44,7 +50,8 @@ public class OrganizationServiceImpl implements OrganizationService {
         }
 
         OrganizationProfile organization = organizationProfileMapper.toEntity(request);
-        organization.setAccount(account);
+        organization.setContactEmail(email);              // lưu bản đã chuẩn hóa
+        organization.setAccount(account);                 // account giờ là managed
         organization.setVerificationStatus(VerificationStatus.PENDING);
 
         organizationProfileRepository.save(organization);

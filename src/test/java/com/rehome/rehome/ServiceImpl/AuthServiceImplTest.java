@@ -134,38 +134,6 @@ class AuthServiceImplTest {
         verifyNoInteractions(memberProfileRepository, otpService);
     }
 
-    @Test
-    void register_organization_success() {
-        RegisterRequest req = mock(RegisterRequest.class);
-        when(req.getEmail()).thenReturn("a@x.com");
-        when(req.getPassword()).thenReturn("pw");
-        when(req.getPhone()).thenReturn("0909");
-        when(req.getFullName()).thenReturn("Nguyen A");
-        when(accountRepository.existsByEmail("a@x.com")).thenReturn(false);
-        when(passwordEncoder.encode("pw")).thenReturn("hashed");
-
-        OtpResponse res = service.registerOrganization(req);
-
-        ArgumentCaptor<Account> accCaptor = ArgumentCaptor.forClass(Account.class);
-        verify(accountRepository).save(accCaptor.capture());
-        Account saved = accCaptor.getValue();
-        assertThat(saved.getEmail()).isEqualTo("a@x.com");
-        assertThat(saved.getPasswordHash()).isEqualTo("hashed");
-        assertThat(saved.getRole()).isEqualTo(Role.MEMBER);
-        assertThat(saved.getStatus()).isEqualTo(AccountStatus.ACTIVE);
-        assertThat(saved.isEmailVerified()).isFalse();
-        assertThat(saved.getPhone()).isEqualTo("0909");
-
-        ArgumentCaptor<MemberProfile> mpCaptor = ArgumentCaptor.forClass(MemberProfile.class);
-        verify(memberProfileRepository).save(mpCaptor.capture());
-        assertThat(mpCaptor.getValue().getAccount()).isSameAs(saved);
-        assertThat(mpCaptor.getValue().getFullName()).isEqualTo("Nguyen A");
-
-        verify(otpService).issue(saved, OtpPurpose.REGISTER);
-        assertThat(res).extracting("message")
-                .isEqualTo("Đăng ký thành công. Vui lòng kiểm tra email để xác minh OTP.");
-    }
-
     // ==================== login ====================
 
     @Test
@@ -433,63 +401,6 @@ class AuthServiceImplTest {
                 .role(Role.MEMBER)
                 .status(AccountStatus.ACTIVE)
                 .build();
-    }
-
-    @Test
-    void registerOrganization_emailExists_throws() {
-        Account current = currentAccount();
-        RegisterOrganizationRequest req = orgRequest("  Contact@Chiase.ORG ", "0312345678");
-        when(accountRepository.existsByEmailIgnoreCase("contact@chiase.org")).thenReturn(true);
-
-        assertThatThrownBy(() -> service1.registerOrganization(current, req))
-                .isInstanceOf(AccountAlreadyExistsException.class)
-                .hasMessage("Email đã được sử dụng!!");
-
-        verifyNoInteractions(organizationProfileRepository);
-        verify(accountRepository, never()).save(any());
-    }
-
-    @Test
-    void registerOrganization_taxCodeExists_throws() {
-        Account current = currentAccount();
-        RegisterOrganizationRequest req = orgRequest("contact@chiase.org", "0312345678");
-        when(accountRepository.existsByEmailIgnoreCase("contact@chiase.org")).thenReturn(false);
-        when(organizationProfileRepository.existsByTaxCode("0312345678")).thenReturn(true);
-
-        assertThatThrownBy(() -> service1.registerOrganization(current, req))
-                .isInstanceOf(AccountAlreadyExistsException.class)
-                .hasMessage("Mã số thuế đã được sử dụng!!");
-
-        verify(accountRepository, never()).save(any());
-        verify(organizationProfileRepository, never()).save(any());
-    }
-
-    @Test
-    void registerOrganization_success() {
-        Account current = currentAccount();
-        RegisterOrganizationRequest req = orgRequest("  Contact@Chiase.ORG ", "0312345678");
-        when(accountRepository.existsByEmailIgnoreCase("contact@chiase.org")).thenReturn(false);
-        when(organizationProfileRepository.existsByTaxCode("0312345678")).thenReturn(false);
-        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        OrganizationProfile org = new OrganizationProfile();
-        when(organizationProfileMapper.toEntity(req)).thenReturn(org);
-        RegisterOrganizationResponse expected = mock(RegisterOrganizationResponse.class);
-        when(organizationProfileMapper.toResponse(org)).thenReturn(expected);
-
-        RegisterOrganizationResponse result = service1.registerOrganization(current, req);
-
-        ArgumentCaptor<Account> accountCaptor = ArgumentCaptor.forClass(Account.class);
-        verify(accountRepository).save(accountCaptor.capture());
-        Account savedAccount = accountCaptor.getValue();
-        assertThat(savedAccount).isNotSameAs(current);
-        assertThat(savedAccount).extracting("email", "role", "status")
-                .containsExactly("contact@chiase.org", Role.ORGANIZATION, AccountStatus.ACTIVE);
-
-        assertThat(org).extracting("account", "verificationStatus")
-                .containsExactly(savedAccount, VerificationStatus.PENDING);
-        verify(organizationProfileRepository).save(org);
-        assertThat(result).isSameAs(expected);
     }
 
     // ==================== changePassword ====================

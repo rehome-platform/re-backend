@@ -107,6 +107,10 @@ public class Order {
     @Column(name = "refund_amount", nullable = true, precision = 19, scale = 2)
     private BigDecimal refundAmount;
 
+    // Thời điểm đơn chuyển sang COMPLETED — F-063/F-064
+    @Column(name = "completed_at", nullable = true)
+    private Instant completedAt;
+
     // 1–5 sao — UC-39 / F-066
     @Column(name = "service_rating", nullable = true)
     private Short serviceRating;

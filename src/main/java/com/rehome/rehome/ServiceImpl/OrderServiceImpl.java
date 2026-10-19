@@ -2,6 +2,7 @@ package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.request.CreateOrderRequest;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
+import com.rehome.rehome.dto.response.OrderConfirmReceiptResponse;
 import com.rehome.rehome.dto.response.OrderDetailItemResponse;
 import com.rehome.rehome.dto.response.OrderDetailResponse;
 import com.rehome.rehome.dto.response.OrderListResponse;
@@ -385,6 +386,7 @@ public class OrderServiceImpl implements OrderService {
                 .cancelReason(order.getCancelReason() != null ? order.getCancelReason().name() : null)
                 .cancelledAt(order.getCancelledAt())
                 .refundAmount(order.getRefundAmount())
+                .completedAt(order.getCompletedAt())
                 .build();
     }
 
@@ -420,8 +422,7 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        Wallet wallet = walletRepository.findByMember_Id(buyer.getId())
-                .orElseGet(() -> Wallet.builder().member(buyer).build());
+        Wallet wallet = getOrCreateWallet(buyer);
         wallet.setBalance(wallet.getBalance().add(order.getTotalAmount()));
         walletRepository.save(wallet);
 
@@ -446,6 +447,68 @@ public class OrderServiceImpl implements OrderService {
                 .id(order.getId().toString())
                 .status(order.getStatus().name())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public OrderConfirmReceiptResponse confirmReceipt(String email, UUID orderId) {
+
+        Account buyer = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
+
+        if (!order.getBuyer().getId().equals(buyer.getId())) {
+            throw new ForbiddenException("Bạn không có quyền xác nhận đơn này.");
+        }
+
+        if (order.getStatus() != OrderStatus.DELIVERED) {
+            throw new ConflictException(
+                    "Đơn chưa ở trạng thái đã giao, không thể xác nhận nhận hàng.",
+                    "ORDER_NOT_DELIVERED_YET");
+        }
+
+        for (OrderItem item : orderItemRepository.findAllByOrder_Id(orderId)) {
+            Product product = productRepository.findByIdForUpdate(item.getProduct().getId()).orElse(null);
+            if (product != null && product.getStatus() == ProductStatus.RESERVED) {
+                product.setStatus(ProductStatus.SOLD);
+                productRepository.save(product);
+            }
+
+            BigDecimal payoutAmount = item.getPriceAtOrder()
+                    .subtract(item.getPriceAtOrder().multiply(item.getCommissionRateApplied()));
+
+            Account seller = item.getProduct().getMember();
+            Wallet sellerWallet = getOrCreateWallet(seller);
+            sellerWallet.setBalance(sellerWallet.getBalance().add(payoutAmount));
+            walletRepository.save(sellerWallet);
+
+            WalletTransaction payoutTransaction = WalletTransaction.builder()
+                    .walletType(WalletType.MEMBER)
+                    .walletId(sellerWallet.getId())
+                    .type(WalletTransactionType.ORDER_PAYOUT)
+                    .amount(payoutAmount)
+                    .relatedOrder(order)
+                    .status(TransactionStatus.SUCCESS)
+                    .note("Thanh toán đơn hàng " + order.getOrderNo())
+                    .build();
+            walletTransactionRepository.save(payoutTransaction);
+        }
+
+        order.setStatus(OrderStatus.COMPLETED);
+        order.setCompletedAt(Instant.now());
+        orderRepository.save(order);
+
+        return OrderConfirmReceiptResponse.builder()
+                .id(order.getId().toString())
+                .status(order.getStatus().name())
+                .build();
+    }
+
+    private Wallet getOrCreateWallet(Account member) {
+        return walletRepository.findByMember_Id(member.getId())
+                .orElseGet(() -> Wallet.builder().member(member).build());
     }
 
     private Product lockAndValidateProduct(String productId) {

@@ -28,4 +28,9 @@ public class PageResponse<T> {
                 .totalPages(page.getTotalPages())
                 .build();
     }
+
+    public static <T> PageResponse<T> of(Page<T> p) {
+        return new PageResponse<>(p.getContent(), p.getNumber(), p.getSize(),
+                p.getTotalElements(), p.getTotalPages());
+    }
 }

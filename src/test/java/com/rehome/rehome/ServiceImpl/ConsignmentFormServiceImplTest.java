@@ -1,8 +1,11 @@
 package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.request.ConsignmentFormRequest;
+import com.rehome.rehome.dto.response.ConsignmentFormListItemResponse;
 import com.rehome.rehome.dto.response.ConsignmentFormResponse;
+import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
 import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.entity.marketplace.Category;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
@@ -17,18 +20,23 @@ import com.rehome.rehome.repository.WarehouseRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -114,5 +122,62 @@ class ConsignmentFormServiceImplTest {
 
         verify(consignmentFormRepository, never()).save(any());
         verifyNoInteractions(photoRepository);
+    }
+
+    private Account member() {
+        return Account.builder().id(UUID.randomUUID()).build();
+    }
+
+    @Test
+    void getMyForms_withStatus_usesStatusQueryAndMapsItems() {
+        Account account = member();
+        ConsignmentForm form = new ConsignmentForm();
+        ConsignmentFormListItemResponse item = new ConsignmentFormListItemResponse(
+                UUID.randomUUID(), ConsignmentFormStatus.PENDING, "Áo sơ mi Zara", new BigDecimal("250000"));
+
+        when(consignmentFormRepository.findByMemberIdAndStatus(eq(account.getId()),
+                eq(ConsignmentFormStatus.PENDING), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(form), PageRequest.of(0, 20), 1));
+        when(consignmentFormMapper.toListItem(form)).thenReturn(item);
+
+        PageResponse<ConsignmentFormListItemResponse> result =
+                service.getMyForms(account, ConsignmentFormStatus.PENDING, 0, 20);
+
+        assertThat(result.getContent()).containsExactly(item);
+        assertThat(result.getTotalElements()).isEqualTo(1);
+        assertThat(result.getTotalPages()).isEqualTo(1);
+        verify(consignmentFormRepository, never()).findByMemberId(any(), any());
+    }
+
+    @Test
+    void getMyForms_withoutStatus_usesMemberQuery_sortedNewestFirst() {
+        Account account = member();
+        when(consignmentFormRepository.findByMemberId(eq(account.getId()), any(Pageable.class)))
+                .thenReturn(Page.empty());
+
+        service.getMyForms(account, null, 0, 20);
+
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(consignmentFormRepository).findByMemberId(eq(account.getId()), captor.capture());
+
+        Sort.Order order = captor.getValue().getSort().getOrderFor("createdAt");
+        assertThat(order).isNotNull();
+        assertThat(order.getDirection()).isEqualTo(Sort.Direction.DESC);
+        verify(consignmentFormRepository, never()).findByMemberIdAndStatus(any(), any(), any());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"-5, 0, 20", "0, 0, 20", "0, 1000, 50", "3, 10, 10"})
+    void getMyForms_normalizesPageAndSize(int page, int size, int expectedSize) {
+        Account account = member();
+        when(consignmentFormRepository.findByMemberId(eq(account.getId()), any(Pageable.class)))
+                .thenReturn(Page.empty());
+
+        service.getMyForms(account, null, page, size);
+
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(consignmentFormRepository).findByMemberId(eq(account.getId()), captor.capture());
+        assertThat(captor.getValue().getPageSize()).isEqualTo(expectedSize);
+        assertThat(captor.getValue().getPageNumber()).isEqualTo(Math.max(page, 0));
     }
 }

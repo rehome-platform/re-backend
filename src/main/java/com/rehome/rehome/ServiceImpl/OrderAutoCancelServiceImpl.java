@@ -1,5 +1,6 @@
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.entity.enums.CancelReason;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.marketplace.Order;
@@ -61,6 +62,8 @@ public class OrderAutoCancelServiceImpl implements OrderAutoCancelService {
         }
 
         order.setStatus(OrderStatus.CANCELLED);
+        order.setCancelReason(CancelReason.PAYMENT_EXPIRED);
+        order.setCancelledAt(Instant.now());
         orderRepository.save(order);
 
         log.info(">>>> Tu huy don hang qua han thanh toan: orderNo={}", order.getOrderNo());

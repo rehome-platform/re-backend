@@ -1,6 +1,7 @@
 package com.rehome.rehome.entity.marketplace;
 
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.CancelReason;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import jakarta.persistence.*;
@@ -92,6 +93,19 @@ public class Order {
     // Hạn tự hoàn thành, mặc định 3 ngày sau khi giao
     @Column(name = "auto_complete_deadline", nullable = true)
     private Instant autoCompleteDeadline;
+
+    // Lý do hủy — chỉ có PAYMENT_EXPIRED được code hủy tự động gán hiện tại
+    @Enumerated(EnumType.STRING)
+    @Column(name = "cancel_reason", nullable = true)
+    private CancelReason cancelReason;
+
+    // Thời điểm đơn chuyển sang CANCELLED
+    @Column(name = "cancelled_at", nullable = true)
+    private Instant cancelledAt;
+
+    // Số tiền đã hoàn vào ví người mua khi hủy đơn — F-061
+    @Column(name = "refund_amount", nullable = true, precision = 19, scale = 2)
+    private BigDecimal refundAmount;
 
     // 1–5 sao — UC-39 / F-066
     @Column(name = "service_rating", nullable = true)

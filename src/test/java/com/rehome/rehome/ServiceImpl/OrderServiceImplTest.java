@@ -1,31 +1,44 @@
 package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.request.CreateOrderRequest;
+import com.rehome.rehome.dto.response.OrderCancelResponse;
+import com.rehome.rehome.dto.response.OrderDetailResponse;
 import com.rehome.rehome.dto.response.OrderListResponse;
 import com.rehome.rehome.dto.response.OrderResponse;
 import com.rehome.rehome.dto.response.OrderSummaryResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.CancelReason;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.WalletTransactionType;
+import com.rehome.rehome.entity.enums.WalletType;
+import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.entity.marketplace.Cart;
 import com.rehome.rehome.entity.marketplace.CartItem;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
+import com.rehome.rehome.entity.marketplace.Payment;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.ShippingAddress;
+import com.rehome.rehome.entity.marketplace.Wallet;
+import com.rehome.rehome.entity.marketplace.WalletTransaction;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
+import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.CartItemRepository;
 import com.rehome.rehome.repository.CartRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
+import com.rehome.rehome.repository.PaymentRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.ShippingAddressRepository;
+import com.rehome.rehome.repository.WalletRepository;
+import com.rehome.rehome.repository.WalletTransactionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -65,6 +78,9 @@ class OrderServiceImplTest {
     @Mock OrderRepository orderRepository;
     @Mock OrderItemRepository orderItemRepository;
     @Mock ProductPhotoRepository productPhotoRepository;
+    @Mock PaymentRepository paymentRepository;
+    @Mock WalletRepository walletRepository;
+    @Mock WalletTransactionRepository walletTransactionRepository;
 
     @InjectMocks
     OrderServiceImpl orderService;
@@ -519,5 +535,366 @@ class OrderServiceImplTest {
                 .containsEntry("DELIVERED", 0L)
                 .containsEntry("COMPLETED", 0L)
                 .containsEntry("CANCELLED", 0L);
+    }
+
+    @Test
+    void getOrderDetail_throwsNotFound_whenAccountDoesNotExist() {
+        UUID orderId = UUID.randomUUID();
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.getOrderDetail(email, orderId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Account không tồn tại");
+
+        verify(orderRepository, never()).findById(any());
+    }
+
+    @Test
+    void getOrderDetail_throwsNotFound_whenOrderDoesNotExist() {
+        UUID orderId = UUID.randomUUID();
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.getOrderDetail(email, orderId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy đơn hàng.");
+    }
+
+    @Test
+    void getOrderDetail_throwsForbidden_whenOrderBelongsToAnotherBuyer() {
+        UUID orderId = UUID.randomUUID();
+        Account anotherMember = Account.builder().id(UUID.randomUUID()).email("other@example.com").build();
+        Order order = Order.builder().id(orderId).buyer(anotherMember).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.getOrderDetail(email, orderId))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("Bạn không có quyền xem đơn này.");
+
+        verify(orderItemRepository, never()).findAllByOrder_IdWithProductOrderByIdAsc(any());
+    }
+
+    @Test
+    void getOrderDetail_mapsAllFields_withItemsAndPaidAt() {
+        UUID orderId = UUID.randomUUID();
+        Instant createdAt = Instant.parse("2026-01-01T00:00:00Z");
+        Instant paymentDeadline = Instant.parse("2026-01-01T00:15:00Z");
+        Instant deliveredAt = Instant.parse("2026-01-05T00:00:00Z");
+        Instant autoCompleteDeadline = Instant.parse("2026-01-08T00:00:00Z");
+        Instant ratedAt = Instant.parse("2026-01-09T00:00:00Z");
+        Instant paidAt = Instant.parse("2026-01-01T00:05:00Z");
+
+        product1.setName("Áo A");
+        product1.setBrand(Brand.builder().id(UUID.randomUUID()).name("Nike").build());
+        product2.setName("Áo B");
+        product2.setBrand(Brand.builder().id(UUID.randomUUID()).name("Adidas").build());
+
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000001")
+                .buyer(member)
+                .warehouse(warehouse1)
+                .status(OrderStatus.DELIVERED)
+                .createdAt(createdAt)
+                .paymentMethod(com.rehome.rehome.entity.enums.OrderPaymentMethod.MOMO)
+                .subtotal(new BigDecimal("600000"))
+                .shippingFee(new BigDecimal("25000"))
+                .totalAmount(new BigDecimal("625000"))
+                .paymentDeadline(paymentDeadline)
+                .shippingRecipientName("Tạ Thị Ngọc Anh")
+                .shippingPhone("0912345678")
+                .shippingAddressDetail("12 Nguyễn Trãi, Q.1, TP.HCM")
+                .ghnTrackingCode("GHN123456789")
+                .deliveredAt(deliveredAt)
+                .autoCompleteDeadline(autoCompleteDeadline)
+                .serviceRating((short) 5)
+                .ratedAt(ratedAt)
+                .build();
+
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order)
+                .product(product1).priceAtOrder(new BigDecimal("220000")).build();
+        OrderItem item2 = OrderItem.builder().id(UUID.randomUUID()).order(order)
+                .product(product2).priceAtOrder(new BigDecimal("380000")).build();
+
+        Payment payment = Payment.builder().id(UUID.randomUUID()).order(order)
+                .amount(new BigDecimal("625000")).paidAt(paidAt).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId))
+                .thenReturn(List.of(item1, item2));
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(any()))
+                .thenReturn(List.of(photo(product1, "ao-a.jpg"), photo(product2, "ao-b.jpg")));
+        when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.of(payment));
+
+        OrderDetailResponse result = orderService.getOrderDetail(email, orderId);
+
+        assertThat(result.getId()).isEqualTo(orderId.toString());
+        assertThat(result.getOrderNo()).isEqualTo("OD-2026-000001");
+        assertThat(result.getStatus()).isEqualTo("DELIVERED");
+        assertThat(result.getCreatedAt()).isEqualTo(createdAt);
+        assertThat(result.getPaymentMethod()).isEqualTo("MOMO");
+        assertThat(result.getPaidAt()).isEqualTo(paidAt);
+        assertThat(result.getSubtotal()).isEqualTo(new BigDecimal("600000"));
+        assertThat(result.getShippingFee()).isEqualTo(new BigDecimal("25000"));
+        assertThat(result.getTotalAmount()).isEqualTo(new BigDecimal("625000"));
+        assertThat(result.getWarehouseName()).isEqualTo("Kho Quận 7");
+        assertThat(result.getShippingRecipientName()).isEqualTo("Tạ Thị Ngọc Anh");
+        assertThat(result.getShippingPhone()).isEqualTo("0912345678");
+        assertThat(result.getShippingAddressDetail()).isEqualTo("12 Nguyễn Trãi, Q.1, TP.HCM");
+        assertThat(result.getGhnTrackingCode()).isEqualTo("GHN123456789");
+        assertThat(result.getDeliveredAt()).isEqualTo(deliveredAt);
+        assertThat(result.getAutoCompleteDeadline()).isEqualTo(autoCompleteDeadline);
+        assertThat(result.getServiceRating()).isEqualTo((short) 5);
+        assertThat(result.getRatedAt()).isEqualTo(ratedAt);
+        assertThat(result.getCancelReason()).isNull();
+        assertThat(result.getCancelledAt()).isNull();
+        assertThat(result.getRefundAmount()).isNull();
+
+        assertThat(result.getItems()).hasSize(2);
+        assertThat(result.getItems().get(0).getProductId()).isEqualTo(product1.getId());
+        assertThat(result.getItems().get(0).getName()).isEqualTo("Áo A");
+        assertThat(result.getItems().get(0).getThumbnailUrl()).isEqualTo("ao-a.jpg");
+        assertThat(result.getItems().get(0).getBrandName()).isEqualTo("Nike");
+        assertThat(result.getItems().get(0).getPriceAtOrder()).isEqualTo(new BigDecimal("220000"));
+        assertThat(result.getItems().get(1).getBrandName()).isEqualTo("Adidas");
+    }
+
+    @Test
+    void getOrderDetail_paidAtIsNull_whenNoPaymentRecordExists() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder()
+                .id(orderId)
+                .buyer(member)
+                .warehouse(warehouse1)
+                .status(OrderStatus.PENDING_PAYMENT)
+                .paymentMethod(com.rehome.rehome.entity.enums.OrderPaymentMethod.WALLET)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId)).thenReturn(List.of());
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(any())).thenReturn(List.of());
+        when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.empty());
+
+        OrderDetailResponse result = orderService.getOrderDetail(email, orderId);
+
+        assertThat(result.getPaidAt()).isNull();
+        assertThat(result.getItems()).isEmpty();
+    }
+
+    @Test
+    void getOrderDetail_mapsCancelReasonAndCancelledAt_whenOrderWasAutoCancelled() {
+        UUID orderId = UUID.randomUUID();
+        Instant cancelledAt = Instant.parse("2026-01-01T00:20:00Z");
+        Order order = Order.builder()
+                .id(orderId)
+                .buyer(member)
+                .warehouse(warehouse1)
+                .status(OrderStatus.CANCELLED)
+                .paymentMethod(com.rehome.rehome.entity.enums.OrderPaymentMethod.WALLET)
+                .cancelReason(CancelReason.PAYMENT_EXPIRED)
+                .cancelledAt(cancelledAt)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId)).thenReturn(List.of());
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(any())).thenReturn(List.of());
+        when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.empty());
+
+        OrderDetailResponse result = orderService.getOrderDetail(email, orderId);
+
+        assertThat(result.getCancelReason()).isEqualTo("PAYMENT_EXPIRED");
+        assertThat(result.getCancelledAt()).isEqualTo(cancelledAt);
+    }
+
+    @Test
+    void cancelOrder_throwsNotFound_whenAccountDoesNotExist() {
+        UUID orderId = UUID.randomUUID();
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.cancelOrder(email, orderId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Account không tồn tại");
+
+        verify(orderRepository, never()).findById(any());
+    }
+
+    @Test
+    void cancelOrder_throwsNotFound_whenOrderDoesNotExist() {
+        UUID orderId = UUID.randomUUID();
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.cancelOrder(email, orderId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy đơn hàng.");
+    }
+
+    @Test
+    void cancelOrder_throwsForbidden_whenOrderBelongsToAnotherBuyer() {
+        UUID orderId = UUID.randomUUID();
+        Account anotherMember = Account.builder().id(UUID.randomUUID()).email("other@example.com").build();
+        Order order = Order.builder().id(orderId).buyer(anotherMember).status(OrderStatus.PAID).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.cancelOrder(email, orderId))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("Bạn không có quyền hủy đơn này.");
+
+        verify(orderItemRepository, never()).findAllByOrder_Id(any());
+        verify(walletRepository, never()).save(any());
+    }
+
+    @Test
+    void cancelOrder_throwsConflictWithCode_whenOrderAlreadyPacked() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).buyer(member).status(OrderStatus.PACKING).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.cancelOrder(email, orderId))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Đơn đã đóng gói, không thể hủy.")
+                .satisfies(ex -> assertThat(((ConflictException) ex).getCode())
+                        .isEqualTo("CANNOT_CANCEL_AFTER_PACKING"));
+
+        verify(walletRepository, never()).save(any());
+    }
+
+    @Test
+    void cancelOrder_throwsConflictWithCode_whenOrderNotPaidYet() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).buyer(member).status(OrderStatus.PENDING_PAYMENT).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.cancelOrder(email, orderId))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Đơn chưa thanh toán, không thể hủy theo cách này.")
+                .satisfies(ex -> assertThat(((ConflictException) ex).getCode())
+                        .isEqualTo("ORDER_NOT_PAID_YET"));
+
+        verify(walletRepository, never()).save(any());
+    }
+
+    @Test
+    void cancelOrder_throwsConflictWithCode_whenOrderAlreadyCancelled() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).buyer(member).status(OrderStatus.CANCELLED).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.cancelOrder(email, orderId))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Đơn đã hủy trước đó.")
+                .satisfies(ex -> assertThat(((ConflictException) ex).getCode())
+                        .isEqualTo("ORDER_ALREADY_CANCELLED"));
+
+        verify(walletRepository, never()).save(any());
+    }
+
+    @Test
+    void cancelOrder_releasesReservedProducts_andCreditsExistingWallet() {
+        UUID orderId = UUID.randomUUID();
+        product1.setStatus(ProductStatus.RESERVED);
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000001")
+                .buyer(member)
+                .status(OrderStatus.PAID)
+                .totalAmount(new BigDecimal("245000"))
+                .build();
+
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).build();
+        Wallet existingWallet = Wallet.builder().id(UUID.randomUUID()).member(member)
+                .balance(new BigDecimal("50000")).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+        when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(existingWallet));
+
+        OrderCancelResponse response = orderService.cancelOrder(email, orderId);
+
+        assertThat(response.getId()).isEqualTo(orderId.toString());
+        assertThat(response.getStatus()).isEqualTo("CANCELLED");
+
+        assertThat(product1.getStatus()).isEqualTo(ProductStatus.ON_SALE);
+        verify(productRepository).save(product1);
+
+        assertThat(existingWallet.getBalance()).isEqualTo(new BigDecimal("295000"));
+        verify(walletRepository).save(existingWallet);
+
+        ArgumentCaptor<WalletTransaction> txCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository).save(txCaptor.capture());
+        assertThat(txCaptor.getValue().getWalletType()).isEqualTo(WalletType.MEMBER);
+        assertThat(txCaptor.getValue().getWalletId()).isEqualTo(existingWallet.getId());
+        assertThat(txCaptor.getValue().getType()).isEqualTo(WalletTransactionType.REFUND);
+        assertThat(txCaptor.getValue().getAmount()).isEqualTo(new BigDecimal("245000"));
+        assertThat(txCaptor.getValue().getRelatedOrder()).isEqualTo(order);
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(order.getCancelReason()).isEqualTo(CancelReason.BUYER_CANCELLED);
+        assertThat(order.getCancelledAt()).isNotNull();
+        assertThat(order.getRefundAmount()).isEqualTo(new BigDecimal("245000"));
+    }
+
+    @Test
+    void cancelOrder_createsNewWallet_whenMemberHasNoWalletYet() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000002")
+                .buyer(member)
+                .status(OrderStatus.PAID)
+                .totalAmount(new BigDecimal("100000"))
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of());
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.empty());
+
+        orderService.cancelOrder(email, orderId);
+
+        ArgumentCaptor<Wallet> walletCaptor = ArgumentCaptor.forClass(Wallet.class);
+        verify(walletRepository).save(walletCaptor.capture());
+        assertThat(walletCaptor.getValue().getMember()).isEqualTo(member);
+        assertThat(walletCaptor.getValue().getBalance()).isEqualTo(new BigDecimal("100000"));
+    }
+
+    @Test
+    void cancelOrder_skipsProductsNotCurrentlyReserved() {
+        UUID orderId = UUID.randomUUID();
+        product1.setStatus(ProductStatus.SOLD);
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000003")
+                .buyer(member)
+                .status(OrderStatus.PAID)
+                .totalAmount(new BigDecimal("100000"))
+                .build();
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+        when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.empty());
+
+        orderService.cancelOrder(email, orderId);
+
+        verify(productRepository, never()).save(product1);
+        assertThat(product1.getStatus()).isEqualTo(ProductStatus.SOLD);
     }
 }

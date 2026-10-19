@@ -1,5 +1,6 @@
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.entity.enums.CancelReason;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.marketplace.Order;
@@ -95,6 +96,8 @@ class OrderAutoCancelServiceImplTest {
         ArgumentCaptor<Order> orderCaptor = ArgumentCaptor.forClass(Order.class);
         verify(orderRepository).save(orderCaptor.capture());
         assertThat(orderCaptor.getValue().getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(orderCaptor.getValue().getCancelReason()).isEqualTo(CancelReason.PAYMENT_EXPIRED);
+        assertThat(orderCaptor.getValue().getCancelledAt()).isNotNull();
     }
 
     @Test

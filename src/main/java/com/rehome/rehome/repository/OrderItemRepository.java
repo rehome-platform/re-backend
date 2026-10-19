@@ -16,4 +16,11 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
             "where oi.order.id in :orderIds " +
             "order by oi.id asc")
     List<OrderItem> findAllByOrder_IdInOrderByIdAsc(@Param("orderIds") List<UUID> orderIds);
+
+    @Query("select oi from OrderItem oi " +
+            "join fetch oi.product p " +
+            "join fetch p.brand " +
+            "where oi.order.id = :orderId " +
+            "order by oi.id asc")
+    List<OrderItem> findAllByOrder_IdWithProductOrderByIdAsc(@Param("orderId") UUID orderId);
 }

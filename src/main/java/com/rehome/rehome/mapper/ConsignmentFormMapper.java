@@ -103,7 +103,8 @@ public class ConsignmentFormMapper {
                 form.getStatus(),
                 form.getProductName(),
                 form.getRejectReason(),
-                form.getBringInDeadline()
+                form.getBringInDeadline(),
+                null
         );
     }
 

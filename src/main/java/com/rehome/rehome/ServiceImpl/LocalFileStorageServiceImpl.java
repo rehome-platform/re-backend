@@ -1,0 +1,46 @@
+package com.rehome.rehome.ServiceImpl;
+
+import com.rehome.rehome.exception.AppException;
+import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.service.FileStorageService;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+/**
+ * Lưu file vào ổ đĩa của server. Dùng cho dev/đơn giản.
+ * Khi lên production nên thay bằng bản cài đặt S3/Cloudinary/... cho cùng interface.
+ */
+@Service
+public class LocalFileStorageServiceImpl implements FileStorageService {
+
+    private final Path root;
+    private final String publicBaseUrl;
+
+    public LocalFileStorageServiceImpl(
+            @Value("${app.storage.local-dir:uploads}") String localDir,
+            @Value("${app.storage.public-base-url:http://localhost:8080/files}") String publicBaseUrl) {
+        this.root = Path.of(localDir).toAbsolutePath().normalize();
+        this.publicBaseUrl = publicBaseUrl.endsWith("/")
+                ? publicBaseUrl.substring(0, publicBaseUrl.length() - 1)
+                : publicBaseUrl;
+    }
+
+    @Override
+    public String store(String path, byte[] content, String contentType) {
+        Path target = root.resolve(path).normalize();
+        // Chặn path traversal (../)
+        if (!target.startsWith(root)) {
+            throw new AppException(ErrorCode.RECEIPT_PDF_GENERATION_FAILED);
+        }
+        try {
+            Files.createDirectories(target.getParent());
+            Files.write(target, content);
+        } catch (IOException e) {
+            throw new AppException(ErrorCode.RECEIPT_PDF_GENERATION_FAILED);
+        }
+        return publicBaseUrl + "/" + path.replace('\\', '/');
+    }
+}

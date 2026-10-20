@@ -29,6 +29,9 @@ public enum ErrorCode {
     CONSIGNMENT_FORM_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy form ký gửi."),
     CONSIGNMENT_FORM_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền xem form này."),
     NOT_MEMBER_ACCOUNT(HttpStatus.FORBIDDEN, "Chỉ tài khoản member mới coi được danh sách ký gửi."),
+    // API 20 - xác nhận phiếu ký gửi, F-022 - sinh PDF
+    CONSIGNMENT_RECEIPT_ALREADY_CONFIRMED(HttpStatus.CONFLICT, "Phiếu này đã được xác nhận."),
+    RECEIPT_PDF_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo file PDF phiếu ký gửi."),
     NOT_ORGANIZATION_ACCOUNT(HttpStatus.FORBIDDEN, "Chỉ tài khoản tổ chức mới được nộp hồ sơ."); // <-- dấu ; ở đây
     private final HttpStatus status;
     private final String defaultMessage;

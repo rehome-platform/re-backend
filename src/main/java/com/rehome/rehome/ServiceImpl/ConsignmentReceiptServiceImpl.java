@@ -1,5 +1,6 @@
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.dto.response.ConsignmentReceiptConfirmResponse;
 import com.rehome.rehome.dto.response.ConsignmentReceiptResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.Role;
@@ -11,7 +12,9 @@ import com.rehome.rehome.repository.ConsignmentReceiptRepository;
 import com.rehome.rehome.service.ConsignmentReceiptService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @Service
@@ -19,6 +22,7 @@ import java.util.UUID;
 public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService {
 
     private final ConsignmentReceiptRepository consignmentReceiptRepository;
+    private final ReceiptPdfServiceImpl receiptPdfServiceImpl;
 
     @Override
     public ConsignmentReceiptResponse getMyReceipt(Account account, UUID id) {
@@ -34,5 +38,32 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         }
 
         return ConsignmentReceiptMapper.toResponse(receipt);
+    }
+
+    @Override
+    @Transactional
+    public ConsignmentReceiptConfirmResponse confirmReceipt(Account account, UUID id) {
+        // Khóa dòng để chống bấm xác nhận đồng thời
+        ConsignmentReceipt receipt = consignmentReceiptRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_RECEIPT_NOT_FOUND));
+
+        if (!receipt.getMember().getId().equals(account.getId())) {
+            throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_FORBIDDEN);
+        }
+        if (receipt.getConfirmedAt() != null) {
+            throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_ALREADY_CONFIRMED);
+        }
+
+        Instant now = Instant.now();
+
+        // Set confirmedAt trước để PDF snapshot có đúng mốc xác nhận
+        receipt.setConfirmedAt(now);
+        receipt.setPdfUrl(receiptPdfServiceImpl.generate(receipt)); // F-022
+
+        // TODO: ghi audit log (account, receipt id, thời điểm xác nhận)
+
+        consignmentReceiptRepository.save(receipt);
+
+        return ConsignmentReceiptMapper.toConfirmResponse(receipt);
     }
 }

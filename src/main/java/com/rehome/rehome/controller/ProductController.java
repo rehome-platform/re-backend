@@ -1,12 +1,19 @@
 package com.rehome.rehome.controller;
 
-import com.rehome.rehome.dto.response.ApiResponse;
-import com.rehome.rehome.dto.response.PageResponse;
-import com.rehome.rehome.dto.response.ProductDetailResponse;
-import com.rehome.rehome.dto.response.ProductSummaryResponse;
+import com.rehome.rehome.dto.response.*;
+import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.exception.AppException;
+import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.service.ProductService;
 import lombok.RequiredArgsConstructor;
+import org.apache.tomcat.util.net.openssl.ciphers.Authentication;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -44,5 +51,20 @@ public class ProductController {
     public ResponseEntity<ApiResponse<ProductDetailResponse>> getProductDetail(@PathVariable String id) {
         ProductDetailResponse result = productService.getProductDetail(id);
         return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    @GetMapping("/products/mine")
+    public ApiResponse<PageResponse<MyProductResponse>> getMyProducts(
+            @RequestParam(required = false) ProductStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal Account account) {
+
+        if(account == null){
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<MyProductResponse> result = productService.getMyProducts(account.getId(), status, pageable);
+        return ApiResponse.success(PageResponse.from(result));
     }
 }

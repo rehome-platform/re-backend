@@ -67,4 +67,8 @@ public class ProductController {
         Page<MyProductResponse> result = productService.getMyProducts(account.getId(), status, pageable);
         return ApiResponse.success(PageResponse.from(result));
     }
+    @GetMapping("/products/{id}")
+    public ApiResponse<ProductEndOfTermDetailResponse> getProductById(@PathVariable String id) {
+        return ApiResponse.success(productService.getProductById(id));
+    }
 }

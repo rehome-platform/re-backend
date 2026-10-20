@@ -3,11 +3,15 @@ package com.rehome.rehome.ServiceImpl;
 import com.rehome.rehome.dto.response.MyProductResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.ProductDetailResponse;
+import com.rehome.rehome.dto.response.ProductEndOfTermDetailResponse;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
+import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.mapper.ProductMapper;
+import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +26,7 @@ import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.data.crossstore.ChangeSetPersister;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -53,6 +58,8 @@ class ProductServiceImplTest {
     @InjectMocks ProductServiceImpl service;
     @Mock
     private ProductMapper productMapper;
+    @Mock
+    EndOfTermDecisionRepository endOfTermDecisionRepository;
 
     private final UUID memberId = UUID.randomUUID();
     private final Pageable pageable = PageRequest.of(0, 20);
@@ -326,6 +333,48 @@ class ProductServiceImplTest {
         assertEquals(1, result.getSize());
         assertEquals(3, result.getTotalElements());
         assertEquals(3, result.getTotalPages());
+    }
+
+    @Test
+    void getProductById_pendingDecision_passesPendingToMapper() {
+        Product p = buildProduct("Q7-AK-000845", ProductStatus.ON_SALE);
+        EndOfTermDecision pending = EndOfTermDecision.builder()
+                .deadline(Instant.parse("2026-11-12T00:00:00Z")).build();
+        ProductEndOfTermDetailResponse dto = ProductEndOfTermDetailResponse.builder()
+                .id("Q7-AK-000845").build();
+        when(productRepository.findById("Q7-AK-000845")).thenReturn(Optional.of(p));
+        when(endOfTermDecisionRepository
+                .findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc("Q7-AK-000845"))
+                .thenReturn(Optional.of(pending));
+        when(productMapper.toEndOfTermDetailResponse(p, pending)).thenReturn(dto);
+
+        assertThat(service.getProductById("Q7-AK-000845")).isSameAs(dto);
+    }
+
+    @Test
+    void getProductById_noPending_passesNullToMapper() {
+        Product p = buildProduct("Q7-AK-000845", ProductStatus.ON_SALE);
+        ProductEndOfTermDetailResponse dto = ProductEndOfTermDetailResponse.builder()
+                .id("Q7-AK-000845").build();
+        when(productRepository.findById("Q7-AK-000845")).thenReturn(Optional.of(p));
+        when(endOfTermDecisionRepository
+                .findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc("Q7-AK-000845"))
+                .thenReturn(Optional.empty());
+        when(productMapper.toEndOfTermDetailResponse(p, null)).thenReturn(dto);
+
+        assertThat(service.getProductById("Q7-AK-000845")).isSameAs(dto);
+        verify(productMapper).toEndOfTermDetailResponse(p, null);
+    }
+
+    @Test
+    void getProductById_notFound_throwsAppException() {
+        when(productRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getProductById("missing"))
+                .isInstanceOf(AppException.class)
+                .hasMessage("Không tìm thấy sản phẩm.");
+
+        verifyNoInteractions(productMapper, endOfTermDecisionRepository);
     }
 
 }

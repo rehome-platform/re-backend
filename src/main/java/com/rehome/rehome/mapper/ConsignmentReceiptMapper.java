@@ -1,5 +1,6 @@
 package com.rehome.rehome.mapper;
 
+import com.rehome.rehome.dto.response.ConsignmentReceiptConfirmResponse;
 import com.rehome.rehome.dto.response.ConsignmentReceiptResponse;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 
@@ -25,6 +26,14 @@ public final class ConsignmentReceiptMapper {
         dto.setCommissionRateTerm3(r.getCommissionRateTerm3());
         dto.setWithdrawalFee(r.getWithdrawalFee());
         dto.setDegradedCompensationRate(r.getDegradedCompensationRate());
+        dto.setConfirmedAt(r.getConfirmedAt());
+        dto.setPdfUrl(r.getPdfUrl());
+        return dto;
+    }
+
+    public static ConsignmentReceiptConfirmResponse toConfirmResponse(ConsignmentReceipt r) {
+        ConsignmentReceiptConfirmResponse dto = new ConsignmentReceiptConfirmResponse();
+        dto.setId(r.getId());
         dto.setConfirmedAt(r.getConfirmedAt());
         dto.setPdfUrl(r.getPdfUrl());
         return dto;

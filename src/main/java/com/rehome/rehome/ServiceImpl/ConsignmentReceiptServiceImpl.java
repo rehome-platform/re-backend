@@ -10,6 +10,7 @@ import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.ConsignmentReceiptMapper;
 import com.rehome.rehome.repository.ConsignmentReceiptRepository;
 import com.rehome.rehome.service.ConsignmentReceiptService;
+import com.rehome.rehome.service.ReceiptPdfService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,8 +23,7 @@ import java.util.UUID;
 public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService {
 
     private final ConsignmentReceiptRepository consignmentReceiptRepository;
-    private final ReceiptPdfServiceImpl receiptPdfServiceImpl;
-
+    private final ReceiptPdfService receiptPdfService;   // interface, không phải ReceiptPdfServiceImpl
     @Override
     public ConsignmentReceiptResponse getMyReceipt(Account account, UUID id) {
         if(account.getRole() != Role.MEMBER){
@@ -58,7 +58,7 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
 
         // Set confirmedAt trước để PDF snapshot có đúng mốc xác nhận
         receipt.setConfirmedAt(now);
-        receipt.setPdfUrl(receiptPdfServiceImpl.generate(receipt)); // F-022
+        receipt.setPdfUrl(receiptPdfService.generate(receipt)); // F-022
 
         // TODO: ghi audit log (account, receipt id, thời điểm xác nhận)
 

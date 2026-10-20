@@ -34,9 +34,9 @@ class ReceiptPdfServiceImplTest {
 
     private ConsignmentReceipt receipt() {
         Account moderator = mock(Account.class);
-        when(moderator.getFullName()).thenReturn("Trần Thị Bình");
+        when(moderator.getUsername()).thenReturn("Trần Thị Bình");
         Account member = mock(Account.class);
-        when(member.getFullName()).thenReturn("Nguyễn Minh Nguyên");
+        when(member.getUsername()).thenReturn("Nguyễn Minh Nguyên");
 
         Warehouse warehouse = mock(Warehouse.class);
         when(warehouse.getName()).thenReturn("Kho Quận 7");

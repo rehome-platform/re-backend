@@ -1,14 +1,21 @@
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.dto.response.MyProductResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.ProductDetailResponse;
+import com.rehome.rehome.dto.response.ProductEndOfTermDetailResponse;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
+import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.mapper.ProductMapper;
+import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -19,12 +26,14 @@ import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.data.crossstore.ChangeSetPersister;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
-
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -33,7 +42,11 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.*;
+
+import org.springframework.data.domain.PageRequest;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -43,6 +56,13 @@ class ProductServiceImplTest {
     @Mock ProductRepository productRepository;
     @Mock ProductPhotoRepository productPhotoRepository;
     @InjectMocks ProductServiceImpl service;
+    @Mock
+    private ProductMapper productMapper;
+    @Mock
+    EndOfTermDecisionRepository endOfTermDecisionRepository;
+
+    private final UUID memberId = UUID.randomUUID();
+    private final Pageable pageable = PageRequest.of(0, 20);
 
     @BeforeEach
     void setUp() {
@@ -207,4 +227,154 @@ class ProductServiceImplTest {
 
         verifyNoInteractions(productPhotoRepository);
     }
+
+    private Product buildProduct(String id, ProductStatus status) {
+        return Product.builder()
+                .id(id)
+                .name("Áo sơ mi Zara trắng")
+                .status(status)
+                .currentTerm((short) 1)
+                .termStartedAt(Instant.parse("2026-09-13T08:10:00Z"))
+                .endOfTermDeadline(Instant.parse("2026-10-13T08:10:00Z"))
+                .build();
+    }
+
+    private MyProductResponse buildResponse(String id, ProductStatus status) {
+        return MyProductResponse.builder()
+                .id(id)
+                .productName("Áo sơ mi Zara trắng")
+                .status(status)
+                .currentTerm((short) 1)
+                .termStartedAt(Instant.parse("2026-09-13T08:10:00Z"))
+                .endOfTermDeadline(Instant.parse("2026-10-13T08:10:00Z"))
+                .build();
+    }
+
+    @Test
+    @DisplayName("getMyProducts: có status -> lọc theo status và map đúng DTO")
+    void getMyProducts_withStatus_returnsMappedPage() {
+        Product product = buildProduct("Q7-AK-000845", ProductStatus.ON_SALE);
+        MyProductResponse dto = buildResponse("Q7-AK-000845", ProductStatus.ON_SALE);
+        Page<Product> repoPage = new PageImpl<>(List.of(product), pageable, 1);
+
+        when(productRepository.findMine(memberId, ProductStatus.ON_SALE, pageable))
+                .thenReturn(repoPage);
+        when(productMapper.toMyProductResponse(product)).thenReturn(dto);
+
+        Page<MyProductResponse> result =
+                service.getMyProducts(memberId, ProductStatus.ON_SALE, pageable);
+
+        assertEquals(1, result.getTotalElements());
+        assertEquals(1, result.getTotalPages());
+        assertEquals(0, result.getNumber());
+        assertEquals(20, result.getSize());
+        assertSame(dto, result.getContent().get(0));
+        assertEquals("Q7-AK-000845", result.getContent().get(0).getId());
+        assertEquals(ProductStatus.ON_SALE, result.getContent().get(0).getStatus());
+
+        verify(productRepository, times(1)).findMine(memberId, ProductStatus.ON_SALE, pageable);
+        verify(productMapper, times(1)).toMyProductResponse(product);
+    }
+
+    @Test
+    @DisplayName("getMyProducts: status = null -> truyền null xuống repository (lấy tất cả)")
+    void getMyProducts_nullStatus_passesNullToRepository() {
+        Product p1 = buildProduct("Q7-AK-000845", ProductStatus.ON_SALE);
+        Product p2 = buildProduct("Q7-AK-000846", ProductStatus.SOLD);
+        MyProductResponse d1 = buildResponse("Q7-AK-000845", ProductStatus.ON_SALE);
+        MyProductResponse d2 = buildResponse("Q7-AK-000846", ProductStatus.SOLD);
+        Page<Product> repoPage = new PageImpl<>(List.of(p1, p2), pageable, 2);
+
+        when(productRepository.findMine(eq(memberId), eq(null), eq(pageable)))
+                .thenReturn(repoPage);
+        when(productMapper.toMyProductResponse(p1)).thenReturn(d1);
+        when(productMapper.toMyProductResponse(p2)).thenReturn(d2);
+
+        Page<MyProductResponse> result = service.getMyProducts(memberId, null, pageable);
+
+        assertEquals(2, result.getContent().size());
+        assertEquals(d1, result.getContent().get(0));
+        assertEquals(d2, result.getContent().get(1));
+        verify(productRepository).findMine(memberId, null, pageable);
+    }
+
+    @Test
+    @DisplayName("getMyProducts: không có sản phẩm -> trả page rỗng, không gọi mapper")
+    void getMyProducts_noProducts_returnsEmptyPage() {
+        Page<Product> emptyPage = new PageImpl<>(List.of(), pageable, 0);
+
+        when(productRepository.findMine(memberId, ProductStatus.WITHDRAWN, pageable))
+                .thenReturn(emptyPage);
+
+        Page<MyProductResponse> result =
+                service.getMyProducts(memberId, ProductStatus.WITHDRAWN, pageable);
+
+        assertTrue(result.isEmpty());
+        assertEquals(0, result.getTotalElements());
+        verify(productMapper, never()).toMyProductResponse(any());
+    }
+
+    @Test
+    @DisplayName("getMyProducts: giữ nguyên thông tin phân trang từ repository")
+    void getMyProducts_keepsPagingInfo() {
+        Pageable page1 = PageRequest.of(1, 1);
+        Product product = buildProduct("Q7-AK-000846", ProductStatus.RESERVED);
+        MyProductResponse dto = buildResponse("Q7-AK-000846", ProductStatus.RESERVED);
+        Page<Product> repoPage = new PageImpl<>(List.of(product), page1, 3);
+
+        when(productRepository.findMine(memberId, ProductStatus.RESERVED, page1))
+                .thenReturn(repoPage);
+        when(productMapper.toMyProductResponse(product)).thenReturn(dto);
+
+        Page<MyProductResponse> result =
+                service.getMyProducts(memberId, ProductStatus.RESERVED, page1);
+
+        assertEquals(1, result.getNumber());
+        assertEquals(1, result.getSize());
+        assertEquals(3, result.getTotalElements());
+        assertEquals(3, result.getTotalPages());
+    }
+
+    @Test
+    void getProductById_pendingDecision_passesPendingToMapper() {
+        Product p = buildProduct("Q7-AK-000845", ProductStatus.ON_SALE);
+        EndOfTermDecision pending = EndOfTermDecision.builder()
+                .deadline(Instant.parse("2026-11-12T00:00:00Z")).build();
+        ProductEndOfTermDetailResponse dto = ProductEndOfTermDetailResponse.builder()
+                .id("Q7-AK-000845").build();
+        when(productRepository.findById("Q7-AK-000845")).thenReturn(Optional.of(p));
+        when(endOfTermDecisionRepository
+                .findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc("Q7-AK-000845"))
+                .thenReturn(Optional.of(pending));
+        when(productMapper.toEndOfTermDetailResponse(p, pending)).thenReturn(dto);
+
+        assertThat(service.getProductById("Q7-AK-000845")).isSameAs(dto);
+    }
+
+    @Test
+    void getProductById_noPending_passesNullToMapper() {
+        Product p = buildProduct("Q7-AK-000845", ProductStatus.ON_SALE);
+        ProductEndOfTermDetailResponse dto = ProductEndOfTermDetailResponse.builder()
+                .id("Q7-AK-000845").build();
+        when(productRepository.findById("Q7-AK-000845")).thenReturn(Optional.of(p));
+        when(endOfTermDecisionRepository
+                .findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc("Q7-AK-000845"))
+                .thenReturn(Optional.empty());
+        when(productMapper.toEndOfTermDetailResponse(p, null)).thenReturn(dto);
+
+        assertThat(service.getProductById("Q7-AK-000845")).isSameAs(dto);
+        verify(productMapper).toEndOfTermDetailResponse(p, null);
+    }
+
+    @Test
+    void getProductById_notFound_throwsAppException() {
+        when(productRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getProductById("missing"))
+                .isInstanceOf(AppException.class)
+                .hasMessage("Không tìm thấy sản phẩm.");
+
+        verifyNoInteractions(productMapper, endOfTermDecisionRepository);
+    }
+
 }

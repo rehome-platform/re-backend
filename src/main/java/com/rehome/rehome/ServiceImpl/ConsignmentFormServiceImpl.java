@@ -80,18 +80,14 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         ConsignmentForm form = consignmentFormRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));
 
-        ConsignmentReceipt cr = consignmentReceiptRepository
-                .findByConsignmentForm_Id(id)
-                .orElse(null);
-
         if (!form.getMember().getId().equals(account.getId())) {
             throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
         }
 
         ConsignmentFormDetailResponse response = consignmentFormMapper.toDetail(form);
-        if(cr != null){
-            response.setReceiptId(cr.getId());
-        }
+
+        consignmentReceiptRepository.findByConsignmentForm_Id(id)
+                .ifPresent(cr -> response.setReceiptId(cr.getId()));
 
         return response;
     }

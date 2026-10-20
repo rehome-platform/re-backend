@@ -17,4 +17,5 @@ public class ConsignmentFormDetailResponse {
     private String productName;
     private String rejectReason;
     private LocalDate bringInDeadline;
+    private UUID receiptId;
 }

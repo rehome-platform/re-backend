@@ -62,6 +62,10 @@ springdoc:
 
 # ==================== APPLICATION CONFIG ====================
 app:
+  storage:
+    local-dir: uploads
+    public-base-url: http://localhost:8080/files
+
   frontend-url: ${APP_FRONTEND_URL:http://localhost:5173}
 
   # OTP

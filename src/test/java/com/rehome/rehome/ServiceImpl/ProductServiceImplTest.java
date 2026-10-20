@@ -156,6 +156,7 @@ class ProductServiceImplTest {
     @Test
     void getProductDetail_mapsAllFields() {
         UUID warehouseId = UUID.randomUUID();
+        UUID categoryId = UUID.randomUUID();
         Instant inspectionDate = Instant.parse("2026-01-10T00:00:00Z");
         Product p = mock(Product.class, RETURNS_DEEP_STUBS);
         when(p.getId()).thenReturn("p1");
@@ -165,6 +166,7 @@ class ProductServiceImplTest {
         when(p.getConsignmentReceipt().getConfirmedAt()).thenReturn(inspectionDate);
         when(p.getStatus()).thenReturn(ProductStatus.ON_SALE);
         when(p.getBrand().getName()).thenReturn("Nike");
+        when(p.getCategory().getId()).thenReturn(categoryId);
         when(p.getCategory().getName()).thenReturn("Áo");
         when(p.getSize()).thenReturn("M");
         when(p.getConditionNote()).thenReturn("Còn 90%");
@@ -184,10 +186,11 @@ class ProductServiceImplTest {
         assertThat(result.getOriginalPrice()).isEqualTo(new BigDecimal("100000"));
         assertThat(result.getStatus()).isEqualTo(ProductStatus.ON_SALE);
         assertThat(result.getBrandName()).isEqualTo("Nike");
+        assertThat(result.getCategoryId()).isEqualTo(categoryId);
         assertThat(result.getCategoryName()).isEqualTo("Áo");
         assertThat(result.getSize()).isEqualTo("M");
         assertThat(result.getCondition()).isEqualTo("Còn 90%");
-        assertThat(result.getDescription()).isEqualTo("Còn 90%");
+        assertThat(result.getDescription()).isNull();
         assertThat(result.getInspectionDate()).isEqualTo(inspectionDate);
         assertThat(result.getWarehouseId()).isEqualTo(warehouseId);
         assertThat(result.getWarehouseName()).isEqualTo("Kho Q7");

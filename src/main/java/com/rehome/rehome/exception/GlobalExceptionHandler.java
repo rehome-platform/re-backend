@@ -128,6 +128,12 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(400, ex.getMessage()));
     }
 
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ApiResponse<?>> handleForbidden(ForbiddenException ex, HttpServletRequest req) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.error(403, ex.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleGeneral(Exception ex, HttpServletRequest req) {
         ex.printStackTrace(); // tạm thời để debug

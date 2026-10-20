@@ -7,6 +7,7 @@ import com.rehome.rehome.entity.marketplace.ShippingAddress;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.ShippingAddressRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,7 @@ class ShippingAddressServiceImplTest {
 
     @Mock AccountRepository accountRepository;
     @Mock ShippingAddressRepository shippingAddressRepository;
+    @Mock OrderRepository orderRepository;
 
     @InjectMocks
     ShippingAddressServiceImpl shippingAddressService;
@@ -469,6 +471,30 @@ class ShippingAddressServiceImplTest {
         shippingAddressService.deleteAddress(email, addressId);
 
         verify(shippingAddressRepository).delete(existing);
+    }
+
+    @Test
+    void deleteAddress_throwsConflict_whenAddressIsUsedByAnOrder() {
+        UUID addressId = UUID.randomUUID();
+
+        ShippingAddress existing = ShippingAddress.builder()
+                .id(addressId)
+                .member(member)
+                .recipientName("Tạ Thị Ngọc Anh")
+                .phone("0912345678")
+                .addressDetail("12 Nguyễn Trãi, Q.1, TP.HCM")
+                .isDefault(false)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(existing));
+        when(orderRepository.existsByShippingAddress_Id(addressId)).thenReturn(true);
+
+        assertThatThrownBy(() -> shippingAddressService.deleteAddress(email, addressId))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Địa chỉ đã được dùng cho đơn hàng, không thể xóa.");
+
+        verify(shippingAddressRepository, never()).delete(any());
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.rehome.rehome.entity.marketplace;
 
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.CancelReason;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import jakarta.persistence.*;
@@ -38,10 +39,20 @@ public class Order {
     @JoinColumn(name = "warehouse_id", nullable = false)
     private Warehouse warehouse;
 
-    // Địa chỉ giao hàng chọn lúc đặt
+    // Địa chỉ giao hàng chọn lúc đặt — chỉ để tham chiếu, không dùng để hiển thị
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "shipping_address_id", nullable = false)
     private ShippingAddress shippingAddress;
+
+    // Bản chụp lúc đặt hàng, không đổi theo khi Member sửa/xóa địa chỉ sau này
+    @Column(name = "shipping_recipient_name", nullable = true, length = 255)
+    private String shippingRecipientName;
+
+    @Column(name = "shipping_phone", nullable = true, length = 255)
+    private String shippingPhone;
+
+    @Column(name = "shipping_address_detail", nullable = true, length = 255)
+    private String shippingAddressDetail;
 
     // Tổng tiền sản phẩm, chưa gồm phí ship
     @Column(name = "subtotal", nullable = false, precision = 19, scale = 2)
@@ -83,6 +94,23 @@ public class Order {
     @Column(name = "auto_complete_deadline", nullable = true)
     private Instant autoCompleteDeadline;
 
+    // Lý do hủy — chỉ có PAYMENT_EXPIRED được code hủy tự động gán hiện tại
+    @Enumerated(EnumType.STRING)
+    @Column(name = "cancel_reason", nullable = true)
+    private CancelReason cancelReason;
+
+    // Thời điểm đơn chuyển sang CANCELLED
+    @Column(name = "cancelled_at", nullable = true)
+    private Instant cancelledAt;
+
+    // Số tiền đã hoàn vào ví người mua khi hủy đơn — F-061
+    @Column(name = "refund_amount", nullable = true, precision = 19, scale = 2)
+    private BigDecimal refundAmount;
+
+    // Thời điểm đơn chuyển sang COMPLETED — F-063/F-064
+    @Column(name = "completed_at", nullable = true)
+    private Instant completedAt;
+
     // 1–5 sao — UC-39 / F-066
     @Column(name = "service_rating", nullable = true)
     private Short serviceRating;
@@ -90,6 +118,10 @@ public class Order {
     // Thời điểm Member đánh giá
     @Column(name = "rated_at", nullable = true)
     private Instant ratedAt;
+
+    // Nhận xét của Member khi đánh giá — F-066
+    @Column(name = "rating_comment", nullable = true, columnDefinition = "text")
+    private String ratingComment;
 
     // Thời điểm đặt đơn — mốc chốt tỷ lệ hoa hồng theo kỳ
     @Column(name = "created_at", nullable = false, updatable = false)

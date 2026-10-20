@@ -9,6 +9,7 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
+import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.ConsignmentFormMapper;
@@ -33,6 +34,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     private final WarehouseRepository warehouseRepository;
     private final ConsignmentFormPhotoRepository photoRepository;
     private final ConsignmentFormMapper consignmentFormMapper;
+    private final ConsignmentReceiptRepository consignmentReceiptRepository;
 
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
@@ -82,6 +84,11 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
             throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
         }
 
-        return consignmentFormMapper.toDetail(form);
+        ConsignmentFormDetailResponse response = consignmentFormMapper.toDetail(form);
+
+        consignmentReceiptRepository.findByConsignmentForm_Id(id)
+                .ifPresent(cr -> response.setReceiptId(cr.getId()));
+
+        return response;
     }
 }

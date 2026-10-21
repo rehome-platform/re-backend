@@ -40,4 +40,8 @@ public class OrderItem {
     // Tỷ lệ thuế khấu trừ chốt lúc đặt đơn
     @Column(name = "tax_rate_applied", nullable = false, precision = 10, scale = 6)
     private BigDecimal taxRateApplied;
+
+    // Kỳ ký gửi (1/2/3) của sản phẩm tại lúc đặt đơn, dùng để tra cứu lại sau này
+    @Column(name = "term_applied", nullable = true)
+    private Short termApplied;
 }

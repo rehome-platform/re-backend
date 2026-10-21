@@ -350,6 +350,7 @@ class OrderServiceImplTest {
         ArgumentCaptor<OrderItem> itemCaptor = ArgumentCaptor.forClass(OrderItem.class);
         verify(orderItemRepository).save(itemCaptor.capture());
         assertThat(itemCaptor.getValue().getCommissionRateApplied()).isEqualTo(new BigDecimal("0.15"));
+        assertThat(itemCaptor.getValue().getTermApplied()).isEqualTo((short) 2);
     }
 
     @Test

@@ -200,6 +200,7 @@ public class OrderServiceImpl implements OrderService {
                         .priceAtOrder(product.getCurrentPrice())
                         .commissionRateApplied(commissionRateForTerm(product))
                         .taxRateApplied(taxRate)
+                        .termApplied(product.getCurrentTerm())
                         .build();
                 orderItemRepository.save(item);
 

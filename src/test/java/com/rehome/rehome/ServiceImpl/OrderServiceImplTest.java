@@ -22,6 +22,7 @@ import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.Payment;
+import com.rehome.rehome.entity.marketplace.PlatformFund;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.ShippingAddress;
@@ -37,6 +38,7 @@ import com.rehome.rehome.repository.CartRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.PaymentRepository;
+import com.rehome.rehome.repository.PlatformFundRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.ShippingAddressRepository;
@@ -61,6 +63,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -85,6 +88,7 @@ class OrderServiceImplTest {
     @Mock PaymentRepository paymentRepository;
     @Mock WalletRepository walletRepository;
     @Mock WalletTransactionRepository walletTransactionRepository;
+    @Mock PlatformFundRepository platformFundRepository;
 
     @InjectMocks
     OrderServiceImpl orderService;
@@ -828,6 +832,13 @@ class OrderServiceImplTest {
         when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
         when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
         when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(existingWallet));
+        when(platformFundRepository.save(any())).thenAnswer(invocation -> {
+            PlatformFund saved = invocation.getArgument(0);
+            if (saved.getId() == null) {
+                saved.setId(UUID.randomUUID());
+            }
+            return saved;
+        });
 
         OrderCancelResponse response = orderService.cancelOrder(email, orderId);
 
@@ -841,15 +852,25 @@ class OrderServiceImplTest {
         verify(walletRepository).save(existingWallet);
 
         ArgumentCaptor<WalletTransaction> txCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
-        verify(walletTransactionRepository).save(txCaptor.capture());
-        assertThat(txCaptor.getValue().getWalletType()).isEqualTo(WalletType.MEMBER);
-        assertThat(txCaptor.getValue().getWalletId()).isEqualTo(existingWallet.getId());
-        assertThat(txCaptor.getValue().getType()).isEqualTo(WalletTransactionType.REFUND);
-        assertThat(txCaptor.getValue().getAmount()).isEqualTo(new BigDecimal("245000"));
-        assertThat(txCaptor.getValue().getRelatedOrder()).isEqualTo(order);
-        assertThat(txCaptor.getValue().getTransactionNo()).startsWith("WT-" + Year.now(ZoneOffset.UTC).getValue() + "-");
-        assertThat(txCaptor.getValue().getBalanceAfter()).isEqualByComparingTo(new BigDecimal("295000"));
-        assertThat(txCaptor.getValue().getRelatedOrderItem()).isNull();
+        verify(walletTransactionRepository, times(2)).save(txCaptor.capture());
+        WalletTransaction memberTx = txCaptor.getAllValues().stream()
+                .filter(tx -> tx.getWalletType() == WalletType.MEMBER).findFirst().orElseThrow();
+        WalletTransaction platformTx = txCaptor.getAllValues().stream()
+                .filter(tx -> tx.getWalletType() == WalletType.PLATFORM).findFirst().orElseThrow();
+
+        assertThat(memberTx.getWalletId()).isEqualTo(existingWallet.getId());
+        assertThat(memberTx.getType()).isEqualTo(WalletTransactionType.REFUND);
+        assertThat(memberTx.getAmount()).isEqualTo(new BigDecimal("245000"));
+        assertThat(memberTx.getRelatedOrder()).isEqualTo(order);
+        assertThat(memberTx.getTransactionNo()).startsWith("WT-" + Year.now(ZoneOffset.UTC).getValue() + "-");
+        assertThat(memberTx.getBalanceAfter()).isEqualByComparingTo(new BigDecimal("295000"));
+        assertThat(memberTx.getRelatedOrderItem()).isNull();
+
+        assertThat(platformTx.getType()).isEqualTo(WalletTransactionType.REFUND);
+        assertThat(platformTx.getAmount()).isEqualByComparingTo(new BigDecimal("-245000"));
+        assertThat(platformTx.getBalanceAfter()).isEqualByComparingTo(new BigDecimal("-245000"));
+        assertThat(platformTx.getCounterpartTransaction()).isEqualTo(memberTx);
+        assertThat(platformTx.getRelatedOrder()).isEqualTo(order);
 
         assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
         assertThat(order.getCancelReason()).isEqualTo(CancelReason.BUYER_CANCELLED);
@@ -1000,6 +1021,18 @@ class OrderServiceImplTest {
         when(walletRepository.findByMember_Id(seller1.getId())).thenReturn(Optional.of(seller1Wallet));
         when(walletRepository.findByMember_Id(seller2.getId())).thenReturn(Optional.empty());
 
+        AtomicReference<PlatformFund> fundHolder = new AtomicReference<>();
+        when(platformFundRepository.findTopByOrderByIdAsc())
+                .thenAnswer(invocation -> Optional.ofNullable(fundHolder.get()));
+        when(platformFundRepository.save(any())).thenAnswer(invocation -> {
+            PlatformFund saved = invocation.getArgument(0);
+            if (saved.getId() == null) {
+                saved.setId(UUID.randomUUID());
+            }
+            fundHolder.set(saved);
+            return saved;
+        });
+
         OrderConfirmReceiptResponse response = orderService.confirmReceipt(email, orderId);
 
         assertThat(response.getId()).isEqualTo(orderId.toString());
@@ -1022,19 +1055,39 @@ class OrderServiceImplTest {
         assertThat(seller2WalletSaved.getBalance()).isEqualByComparingTo(new BigDecimal("323000"));
 
         ArgumentCaptor<WalletTransaction> txCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
-        verify(walletTransactionRepository, times(2)).save(txCaptor.capture());
-        assertThat(txCaptor.getAllValues())
+        verify(walletTransactionRepository, times(4)).save(txCaptor.capture());
+
+        List<WalletTransaction> memberTxs = txCaptor.getAllValues().stream()
+                .filter(tx -> tx.getWalletType() == WalletType.MEMBER).toList();
+        List<WalletTransaction> platformTxs = txCaptor.getAllValues().stream()
+                .filter(tx -> tx.getWalletType() == WalletType.PLATFORM).toList();
+        assertThat(memberTxs).hasSize(2);
+        assertThat(platformTxs).hasSize(2);
+
+        assertThat(memberTxs)
                 .allSatisfy(tx -> {
                     assertThat(tx.getType()).isEqualTo(WalletTransactionType.ORDER_PAYOUT);
-                    assertThat(tx.getWalletType()).isEqualTo(WalletType.MEMBER);
                     assertThat(tx.getRelatedOrder()).isEqualTo(order);
                     assertThat(tx.getTransactionNo()).isNotBlank();
                     assertThat(tx.getBalanceAfter()).isNotNull();
                     assertThat(tx.getRelatedOrderItem()).isNotNull();
                 });
-        assertThat(txCaptor.getAllValues())
+        assertThat(memberTxs)
                 .extracting(tx -> tx.getRelatedOrderItem().getProduct())
                 .containsExactlyInAnyOrder(product1, product2);
+
+        assertThat(platformTxs)
+                .allSatisfy(tx -> {
+                    assertThat(tx.getType()).isEqualTo(WalletTransactionType.ORDER_PAYOUT);
+                    assertThat(tx.getRelatedOrder()).isEqualTo(order);
+                    assertThat(tx.getCounterpartTransaction()).isIn(memberTxs);
+                });
+        assertThat(platformTxs)
+                .extracting(WalletTransaction::getAmount)
+                .usingElementComparator(java.util.Comparator.comparing(BigDecimal::doubleValue))
+                .containsExactlyInAnyOrder(new BigDecimal("-198000"), new BigDecimal("-323000"));
+        // quỹ nền tảng giảm dần theo từng lần chi trả cho seller: 0 -> -198000 -> -521000
+        assertThat(fundHolder.get().getBalance()).isEqualByComparingTo(new BigDecimal("-521000"));
 
         assertThat(order.getStatus()).isEqualTo(OrderStatus.COMPLETED);
         assertThat(order.getCompletedAt()).isNotNull();
@@ -1070,8 +1123,10 @@ class OrderServiceImplTest {
         verify(productRepository, never()).save(product1);
 
         ArgumentCaptor<WalletTransaction> txCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
-        verify(walletTransactionRepository).save(txCaptor.capture());
-        assertThat(txCaptor.getValue().getAmount()).isEqualByComparingTo(new BigDecimal("90000"));
+        verify(walletTransactionRepository, times(2)).save(txCaptor.capture());
+        WalletTransaction memberTx = txCaptor.getAllValues().stream()
+                .filter(tx -> tx.getWalletType() == WalletType.MEMBER).findFirst().orElseThrow();
+        assertThat(memberTx.getAmount()).isEqualByComparingTo(new BigDecimal("90000"));
     }
 
     @Test

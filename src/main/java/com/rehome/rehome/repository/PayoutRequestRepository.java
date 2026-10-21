@@ -11,5 +11,7 @@ import java.util.UUID;
 public interface PayoutRequestRepository extends JpaRepository<PayoutRequest, UUID> {
     long countByWallet_IdAndCreatedAtBetween(UUID walletId, Instant from, Instant to);
 
+    long countByPayoutNoStartingWith(String prefix);
+
     Page<PayoutRequest> findByWallet_Id(UUID walletId, Pageable pageable);
 }

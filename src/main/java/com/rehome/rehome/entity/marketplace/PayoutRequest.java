@@ -31,6 +31,10 @@ public class PayoutRequest {
     @Column(name = "amount", nullable = false, precision = 19, scale = 2)
     private BigDecimal amount;
 
+    // Mã hiển thị cho Member, dạng RT-00088
+    @Column(name = "payout_no", nullable = false, unique = true, length = 20)
+    private String payoutNo;
+
     // PENDING / PROCESSING / SUCCESS / FAILED — không có bước người duyệt
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)

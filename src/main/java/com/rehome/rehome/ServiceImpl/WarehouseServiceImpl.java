@@ -1,5 +1,6 @@
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.config.CodeGenerator;
 import com.rehome.rehome.dto.response.WarehouseNearestResponse;
 import com.rehome.rehome.entity.enums.CatalogStatus;
 import com.rehome.rehome.exception.AppException;
@@ -44,4 +45,11 @@ public class WarehouseServiceImpl implements WarehouseService {
                 .limit(20)
                 .toList();
     }
+
+//    Code này dùng khi tạo warehouse thủ công
+//    // Khi tạo Warehouse
+//    String code = CodeGenerator.makeUnique(
+//            CodeGenerator.fromName(request.getName(), "kho"),
+//            warehouseRepository::existsByCode);
+//warehouse.setCode(code);
 }

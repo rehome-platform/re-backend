@@ -101,7 +101,7 @@
         private BigDecimal degradedCompensationRate = new BigDecimal("0.50");
 
         // Lúc Member bấm xác nhận — biên nhận có hiệu lực từ mốc này
-        @Column(name = "confirmed_at", nullable = false)
+        @Column(name = "confirmed_at")
         private Instant confirmedAt;
 
         // Tệp PDF hệ thống sinh ra — F-022
@@ -117,4 +117,8 @@
             Instant now = Instant.now();
             if (createdAt == null) createdAt = now;
         }
+        // Tình trạng theo kết quả kiểm định của Moderator (API 34), API 37 copy sang Product
+        @Column(name = "condition_note", nullable = true, columnDefinition = "text")
+        private String conditionNote;
+
     }

@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import lombok.*;
 import org.hibernate.annotations.ColumnDefault;
+import org.springframework.data.domain.Persistable;
 
 @Entity
 @Table(name = "products")
@@ -15,7 +16,7 @@ import org.hibernate.annotations.ColumnDefault;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Product {
+public class Product implements Persistable<String> {
     // Mã SKU Moderator gán lúc nhập kho, ví dụ Q7-AK-000845
     @Id
     @Column(name = "id", nullable = false, length = 255)
@@ -109,5 +110,20 @@ public class Product {
     @PreUpdate
     private void onUpdate() {
         updatedAt = Instant.now();
+    }
+
+    @Transient
+    @Builder.Default
+    private boolean isNew = true;
+
+    @Override
+    public boolean isNew() {
+        return isNew;
+    }
+
+    @PostPersist
+    @PostLoad
+    void markNotNew() {
+        this.isNew = false;
     }
 }

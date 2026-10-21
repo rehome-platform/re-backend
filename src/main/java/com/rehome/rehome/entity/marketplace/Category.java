@@ -36,4 +36,7 @@ public class Category {
     @ColumnDefault("'ACTIVE'")
     @Builder.Default
     private CatalogStatus status = CatalogStatus.ACTIVE;
+
+
+    private String code;
 }

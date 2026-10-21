@@ -1,16 +1,26 @@
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.dto.request.CreateProductRequest;
 import com.rehome.rehome.dto.response.MyProductResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.ProductDetailResponse;
 import com.rehome.rehome.dto.response.ProductEndOfTermDetailResponse;
+import com.rehome.rehome.dto.response.ProductResponse;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.marketplace.Brand;
+import com.rehome.rehome.entity.marketplace.Category;
+import com.rehome.rehome.entity.marketplace.ConsignmentForm;
+import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
+import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.ProductMapper;
+import com.rehome.rehome.repository.ConsignmentReceiptRepository;
 import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
@@ -26,7 +36,6 @@ import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
-import org.springframework.data.crossstore.ChangeSetPersister;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -35,6 +44,7 @@ import org.springframework.data.jpa.domain.Specification;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -60,6 +70,9 @@ class ProductServiceImplTest {
     private ProductMapper productMapper;
     @Mock
     EndOfTermDecisionRepository endOfTermDecisionRepository;
+    // MỚI: ProductServiceImpl có ConsignmentReceiptRepository (dùng cho create)
+    @Mock
+    ConsignmentReceiptRepository receiptRepository;
 
     private final UUID memberId = UUID.randomUUID();
     private final Pageable pageable = PageRequest.of(0, 20);
@@ -377,4 +390,190 @@ class ProductServiceImplTest {
         verifyNoInteractions(productMapper, endOfTermDecisionRepository);
     }
 
+    // =====================================================================
+    // create (API 37) - MỚI
+    // =====================================================================
+
+    private final UUID receiptId = UUID.randomUUID();
+
+    private ConsignmentReceipt receiptOf(Instant confirmedAt) {
+        Account member = Account.builder().id(UUID.randomUUID()).build();
+        Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).code("Q7").build();
+        Category category = Category.builder().id(UUID.randomUUID()).code("AK").build();
+        ConsignmentForm form = ConsignmentForm.builder()
+                .id(UUID.randomUUID())
+                .member(member)
+                .warehouse(warehouse)
+                .category(category)
+                .brand(new Brand())
+                .description("Mô tả Member tự khai")
+                .build();
+
+        return ConsignmentReceipt.builder()
+                .id(receiptId)
+                .receiptNo("KG-2026-000001")
+                .consignmentForm(form)
+                .member(member)
+                .warehouse(warehouse)
+                .conditionNote("Áo còn mới 90%, không lẹi")
+                .agreedPrice(new BigDecimal("220000.00"))
+                .floorPrice(new BigDecimal("110000.00"))
+                .withdrawalFee(new BigDecimal("20000"))
+                .confirmedAt(confirmedAt)
+                .build();
+    }
+
+    private CreateProductRequest createRequest(List<String> photos) {
+        CreateProductRequest r = new CreateProductRequest();
+        r.setReceiptId(receiptId);
+        r.setName("  Áo sơ mi Zara trắng  ");
+        r.setSize("M");
+        r.setShelfLocation("A1-03");
+        r.setPhotoUrls(photos);
+        return r;
+    }
+
+    /** Stub happy path; save() trả đúng đối tượng được truyền vào. */
+    private void givenConfirmedReceipt(ConsignmentReceipt receipt) {
+        when(receiptRepository.findById(receiptId)).thenReturn(Optional.of(receipt));
+        when(productRepository.existsByConsignmentReceiptId(receiptId)).thenReturn(false);
+        when(productRepository.nextSkuSequence()).thenReturn(845L);
+        when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    private static void assertCreateError(org.assertj.core.api.ThrowableAssert.ThrowingCallable call, ErrorCode expected) {
+        assertThatThrownBy(call)
+                .isInstanceOf(AppException.class)
+                .satisfies(e -> assertThat(((AppException) e).getErrorCode()).isEqualTo(expected));
+    }
+
+    @Test
+    void create_success_buildsOnSaleProductFromReceipt() {
+        ConsignmentReceipt receipt = receiptOf(Instant.now());
+        givenConfirmedReceipt(receipt);
+        Instant before = Instant.now();
+
+        ProductResponse res = service.create(createRequest(List.of("https://cdn.rehome.vn/uploads/ao1.jpg")));
+
+        Instant after = Instant.now();
+        ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
+        verify(productRepository).save(captor.capture());
+        Product p = captor.getValue();
+
+        assertThat(res.getId()).isEqualTo("Q7-AK-000845");
+        assertThat(res.getName()).isEqualTo("Áo sơ mi Zara trắng");   // đã trim
+        assertThat(res.getStatus()).isEqualTo(ProductStatus.ON_SALE);
+
+        assertThat(p.getId()).isEqualTo("Q7-AK-000845");
+        assertThat(p.getConsignmentReceipt()).isSameAs(receipt);
+        assertThat(p.getMember()).isSameAs(receipt.getMember());
+        assertThat(p.getWarehouse()).isSameAs(receipt.getWarehouse());
+        assertThat(p.getCategory()).isSameAs(receipt.getConsignmentForm().getCategory());
+        assertThat(p.getBrand()).isSameAs(receipt.getConsignmentForm().getBrand());
+        assertThat(p.getSize()).isEqualTo("M");
+        assertThat(p.getShelfLocation()).isEqualTo("A1-03");
+        assertThat(p.getCurrentPrice()).isEqualByComparingTo("220000");
+        assertThat(p.getStatus()).isEqualTo(ProductStatus.ON_SALE);
+        assertThat(p.getCurrentTerm()).isEqualTo((short) 1);
+
+        // 30 ngày x (2 lần gia hạn + 1) = 90 ngày
+        assertThat(p.getTermStartedAt()).isBetween(before, after);
+        assertThat(p.getEndOfTermDeadline())
+                .isBetween(before.plus(Duration.ofDays(90)), after.plus(Duration.ofDays(90)));
+    }
+
+    @Test
+    void create_conditionNoteComesFromReceipt_notFromMemberDescription() {
+        givenConfirmedReceipt(receiptOf(Instant.now()));
+
+        service.create(createRequest(null));
+
+        ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
+        verify(productRepository).save(captor.capture());
+        assertThat(captor.getValue().getConditionNote()).isEqualTo("Áo còn mới 90%, không lẹi");
+    }
+
+    @Test
+    void create_endOfTermDeadline_usesReceiptSnapshot() {
+        ConsignmentReceipt receipt = receiptOf(Instant.now());
+        receipt.setTermLengthDays(60);
+        receipt.setMaxRenewals(1);          // 60 x (1 + 1) = 120 ngày
+        givenConfirmedReceipt(receipt);
+        Instant before = Instant.now();
+
+        service.create(createRequest(null));
+
+        ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
+        verify(productRepository).save(captor.capture());
+        assertThat(captor.getValue().getEndOfTermDeadline())
+                .isAfterOrEqualTo(before.plus(Duration.ofDays(120)))
+                .isBefore(before.plus(Duration.ofDays(121)));
+    }
+
+    @Test
+    void create_photos_keepOrder_andAreNotBackgroundRemoved() {
+        givenConfirmedReceipt(receiptOf(Instant.now()));
+
+        service.create(createRequest(List.of("u0.jpg", "u1.jpg", "u2.jpg")));
+
+        ArgumentCaptor<List<ProductPhoto>> captor = ArgumentCaptor.forClass(List.class);
+        verify(productPhotoRepository).saveAll(captor.capture());
+        List<ProductPhoto> photos = captor.getValue();
+
+        assertThat(photos).hasSize(3);
+        for (int i = 0; i < 3; i++) {
+            assertThat(photos.get(i).getImageUrl()).isEqualTo("u" + i + ".jpg");
+            assertThat(photos.get(i).getDisplayOrder()).isEqualTo(i);          // 0 = ảnh đại diện
+            assertThat(photos.get(i).getIsBackgroundRemoved()).isFalse();
+        }
+    }
+
+    @Test
+    void create_nullOrEmptyPhotos_doesNotSavePhotos() {
+        givenConfirmedReceipt(receiptOf(Instant.now()));
+
+        service.create(createRequest(null));
+        service.create(createRequest(List.of()));
+
+        verify(productPhotoRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void create_skuPadsSequenceToSixDigits() {
+        when(receiptRepository.findById(receiptId)).thenReturn(Optional.of(receiptOf(Instant.now())));
+        when(productRepository.existsByConsignmentReceiptId(receiptId)).thenReturn(false);
+        when(productRepository.nextSkuSequence()).thenReturn(1L);
+        when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertThat(service.create(createRequest(null)).getId()).isEqualTo("Q7-AK-000001");
+    }
+
+    @Test
+    void create_receiptNotFound_throws404() {
+        when(receiptRepository.findById(receiptId)).thenReturn(Optional.empty());
+
+        assertCreateError(() -> service.create(createRequest(null)), ErrorCode.RECEIPT_NOT_FOUND);
+
+        verify(productRepository, never()).save(any());
+    }
+
+    @Test
+    void create_receiptNotConfirmed_throws409() {
+        when(receiptRepository.findById(receiptId)).thenReturn(Optional.of(receiptOf(null)));
+
+        assertCreateError(() -> service.create(createRequest(null)), ErrorCode.RECEIPT_NOT_CONFIRMED);
+
+        verify(productRepository, never()).save(any());
+    }
+
+    @Test
+    void create_receiptAlreadyHasProduct_throws409() {
+        when(receiptRepository.findById(receiptId)).thenReturn(Optional.of(receiptOf(Instant.now())));
+        when(productRepository.existsByConsignmentReceiptId(receiptId)).thenReturn(true);
+
+        assertCreateError(() -> service.create(createRequest(null)), ErrorCode.RECEIPT_ALREADY_HAS_PRODUCT);
+
+        verify(productRepository, never()).save(any());
+        verify(productPhotoRepository, never()).saveAll(any());
+    }
 }

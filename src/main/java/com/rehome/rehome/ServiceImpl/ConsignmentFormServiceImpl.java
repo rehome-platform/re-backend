@@ -152,8 +152,8 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         ConsignmentForm form = consignmentFormRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));   // 404
 
-        if (form.getStatus() != ConsignmentFormStatus.PENDING) {
-            throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_PENDING);                 // 409
+        if (form.getStatus() != ConsignmentFormStatus.INSPECTING) {
+            throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_INSPECTING);   // 409
         }
 
         form.setStatus(ConsignmentFormStatus.REJECTED);

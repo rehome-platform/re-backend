@@ -154,7 +154,7 @@ public class ProductServiceImpl implements ProductService {
                 .brand(form.getBrand())
                 .name(request.getName().trim())
                 .size(request.getSize())
-                .conditionNote(form.getDescription())            // xem lưu ý 2
+                .conditionNote(receipt.getConditionNote())            // xem lưu ý 2
                 .currentPrice(receipt.getAgreedPrice())
                 .status(ProductStatus.ON_SALE)
                 .currentTerm((short) 1)

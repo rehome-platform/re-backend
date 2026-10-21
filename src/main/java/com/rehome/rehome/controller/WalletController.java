@@ -1,6 +1,7 @@
 package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.response.ApiResponse;
+import com.rehome.rehome.dto.response.OrderRevenueResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.WalletTransactionResponse;
 import com.rehome.rehome.service.WalletService;
@@ -47,6 +48,19 @@ public class WalletController {
 
         String email = authentication.getName();
         WalletTransactionResponse result = walletService.getTransactionDetail(email, id);
+
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    @GetMapping("/revenue")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<PageResponse<OrderRevenueResponse>>> getRevenue(
+            Authentication authentication,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        String email = authentication.getName();
+        PageResponse<OrderRevenueResponse> result = walletService.getRevenue(email, page, size);
 
         return ResponseEntity.ok(ApiResponse.success(result));
     }

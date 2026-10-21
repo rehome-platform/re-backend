@@ -1,10 +1,12 @@
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.dto.response.OrderRevenueResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.WalletTransactionResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
 import com.rehome.rehome.entity.enums.WalletType;
+import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.entity.marketplace.WalletTransaction;
 import com.rehome.rehome.exception.BadRequestException;
@@ -22,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -78,6 +81,27 @@ public class WalletServiceImpl implements WalletService {
         return toResponse(transaction);
     }
 
+    @Override
+    public PageResponse<OrderRevenueResponse> getRevenue(String email, int page, int size) {
+
+        Account member = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        Wallet wallet = walletRepository.findByMember_Id(member.getId()).orElse(null);
+        if (wallet == null) {
+            return PageResponse.from(Page.empty());
+        }
+
+        PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        Page<WalletTransaction> result = walletTransactionRepository.findAll(
+                WalletTransactionSpecifications.filter(wallet.getId(), List.of(WalletTransactionType.ORDER_PAYOUT), null),
+                pageable);
+
+        return PageResponse.from(result.map(this::toRevenueResponse));
+    }
+
     private List<WalletTransactionType> parseTypes(String type) {
         if (!StringUtils.hasText(type)) {
             return List.of();
@@ -118,6 +142,27 @@ public class WalletServiceImpl implements WalletService {
                 .status(tx.getStatus().name())
                 .note(tx.getNote())
                 .createdAt(tx.getCreatedAt())
+                .build();
+    }
+
+    private OrderRevenueResponse toRevenueResponse(WalletTransaction tx) {
+        OrderItem item = tx.getRelatedOrderItem();
+        BigDecimal salePrice = item != null ? item.getPriceAtOrder() : null;
+        BigDecimal commission = item != null
+                ? item.getPriceAtOrder().multiply(item.getCommissionRateApplied())
+                : null;
+        BigDecimal tax = item != null
+                ? item.getPriceAtOrder().multiply(item.getTaxRateApplied())
+                : null;
+
+        return OrderRevenueResponse.builder()
+                .orderId(tx.getRelatedOrder() != null ? tx.getRelatedOrder().getId().toString() : null)
+                .orderNo(tx.getRelatedOrder() != null ? tx.getRelatedOrder().getOrderNo() : null)
+                .salePrice(salePrice)
+                .commission(commission)
+                .tax(tax)
+                .netAmount(tx.getAmount())
+                .completedAt(tx.getRelatedOrder() != null ? tx.getRelatedOrder().getCompletedAt() : null)
                 .build();
     }
 }

@@ -58,4 +58,6 @@ public class Warehouse {
         Instant now = Instant.now();
         if (createdAt == null) createdAt = now;
     }
+
+    private String code;
 }

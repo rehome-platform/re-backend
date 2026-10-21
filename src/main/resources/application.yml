@@ -108,3 +108,7 @@ momo:
   secret-key: ${MOMO_SECRET_KEY:K951B6PE1waDMi640xX08PD3vg6EkVlz}
   # payWithMethod = hiện trang cho chọn Ví MoMo / ATM / VISA-Master-JCB; captureWallet = chỉ QR/app MoMo
   request-type: ${MOMO_REQUEST_TYPE:payWithMethod}
+
+rehome:
+  consignment:
+    bring-in-deadline-days: 7

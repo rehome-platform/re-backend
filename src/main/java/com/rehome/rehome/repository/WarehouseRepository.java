@@ -9,4 +9,5 @@ import java.util.UUID;
 
 public interface WarehouseRepository extends JpaRepository<Warehouse, UUID> {
     List<Warehouse> findByStatus(CatalogStatus status);
+    boolean existsByCode(String code);
 }

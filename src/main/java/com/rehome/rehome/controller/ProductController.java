@@ -1,24 +1,24 @@
 package com.rehome.rehome.controller;
 
+import com.rehome.rehome.dto.request.CreateProductRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.service.ProductService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.apache.tomcat.util.net.openssl.ciphers.Authentication;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -70,5 +70,13 @@ public class ProductController {
     @GetMapping("/products/{id}")
     public ApiResponse<ProductEndOfTermDetailResponse> getProductById(@PathVariable String id) {
         return ApiResponse.success(productService.getProductById(id));
+    }
+    @PostMapping
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<ProductResponse>> create(
+            @Valid @RequestBody CreateProductRequest request) {
+        ProductResponse result = productService.create(request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(result, 201, "Đã nhập kho"));
     }
 }

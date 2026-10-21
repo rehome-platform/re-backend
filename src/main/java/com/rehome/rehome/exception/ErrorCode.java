@@ -24,6 +24,19 @@ public enum ErrorCode {
     ORGANIZATION_PROFILE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy hồ sơ tổ chức."),
     ORGANIZATION_NOT_REJECTED(HttpStatus.FORBIDDEN, "Chỉ nộp lại hồ sơ khi trạng thái là REJECTED."),
 
+    // API 31 - Moderator duyệt form ký gửi
+    CONSIGNMENT_FORM_NOT_PENDING(HttpStatus.CONFLICT, "Form không ở trạng thái chờ duyệt."),
+
+    // API 33 - bắt đầu kiểm định
+    CONSIGNMENT_FORM_NOT_APPROVED(HttpStatus.CONFLICT, "Form chưa được duyệt để kiểm định."),
+    // API 37 - nhập kho
+    RECEIPT_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy phiếu ký gửi."),
+    RECEIPT_NOT_CONFIRMED(HttpStatus.CONFLICT, "Phiếu ký gửi chưa được Member xác nhận."),
+    RECEIPT_ALREADY_HAS_PRODUCT(HttpStatus.CONFLICT, "Phiếu ký gửi này đã được nhập kho."),
+    // API 34 - hoàn tất kiểm định
+    CONSIGNMENT_RECEIPT_ALREADY_EXISTS(HttpStatus.CONFLICT, "Form này đã được tạo phiếu ký gửi."),
+    // API 35 - trả hàng tại quầy
+    CONSIGNMENT_FORM_NOT_INSPECTING(HttpStatus.CONFLICT, "Form chưa ở trạng thái đang kiểm định."),
     PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy sản phẩm."),
     CONSIGNMENT_RECEIPT_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền xem form đã duyệt này."),
     CONSIGNMENT_RECEIPT_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy form đã duyệt."),

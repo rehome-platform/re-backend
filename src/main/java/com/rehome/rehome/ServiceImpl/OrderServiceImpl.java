@@ -25,6 +25,7 @@ import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.Payment;
+import com.rehome.rehome.entity.marketplace.PlatformFund;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.ShippingAddress;
@@ -40,6 +41,7 @@ import com.rehome.rehome.repository.CartRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.PaymentRepository;
+import com.rehome.rehome.repository.PlatformFundRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.ShippingAddressRepository;
@@ -85,6 +87,7 @@ public class OrderServiceImpl implements OrderService {
     private final PaymentRepository paymentRepository;
     private final WalletRepository walletRepository;
     private final WalletTransactionRepository walletTransactionRepository;
+    private final PlatformFundRepository platformFundRepository;
 
     // Phí ship cố định tạm thời, chưa tích hợp GHN
     @Value("${app.order.shipping-fee}")
@@ -442,6 +445,7 @@ public class OrderServiceImpl implements OrderService {
                 .note("Hoàn tiền hủy đơn " + order.getOrderNo())
                 .build();
         walletTransactionRepository.save(refundTransaction);
+        recordPlatformCounterpart(refundTransaction);
 
         order.setStatus(OrderStatus.CANCELLED);
         order.setCancelReason(CancelReason.BUYER_CANCELLED);
@@ -503,6 +507,7 @@ public class OrderServiceImpl implements OrderService {
                     .note("Thanh toán đơn hàng " + order.getOrderNo())
                     .build();
             walletTransactionRepository.save(payoutTransaction);
+            recordPlatformCounterpart(payoutTransaction);
         }
 
         order.setStatus(OrderStatus.COMPLETED);
@@ -584,5 +589,33 @@ public class OrderServiceImpl implements OrderService {
         String prefix = "WT-" + Year.now(ZoneOffset.UTC).getValue() + "-";
         long seq = walletTransactionRepository.countByTransactionNoStartingWith(prefix) + 1;
         return prefix + String.format("%06d", seq);
+    }
+
+    private PlatformFund getOrCreatePlatformFund() {
+        return platformFundRepository.findTopByOrderByIdAsc()
+                .orElseGet(() -> PlatformFund.builder().build());
+    }
+
+    // F-039: mỗi bút toán ví Member phải có một bút toán đối ứng ở quỹ nền tảng, ngược dấu, để sổ sách luôn cân
+    private void recordPlatformCounterpart(WalletTransaction memberTransaction) {
+        PlatformFund fund = getOrCreatePlatformFund();
+        BigDecimal counterpartAmount = memberTransaction.getAmount().negate();
+        fund.setBalance(fund.getBalance().add(counterpartAmount));
+        platformFundRepository.save(fund);
+
+        WalletTransaction platformTransaction = WalletTransaction.builder()
+                .transactionNo(generateTransactionNo())
+                .walletType(WalletType.PLATFORM)
+                .walletId(fund.getId())
+                .type(memberTransaction.getType())
+                .amount(counterpartAmount)
+                .balanceAfter(fund.getBalance())
+                .relatedOrder(memberTransaction.getRelatedOrder())
+                .relatedOrderItem(memberTransaction.getRelatedOrderItem())
+                .counterpartTransaction(memberTransaction)
+                .status(TransactionStatus.SUCCESS)
+                .note(memberTransaction.getNote())
+                .build();
+        walletTransactionRepository.save(platformTransaction);
     }
 }

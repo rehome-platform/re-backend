@@ -12,6 +12,7 @@ import com.rehome.rehome.entity.enums.WalletTransactionType;
 import com.rehome.rehome.entity.enums.WalletType;
 import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.PayoutRequest;
+import com.rehome.rehome.entity.marketplace.PlatformFund;
 import com.rehome.rehome.entity.marketplace.SystemConfig;
 import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.entity.marketplace.WalletTransaction;
@@ -20,6 +21,7 @@ import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.PayoutRequestRepository;
+import com.rehome.rehome.repository.PlatformFundRepository;
 import com.rehome.rehome.repository.SystemConfigRepository;
 import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.repository.WalletTransactionRepository;
@@ -52,6 +54,7 @@ public class WalletServiceImpl implements WalletService {
 
     private static final String CONFIG_MIN_PAYOUT_AMOUNT = "min_payout_amount";
     private static final String CONFIG_MAX_PAYOUT_PER_DAY = "max_payout_requests_per_day";
+    private static final String CONFIG_FORCE_PAYOUT_FAILURE = "force_payout_failure";
     private static final BigDecimal DEFAULT_MIN_PAYOUT_AMOUNT = new BigDecimal("50000");
     private static final int DEFAULT_MAX_PAYOUT_PER_DAY = 3;
 
@@ -60,6 +63,7 @@ public class WalletServiceImpl implements WalletService {
     private final WalletTransactionRepository walletTransactionRepository;
     private final PayoutRequestRepository payoutRequestRepository;
     private final SystemConfigRepository systemConfigRepository;
+    private final PlatformFundRepository platformFundRepository;
 
     @Override
     public WalletBalanceResponse getBalance(String email) {
@@ -194,6 +198,7 @@ public class WalletServiceImpl implements WalletService {
         PayoutRequest payoutRequest = PayoutRequest.builder()
                 .wallet(wallet)
                 .amount(amount)
+                .payoutNo(generatePayoutNo())
                 .status(TransactionStatus.PENDING)
                 .build();
         payoutRequestRepository.save(payoutRequest);
@@ -204,9 +209,20 @@ public class WalletServiceImpl implements WalletService {
         return toPayoutResponse(payoutRequest);
     }
 
-    // Giả lập chi tiền: luôn SUCCESS ngay lập tức, chạy đồng bộ trong cùng transaction với tạo yêu cầu
+    // Giả lập chi tiền: chạy đồng bộ ngay trong cùng transaction với tạo yêu cầu, không có hàng đợi/delay
     private void simulatePayout(PayoutRequest payoutRequest, Wallet wallet) {
         BigDecimal amount = payoutRequest.getAmount();
+
+        if (consumeForcedPayoutFailure()) {
+            // Tiền chưa thực sự rời ví, chỉ nhả lại số dư đã khóa lúc tạo yêu cầu
+            wallet.setLockedBalance(wallet.getLockedBalance().subtract(amount));
+            walletRepository.save(wallet);
+
+            payoutRequest.setStatus(TransactionStatus.FAILED);
+            payoutRequest.setFailureReason("Giao dịch chi tiền giả lập thất bại.");
+            payoutRequest.setProcessedAt(Instant.now());
+            return;
+        }
 
         wallet.setBalance(wallet.getBalance().subtract(amount));
         wallet.setLockedBalance(wallet.getLockedBalance().subtract(amount));
@@ -223,15 +239,63 @@ public class WalletServiceImpl implements WalletService {
                 .note("Rút tiền về tài khoản ngân hàng.")
                 .build();
         walletTransactionRepository.save(transaction);
+        recordPlatformCounterpart(transaction);
 
         payoutRequest.setStatus(TransactionStatus.SUCCESS);
         payoutRequest.setProcessedAt(Instant.now());
+    }
+
+    // Cờ Admin cấu hình để ép lần rút tiền kế tiếp thất bại (demo luồng FAILED); tự tắt lại sau khi dùng
+    // một lần, để không ảnh hưởng các yêu cầu rút tiền thật phát sinh sau đó.
+    private boolean consumeForcedPayoutFailure() {
+        return systemConfigRepository.findByKey(CONFIG_FORCE_PAYOUT_FAILURE)
+                .filter(config -> Boolean.parseBoolean(config.getValue()))
+                .map(config -> {
+                    config.setValue("false");
+                    systemConfigRepository.save(config);
+                    return true;
+                })
+                .orElse(false);
     }
 
     private String generateTransactionNo() {
         String prefix = "WT-" + Year.now(ZoneOffset.UTC).getValue() + "-";
         long seq = walletTransactionRepository.countByTransactionNoStartingWith(prefix) + 1;
         return prefix + String.format("%06d", seq);
+    }
+
+    private String generatePayoutNo() {
+        String prefix = "RT-";
+        long seq = payoutRequestRepository.countByPayoutNoStartingWith(prefix) + 1;
+        return prefix + String.format("%05d", seq);
+    }
+
+    private PlatformFund getOrCreatePlatformFund() {
+        return platformFundRepository.findTopByOrderByIdAsc()
+                .orElseGet(() -> PlatformFund.builder().build());
+    }
+
+    // F-039: mỗi bút toán ví Member phải có một bút toán đối ứng ở quỹ nền tảng, ngược dấu, để sổ sách luôn cân
+    private void recordPlatformCounterpart(WalletTransaction memberTransaction) {
+        PlatformFund fund = getOrCreatePlatformFund();
+        BigDecimal counterpartAmount = memberTransaction.getAmount().negate();
+        fund.setBalance(fund.getBalance().add(counterpartAmount));
+        platformFundRepository.save(fund);
+
+        WalletTransaction platformTransaction = WalletTransaction.builder()
+                .transactionNo(generateTransactionNo())
+                .walletType(WalletType.PLATFORM)
+                .walletId(fund.getId())
+                .type(memberTransaction.getType())
+                .amount(counterpartAmount)
+                .balanceAfter(fund.getBalance())
+                .relatedOrder(memberTransaction.getRelatedOrder())
+                .relatedOrderItem(memberTransaction.getRelatedOrderItem())
+                .counterpartTransaction(memberTransaction)
+                .status(TransactionStatus.SUCCESS)
+                .note(memberTransaction.getNote())
+                .build();
+        walletTransactionRepository.save(platformTransaction);
     }
 
     @Override
@@ -272,9 +336,12 @@ public class WalletServiceImpl implements WalletService {
     private PayoutRequestResponse toPayoutResponse(PayoutRequest payoutRequest) {
         return PayoutRequestResponse.builder()
                 .id(payoutRequest.getId() != null ? payoutRequest.getId().toString() : null)
+                .payoutNo(payoutRequest.getPayoutNo())
                 .amount(payoutRequest.getAmount())
                 .status(payoutRequest.getStatus().name())
                 .failureReason(payoutRequest.getFailureReason())
+                .createdAt(payoutRequest.getCreatedAt())
+                .processedAt(payoutRequest.getProcessedAt())
                 .build();
     }
 

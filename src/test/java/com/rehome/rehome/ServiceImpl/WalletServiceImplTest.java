@@ -13,6 +13,7 @@ import com.rehome.rehome.entity.enums.WalletType;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.PayoutRequest;
+import com.rehome.rehome.entity.marketplace.PlatformFund;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.SystemConfig;
 import com.rehome.rehome.entity.marketplace.Wallet;
@@ -22,6 +23,7 @@ import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.PayoutRequestRepository;
+import com.rehome.rehome.repository.PlatformFundRepository;
 import com.rehome.rehome.repository.SystemConfigRepository;
 import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.repository.WalletTransactionRepository;
@@ -61,6 +63,7 @@ class WalletServiceImplTest {
     @Mock WalletTransactionRepository walletTransactionRepository;
     @Mock PayoutRequestRepository payoutRequestRepository;
     @Mock SystemConfigRepository systemConfigRepository;
+    @Mock PlatformFundRepository platformFundRepository;
 
     @InjectMocks
     WalletServiceImpl walletService;
@@ -599,14 +602,24 @@ class WalletServiceImplTest {
             return saved;
         });
         when(walletTransactionRepository.countByTransactionNoStartingWith(any())).thenReturn(0L);
+        when(payoutRequestRepository.countByPayoutNoStartingWith(any())).thenReturn(0L);
+        when(platformFundRepository.save(any())).thenAnswer(invocation -> {
+            PlatformFund saved = invocation.getArgument(0);
+            if (saved.getId() == null) {
+                saved.setId(UUID.randomUUID());
+            }
+            return saved;
+        });
 
         CreatePayoutRequestRequest request = new CreatePayoutRequestRequest(new BigDecimal("100000"));
 
         PayoutRequestResponse response = walletService.createPayoutRequest(email, request);
 
         assertThat(response.getId()).isNotNull();
+        assertThat(response.getPayoutNo()).isEqualTo("RT-00001");
         assertThat(response.getAmount()).isEqualByComparingTo("100000");
         assertThat(response.getStatus()).isEqualTo("SUCCESS");
+        assertThat(response.getProcessedAt()).isNotNull();
         assertThat(wallet.getBalance()).isEqualByComparingTo("900000");
         assertThat(wallet.getLockedBalance()).isEqualByComparingTo("0");
 
@@ -621,14 +634,65 @@ class WalletServiceImplTest {
         assertThat(savedPayoutRequest.getProcessedAt()).isNotNull();
 
         ArgumentCaptor<WalletTransaction> txCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
-        verify(walletTransactionRepository).save(txCaptor.capture());
-        WalletTransaction transaction = txCaptor.getValue();
-        assertThat(transaction.getWalletId()).isEqualTo(wallet.getId());
-        assertThat(transaction.getWalletType()).isEqualTo(WalletType.MEMBER);
-        assertThat(transaction.getType()).isEqualTo(WalletTransactionType.WITHDRAWAL);
-        assertThat(transaction.getAmount()).isEqualByComparingTo("-100000");
-        assertThat(transaction.getBalanceAfter()).isEqualByComparingTo("900000");
-        assertThat(transaction.getStatus()).isEqualTo(TransactionStatus.SUCCESS);
+        verify(walletTransactionRepository, times(2)).save(txCaptor.capture());
+        WalletTransaction memberTx = txCaptor.getAllValues().stream()
+                .filter(tx -> tx.getWalletType() == WalletType.MEMBER).findFirst().orElseThrow();
+        WalletTransaction platformTx = txCaptor.getAllValues().stream()
+                .filter(tx -> tx.getWalletType() == WalletType.PLATFORM).findFirst().orElseThrow();
+
+        assertThat(memberTx.getWalletId()).isEqualTo(wallet.getId());
+        assertThat(memberTx.getType()).isEqualTo(WalletTransactionType.WITHDRAWAL);
+        assertThat(memberTx.getAmount()).isEqualByComparingTo("-100000");
+        assertThat(memberTx.getBalanceAfter()).isEqualByComparingTo("900000");
+        assertThat(memberTx.getStatus()).isEqualTo(TransactionStatus.SUCCESS);
+
+        assertThat(platformTx.getType()).isEqualTo(WalletTransactionType.WITHDRAWAL);
+        assertThat(platformTx.getAmount()).isEqualByComparingTo("100000");
+        assertThat(platformTx.getCounterpartTransaction()).isEqualTo(memberTx);
+    }
+
+    @Test
+    void createPayoutRequest_forcesFailure_whenConfigFlagIsSet_andResetsFlagAfterUse() {
+        wallet.setBalance(new BigDecimal("1000000"));
+        wallet.setLockedBalance(BigDecimal.ZERO);
+
+        SystemConfig forceFailureConfig = SystemConfig.builder()
+                .key("force_payout_failure")
+                .value("true")
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(walletRepository.findByMemberIdForUpdate(member.getId())).thenReturn(Optional.of(wallet));
+        when(payoutRequestRepository.countByWallet_IdAndCreatedAtBetween(
+                eq(wallet.getId()), any(Instant.class), any(Instant.class)))
+                .thenReturn(0L);
+        when(payoutRequestRepository.countByPayoutNoStartingWith(any())).thenReturn(0L);
+        when(systemConfigRepository.findByKey("min_payout_amount")).thenReturn(Optional.empty());
+        when(systemConfigRepository.findByKey("max_payout_requests_per_day")).thenReturn(Optional.empty());
+        when(systemConfigRepository.findByKey("force_payout_failure"))
+                .thenReturn(Optional.of(forceFailureConfig));
+        when(payoutRequestRepository.save(any())).thenAnswer(invocation -> {
+            PayoutRequest saved = invocation.getArgument(0);
+            if (saved.getId() == null) {
+                saved.setId(UUID.randomUUID());
+            }
+            return saved;
+        });
+
+        CreatePayoutRequestRequest request = new CreatePayoutRequestRequest(new BigDecimal("100000"));
+
+        PayoutRequestResponse response = walletService.createPayoutRequest(email, request);
+
+        assertThat(response.getStatus()).isEqualTo("FAILED");
+        assertThat(response.getFailureReason()).isEqualTo("Giao dịch chi tiền giả lập thất bại.");
+        assertThat(response.getProcessedAt()).isNotNull();
+        assertThat(wallet.getBalance()).isEqualByComparingTo("1000000");
+        assertThat(wallet.getLockedBalance()).isEqualByComparingTo("0");
+
+        assertThat(forceFailureConfig.getValue()).isEqualTo("false");
+        verify(systemConfigRepository).save(forceFailureConfig);
+        verify(walletTransactionRepository, never()).save(any());
+        verify(platformFundRepository, never()).save(any());
     }
 
     @Test

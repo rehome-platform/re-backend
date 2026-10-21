@@ -1,11 +1,15 @@
 package com.rehome.rehome.ServiceImpl;
 
-import com.rehome.rehome.dto.response.PageResponse;
-import com.rehome.rehome.dto.response.ProductDetailResponse;
-import com.rehome.rehome.dto.response.ProductSummaryResponse;
+import com.rehome.rehome.dto.response.*;
+import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
+import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.mapper.ProductMapper;
+import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.spec.ProductSpecifications;
@@ -13,6 +17,7 @@ import com.rehome.rehome.service.ProductService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +35,9 @@ public class ProductServiceImpl implements ProductService {
 
     private final ProductRepository productRepository;
     private final ProductPhotoRepository productPhotoRepository;
+    private final ProductMapper productMapper;
+    private final EndOfTermDecisionRepository endOfTermDecisionRepository;
+
 
     @Override
     public PageResponse<ProductSummaryResponse> getProducts(String search, UUID categoryId, UUID brandId,
@@ -98,5 +106,23 @@ public class ProductServiceImpl implements ProductService {
                 .warehouseName(product.getWarehouse().getName())
                 .photos(photos)
                 .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<MyProductResponse> getMyProducts(UUID memberId, ProductStatus status, Pageable pageable) {
+        return productRepository.findMine(memberId, status, pageable)
+                .map(productMapper::toMyProductResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ProductEndOfTermDetailResponse getProductById(String id) {
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+        EndOfTermDecision pending = endOfTermDecisionRepository
+                .findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc(id)
+                .orElse(null);
+        return productMapper.toEndOfTermDetailResponse(product, pending);
     }
 }

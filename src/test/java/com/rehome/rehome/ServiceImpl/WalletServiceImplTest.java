@@ -1,5 +1,6 @@
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.dto.response.OrderRevenueResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.WalletTransactionResponse;
 import com.rehome.rehome.entity.auth.Account;
@@ -250,5 +251,102 @@ class WalletServiceImplTest {
         assertThat(response.getAmount()).isEqualTo(new BigDecimal("245000"));
         assertThat(response.getBalanceAfter()).isEqualTo(new BigDecimal("345000"));
         assertThat(response.getNote()).isEqualTo("Hoàn tiền hủy đơn OD-2026-000001");
+    }
+
+    @Test
+    void getRevenue_throwsNotFound_whenAccountDoesNotExist() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> walletService.getRevenue(email, 0, 20))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Account không tồn tại");
+    }
+
+    @Test
+    void getRevenue_returnsEmptyPage_whenMemberHasNoWallet() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.empty());
+
+        PageResponse<OrderRevenueResponse> result = walletService.getRevenue(email, 0, 20);
+
+        assertThat(result.getContent()).isEmpty();
+    }
+
+    @Test
+    void getRevenue_mapsSalePriceCommissionTaxAndNetAmount_fromOrderPayoutTransaction() {
+        Order order = Order.builder()
+                .id(UUID.randomUUID())
+                .orderNo("OD-2026-000123")
+                .completedAt(Instant.parse("2026-10-13T11:00:00Z"))
+                .build();
+        Product product = Product.builder().id("Q7-AK-000845").name("Áo khoác denim").build();
+        OrderItem item = OrderItem.builder()
+                .id(UUID.randomUUID())
+                .order(order)
+                .product(product)
+                .priceAtOrder(new BigDecimal("220000"))
+                .commissionRateApplied(new BigDecimal("0.10"))
+                .taxRateApplied(BigDecimal.ZERO)
+                .build();
+
+        WalletTransaction tx = WalletTransaction.builder()
+                .id(UUID.randomUUID())
+                .transactionNo("WT-2026-000001")
+                .walletType(WalletType.MEMBER)
+                .walletId(wallet.getId())
+                .type(WalletTransactionType.ORDER_PAYOUT)
+                .amount(new BigDecimal("198000"))
+                .balanceAfter(new BigDecimal("298000"))
+                .relatedOrder(order)
+                .relatedOrderItem(item)
+                .status(TransactionStatus.SUCCESS)
+                .note("Thanh toán đơn hàng OD-2026-000123")
+                .createdAt(Instant.parse("2026-10-13T11:00:00Z"))
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(wallet));
+        stubRepositoryPage(new PageImpl<>(List.of(tx)));
+
+        PageResponse<OrderRevenueResponse> result = walletService.getRevenue(email, 0, 20);
+
+        assertThat(result.getContent()).hasSize(1);
+        OrderRevenueResponse response = result.getContent().get(0);
+        assertThat(response.getOrderId()).isEqualTo(order.getId().toString());
+        assertThat(response.getOrderNo()).isEqualTo("OD-2026-000123");
+        assertThat(response.getSalePrice()).isEqualByComparingTo("220000");
+        assertThat(response.getCommission()).isEqualByComparingTo("22000");
+        assertThat(response.getTax()).isEqualByComparingTo("0");
+        assertThat(response.getNetAmount()).isEqualByComparingTo("198000");
+        assertThat(response.getCompletedAt()).isEqualTo(Instant.parse("2026-10-13T11:00:00Z"));
+    }
+
+    @Test
+    void getRevenue_fieldsAreNull_whenNoRelatedOrderItem() {
+        WalletTransaction tx = WalletTransaction.builder()
+                .id(UUID.randomUUID())
+                .transactionNo("WT-2026-000004")
+                .walletType(WalletType.MEMBER)
+                .walletId(wallet.getId())
+                .type(WalletTransactionType.ORDER_PAYOUT)
+                .amount(new BigDecimal("198000"))
+                .status(TransactionStatus.SUCCESS)
+                .createdAt(Instant.now())
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(wallet));
+        stubRepositoryPage(new PageImpl<>(List.of(tx)));
+
+        PageResponse<OrderRevenueResponse> result = walletService.getRevenue(email, 0, 20);
+
+        OrderRevenueResponse response = result.getContent().get(0);
+        assertThat(response.getOrderId()).isNull();
+        assertThat(response.getOrderNo()).isNull();
+        assertThat(response.getSalePrice()).isNull();
+        assertThat(response.getCommission()).isNull();
+        assertThat(response.getTax()).isNull();
+        assertThat(response.getCompletedAt()).isNull();
+        assertThat(response.getNetAmount()).isEqualByComparingTo("198000");
     }
 }

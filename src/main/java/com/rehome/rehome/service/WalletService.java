@@ -1,5 +1,6 @@
 package com.rehome.rehome.service;
 
+import com.rehome.rehome.dto.response.OrderRevenueResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.WalletTransactionResponse;
 
@@ -10,4 +11,6 @@ public interface WalletService {
             String email, String type, String direction, int page, int size);
 
     WalletTransactionResponse getTransactionDetail(String email, UUID transactionId);
+
+    PageResponse<OrderRevenueResponse> getRevenue(String email, int page, int size);
 }

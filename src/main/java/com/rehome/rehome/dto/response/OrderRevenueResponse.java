@@ -15,7 +15,10 @@ import java.time.Instant;
 public class OrderRevenueResponse {
     private String orderId;
     private String orderNo;
+    private String productName;
+    private Short termNo;
     private BigDecimal salePrice;
+    private BigDecimal commissionRate;
     private BigDecimal commission;
     private BigDecimal tax;
     private BigDecimal netAmount;

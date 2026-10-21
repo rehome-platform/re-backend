@@ -7,6 +7,7 @@ import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -36,5 +37,11 @@ public class WalletTransactionSpecifications {
 
             return cb.and(predicates.toArray(new Predicate[0]));
         };
+    }
+
+    public static Specification<WalletTransaction> createdInRange(Instant from, Instant to) {
+        return (root, query, cb) -> cb.and(
+                cb.greaterThanOrEqualTo(root.get("createdAt"), from),
+                cb.lessThan(root.get("createdAt"), to));
     }
 }

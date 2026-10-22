@@ -1,14 +1,17 @@
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.dto.request.CreateProductRequest;
+import com.rehome.rehome.dto.request.PriceReductionRequest;
 import com.rehome.rehome.dto.response.*;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
-import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
-import com.rehome.rehome.entity.marketplace.Product;
-import com.rehome.rehome.entity.marketplace.ProductPhoto;
+import com.rehome.rehome.entity.enums.Role;
+import com.rehome.rehome.entity.marketplace.*;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.ProductMapper;
+import com.rehome.rehome.repository.ConsignmentReceiptRepository;
 import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
@@ -23,10 +26,17 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
+
 
 @Service
 @RequiredArgsConstructor
@@ -37,6 +47,8 @@ public class ProductServiceImpl implements ProductService {
     private final ProductPhotoRepository productPhotoRepository;
     private final ProductMapper productMapper;
     private final EndOfTermDecisionRepository endOfTermDecisionRepository;
+    private final ConsignmentReceiptRepository receiptRepository;
+    private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
 
     @Override
@@ -124,5 +136,103 @@ public class ProductServiceImpl implements ProductService {
                 .findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc(id)
                 .orElse(null);
         return productMapper.toEndOfTermDetailResponse(product, pending);
+    }
+    @Transactional
+    public ProductResponse create(CreateProductRequest request) {
+        ConsignmentReceipt receipt = receiptRepository.findById(request.getReceiptId())
+                .orElseThrow(() -> new AppException(ErrorCode.RECEIPT_NOT_FOUND));          // 404
+
+        if (receipt.getConfirmedAt() == null) {
+            throw new AppException(ErrorCode.RECEIPT_NOT_CONFIRMED);                         // 409
+        }
+        if (productRepository.existsByConsignmentReceiptId(receipt.getId())) {
+            throw new AppException(ErrorCode.RECEIPT_ALREADY_HAS_PRODUCT);                   // 409
+        }
+
+        ConsignmentForm form = receipt.getConsignmentForm();
+        Instant now = Instant.now();
+
+        Product product = Product.builder()
+                .id(generateSku(receipt.getWarehouse(), form.getCategory()))
+                .consignmentReceipt(receipt)
+                .member(receipt.getMember())
+                .warehouse(receipt.getWarehouse())
+                .category(form.getCategory())
+                .brand(form.getBrand())
+                .name(request.getName().trim())
+                .size(request.getSize())
+                .conditionNote(receipt.getConditionNote())            // xem lưu ý 2
+                .currentPrice(receipt.getAgreedPrice())
+                .status(ProductStatus.ON_SALE)
+                .currentTerm((short) 1)
+                .termStartedAt(now)
+                .endOfTermDeadline(now.plus(Duration.ofDays(
+                        (long) receipt.getTermLengthDays() * (receipt.getMaxRenewals() + 1))))
+                .shelfLocation(request.getShelfLocation())
+                .build();
+
+        productRepository.save(product);
+        savePhotos(product, request.getPhotoUrls());
+
+        return new ProductResponse(product.getId(), product.getName(), product.getStatus());
+    }
+
+    private String generateSku(Warehouse warehouse, Category category) {
+        // Q7-AK-000845 = <mã kho>-<mã danh mục>-<số thứ tự 6 chữ số>
+        return "%s-%s-%06d".formatted(
+                warehouse.getCode(), category.getCode(), productRepository.nextSkuSequence());
+    }
+
+    private void savePhotos(Product product, List<String> urls) {
+        if (urls == null || urls.isEmpty()) return;
+        List<ProductPhoto> photos = new ArrayList<>();
+        for (int i = 0; i < urls.size(); i++) {
+            ProductPhoto p = new ProductPhoto();
+            p.setProduct(product);
+            p.setImageUrl(urls.get(i));
+            p.setDisplayOrder(i);   // ảnh đầu tiên là ảnh đại diện
+            photos.add(p);
+        }
+        productPhotoRepository.saveAll(photos);
+    }
+
+    @Override
+    @Transactional
+    public PriceReductionResponse reducePrice(Account account, String productId, PriceReductionRequest request) {
+
+        if (account.getRole() != Role.MEMBER) {
+            throw new AppException(ErrorCode.NOT_MEMBER_ACCOUNT);
+        }
+
+        Product product = productRepository.findByIdForUpdate(productId)
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));               // 404
+
+        if (!product.getMember().getId().equals(account.getId())) {
+            throw new AppException(ErrorCode.PRODUCT_FORBIDDEN);                                 // 403
+        }
+        if (product.getStatus() != ProductStatus.ON_SALE) {
+            throw new AppException(ErrorCode.PRODUCT_NOT_ON_SALE);                               // 409
+        }
+
+        BigDecimal newPrice = request.getNewPrice().setScale(2, RoundingMode.HALF_UP);
+        BigDecimal floorPrice = product.getConsignmentReceipt().getFloorPrice();
+
+        if (newPrice.compareTo(product.getCurrentPrice()) >= 0) {
+            throw new AppException(ErrorCode.INVALID_NEW_PRICE);                                 // 400
+        }
+        if (newPrice.compareTo(floorPrice) < 0) {
+            throw new AppException(ErrorCode.BELOW_FLOOR_PRICE);                                 // 409
+        }
+
+        LocalDate today = LocalDate.now(VN_ZONE);
+        if (today.equals(product.getLastPriceReducedOn())) {
+            throw new AppException(ErrorCode.PRICE_CHANGE_LIMIT_REACHED);                        // 409
+        }
+
+        product.setCurrentPrice(newPrice);
+        product.setLastPriceReducedOn(today);
+        productRepository.save(product);
+
+        return new PriceReductionResponse(product.getCurrentPrice());
     }
 }

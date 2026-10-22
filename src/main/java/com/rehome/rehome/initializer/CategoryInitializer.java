@@ -1,13 +1,17 @@
 package com.rehome.rehome.initializer;
 
+import com.rehome.rehome.config.CodeGenerator;
 import com.rehome.rehome.entity.enums.CatalogStatus;
 import com.rehome.rehome.entity.enums.TryOnSlot;
 import com.rehome.rehome.entity.marketplace.Category;
+import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.repository.CategoryRepository;
+import com.rehome.rehome.repository.WarehouseRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -75,5 +79,36 @@ public class CategoryInitializer implements ApplicationRunner {
 
         categoryRepository.saveAll(toInsert);
         log.info("[CategoryInitializer] Đã thêm {} danh mục.", toInsert.size());
+    }
+
+    @Component
+    @RequiredArgsConstructor
+    public class CodeBackfillRunner implements CommandLineRunner {
+
+        private final WarehouseRepository warehouseRepository;
+        private final CategoryRepository categoryRepository;
+
+        @Override
+        @Transactional
+        public void run(String... args) {
+            // Dùng native query vì entity đã khai báo code NOT NULL;
+            // nếu findAll() lỗi do code null thì chuyển sang JdbcTemplate.
+            for (Warehouse w : warehouseRepository.findAll()) {
+                if (w.getCode() == null) {
+                    w.setCode(CodeGenerator.makeUnique(
+                            CodeGenerator.fromName(w.getName(), "kho"),
+                            warehouseRepository::existsByCode));
+                    warehouseRepository.saveAndFlush(w);
+                }
+            }
+            for (Category c : categoryRepository.findAll()) {
+                if (c.getCode() == null) {
+                    c.setCode(CodeGenerator.makeUnique(
+                            CodeGenerator.fromName(c.getName()),
+                            categoryRepository::existsByCode));
+                    categoryRepository.saveAndFlush(c);
+                }
+            }
+        }
     }
 }

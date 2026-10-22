@@ -5,8 +5,11 @@ import com.rehome.rehome.entity.enums.ProductStatus;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+
 import lombok.*;
 import org.hibernate.annotations.ColumnDefault;
+import org.springframework.data.domain.Persistable;
 
 @Entity
 @Table(name = "products")
@@ -15,7 +18,7 @@ import org.hibernate.annotations.ColumnDefault;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Product {
+public class Product implements Persistable<String> {
     // Mã SKU Moderator gán lúc nhập kho, ví dụ Q7-AK-000845
     @Id
     @Column(name = "id", nullable = false, length = 255)
@@ -79,6 +82,9 @@ public class Product {
     @Column(name = "term_started_at", nullable = false)
     private Instant termStartedAt;
 
+    @Column(name = "last_price_reduced_on", nullable = true)
+    private LocalDate lastPriceReducedOn;
+
     // Ngày hết kỳ cuối (ngày 90), lúc này gỡ khỏi sàn
     @Column(name = "end_of_term_deadline", nullable = true)
     private Instant endOfTermDeadline;
@@ -109,5 +115,20 @@ public class Product {
     @PreUpdate
     private void onUpdate() {
         updatedAt = Instant.now();
+    }
+
+    @Transient
+    @Builder.Default
+    private boolean isNew = true;
+
+    @Override
+    public boolean isNew() {
+        return isNew;
+    }
+
+    @PostPersist
+    @PostLoad
+    void markNotNew() {
+        this.isNew = false;
     }
 }

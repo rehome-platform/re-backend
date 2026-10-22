@@ -24,6 +24,19 @@ public enum ErrorCode {
     ORGANIZATION_PROFILE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy hồ sơ tổ chức."),
     ORGANIZATION_NOT_REJECTED(HttpStatus.FORBIDDEN, "Chỉ nộp lại hồ sơ khi trạng thái là REJECTED."),
 
+    // API 31 - Moderator duyệt form ký gửi
+    CONSIGNMENT_FORM_NOT_PENDING(HttpStatus.CONFLICT, "Form không ở trạng thái chờ duyệt."),
+
+    // API 33 - bắt đầu kiểm định
+    CONSIGNMENT_FORM_NOT_APPROVED(HttpStatus.CONFLICT, "Form chưa được duyệt để kiểm định."),
+    // API 37 - nhập kho
+    RECEIPT_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy phiếu ký gửi."),
+    RECEIPT_NOT_CONFIRMED(HttpStatus.CONFLICT, "Phiếu ký gửi chưa được Member xác nhận."),
+    RECEIPT_ALREADY_HAS_PRODUCT(HttpStatus.CONFLICT, "Phiếu ký gửi này đã được nhập kho."),
+    // API 34 - hoàn tất kiểm định
+    CONSIGNMENT_RECEIPT_ALREADY_EXISTS(HttpStatus.CONFLICT, "Form này đã được tạo phiếu ký gửi."),
+    // API 35 - trả hàng tại quầy
+    CONSIGNMENT_FORM_NOT_INSPECTING(HttpStatus.CONFLICT, "Form chưa ở trạng thái đang kiểm định."),
     PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy sản phẩm."),
     CONSIGNMENT_RECEIPT_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền xem form đã duyệt này."),
     CONSIGNMENT_RECEIPT_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy form đã duyệt."),
@@ -33,7 +46,24 @@ public enum ErrorCode {
     // API 20 - xác nhận phiếu ký gửi, F-022 - sinh PDF
     CONSIGNMENT_RECEIPT_ALREADY_CONFIRMED(HttpStatus.CONFLICT, "Phiếu này đã được xác nhận."),
     RECEIPT_PDF_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo file PDF phiếu ký gửi."),
-    NOT_ORGANIZATION_ACCOUNT(HttpStatus.FORBIDDEN, "Chỉ tài khoản tổ chức mới được nộp hồ sơ."); // <-- dấu ; ở đây
+    NOT_ORGANIZATION_ACCOUNT(HttpStatus.FORBIDDEN, "Chỉ tài khoản tổ chức mới được nộp hồ sơ."),
+    // ===== Auth =====
+    EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "Email đã tồn tại."),
+    ACCOUNT_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy tài khoản."),
+    REFRESH_TOKEN_NOT_FOUND(HttpStatus.UNAUTHORIZED, "Refresh token không tồn tại."),
+    REFRESH_TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "Refresh token đã hết hạn. Vui lòng đăng nhập lại."),
+    INVALID_GOOGLE_TOKEN(HttpStatus.UNAUTHORIZED, "Google token không hợp lệ."),
+    // ===== Consignment form - tạo form =====
+    CATEGORY_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy danh mục."),
+    BRAND_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy thương hiệu."),
+    WAREHOUSE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy kho."),
+    NOT_MEMBER_CREATE_FORM(HttpStatus.FORBIDDEN, "Chỉ tài khoản member mới được tạo form ký gửi."),
+    // API 23 - giảm giá sản phẩm (F-025, F-026)
+    INVALID_NEW_PRICE(HttpStatus.BAD_REQUEST, "Giá mới phải thấp hơn giá hiện tại."),
+    PRODUCT_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền giảm giá sản phẩm này."),
+    PRODUCT_NOT_ON_SALE(HttpStatus.CONFLICT, "Chỉ giảm giá được sản phẩm đang bán."),
+    BELOW_FLOOR_PRICE(HttpStatus.CONFLICT, "BELOW_FLOOR_PRICE: giá mới không được thấp hơn giá sàn."),
+    PRICE_CHANGE_LIMIT_REACHED(HttpStatus.CONFLICT, "PRICE_CHANGE_LIMIT_REACHED: mỗi sản phẩm chỉ giảm giá tối đa 1 lần/ngày.");// <-- dấu ; ở đây
     private final HttpStatus status;
     private final String defaultMessage;
 }

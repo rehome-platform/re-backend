@@ -81,9 +81,7 @@ class AuthServiceImplTest {
         when(req.getEmail()).thenReturn("a@x.com");
         when(accountRepository.existsByEmail("a@x.com")).thenReturn(true);
 
-        assertThatThrownBy(() -> service.registerMember(req))
-                .isInstanceOf(AccountAlreadyExistsException.class)
-                .hasMessage("Email đã tồn tại: a@x.com");
+        assertAppError(() -> service.registerMember(req), ErrorCode.EMAIL_ALREADY_EXISTS);
 
         verify(accountRepository, never()).save(any());
         verifyNoInteractions(memberProfileRepository, otpService);
@@ -151,9 +149,7 @@ class AuthServiceImplTest {
         when(req.getEmail()).thenReturn("a@x.com");
         when(accountRepository.findByEmail("a@x.com")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.login(req))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("Account không tồn tại sau khi authenticate");
+        assertAppError(() -> service.login(req), ErrorCode.ACCOUNT_NOT_FOUND);
     }
 
     @Test
@@ -314,8 +310,7 @@ class AuthServiceImplTest {
     void refreshToken_notFound_throws() {
         when(refreshTokenService.findByToken("t")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.refreshToken("t"))
-                .isInstanceOf(TokenRefreshException.class);
+        assertAppError(() -> service.refreshToken("t"), ErrorCode.REFRESH_TOKEN_NOT_FOUND);
     }
 
     @Test
@@ -367,9 +362,7 @@ class AuthServiceImplTest {
     void logout_accountNotFound_throws() {
         when(accountRepository.findByEmail("a@x.com")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.logout("a@x.com"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("Account không tồn tại");
+        assertAppError(() -> service.logout("a@x.com"), ErrorCode.ACCOUNT_NOT_FOUND);
         verifyNoInteractions(refreshTokenService);
     }
 

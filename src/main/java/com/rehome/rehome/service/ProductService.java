@@ -1,6 +1,9 @@
 package com.rehome.rehome.service;
 
+import com.rehome.rehome.dto.request.CreateProductRequest;
+import com.rehome.rehome.dto.request.PriceReductionRequest;
 import com.rehome.rehome.dto.response.*;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -16,4 +19,7 @@ public interface ProductService {
     ProductDetailResponse getProductDetail(String id);
     ProductEndOfTermDetailResponse getProductById(String id);
     Page<MyProductResponse> getMyProducts(UUID memberId, ProductStatus status, Pageable pageable);
+    ProductResponse create(CreateProductRequest request);
+    // interface ProductService
+    PriceReductionResponse reducePrice(Account account, String productId, PriceReductionRequest request);
 }

@@ -17,4 +17,9 @@ public interface ConsignmentReceiptRepository extends JpaRepository<ConsignmentR
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from ConsignmentReceipt r where r.id = :id")
     Optional<ConsignmentReceipt> findByIdForUpdate(@Param("id") UUID id);
+
+    boolean existsByConsignmentFormId(UUID consignmentFormId);
+
+    @Query(value = "SELECT nextval('receipt_no_seq')", nativeQuery = true)
+    long nextReceiptSequence();
 }

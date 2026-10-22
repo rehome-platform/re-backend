@@ -5,5 +5,6 @@ public enum ConsignmentFormStatus {
     APPROVED,
     REJECTED,
     EXPIRED,
-    CANCELLED
+    CANCELLED,
+    INSPECTING
 }

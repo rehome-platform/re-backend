@@ -9,6 +9,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -26,6 +27,7 @@ import java.util.List;
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
+@EnableMethodSecurity
 public class SecurityConfig {
 
     private final UserDetailsService userDetailsService;
@@ -42,7 +44,8 @@ public class SecurityConfig {
             "/swagger-ui.html",
             "/swagger-resources/**",
             "/webjars/**",
-            "/api/momo/ipn-handler"
+            "/api/momo/ipn-handler",
+            "/api/momo/return-info"
     };
 
     @Bean
@@ -58,7 +61,6 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/products/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/organizations/register/account").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         // MỚI: API kho gần nhất (F-015) chỉ dành cho Member

@@ -32,4 +32,10 @@ public interface ProductRepository extends JpaRepository<Product, String>, JpaSp
     Page<Product> findMine(@Param("memberId") UUID memberId,
                            @Param("status") ProductStatus status,
                            Pageable pageable);
+    boolean existsByConsignmentReceiptId(UUID consignmentReceiptId);
+
+    @Query(value = "SELECT nextval('product_sku_seq')", nativeQuery = true)
+    long nextSkuSequence();
+
+
 }

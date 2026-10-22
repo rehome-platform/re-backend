@@ -12,4 +12,6 @@ public interface MomoService {
     void handleIpn(MomoIpnRequest ipnRequest);
 
     PaymentStatusResponse checkPaymentStatus(String email, UUID orderId);
+
+    PaymentStatusResponse getReturnInfo(MomoIpnRequest returnParams);
 }

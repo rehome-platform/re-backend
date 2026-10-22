@@ -33,4 +33,10 @@ public class ProductPhoto {
     @ColumnDefault("false")
     @Builder.Default
     private Boolean isBackgroundRemoved = false;
+
+    // Thứ tự hiển thị, 0 là ảnh đại diện          <-- thêm từ đây
+    @Column(name = "display_order", nullable = false)
+    @ColumnDefault("0")
+    @Builder.Default
+    private Integer displayOrder = 0;
 }

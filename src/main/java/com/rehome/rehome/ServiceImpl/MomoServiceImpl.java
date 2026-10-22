@@ -227,8 +227,22 @@ public class MomoServiceImpl implements MomoService {
             throw new BadRequestException("Chữ ký không hợp lệ");
         }
 
-        Payment payment = paymentRepository.findByMomoOrderId(returnParams.getOrderId())
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy giao dịch tương ứng"));
+        Payment payment = paymentRepository.findByMomoOrderId(returnParams.getOrderId()).orElse(null);
+
+        // Lưới an toàn: tra theo orderId gốc lưu trong extraData, trong trường hợp momoOrderId
+        // (có hậu tố timestamp) không khớp được trực tiếp.
+        if (payment == null && StringUtils.hasText(returnParams.getExtraData())) {
+            try {
+                UUID orderId = UUID.fromString(returnParams.getExtraData());
+                payment = paymentRepository.findByOrder_Id(orderId).orElse(null);
+            } catch (IllegalArgumentException ignored) {
+                // extraData không phải UUID hợp lệ, bỏ qua lưới an toàn
+            }
+        }
+
+        if (payment == null) {
+            throw new IllegalArgumentException("Không tìm thấy giao dịch tương ứng");
+        }
 
         // Trạng thái hiển thị luôn lấy từ DB (do IPN cập nhật), không tin resultCode trên URL redirect
         // vì đây là tham số đi qua browser, có thể bị sửa. Nếu IPN chưa kịp tới thì hỏi lại MoMo 1 lần.

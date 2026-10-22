@@ -18,7 +18,6 @@ import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.ConsignmentFormMapper;
 import com.rehome.rehome.repository.*;
-import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -82,7 +81,7 @@ class ConsignmentFormServiceImplTest {
 
     @Test
     void create_success_setsRelationsSavesFormAndPhotos() {
-        Account account = Account.builder().id(UUID.randomUUID()).build();
+        Account account = Account.builder().id(UUID.randomUUID()).role(Role.MEMBER).build();
         ConsignmentFormRequest req = request();
 
         ConsignmentForm mapped = new ConsignmentForm();
@@ -94,9 +93,9 @@ class ConsignmentFormServiceImplTest {
         ConsignmentFormResponse response = new ConsignmentFormResponse();
 
         when(consignmentFormMapper.toEntity(req)).thenReturn(mapped);
-        when(categoryRepository.getReferenceById(categoryId)).thenReturn(category);
-        when(brandRepository.getReferenceById(brandId)).thenReturn(brand);
-        when(warehouseRepository.getReferenceById(warehouseId)).thenReturn(warehouse);
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
+        when(brandRepository.findById(brandId)).thenReturn(Optional.of(brand));
+        when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
         when(consignmentFormRepository.save(any(ConsignmentForm.class))).thenReturn(saved);
         when(consignmentFormMapper.toPhotoEntities(saved, req.getPhotoUrls())).thenReturn(photos);
         when(consignmentFormMapper.toResponse(saved)).thenReturn(response);
@@ -123,14 +122,13 @@ class ConsignmentFormServiceImplTest {
 
     @Test
     void create_categoryNotFound_propagatesAndSavesNothing() {
-        Account account = Account.builder().id(UUID.randomUUID()).build();
+        Account account = Account.builder().id(UUID.randomUUID()).role(Role.MEMBER).build();
         ConsignmentFormRequest req = request();
 
         when(consignmentFormMapper.toEntity(req)).thenReturn(new ConsignmentForm());
-        when(categoryRepository.getReferenceById(categoryId)).thenThrow(new EntityNotFoundException("category"));
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.create(req, account))
-                .isInstanceOf(EntityNotFoundException.class);
+        assertAppError(() -> service.create(req, account), ErrorCode.CATEGORY_NOT_FOUND);
 
         verify(consignmentFormRepository, never()).save(any());
         verifyNoInteractions(photoRepository);

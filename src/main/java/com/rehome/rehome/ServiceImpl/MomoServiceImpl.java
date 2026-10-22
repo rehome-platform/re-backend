@@ -83,7 +83,7 @@ public class MomoServiceImpl implements MomoService {
         String momoOrderId = orderId + "-" + System.currentTimeMillis();
         String orderInfo = "Thanh toan don hang: " + order.getOrderNo();
         String requestId = UUID.randomUUID().toString();
-        String extraData = "";
+        String extraData = orderId.toString();
         long amount = order.getTotalAmount().setScale(0, RoundingMode.HALF_UP).longValueExact();
 
         String rawSignature = String.format(
@@ -197,6 +197,47 @@ public class MomoServiceImpl implements MomoService {
 
         return PaymentStatusResponse.builder()
                 .orderId(orderId)
+                .status(payment.getStatus())
+                .amount(payment.getAmount())
+                .momoTransactionId(payment.getMomoTransactionId())
+                .paidAt(payment.getPaidAt())
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public PaymentStatusResponse getReturnInfo(MomoIpnRequest returnParams) {
+
+        String rawSignature = buildResultSignature(
+                returnParams.getAmount(), returnParams.getExtraData(), returnParams.getMessage(),
+                returnParams.getOrderId(), returnParams.getOrderInfo(), returnParams.getOrderType(),
+                returnParams.getPayType(), returnParams.getRequestId(), returnParams.getResponseTime(),
+                returnParams.getResultCode(), returnParams.getTransId());
+
+        String expectedSignature;
+        try {
+            expectedSignature = signHmacSHA256(rawSignature, secretKey);
+        } catch (Exception e) {
+            log.error(">>>> Co loi khi verify chu ky return URL: " + e);
+            throw new BadRequestException("Không thể xác thực kết quả thanh toán");
+        }
+
+        if (!expectedSignature.equals(returnParams.getSignature())) {
+            log.error(">>>> Chu ky tren return URL khong hop le cho momoOrderId={}", returnParams.getOrderId());
+            throw new BadRequestException("Chữ ký không hợp lệ");
+        }
+
+        Payment payment = paymentRepository.findByMomoOrderId(returnParams.getOrderId())
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy giao dịch tương ứng"));
+
+        // Trạng thái hiển thị luôn lấy từ DB (do IPN cập nhật), không tin resultCode trên URL redirect
+        // vì đây là tham số đi qua browser, có thể bị sửa. Nếu IPN chưa kịp tới thì hỏi lại MoMo 1 lần.
+        if (payment.getStatus() == PaymentStatus.PENDING) {
+            syncWithMomo(payment);
+        }
+
+        return PaymentStatusResponse.builder()
+                .orderId(payment.getOrder().getId())
                 .status(payment.getStatus())
                 .amount(payment.getAmount())
                 .momoTransactionId(payment.getMomoTransactionId())

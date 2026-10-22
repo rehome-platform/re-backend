@@ -1,8 +1,11 @@
 package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.request.CreateProductRequest;
+import com.rehome.rehome.dto.request.PriceReductionRequest;
 import com.rehome.rehome.dto.response.*;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.marketplace.*;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
@@ -23,13 +26,17 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
+
 
 @Service
 @RequiredArgsConstructor
@@ -41,7 +48,7 @@ public class ProductServiceImpl implements ProductService {
     private final ProductMapper productMapper;
     private final EndOfTermDecisionRepository endOfTermDecisionRepository;
     private final ConsignmentReceiptRepository receiptRepository;
-
+    private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
 
     @Override
@@ -154,7 +161,7 @@ public class ProductServiceImpl implements ProductService {
                 .brand(form.getBrand())
                 .name(request.getName().trim())
                 .size(request.getSize())
-                .conditionNote(form.getDescription())            // xem lưu ý 2
+                .conditionNote(receipt.getConditionNote())            // xem lưu ý 2
                 .currentPrice(receipt.getAgreedPrice())
                 .status(ProductStatus.ON_SALE)
                 .currentTerm((short) 1)
@@ -187,5 +194,45 @@ public class ProductServiceImpl implements ProductService {
             photos.add(p);
         }
         productPhotoRepository.saveAll(photos);
+    }
+
+    @Override
+    @Transactional
+    public PriceReductionResponse reducePrice(Account account, String productId, PriceReductionRequest request) {
+
+        if (account.getRole() != Role.MEMBER) {
+            throw new AppException(ErrorCode.NOT_MEMBER_ACCOUNT);
+        }
+
+        Product product = productRepository.findByIdForUpdate(productId)
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));               // 404
+
+        if (!product.getMember().getId().equals(account.getId())) {
+            throw new AppException(ErrorCode.PRODUCT_FORBIDDEN);                                 // 403
+        }
+        if (product.getStatus() != ProductStatus.ON_SALE) {
+            throw new AppException(ErrorCode.PRODUCT_NOT_ON_SALE);                               // 409
+        }
+
+        BigDecimal newPrice = request.getNewPrice().setScale(2, RoundingMode.HALF_UP);
+        BigDecimal floorPrice = product.getConsignmentReceipt().getFloorPrice();
+
+        if (newPrice.compareTo(product.getCurrentPrice()) >= 0) {
+            throw new AppException(ErrorCode.INVALID_NEW_PRICE);                                 // 400
+        }
+        if (newPrice.compareTo(floorPrice) < 0) {
+            throw new AppException(ErrorCode.BELOW_FLOOR_PRICE);                                 // 409
+        }
+
+        LocalDate today = LocalDate.now(VN_ZONE);
+        if (today.equals(product.getLastPriceReducedOn())) {
+            throw new AppException(ErrorCode.PRICE_CHANGE_LIMIT_REACHED);                        // 409
+        }
+
+        product.setCurrentPrice(newPrice);
+        product.setLastPriceReducedOn(today);
+        productRepository.save(product);
+
+        return new PriceReductionResponse(product.getCurrentPrice());
     }
 }

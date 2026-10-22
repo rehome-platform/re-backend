@@ -68,9 +68,7 @@ public class AuthServiceImpl implements AuthService {
     public OtpResponse registerMember(RegisterRequest request) {
 
         if (accountRepository.existsByEmail(request.getEmail())) {
-            throw new AccountAlreadyExistsException(
-                    "Email đã tồn tại: " + request.getEmail()
-            );
+            throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
 
         Account account = Account.builder()
@@ -103,9 +101,7 @@ public class AuthServiceImpl implements AuthService {
     public OtpResponse registerOrganization(RegisterRequest request) {
 
         if (accountRepository.existsByEmail(request.getEmail())) {
-            throw new AccountAlreadyExistsException(
-                    "Email đã tồn tại: " + request.getEmail()
-            );
+            throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
 
         Account account = Account.builder()
@@ -132,18 +128,22 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public AuthResponse login(LoginRequest request) {
 
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        request.getEmail(),
-                        request.getPassword()
-                )
-        );
+        try {
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(
+                            request.getEmail(),
+                            request.getPassword()
+                    )
+            );
+        } catch (DisabledException e) {              // phải catch trước AuthenticationException
+            throw new AppException(ErrorCode.ACCOUNT_BANNED);
+        } catch (AuthenticationException e) {
+            throw new AppException(ErrorCode.INVALID_CREDENTIALS);
+        }
 
         Account account = accountRepository
                 .findByEmail(request.getEmail())
-                .orElseThrow(() -> new IllegalStateException(
-                        "Account không tồn tại sau khi authenticate"
-                ));
+                .orElseThrow(() -> new AppException(ErrorCode.ACCOUNT_NOT_FOUND));
 
         if (account.getStatus() != AccountStatus.ACTIVE) {
             throw new AppException(ErrorCode.ACCOUNT_BANNED);
@@ -152,8 +152,6 @@ public class AuthServiceImpl implements AuthService {
         if (!account.isEmailVerified()) {
             throw new AppException(ErrorCode.EMAIL_NOT_VERIFIED);
         }
-
-
 
         return generateAuthResponse(account);
     }
@@ -215,10 +213,7 @@ public class AuthServiceImpl implements AuthService {
 
         RefreshToken refreshToken = refreshTokenService
                 .findByToken(requestRefreshToken)
-                .orElseThrow(() -> new TokenRefreshException(
-                        requestRefreshToken,
-                        "Refresh token không tồn tại"
-                ));
+                .orElseThrow(() -> new AppException(ErrorCode.REFRESH_TOKEN_NOT_FOUND));
 
         refreshTokenService.verifyExpiration(refreshToken);
 
@@ -251,9 +246,7 @@ public class AuthServiceImpl implements AuthService {
 
         Account account = accountRepository
                 .findByEmail(email)
-                .orElseThrow(() -> new IllegalStateException(
-                        "Account không tồn tại"
-                ));
+                .orElseThrow(() -> new AppException(ErrorCode.ACCOUNT_NOT_FOUND));
 
         refreshTokenService.deleteByAccount(account);
     }

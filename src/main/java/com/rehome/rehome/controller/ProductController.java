@@ -1,6 +1,7 @@
 package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.CreateProductRequest;
+import com.rehome.rehome.dto.request.PriceReductionRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
@@ -47,13 +48,14 @@ public class ProductController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/detail/{id}")
     public ResponseEntity<ApiResponse<ProductDetailResponse>> getProductDetail(@PathVariable String id) {
         ProductDetailResponse result = productService.getProductDetail(id);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
-    @GetMapping("/products/mine")
+    @GetMapping("/mine")
+    @PreAuthorize("hasRole('MEMBER')")
     public ApiResponse<PageResponse<MyProductResponse>> getMyProducts(
             @RequestParam(required = false) ProductStatus status,
             @RequestParam(defaultValue = "0") int page,
@@ -67,7 +69,8 @@ public class ProductController {
         Page<MyProductResponse> result = productService.getMyProducts(account.getId(), status, pageable);
         return ApiResponse.success(PageResponse.from(result));
     }
-    @GetMapping("/products/{id}")
+    @GetMapping("/{id}")
+    @PreAuthorize("hasRole('MEMBER')")
     public ApiResponse<ProductEndOfTermDetailResponse> getProductById(@PathVariable String id) {
         return ApiResponse.success(productService.getProductById(id));
     }
@@ -78,5 +81,16 @@ public class ProductController {
         ProductResponse result = productService.create(request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(result, 201, "Đã nhập kho"));
+    }
+
+    @PostMapping("/{id}/price-reduction")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<PriceReductionResponse>> reducePrice(
+            @AuthenticationPrincipal Account account,
+            @PathVariable String id,
+            @Valid @RequestBody PriceReductionRequest request) {
+
+        PriceReductionResponse result = productService.reducePrice(account, id, request);
+        return ResponseEntity.ok(ApiResponse.success(result, 200, "Đã giảm giá sản phẩm"));
     }
 }

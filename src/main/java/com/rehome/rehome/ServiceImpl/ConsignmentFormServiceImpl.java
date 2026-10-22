@@ -9,9 +9,7 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
-import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.exception.AppException;
-import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.ConsignmentFormMapper;
 import com.rehome.rehome.repository.*;
@@ -47,12 +45,20 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     @Override
     @Transactional
     public ConsignmentFormResponse create(ConsignmentFormRequest request, Account account) {
+
+        if (account.getRole() != Role.MEMBER) {
+            throw new AppException(ErrorCode.NOT_MEMBER_CREATE_FORM);
+        }
+
         ConsignmentForm cf = consignmentFormMapper.toEntity(request);
 
-        cf.setCategory(categoryRepository.getReferenceById(request.getCategoryId()));
-        cf.setBrand(brandRepository.getReferenceById(request.getBrandId()));
-        cf.setWarehouse(warehouseRepository.getReferenceById(request.getWarehouseId()));
-        cf.setMember(account); // đã có sẵn từ token, không cần query
+        cf.setCategory(categoryRepository.findById(request.getCategoryId())
+                .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND)));
+        cf.setBrand(brandRepository.findById(request.getBrandId())
+                .orElseThrow(() -> new AppException(ErrorCode.BRAND_NOT_FOUND)));
+        cf.setWarehouse(warehouseRepository.findById(request.getWarehouseId())
+                .orElseThrow(() -> new AppException(ErrorCode.WAREHOUSE_NOT_FOUND)));
+        cf.setMember(account);
 
         cf = consignmentFormRepository.save(cf);
         photoRepository.saveAll(consignmentFormMapper.toPhotoEntities(cf, request.getPhotoUrls()));

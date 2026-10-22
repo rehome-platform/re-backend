@@ -5,6 +5,8 @@ import com.rehome.rehome.entity.enums.ProductStatus;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+
 import lombok.*;
 import org.hibernate.annotations.ColumnDefault;
 import org.springframework.data.domain.Persistable;
@@ -79,6 +81,9 @@ public class Product implements Persistable<String> {
     // Ngày bắt đầu kỳ hiện tại, mốc tính cửa sổ rút miễn phí 7 ngày
     @Column(name = "term_started_at", nullable = false)
     private Instant termStartedAt;
+
+    @Column(name = "last_price_reduced_on", nullable = true)
+    private LocalDate lastPriceReducedOn;
 
     // Ngày hết kỳ cuối (ngày 90), lúc này gỡ khỏi sàn
     @Column(name = "end_of_term_deadline", nullable = true)

@@ -43,6 +43,7 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
 
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     @Override
+    @Transactional
     public ConsignmentReceiptResponse getMyReceipt(Account account, UUID id) {
         if(account.getRole() != Role.MEMBER){
             throw new AppException(ErrorCode.NOT_MEMBER_ACCOUNT);

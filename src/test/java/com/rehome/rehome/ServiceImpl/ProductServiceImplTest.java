@@ -1,13 +1,11 @@
 package com.rehome.rehome.ServiceImpl;
 
 import com.rehome.rehome.dto.request.CreateProductRequest;
-import com.rehome.rehome.dto.response.MyProductResponse;
-import com.rehome.rehome.dto.response.PageResponse;
-import com.rehome.rehome.dto.response.ProductDetailResponse;
-import com.rehome.rehome.dto.response.ProductEndOfTermDetailResponse;
-import com.rehome.rehome.dto.response.ProductResponse;
+import com.rehome.rehome.dto.request.PriceReductionRequest;
+import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.entity.marketplace.Category;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
@@ -41,19 +39,20 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.eq;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.*;
 
 import org.springframework.data.domain.PageRequest;
@@ -77,9 +76,198 @@ class ProductServiceImplTest {
     private final UUID memberId = UUID.randomUUID();
     private final Pageable pageable = PageRequest.of(0, 20);
 
+    private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
+    private static final String PRODUCT_ID = "Q7-AK-000845";
+
+    @InjectMocks
+    private ProductServiceImpl productService;
+
+    private Account owner;
+    private Product product;
+
+
     @BeforeEach
     void setUp() {
         stubRepositoryPage(Page.empty());
+        owner = Account.builder()
+                .id(UUID.randomUUID())
+                .role(Role.MEMBER)
+                .build();
+
+        ConsignmentReceipt receipt = ConsignmentReceipt.builder()
+                .floorPrice(new BigDecimal("100000.00"))
+                .build();
+
+        product = Product.builder()
+                .id(PRODUCT_ID)
+                .member(owner)
+                .consignmentReceipt(receipt)
+                .currentPrice(new BigDecimal("300000.00"))
+                .status(ProductStatus.ON_SALE)
+                .termStartedAt(Instant.now())
+                .build();
+    }
+
+    private PriceReductionRequest request(String newPrice) {
+        PriceReductionRequest req = new PriceReductionRequest();
+        req.setNewPrice(new BigDecimal(newPrice));
+        return req;
+    }
+
+    private void stubFindProduct() {
+        when(productRepository.findByIdForUpdate(PRODUCT_ID)).thenReturn(Optional.of(product));
+    }
+
+    private void assertError(ErrorCode expected, Runnable action) {
+        AppException ex = assertThrows(AppException.class, action::run);
+        assertEquals(expected, ex.getErrorCode());
+        verify(productRepository, never()).save(any());
+    }
+
+    // ==================== SUCCESS ====================
+
+    @Test
+    @DisplayName("Giảm giá thành công: cập nhật currentPrice và lastPriceReducedOn")
+    void reducePrice_success() {
+        stubFindProduct();
+
+        PriceReductionResponse res = productService.reducePrice(owner, PRODUCT_ID, request("200000"));
+
+        assertEquals(0, new BigDecimal("200000.00").compareTo(res.getCurrentPrice()));
+        assertEquals(0, new BigDecimal("200000.00").compareTo(product.getCurrentPrice()));
+        assertEquals(LocalDate.now(VN_ZONE), product.getLastPriceReducedOn());
+        verify(productRepository).save(product);
+    }
+
+    @Test
+    @DisplayName("Giá mới bằng đúng giá sàn thì vẫn được phép")
+    void reducePrice_equalToFloorPrice_success() {
+        stubFindProduct();
+
+        PriceReductionResponse res = productService.reducePrice(owner, PRODUCT_ID, request("100000"));
+
+        assertEquals(0, new BigDecimal("100000.00").compareTo(res.getCurrentPrice()));
+        verify(productRepository).save(product);
+    }
+
+    @Test
+    @DisplayName("Lần giảm gần nhất là hôm qua thì hôm nay giảm tiếp được")
+    void reducePrice_lastReducedYesterday_success() {
+        product.setLastPriceReducedOn(LocalDate.now(VN_ZONE).minusDays(1));
+        stubFindProduct();
+
+        productService.reducePrice(owner, PRODUCT_ID, request("250000"));
+
+        assertEquals(LocalDate.now(VN_ZONE), product.getLastPriceReducedOn());
+        verify(productRepository).save(product);
+    }
+
+    @Test
+    @DisplayName("Giá mới được làm tròn 2 chữ số thập phân (HALF_UP)")
+    void reducePrice_roundsToTwoDecimals() {
+        stubFindProduct();
+
+        PriceReductionResponse res = productService.reducePrice(owner, PRODUCT_ID, request("200000.555"));
+
+        assertEquals(new BigDecimal("200000.56"), res.getCurrentPrice());
+    }
+
+    // ==================== ROLE / OWNERSHIP ====================
+
+    @Test
+    @DisplayName("Không phải MEMBER -> NOT_MEMBER_ACCOUNT, không đụng DB")
+    void reducePrice_notMember() {
+        Account moderator = Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR).build();
+
+        AppException ex = assertThrows(AppException.class,
+                () -> productService.reducePrice(moderator, PRODUCT_ID, request("200000")));
+
+        assertEquals(ErrorCode.NOT_MEMBER_ACCOUNT, ex.getErrorCode());
+        verifyNoInteractions(productRepository);
+    }
+
+    @Test
+    @DisplayName("Không tìm thấy sản phẩm -> PRODUCT_NOT_FOUND")
+    void reducePrice_productNotFound() {
+        when(productRepository.findByIdForUpdate(PRODUCT_ID)).thenReturn(Optional.empty());
+
+        assertError(ErrorCode.PRODUCT_NOT_FOUND,
+                () -> productService.reducePrice(owner, PRODUCT_ID, request("200000")));
+    }
+
+    @Test
+    @DisplayName("Sản phẩm của Member khác -> PRODUCT_FORBIDDEN")
+    void reducePrice_notOwner() {
+        Account other = Account.builder().id(UUID.randomUUID()).role(Role.MEMBER).build();
+        stubFindProduct();
+
+        assertError(ErrorCode.PRODUCT_FORBIDDEN,
+                () -> productService.reducePrice(other, PRODUCT_ID, request("200000")));
+    }
+
+    // ==================== STATUS ====================
+
+    @Test
+    @DisplayName("Sản phẩm không ON_SALE -> PRODUCT_NOT_ON_SALE")
+    void reducePrice_notOnSale() {
+        product.setStatus(ProductStatus.SOLD);
+        stubFindProduct();
+
+        assertError(ErrorCode.PRODUCT_NOT_ON_SALE,
+                () -> productService.reducePrice(owner, PRODUCT_ID, request("200000")));
+    }
+
+    // ==================== PRICE VALIDATION ====================
+
+    @Test
+    @DisplayName("Giá mới bằng giá hiện tại -> INVALID_NEW_PRICE")
+    void reducePrice_equalToCurrentPrice() {
+        stubFindProduct();
+
+        assertError(ErrorCode.INVALID_NEW_PRICE,
+                () -> productService.reducePrice(owner, PRODUCT_ID, request("300000")));
+    }
+
+    @Test
+    @DisplayName("Giá mới cao hơn giá hiện tại -> INVALID_NEW_PRICE")
+    void reducePrice_higherThanCurrentPrice() {
+        stubFindProduct();
+
+        assertError(ErrorCode.INVALID_NEW_PRICE,
+                () -> productService.reducePrice(owner, PRODUCT_ID, request("350000")));
+    }
+
+    @Test
+    @DisplayName("Giá mới thấp hơn giá sàn -> BELOW_FLOOR_PRICE")
+    void reducePrice_belowFloorPrice() {
+        stubFindProduct();
+
+        assertError(ErrorCode.BELOW_FLOOR_PRICE,
+                () -> productService.reducePrice(owner, PRODUCT_ID, request("99999.99")));
+    }
+
+    // ==================== DAILY LIMIT ====================
+
+    @Test
+    @DisplayName("Đã giảm giá hôm nay -> PRICE_CHANGE_LIMIT_REACHED")
+    void reducePrice_alreadyReducedToday() {
+        product.setLastPriceReducedOn(LocalDate.now(VN_ZONE));
+        stubFindProduct();
+
+        assertError(ErrorCode.PRICE_CHANGE_LIMIT_REACHED,
+                () -> productService.reducePrice(owner, PRODUCT_ID, request("200000")));
+    }
+
+    @Test
+    @DisplayName("Giá hợp lệ nhưng đã giảm hôm nay: giá sản phẩm không bị đổi")
+    void reducePrice_limitReached_priceUnchanged() {
+        product.setLastPriceReducedOn(LocalDate.now(VN_ZONE));
+        stubFindProduct();
+
+        assertThrows(AppException.class,
+                () -> productService.reducePrice(owner, PRODUCT_ID, request("200000")));
+
+        assertEquals(0, new BigDecimal("300000.00").compareTo(product.getCurrentPrice()));
     }
 
     private void stubRepositoryPage(Page<Product> page) {

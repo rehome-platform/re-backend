@@ -139,4 +139,6 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         return accountRepository.findByEmail(name)
                 .orElseThrow(() -> new AppException(ErrorCode.UNAUTHORIZED));
     }
+
+
 }

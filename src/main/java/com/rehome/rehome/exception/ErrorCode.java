@@ -63,7 +63,18 @@ public enum ErrorCode {
     PRODUCT_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền giảm giá sản phẩm này."),
     PRODUCT_NOT_ON_SALE(HttpStatus.CONFLICT, "Chỉ giảm giá được sản phẩm đang bán."),
     BELOW_FLOOR_PRICE(HttpStatus.CONFLICT, "BELOW_FLOOR_PRICE: giá mới không được thấp hơn giá sàn."),
-    PRICE_CHANGE_LIMIT_REACHED(HttpStatus.CONFLICT, "PRICE_CHANGE_LIMIT_REACHED: mỗi sản phẩm chỉ giảm giá tối đa 1 lần/ngày.");// <-- dấu ; ở đây
+    PRICE_CHANGE_LIMIT_REACHED(HttpStatus.CONFLICT, "PRICE_CHANGE_LIMIT_REACHED: mỗi sản phẩm chỉ giảm giá tối đa 1 lần/ngày."),
+    // API 24 - quyết định cuối kỳ (F-029)
+    END_OF_TERM_DECISION_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy yêu cầu quyết định cuối kỳ."),
+    END_OF_TERM_DECISION_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền quyết định cho sản phẩm này."),
+    END_OF_TERM_DECISION_ALREADY_DECIDED(HttpStatus.CONFLICT, "Yêu cầu này đã được quyết định."),
+    INVALID_DECISION(HttpStatus.BAD_REQUEST, "Chỉ được chọn TAKE_BACK hoặc RE_CONSIGN."),
+    DECISION_EXPIRED(HttpStatus.CONFLICT, "DECISION_EXPIRED: đã quá hạn quyết định, hàng chuyển sang xử lý vô thừa nhận."),
+    // API 46 - tạo thương hiệu (F-143, F-121)
+    BRAND_NAME_ALREADY_EXISTS(HttpStatus.CONFLICT, "Tên thương hiệu đã tồn tại."),
+    // API 45, 47 - danh mục
+    INVALID_TRYON_SLOT(HttpStatus.BAD_REQUEST, "tryonSlot phải là TOP, BOTTOM hoặc DRESS."),
+    CATEGORY_NAME_ALREADY_EXISTS(HttpStatus.CONFLICT, "Tên danh mục đã tồn tại.");
     private final HttpStatus status;
     private final String defaultMessage;
 }

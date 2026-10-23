@@ -10,4 +10,6 @@ public interface ProductPhotoRepository extends JpaRepository<ProductPhoto, UUID
     List<ProductPhoto> findByProduct_IdInOrderByIdAsc(List<String> productIds);
 
     List<ProductPhoto> findByProduct_IdOrderByIdAsc(String productId);
+
+
 }

@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface OrderRepository extends JpaRepository<Order, UUID> {
@@ -18,6 +19,8 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     List<Order> findAllByStatusAndPaymentDeadlineBefore(OrderStatus status, Instant deadline);
 
     boolean existsByShippingAddress_Id(UUID shippingAddressId);
+
+    Optional<Order> findByGhnTrackingCode(String ghnTrackingCode);
 
     Page<Order> findByBuyer_IdAndStatusIn(UUID buyerId, List<OrderStatus> statuses, Pageable pageable);
 

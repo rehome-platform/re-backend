@@ -45,7 +45,8 @@ public class SecurityConfig {
             "/swagger-resources/**",
             "/webjars/**",
             "/api/momo/ipn-handler",
-            "/api/momo/return-info"
+            "/api/momo/return-info",
+            "/webhooks/ghn"
     };
 
     @Bean
@@ -63,6 +64,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/organizations/register/account").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/categories", "/brands").permitAll()
                         // MỚI: API kho gần nhất (F-015) chỉ dành cho Member
                         .requestMatchers("/warehouses/**").hasRole("MEMBER")
                         .requestMatchers(

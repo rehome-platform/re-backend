@@ -37,5 +37,16 @@ public interface ProductRepository extends JpaRepository<Product, String>, JpaSp
     @Query(value = "SELECT nextval('product_sku_seq')", nativeQuery = true)
     long nextSkuSequence();
 
+    @Query("""
+    SELECT p FROM Product p
+    WHERE p.warehouse.id = :warehouseId
+      AND (:status IS NULL OR p.status = :status)
+      AND (:shelfLocation IS NULL
+           OR LOWER(p.shelfLocation) LIKE LOWER(CONCAT('%', :shelfLocation, '%')))
+    """)
+    Page<Product> findInventory(@Param("warehouseId") UUID warehouseId,
+                                @Param("status") ProductStatus status,
+                                @Param("shelfLocation") String shelfLocation,
+                                Pageable pageable);
 
 }

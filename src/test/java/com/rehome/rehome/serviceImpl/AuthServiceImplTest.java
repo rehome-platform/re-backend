@@ -35,6 +35,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -73,7 +75,7 @@ class AuthServiceImplTest {
                 .hasFieldOrPropertyWithValue("errorCode", expected);
     }
 
-    // ==================== register ====================
+    // ==================== registerMember ====================
 
     @Test
     void register_emailExists_throws() {
@@ -82,6 +84,20 @@ class AuthServiceImplTest {
         when(accountRepository.existsByEmail("a@x.com")).thenReturn(true);
 
         assertAppError(() -> service.registerMember(req), ErrorCode.EMAIL_ALREADY_EXISTS);
+
+        verify(accountRepository, never()).save(any());
+        verifyNoInteractions(memberProfileRepository, otpService);
+    }
+
+    @Test
+    void register_phoneTaken_throws() {
+        RegisterRequest req = mock(RegisterRequest.class);
+        when(req.getEmail()).thenReturn("a@x.com");
+        when(req.getPhone()).thenReturn("0909");
+        when(accountRepository.existsByEmail("a@x.com")).thenReturn(false);
+        when(accountRepository.existByPhone("0909")).thenReturn(true);
+
+        assertAppError(() -> service.registerMember(req), ErrorCode.PHONE_TAKEN);
 
         verify(accountRepository, never()).save(any());
         verifyNoInteractions(memberProfileRepository, otpService);
@@ -119,6 +135,62 @@ class AuthServiceImplTest {
                 .isEqualTo("Đăng ký thành công. Vui lòng kiểm tra email để xác minh OTP.");
     }
 
+    // ==================== registerOrganization (AuthServiceImpl) ====================
+
+    @Test
+    void registerOrganizationAccount_emailExists_throws() {
+        RegisterRequest req = mock(RegisterRequest.class);
+        when(req.getEmail()).thenReturn("org@x.com");
+        when(accountRepository.existsByEmail("org@x.com")).thenReturn(true);
+
+        assertAppError(() -> service.registerOrganization(req), ErrorCode.EMAIL_ALREADY_EXISTS);
+
+        verify(accountRepository, never()).save(any());
+        verifyNoInteractions(otpService);
+    }
+
+    @Test
+    void registerOrganizationAccount_phoneTaken_throws() {
+        RegisterRequest req = mock(RegisterRequest.class);
+        when(req.getEmail()).thenReturn("org@x.com");
+        when(req.getPhone()).thenReturn("0909");
+        when(accountRepository.existsByEmail("org@x.com")).thenReturn(false);
+        when(accountRepository.existByPhone("0909")).thenReturn(true);
+
+        assertAppError(() -> service.registerOrganization(req), ErrorCode.PHONE_TAKEN);
+
+        verify(accountRepository, never()).save(any());
+        verifyNoInteractions(otpService);
+    }
+
+    @Test
+    void registerOrganizationAccount_success() {
+        RegisterRequest req = mock(RegisterRequest.class);
+        when(req.getEmail()).thenReturn("org@x.com");
+        when(req.getPassword()).thenReturn("pw");
+        when(req.getPhone()).thenReturn("0909");
+        when(accountRepository.existsByEmail("org@x.com")).thenReturn(false);
+        when(accountRepository.existByPhone("0909")).thenReturn(false);
+        when(passwordEncoder.encode("pw")).thenReturn("hashed");
+
+        OtpResponse res = service.registerOrganization(req);
+
+        ArgumentCaptor<Account> accCaptor = ArgumentCaptor.forClass(Account.class);
+        verify(accountRepository).save(accCaptor.capture());
+        Account saved = accCaptor.getValue();
+        assertThat(saved.getEmail()).isEqualTo("org@x.com");
+        assertThat(saved.getPasswordHash()).isEqualTo("hashed");
+        assertThat(saved.getRole()).isEqualTo(Role.ORGANIZATION);
+        assertThat(saved.getStatus()).isEqualTo(AccountStatus.ACTIVE);
+        assertThat(saved.isEmailVerified()).isFalse();
+        assertThat(saved.getPhone()).isEqualTo("0909");
+
+        verifyNoInteractions(memberProfileRepository);
+        verify(otpService).issue(saved, OtpPurpose.REGISTER);
+        assertThat(res).extracting("message")
+                .isEqualTo("Đăng ký thành công. Vui lòng kiểm tra email để xác minh OTP.");
+    }
+
     // ==================== login ====================
 
     @Test
@@ -126,7 +198,10 @@ class AuthServiceImplTest {
         LoginRequest req = mock(LoginRequest.class);
         when(req.getEmail()).thenReturn("a@x.com");
         when(req.getPassword()).thenReturn("pw");
+        UUID accountId = UUID.randomUUID();
         Account account = mock(Account.class);
+        when(account.getId()).thenReturn(accountId);
+        when(account.getRole()).thenReturn(Role.MEMBER);
         when(account.getStatus()).thenReturn(AccountStatus.ACTIVE);
         when(account.isEmailVerified()).thenReturn(true);
         when(accountRepository.findByEmail("a@x.com")).thenReturn(Optional.of(account));
@@ -140,7 +215,32 @@ class AuthServiceImplTest {
         verify(authenticationManager).authenticate(authCaptor.capture());
         assertThat(authCaptor.getValue().getPrincipal()).isEqualTo("a@x.com");
         assertThat(authCaptor.getValue().getCredentials()).isEqualTo("pw");
-        assertThat(res).extracting("accessToken", "refreshToken").containsExactly("access", "refresh");
+        assertThat(res).extracting("accessToken", "refreshToken", "role", "id", "is_verified")
+                .containsExactly("access", "refresh", Role.MEMBER, accountId, true);
+    }
+
+    @Test
+    void login_authDisabled_throwsBanned() {
+        LoginRequest req = mock(LoginRequest.class);
+        when(req.getEmail()).thenReturn("a@x.com");
+        when(req.getPassword()).thenReturn("pw");
+        when(authenticationManager.authenticate(any())).thenThrow(new DisabledException("disabled"));
+
+        assertAppError(() -> service.login(req), ErrorCode.ACCOUNT_BANNED);
+
+        verifyNoInteractions(accountRepository, jwtService, refreshTokenService);
+    }
+
+    @Test
+    void login_badCredentials_throwsInvalidCredentials() {
+        LoginRequest req = mock(LoginRequest.class);
+        when(req.getEmail()).thenReturn("a@x.com");
+        when(req.getPassword()).thenReturn("wrong");
+        when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("bad"));
+
+        assertAppError(() -> service.login(req), ErrorCode.INVALID_CREDENTIALS);
+
+        verifyNoInteractions(accountRepository, jwtService, refreshTokenService);
     }
 
     @Test
@@ -366,7 +466,7 @@ class AuthServiceImplTest {
         verifyNoInteractions(refreshTokenService);
     }
 
-    // ==================== registerOrganization ====================
+    // ==================== registerOrganization (OrganizationServiceImpl) ====================
 
     private RegisterOrganizationRequest orgRequest(String email, String taxCode) {
         RegisterOrganizationRequest r = mock(RegisterOrganizationRequest.class);

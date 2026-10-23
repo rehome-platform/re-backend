@@ -45,9 +45,6 @@ public class OrganizationServiceImpl implements OrganizationService {
         if (organizationProfileRepository.existsByContactEmailIgnoreCase(email)) {
             throw new AppException(ErrorCode.ORGANIZATION_EMAIL_TAKEN);
         }
-        if (organizationProfileRepository.existsByTaxCode(request.getTaxCode())) {
-            throw new AppException(ErrorCode.ORGANIZATION_TAX_CODE_TAKEN);
-        }
 
         OrganizationProfile organization = organizationProfileMapper.toEntity(request);
         organization.setContactEmail(email);              // lưu bản đã chuẩn hóa

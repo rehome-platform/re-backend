@@ -81,13 +81,26 @@ app:
     access-token-expiration-ms: 900000
     refresh-token-expiration-ms: 604800000
 
-  # Order checkout - chưa tích hợp GHN, tạm phí ship cố định
+  # Order checkout - chưa tích hợp GHN tính phí thật, tạm phí ship cố định (F-054 để sau)
   order:
     shipping-fee: 25000
     payment-deadline-minutes: 15
     tax-rate: 0
     # F-058: chu kỳ job quét đơn PENDING_PAYMENT quá hạn để tự hủy và nhả hàng về sàn
     auto-cancel-check-interval-ms: 60000
+    # F-064: hạn tự hoàn thành đơn, tính từ lúc GHN báo đã giao (webhook set autoCompleteDeadline)
+    auto-complete-days: 3
+
+  # Trả hàng F-067 -> F-071
+  return:
+    # Hạn gửi yêu cầu trả hàng, tính từ lúc GHN báo đã giao
+    request-window-days: 3
+    # Hạn Member bàn giao hàng trả cho GHN sau khi Moderator duyệt
+    handover-deadline-days: 3
+    # Hạn đến kho nhận lại hàng trả bị kết luận không hợp lệ
+    pickup-deadline-days: 7
+    # F-069/F-071: chu kỳ job quét hai mốc hết hạn ở trên
+    auto-expire-check-interval-ms: 60000
 
 # ==================== LOGGING ====================
 logging:
@@ -112,3 +125,15 @@ momo:
 rehome:
   consignment:
     bring-in-deadline-days: 7
+
+# ==================== GHN SHIPPING (SANDBOX) - F-127/F-128 ====================
+ghn:
+  base-url: ${GHN_BASE_URL:https://dev-online-gateway.ghn.vn/shiip/public-api}
+  token: ${GHN_TOKEN:}
+  shop-id: ${GHN_SHOP_ID:}
+  # Product chưa có weight/length/width/height thật - dùng kích thước mặc định cho sandbox
+  default-package:
+    weight-grams: ${GHN_DEFAULT_WEIGHT_GRAMS:500}
+    length-cm: ${GHN_DEFAULT_LENGTH_CM:30}
+    width-cm: ${GHN_DEFAULT_WIDTH_CM:20}
+    height-cm: ${GHN_DEFAULT_HEIGHT_CM:10}

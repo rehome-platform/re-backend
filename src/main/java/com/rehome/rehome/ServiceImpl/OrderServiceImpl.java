@@ -1,7 +1,13 @@
 package com.rehome.rehome.ServiceImpl;
 
+import com.rehome.rehome.client.GhnApi;
 import com.rehome.rehome.dto.request.CreateOrderRequest;
+import com.rehome.rehome.dto.request.GhnCreateOrderRequest;
+import com.rehome.rehome.dto.request.GhnOrderItem;
+import com.rehome.rehome.dto.request.PackScanRequest;
 import com.rehome.rehome.dto.request.RateOrderRequest;
+import com.rehome.rehome.dto.response.CreateShipmentResponse;
+import com.rehome.rehome.dto.response.GhnCreateOrderResponse;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
 import com.rehome.rehome.dto.response.OrderConfirmReceiptResponse;
 import com.rehome.rehome.dto.response.OrderDetailItemResponse;
@@ -10,12 +16,16 @@ import com.rehome.rehome.dto.response.OrderListResponse;
 import com.rehome.rehome.dto.response.OrderRatingResponse;
 import com.rehome.rehome.dto.response.OrderResponse;
 import com.rehome.rehome.dto.response.OrderSummaryResponse;
+import com.rehome.rehome.dto.response.OrderTrackingEventResponse;
+import com.rehome.rehome.dto.response.OrderTrackingResponse;
+import com.rehome.rehome.dto.response.PackScanResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.CancelReason;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.ReturnRequestStatus;
 import com.rehome.rehome.entity.enums.TransactionStatus;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
 import com.rehome.rehome.entity.enums.WalletType;
@@ -35,20 +45,24 @@ import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ForbiddenException;
+import com.rehome.rehome.exception.GhnException;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.CartItemRepository;
 import com.rehome.rehome.repository.CartRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
+import com.rehome.rehome.repository.OrderTrackingEventRepository;
 import com.rehome.rehome.repository.PaymentRepository;
 import com.rehome.rehome.repository.PlatformFundRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
+import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.repository.ShippingAddressRepository;
 import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.repository.WalletTransactionRepository;
 import com.rehome.rehome.service.OrderService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -74,7 +88,15 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
+@Slf4j
 public class OrderServiceImpl implements OrderService {
+
+    // Yêu cầu trả hàng còn đang mở - chưa chốt được đơn khi còn một trong các trạng thái này
+    private static final List<ReturnRequestStatus> OPEN_RETURN_STATUSES = List.of(
+            ReturnRequestStatus.PENDING,
+            ReturnRequestStatus.APPROVED,
+            ReturnRequestStatus.SHIPPED_BACK,
+            ReturnRequestStatus.INSPECTING);
 
     private final AccountRepository accountRepository;
     private final ShippingAddressRepository shippingAddressRepository;
@@ -83,11 +105,14 @@ public class OrderServiceImpl implements OrderService {
     private final ProductRepository productRepository;
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
+    private final OrderTrackingEventRepository orderTrackingEventRepository;
+    private final ReturnRequestRepository returnRequestRepository;
     private final ProductPhotoRepository productPhotoRepository;
     private final PaymentRepository paymentRepository;
     private final WalletRepository walletRepository;
     private final WalletTransactionRepository walletTransactionRepository;
     private final PlatformFundRepository platformFundRepository;
+    private final GhnApi ghnApi;
 
     // Phí ship cố định tạm thời, chưa tích hợp GHN
     @Value("${app.order.shipping-fee}")
@@ -99,6 +124,28 @@ public class OrderServiceImpl implements OrderService {
     // Chưa có cấu hình thuế thật, tạm để 0
     @Value("${app.order.tax-rate:0}")
     private BigDecimal taxRate;
+
+    @Value("${app.order.auto-complete-days:3}")
+    private long autoCompleteDays;
+
+    @Value("${ghn.token}")
+    private String ghnToken;
+
+    @Value("${ghn.shop-id}")
+    private String ghnShopId;
+
+    // Product chưa có weight/length/width/height thật - dùng kích thước mặc định cho sandbox (F-127)
+    @Value("${ghn.default-package.weight-grams}")
+    private int defaultPackageWeightGrams;
+
+    @Value("${ghn.default-package.length-cm}")
+    private int defaultPackageLengthCm;
+
+    @Value("${ghn.default-package.width-cm}")
+    private int defaultPackageWidthCm;
+
+    @Value("${ghn.default-package.height-cm}")
+    private int defaultPackageHeightCm;
 
     @Override
     @Transactional
@@ -187,6 +234,10 @@ public class OrderServiceImpl implements OrderService {
                     .shippingRecipientName(shippingAddress.getRecipientName())
                     .shippingPhone(shippingAddress.getPhone())
                     .shippingAddressDetail(shippingAddress.getAddressDetail())
+                    .shippingWardName(shippingAddress.getWardName())
+                    .shippingDistrictName(shippingAddress.getDistrictName())
+                    .shippingProvinceName(shippingAddress.getProvinceName())
+                    .shippingIsNewAddress(Boolean.TRUE.equals(shippingAddress.getIsNewAddress()))
                     .subtotal(subtotal)
                     .shippingFee(shippingFee)
                     .totalAmount(subtotal.add(shippingFee))
@@ -421,37 +472,8 @@ public class OrderServiceImpl implements OrderService {
             throw new ConflictException("Đơn đã đóng gói, không thể hủy.", "CANNOT_CANCEL_AFTER_PACKING");
         }
 
-        for (OrderItem item : orderItemRepository.findAllByOrder_Id(orderId)) {
-            Product product = productRepository.findByIdForUpdate(item.getProduct().getId()).orElse(null);
-            if (product != null && product.getStatus() == ProductStatus.RESERVED) {
-                product.setStatus(ProductStatus.ON_SALE);
-                productRepository.save(product);
-            }
-        }
-
-        Wallet wallet = getOrCreateWallet(buyer);
-        wallet.setBalance(wallet.getBalance().add(order.getTotalAmount()));
-        walletRepository.save(wallet);
-
-        WalletTransaction refundTransaction = WalletTransaction.builder()
-                .transactionNo(generateTransactionNo())
-                .walletType(WalletType.MEMBER)
-                .walletId(wallet.getId())
-                .type(WalletTransactionType.REFUND)
-                .amount(order.getTotalAmount())
-                .balanceAfter(wallet.getBalance())
-                .relatedOrder(order)
-                .status(TransactionStatus.SUCCESS)
-                .note("Hoàn tiền hủy đơn " + order.getOrderNo())
-                .build();
-        walletTransactionRepository.save(refundTransaction);
-        recordPlatformCounterpart(refundTransaction);
-
-        order.setStatus(OrderStatus.CANCELLED);
-        order.setCancelReason(CancelReason.BUYER_CANCELLED);
-        order.setCancelledAt(Instant.now());
-        order.setRefundAmount(order.getTotalAmount());
-        orderRepository.save(order);
+        releaseReservedProducts(orderId);
+        refundBuyerAndCancel(order, CancelReason.BUYER_CANCELLED, "Hoàn tiền hủy đơn " + order.getOrderNo());
 
         return OrderCancelResponse.builder()
                 .id(order.getId().toString())
@@ -477,6 +499,14 @@ public class OrderServiceImpl implements OrderService {
             throw new ConflictException(
                     "Đơn chưa ở trạng thái đã giao, không thể xác nhận nhận hàng.",
                     "ORDER_NOT_DELIVERED_YET");
+        }
+
+        // Đang tranh chấp trả hàng thì chưa chốt đơn, vì chốt đơn là payout cho người bán
+        // mà trả hàng hợp lệ lại phải hoàn 100% cho người mua
+        if (returnRequestRepository.existsByOrder_IdAndStatusIn(orderId, OPEN_RETURN_STATUSES)) {
+            throw new ConflictException(
+                    "Đơn đang có yêu cầu trả hàng chưa xử lý xong.",
+                    "RETURN_REQUEST_IN_PROGRESS");
         }
 
         for (OrderItem item : orderItemRepository.findAllByOrder_Id(orderId)) {
@@ -553,6 +583,255 @@ public class OrderServiceImpl implements OrderService {
                 .serviceRating(order.getServiceRating())
                 .comment(order.getRatingComment())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public PackScanResponse packScan(UUID orderId, PackScanRequest request) {
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
+
+        if (!StringUtils.hasText(request.getProductId())) {
+            throw new BadRequestException("Sản phẩm không thuộc đơn hàng này.");
+        }
+
+        List<OrderItem> items = orderItemRepository.findAllByOrder_Id(orderId);
+        int totalCount = items.size();
+
+        OrderItem matchedItem = items.stream()
+                .filter(i -> i.getProduct().getId().equals(request.getProductId()))
+                .findFirst()
+                .orElseThrow(() -> new BadRequestException("Sản phẩm không thuộc đơn hàng này."));
+
+        if (Boolean.TRUE.equals(matchedItem.getScanned())) {
+            return PackScanResponse.builder()
+                    .matched(true)
+                    .scannedCount(order.getScannedCount())
+                    .totalCount(totalCount)
+                    .build();
+        }
+
+        matchedItem.setScanned(true);
+        orderItemRepository.save(matchedItem);
+
+        int newScannedCount = order.getScannedCount() + 1;
+        order.setScannedCount(newScannedCount);
+        if (order.getStatus() == OrderStatus.PAID) {
+            order.setStatus(OrderStatus.PACKING);
+        }
+        orderRepository.save(order);
+
+        return PackScanResponse.builder()
+                .matched(true)
+                .scannedCount(newScannedCount)
+                .totalCount(totalCount)
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public CreateShipmentResponse createShipment(UUID orderId) {
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
+
+        // Đã tạo vận đơn thành công trước đó (ví dụ Moderator bấm lại) - trả lại kết quả cũ, không gọi GHN lần nữa
+        if (StringUtils.hasText(order.getGhnTrackingCode())) {
+            return CreateShipmentResponse.builder()
+                    .id(order.getId().toString())
+                    .status(order.getStatus().name())
+                    .ghnTrackingCode(order.getGhnTrackingCode())
+                    .build();
+        }
+
+        List<OrderItem> items = orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId);
+        int totalCount = items.size();
+
+        if (order.getScannedCount() == null || order.getScannedCount() < totalCount) {
+            throw new ConflictException("Chưa quét đủ tất cả món trong đơn.", "ORDER_NOT_FULLY_SCANNED");
+        }
+
+        GhnCreateOrderRequest ghnRequest = buildGhnCreateOrderRequest(order, items);
+
+        GhnCreateOrderResponse ghnResponse;
+        try {
+            ghnResponse = ghnApi.createOrder(ghnToken, ghnShopId, ghnRequest);
+        } catch (Exception ex) {
+            log.error(">>>> Loi goi GHN tao van don cho orderNo={}: {}", order.getOrderNo(), ex.getMessage());
+            throw new GhnException("GHN_ERROR: không thể tạo vận đơn, vui lòng thử lại.");
+        }
+
+        if (ghnResponse == null || ghnResponse.getData() == null
+                || !StringUtils.hasText(ghnResponse.getData().getOrderCode())) {
+            String ghnMessage = ghnResponse != null ? ghnResponse.getMessage() : null;
+            log.error(">>>> GHN khong tra ve order_code cho orderNo={}: {}", order.getOrderNo(), ghnMessage);
+            throw new GhnException("GHN_ERROR: không thể tạo vận đơn, vui lòng thử lại.");
+        }
+
+        order.setGhnTrackingCode(ghnResponse.getData().getOrderCode());
+        order.setStatus(OrderStatus.SHIPPING);
+        orderRepository.save(order);
+
+        return CreateShipmentResponse.builder()
+                .id(order.getId().toString())
+                .status(order.getStatus().name())
+                .ghnTrackingCode(order.getGhnTrackingCode())
+                .build();
+    }
+
+    @Override
+    public OrderTrackingResponse getTracking(String email, UUID orderId) {
+
+        Account buyer = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
+
+        if (!order.getBuyer().getId().equals(buyer.getId())) {
+            throw new ForbiddenException("Bạn không có quyền xem đơn này.");
+        }
+
+        List<OrderTrackingEventResponse> events = orderTrackingEventRepository
+                .findAllByOrder_IdOrderByOccurredAtAsc(orderId).stream()
+                .map(e -> OrderTrackingEventResponse.builder()
+                        .status(e.getGhnStatus())
+                        .description(e.getDescription())
+                        .occurredAt(e.getOccurredAt())
+                        .build())
+                .toList();
+
+        return OrderTrackingResponse.builder()
+                .id(order.getId().toString())
+                .orderNo(order.getOrderNo())
+                .status(order.getStatus().name())
+                .ghnTrackingCode(order.getGhnTrackingCode())
+                .deliveredAt(order.getDeliveredAt())
+                .events(events)
+                .build();
+    }
+
+    // F-062: GHN báo thất lạc/hư hỏng/hủy vận đơn -> tự hủy đơn, nhả hàng về sàn, hoàn 100% vào ví người mua
+    @Override
+    @Transactional
+    public void cancelOrderForCarrierFailure(UUID orderId, String reason) {
+
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order == null
+                || (order.getStatus() != OrderStatus.PACKING && order.getStatus() != OrderStatus.SHIPPING)) {
+            return;
+        }
+
+        releaseReservedProducts(orderId);
+
+        String note = "Hoàn tiền do vận chuyển GHN lỗi - đơn " + order.getOrderNo()
+                + (StringUtils.hasText(reason) ? " (" + reason + ")" : "");
+        refundBuyerAndCancel(order, CancelReason.CARRIER_FAILED, note);
+
+        log.info(">>>> Tu huy don do GHN loi: orderNo={}, reason={}", order.getOrderNo(), reason);
+    }
+
+    private GhnCreateOrderRequest buildGhnCreateOrderRequest(Order order, List<OrderItem> items) {
+        Warehouse warehouse = order.getWarehouse();
+
+        List<GhnOrderItem> ghnItems = items.stream()
+                .map(oi -> GhnOrderItem.builder()
+                        .name(oi.getProduct().getName())
+                        .code(oi.getProduct().getId())
+                        .quantity(1)
+                        .price(oi.getPriceAtOrder().intValue())
+                        .build())
+                .toList();
+
+        return GhnCreateOrderRequest.builder()
+                .clientOrderCode(order.getOrderNo())
+                .toName(order.getShippingRecipientName())
+                .toPhone(order.getShippingPhone())
+                .toAddress(order.getShippingAddressDetail())
+                .toWardName(order.getShippingWardName())
+                .toDistrictName(order.getShippingDistrictName())
+                .toProvinceName(order.getShippingProvinceName())
+                .isNewToAddress(Boolean.TRUE.equals(order.getShippingIsNewAddress()))
+                .fromName(warehouse.getName())
+                .fromAddress(warehouse.getAddress())
+                .fromWardName(warehouse.getWardName())
+                .fromDistrictName(warehouse.getDistrictName())
+                .fromProvinceName(warehouse.getProvinceName())
+                .isNewFromAddress(Boolean.TRUE.equals(warehouse.getIsNewAddress()))
+                .weight(defaultPackageWeightGrams)
+                .length(defaultPackageLengthCm)
+                .width(defaultPackageWidthCm)
+                .height(defaultPackageHeightCm)
+                .serviceTypeId(2)
+                .paymentTypeId(1)
+                .requiredNote("CHOXEMHANGKHONGTHU")
+                .codAmount(0)
+                .orderValue(order.getSubtotal().intValue())
+                .items(ghnItems)
+                .build();
+    }
+
+    // Nhả RESERVED -> ON_SALE cho mọi món trong đơn, dùng chung cho hủy đơn do buyer và do GHN lỗi
+    private void releaseReservedProducts(UUID orderId) {
+        for (OrderItem item : orderItemRepository.findAllByOrder_Id(orderId)) {
+            Product product = productRepository.findByIdForUpdate(item.getProduct().getId()).orElse(null);
+            if (product != null && product.getStatus() == ProductStatus.RESERVED) {
+                product.setStatus(ProductStatus.ON_SALE);
+                productRepository.save(product);
+            }
+        }
+    }
+
+    // F-132/F-136: hàng trả hợp lệ hoặc thất lạc chiều trả - hoàn 100% cho người mua, đơn sang RETURNED
+    // (không payout người bán vì tiền đơn vẫn nằm ở quỹ nền tảng cho tới khi đơn COMPLETED)
+    @Override
+    @Transactional
+    public void refundOrderForReturn(UUID orderId, String note) {
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
+
+        if (order.getStatus() == OrderStatus.RETURNED) {
+            return;
+        }
+
+        refundBuyerWallet(order, note);
+
+        order.setStatus(OrderStatus.RETURNED);
+        order.setRefundAmount(order.getTotalAmount());
+        orderRepository.save(order);
+    }
+
+    // Hoàn 100% tổng tiền đơn vào ví người mua rồi chuyển đơn sang CANCELLED, dùng chung cho mọi lý do hủy có hoàn tiền
+    private void refundBuyerAndCancel(Order order, CancelReason reason, String note) {
+        refundBuyerWallet(order, note);
+
+        order.setStatus(OrderStatus.CANCELLED);
+        order.setCancelReason(reason);
+        order.setCancelledAt(Instant.now());
+        order.setRefundAmount(order.getTotalAmount());
+        orderRepository.save(order);
+    }
+
+    private void refundBuyerWallet(Order order, String note) {
+        Wallet wallet = getOrCreateWallet(order.getBuyer());
+        wallet.setBalance(wallet.getBalance().add(order.getTotalAmount()));
+        walletRepository.save(wallet);
+
+        WalletTransaction refundTransaction = WalletTransaction.builder()
+                .transactionNo(generateTransactionNo())
+                .walletType(WalletType.MEMBER)
+                .walletId(wallet.getId())
+                .type(WalletTransactionType.REFUND)
+                .amount(order.getTotalAmount())
+                .balanceAfter(wallet.getBalance())
+                .relatedOrder(order)
+                .status(TransactionStatus.SUCCESS)
+                .note(note)
+                .build();
+        walletTransactionRepository.save(refundTransaction);
+        recordPlatformCounterpart(refundTransaction);
     }
 
     private Wallet getOrCreateWallet(Account member) {

@@ -1,14 +1,18 @@
 package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.CreateOrderRequest;
+import com.rehome.rehome.dto.request.PackScanRequest;
 import com.rehome.rehome.dto.request.RateOrderRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
+import com.rehome.rehome.dto.response.CreateShipmentResponse;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
 import com.rehome.rehome.dto.response.OrderConfirmReceiptResponse;
 import com.rehome.rehome.dto.response.OrderDetailResponse;
 import com.rehome.rehome.dto.response.OrderListResponse;
 import com.rehome.rehome.dto.response.OrderRatingResponse;
 import com.rehome.rehome.dto.response.OrderResponse;
+import com.rehome.rehome.dto.response.OrderTrackingResponse;
+import com.rehome.rehome.dto.response.PackScanResponse;
 import com.rehome.rehome.service.OrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -112,5 +116,40 @@ public class OrderController {
         OrderRatingResponse result = orderService.rateOrder(email, id, request);
 
         return ResponseEntity.ok(ApiResponse.success(result, "Đã ghi nhận đánh giá"));
+    }
+
+    // API 69 (F-127)
+    @PostMapping("/{id}/pack/scan")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<PackScanResponse>> packScan(
+            @PathVariable UUID id,
+            @RequestBody PackScanRequest request) {
+
+        PackScanResponse result = orderService.packScan(id, request);
+
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    // API 70 (F-127)
+    @PostMapping("/{id}/shipment")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<CreateShipmentResponse>> createShipment(@PathVariable UUID id) {
+
+        CreateShipmentResponse result = orderService.createShipment(id);
+
+        return ResponseEntity.ok(ApiResponse.success(result, "Đã tạo vận đơn"));
+    }
+
+    // API 64 (F-060)
+    @GetMapping("/{id}/tracking")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<OrderTrackingResponse>> getTracking(
+            Authentication authentication,
+            @PathVariable UUID id) {
+
+        String email = authentication.getName();
+        OrderTrackingResponse result = orderService.getTracking(email, id);
+
+        return ResponseEntity.ok(ApiResponse.success(result));
     }
 }

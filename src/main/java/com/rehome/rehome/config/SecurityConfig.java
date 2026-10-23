@@ -45,7 +45,8 @@ public class SecurityConfig {
             "/swagger-resources/**",
             "/webjars/**",
             "/api/momo/ipn-handler",
-            "/api/momo/return-info"
+            "/api/momo/return-info",
+            "/webhooks/ghn"
     };
 
     @Bean

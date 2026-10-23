@@ -30,6 +30,10 @@ public class Warehouse {
     @Column(name = "address", nullable = false, length = 255)
     private String address;
 
+    // Số điện thoại kho - dùng làm to_phone khi tạo vận đơn trả hàng về kho (F-131)
+    @Column(name = "phone", nullable = true, length = 255)
+    private String phone;
+
     // Vĩ độ, dùng gợi ý kho gần nhất — F-015
     @Column(name = "latitude", nullable = false, precision = 10, scale = 7)
     private BigDecimal latitude;
@@ -60,4 +64,22 @@ public class Warehouse {
     }
 
     private String code;
+
+    // Phường/xã kho - dùng làm from_ward_name khi tạo vận đơn GHN
+    @Column(name = "ward_name", nullable = true, length = 255)
+    private String wardName;
+
+    // Quận/huyện kho - dùng làm from_district_name khi tạo vận đơn GHN
+    @Column(name = "district_name", nullable = true, length = 255)
+    private String districtName;
+
+    // Tỉnh/thành kho - dùng làm from_province_name khi tạo vận đơn GHN
+    @Column(name = "province_name", nullable = true, length = 255)
+    private String provinceName;
+
+    // true = theo đơn vị hành chính mới (sau 01/07/2025, không còn quận/huyện) khi gửi cho GHN
+    @Column(name = "is_new_address", nullable = false)
+    @ColumnDefault("false")
+    @Builder.Default
+    private Boolean isNewAddress = false;
 }

@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.util.UUID;
 import lombok.*;
+import org.hibernate.annotations.ColumnDefault;
 
 @Entity
 @Table(name = "order_items")
@@ -44,4 +45,10 @@ public class OrderItem {
     // Kỳ ký gửi (1/2/3) của sản phẩm tại lúc đặt đơn, dùng để tra cứu lại sau này
     @Column(name = "term_applied", nullable = true)
     private Short termApplied;
+
+    // Đã được Moderator quét đối chiếu SKU trước khi tạo vận đơn - F-127
+    @Column(name = "scanned", nullable = false)
+    @ColumnDefault("false")
+    @Builder.Default
+    private Boolean scanned = false;
 }

@@ -14,5 +14,9 @@ public class ShippingAddressResponse {
     private String recipientName;
     private String phone;
     private String addressDetail;
+    private String wardName;
+    private String districtName;
+    private String provinceName;
+    private Boolean isNewAddress;
     private Boolean isDefault;
 }

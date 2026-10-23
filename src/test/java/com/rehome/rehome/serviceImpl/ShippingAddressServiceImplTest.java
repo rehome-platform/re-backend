@@ -109,7 +109,8 @@ class ShippingAddressServiceImplTest {
 
     @Test
     void createAddress_throwsBadRequest_whenRecipientNameIsBlank() {
-        AddShippingAddressRequest request = new AddShippingAddressRequest("  ", "0912345678", "12 Nguyễn Trãi", true);
+        AddShippingAddressRequest request = new AddShippingAddressRequest("  ", "0912345678", "12 Nguyễn Trãi",
+                "Phường Bến Thành", "Quận 1", "TP. Hồ Chí Minh", false, true);
 
         assertThatThrownBy(() -> shippingAddressService.createAddress(email, request))
                 .isInstanceOf(BadRequestException.class)
@@ -120,7 +121,8 @@ class ShippingAddressServiceImplTest {
 
     @Test
     void createAddress_throwsBadRequest_whenPhoneIsBlank() {
-        AddShippingAddressRequest request = new AddShippingAddressRequest("Tạ Thị Ngọc Anh", "", "12 Nguyễn Trãi", true);
+        AddShippingAddressRequest request = new AddShippingAddressRequest("Tạ Thị Ngọc Anh", "", "12 Nguyễn Trãi",
+                "Phường Bến Thành", "Quận 1", "TP. Hồ Chí Minh", false, true);
 
         assertThatThrownBy(() -> shippingAddressService.createAddress(email, request))
                 .isInstanceOf(BadRequestException.class)
@@ -129,7 +131,8 @@ class ShippingAddressServiceImplTest {
 
     @Test
     void createAddress_throwsBadRequest_whenAddressDetailIsBlank() {
-        AddShippingAddressRequest request = new AddShippingAddressRequest("Tạ Thị Ngọc Anh", "0912345678", null, true);
+        AddShippingAddressRequest request = new AddShippingAddressRequest("Tạ Thị Ngọc Anh", "0912345678", null,
+                "Phường Bến Thành", "Quận 1", "TP. Hồ Chí Minh", false, true);
 
         assertThatThrownBy(() -> shippingAddressService.createAddress(email, request))
                 .isInstanceOf(BadRequestException.class)
@@ -139,7 +142,8 @@ class ShippingAddressServiceImplTest {
     @Test
     void createAddress_throwsNotFound_whenAccountDoesNotExist() {
         AddShippingAddressRequest request = new AddShippingAddressRequest(
-                "Tạ Thị Ngọc Anh", "0912345678", "12 Nguyễn Trãi, Q.1, TP.HCM", true);
+                "Tạ Thị Ngọc Anh", "0912345678", "12 Nguyễn Trãi, Q.1, TP.HCM",
+                "Phường Bến Thành", "Quận 1", "TP. Hồ Chí Minh", false, true);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
 
@@ -153,7 +157,8 @@ class ShippingAddressServiceImplTest {
     @Test
     void createAddress_clearsPreviousDefault_whenIsDefaultIsTrue() {
         AddShippingAddressRequest request = new AddShippingAddressRequest(
-                "Tạ Thị Ngọc Anh", "0912345678", "12 Nguyễn Trãi, Q.1, TP.HCM", true);
+                "Tạ Thị Ngọc Anh", "0912345678", "12 Nguyễn Trãi, Q.1, TP.HCM",
+                "Phường Bến Thành", "Quận 1", "TP. Hồ Chí Minh", false, true);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.countByMember_Id(member.getId())).thenReturn(1L);
@@ -182,7 +187,8 @@ class ShippingAddressServiceImplTest {
     @Test
     void createAddress_doesNotClearDefault_whenIsDefaultIsFalseOrNull_andNotFirstAddress() {
         AddShippingAddressRequest request = new AddShippingAddressRequest(
-                "Nguyễn Văn A", "0987654321", "45 Lê Lợi, Q.3, TP.HCM", null);
+                "Nguyễn Văn A", "0987654321", "45 Lê Lợi, Q.3, TP.HCM",
+                "Phường 5", "Quận 3", "TP. Hồ Chí Minh", false, null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.countByMember_Id(member.getId())).thenReturn(1L);
@@ -201,7 +207,8 @@ class ShippingAddressServiceImplTest {
     @Test
     void createAddress_forcesDefault_whenItIsMembersFirstAddress() {
         AddShippingAddressRequest request = new AddShippingAddressRequest(
-                "Nguyễn Văn A", "0987654321", "45 Lê Lợi, Q.3, TP.HCM", null);
+                "Nguyễn Văn A", "0987654321", "45 Lê Lợi, Q.3, TP.HCM",
+                "Phường 5", "Quận 3", "TP. Hồ Chí Minh", false, null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.countByMember_Id(member.getId())).thenReturn(0L);
@@ -220,7 +227,8 @@ class ShippingAddressServiceImplTest {
     @Test
     void createAddress_throwsConflict_whenMemberAlreadyHasMaxAddresses() {
         AddShippingAddressRequest request = new AddShippingAddressRequest(
-                "Nguyễn Văn A", "0987654321", "45 Lê Lợi, Q.3, TP.HCM", null);
+                "Nguyễn Văn A", "0987654321", "45 Lê Lợi, Q.3, TP.HCM",
+                "Phường 5", "Quận 3", "TP. Hồ Chí Minh", false, null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.countByMember_Id(member.getId())).thenReturn(5L);
@@ -234,7 +242,8 @@ class ShippingAddressServiceImplTest {
 
     @Test
     void updateAddress_throwsBadRequest_whenRecipientNameIsBlank() {
-        AddShippingAddressRequest request = new AddShippingAddressRequest("  ", "0912345678", "12 Nguyễn Trãi", true);
+        AddShippingAddressRequest request = new AddShippingAddressRequest("  ", "0912345678", "12 Nguyễn Trãi",
+                "Phường Bến Thành", "Quận 1", "TP. Hồ Chí Minh", false, true);
         UUID addressId = UUID.randomUUID();
 
         assertThatThrownBy(() -> shippingAddressService.updateAddress(email, addressId, request))
@@ -246,7 +255,8 @@ class ShippingAddressServiceImplTest {
 
     @Test
     void updateAddress_throwsBadRequest_whenPhoneIsBlank() {
-        AddShippingAddressRequest request = new AddShippingAddressRequest("Tạ Thị Ngọc Anh", "", "12 Nguyễn Trãi", true);
+        AddShippingAddressRequest request = new AddShippingAddressRequest("Tạ Thị Ngọc Anh", "", "12 Nguyễn Trãi",
+                "Phường Bến Thành", "Quận 1", "TP. Hồ Chí Minh", false, true);
         UUID addressId = UUID.randomUUID();
 
         assertThatThrownBy(() -> shippingAddressService.updateAddress(email, addressId, request))
@@ -256,7 +266,8 @@ class ShippingAddressServiceImplTest {
 
     @Test
     void updateAddress_throwsBadRequest_whenAddressDetailIsBlank() {
-        AddShippingAddressRequest request = new AddShippingAddressRequest("Tạ Thị Ngọc Anh", "0912345678", null, true);
+        AddShippingAddressRequest request = new AddShippingAddressRequest("Tạ Thị Ngọc Anh", "0912345678", null,
+                "Phường Bến Thành", "Quận 1", "TP. Hồ Chí Minh", false, true);
         UUID addressId = UUID.randomUUID();
 
         assertThatThrownBy(() -> shippingAddressService.updateAddress(email, addressId, request))
@@ -267,7 +278,8 @@ class ShippingAddressServiceImplTest {
     @Test
     void updateAddress_throwsNotFound_whenAccountDoesNotExist() {
         AddShippingAddressRequest request = new AddShippingAddressRequest(
-                "Tạ Thị Ngọc Anh", "0912345679", "12 Nguyễn Trãi, Q.1, TP.HCM", true);
+                "Tạ Thị Ngọc Anh", "0912345679", "12 Nguyễn Trãi, Q.1, TP.HCM",
+                "Phường Bến Thành", "Quận 1", "TP. Hồ Chí Minh", false, true);
         UUID addressId = UUID.randomUUID();
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
@@ -282,7 +294,8 @@ class ShippingAddressServiceImplTest {
     @Test
     void updateAddress_throwsNotFound_whenAddressDoesNotExist() {
         AddShippingAddressRequest request = new AddShippingAddressRequest(
-                "Tạ Thị Ngọc Anh", "0912345679", "12 Nguyễn Trãi, Q.1, TP.HCM", true);
+                "Tạ Thị Ngọc Anh", "0912345679", "12 Nguyễn Trãi, Q.1, TP.HCM",
+                "Phường Bến Thành", "Quận 1", "TP. Hồ Chí Minh", false, true);
         UUID addressId = UUID.randomUUID();
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
@@ -298,7 +311,8 @@ class ShippingAddressServiceImplTest {
     @Test
     void updateAddress_throwsNotFound_whenAddressBelongsToAnotherMember() {
         AddShippingAddressRequest request = new AddShippingAddressRequest(
-                "Tạ Thị Ngọc Anh", "0912345679", "12 Nguyễn Trãi, Q.1, TP.HCM", true);
+                "Tạ Thị Ngọc Anh", "0912345679", "12 Nguyễn Trãi, Q.1, TP.HCM",
+                "Phường Bến Thành", "Quận 1", "TP. Hồ Chí Minh", false, true);
         UUID addressId = UUID.randomUUID();
 
         Account anotherMember = Account.builder().id(UUID.randomUUID()).email("other@example.com").build();
@@ -324,7 +338,8 @@ class ShippingAddressServiceImplTest {
     @Test
     void updateAddress_updatesFieldsAndClearsPreviousDefault_whenIsDefaultBecomesTrue() {
         AddShippingAddressRequest request = new AddShippingAddressRequest(
-                "Tạ Thị Ngọc Anh", "0912345679", "12 Nguyễn Trãi, Q.1, TP.HCM", true);
+                "Tạ Thị Ngọc Anh", "0912345679", "12 Nguyễn Trãi, Q.1, TP.HCM",
+                "Phường Bến Thành", "Quận 1", "TP. Hồ Chí Minh", false, true);
         UUID addressId = UUID.randomUUID();
 
         ShippingAddress existing = ShippingAddress.builder()
@@ -357,7 +372,8 @@ class ShippingAddressServiceImplTest {
     @Test
     void updateAddress_doesNotClearDefault_whenAddressIsAlreadyDefault() {
         AddShippingAddressRequest request = new AddShippingAddressRequest(
-                "Tạ Thị Ngọc Anh", "0912345679", "12 Nguyễn Trãi, Q.1, TP.HCM", true);
+                "Tạ Thị Ngọc Anh", "0912345679", "12 Nguyễn Trãi, Q.1, TP.HCM",
+                "Phường Bến Thành", "Quận 1", "TP. Hồ Chí Minh", false, true);
         UUID addressId = UUID.randomUUID();
 
         ShippingAddress existing = ShippingAddress.builder()
@@ -380,7 +396,8 @@ class ShippingAddressServiceImplTest {
     @Test
     void updateAddress_doesNotClearDefault_whenIsDefaultIsFalseOrNull() {
         AddShippingAddressRequest request = new AddShippingAddressRequest(
-                "Nguyễn Văn A", "0987654321", "45 Lê Lợi, Q.3, TP.HCM", null);
+                "Nguyễn Văn A", "0987654321", "45 Lê Lợi, Q.3, TP.HCM",
+                "Phường 5", "Quận 3", "TP. Hồ Chí Minh", false, null);
         UUID addressId = UUID.randomUUID();
 
         ShippingAddress existing = ShippingAddress.builder()

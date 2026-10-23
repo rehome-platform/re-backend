@@ -37,6 +37,24 @@ public class ShippingAddress {
     @Column(name = "address_detail", nullable = false, length = 255)
     private String addressDetail;
 
+    // Phường/xã người nhận - bắt buộc với GHN (to_ward_name)
+    @Column(name = "ward_name", nullable = true, length = 255)
+    private String wardName;
+
+    // Quận/huyện người nhận - bắt buộc với GHN khi isNewAddress = false (to_district_name)
+    @Column(name = "district_name", nullable = true, length = 255)
+    private String districtName;
+
+    // Tỉnh/thành người nhận - bắt buộc với GHN (to_province_name)
+    @Column(name = "province_name", nullable = true, length = 255)
+    private String provinceName;
+
+    // true = theo đơn vị hành chính mới (sau 01/07/2025, không còn quận/huyện) khi gửi cho GHN
+    @Column(name = "is_new_address", nullable = false)
+    @ColumnDefault("false")
+    @Builder.Default
+    private Boolean isNewAddress = false;
+
     // Địa chỉ được chọn sẵn khi đặt hàng
     @Column(name = "is_default", nullable = false)
     @ColumnDefault("false")

@@ -73,6 +73,14 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 
+    @ExceptionHandler(GhnException.class)
+    public ResponseEntity<ApiResponse<?>> handleGhn(GhnException ex, HttpServletRequest req) {
+        // Theo đúng shape response của API 70 trong docs/ghnapi.md: không có field "code" riêng,
+        // mã lỗi đã nằm trong message (tiền tố "GHN_ERROR:")
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResponse.error(502, ex.getMessage()));
+    }
+
     @ExceptionHandler(TokenRefreshException.class)
     public ResponseEntity<ApiError> handleTokenRefresh(TokenRefreshException ex, HttpServletRequest req) {
         return build(HttpStatus.FORBIDDEN, ex.getMessage(), req);

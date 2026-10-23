@@ -1,4 +1,4 @@
-package com.rehome.rehome.ServiceImpl;
+package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;

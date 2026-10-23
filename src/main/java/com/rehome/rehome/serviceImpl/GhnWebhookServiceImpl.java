@@ -1,4 +1,4 @@
-package com.rehome.rehome.ServiceImpl;
+package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.dto.request.GhnWebhookPayload;
 import com.rehome.rehome.entity.enums.OrderStatus;

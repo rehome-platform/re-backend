@@ -1,4 +1,4 @@
-package com.rehome.rehome.ServiceImpl;
+package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.client.GhnApi;
 import com.rehome.rehome.dto.response.AddressUnitResponse;

@@ -56,6 +56,7 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
         if (!StringUtils.hasText(request.getAddressDetail())) {
             throw new BadRequestException("addressDetail là bắt buộc.");
         }
+        validateAddressUnit(request);
 
         Account member = accountRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
@@ -77,6 +78,10 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
                 .recipientName(request.getRecipientName())
                 .phone(request.getPhone())
                 .addressDetail(request.getAddressDetail())
+                .wardName(request.getWardName())
+                .districtName(request.getDistrictName())
+                .provinceName(request.getProvinceName())
+                .isNewAddress(Boolean.TRUE.equals(request.getIsNewAddress()))
                 .isDefault(isDefault)
                 .build();
         shippingAddressRepository.save(address);
@@ -97,6 +102,7 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
         if (!StringUtils.hasText(request.getAddressDetail())) {
             throw new BadRequestException("addressDetail là bắt buộc.");
         }
+        validateAddressUnit(request);
 
         Account member = accountRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
@@ -113,10 +119,28 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
         address.setRecipientName(request.getRecipientName());
         address.setPhone(request.getPhone());
         address.setAddressDetail(request.getAddressDetail());
+        address.setWardName(request.getWardName());
+        address.setDistrictName(request.getDistrictName());
+        address.setProvinceName(request.getProvinceName());
+        address.setIsNewAddress(Boolean.TRUE.equals(request.getIsNewAddress()));
         address.setIsDefault(isDefault);
         shippingAddressRepository.save(address);
 
         return toResponse(address);
+    }
+
+    // Phường/xã + tỉnh/thành luôn bắt buộc; quận/huyện chỉ bắt buộc khi còn dùng đơn vị hành chính cũ
+    // (is_new_to_address = false của GHN) — xem docs/ghnapi.md mục "Tạo đơn"
+    private void validateAddressUnit(AddShippingAddressRequest request) {
+        if (!StringUtils.hasText(request.getWardName())) {
+            throw new BadRequestException("wardName là bắt buộc.");
+        }
+        if (!StringUtils.hasText(request.getProvinceName())) {
+            throw new BadRequestException("provinceName là bắt buộc.");
+        }
+        if (!Boolean.TRUE.equals(request.getIsNewAddress()) && !StringUtils.hasText(request.getDistrictName())) {
+            throw new BadRequestException("districtName là bắt buộc khi không dùng địa chỉ hành chính mới.");
+        }
     }
 
     @Override
@@ -152,6 +176,10 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
                 .recipientName(address.getRecipientName())
                 .phone(address.getPhone())
                 .addressDetail(address.getAddressDetail())
+                .wardName(address.getWardName())
+                .districtName(address.getDistrictName())
+                .provinceName(address.getProvinceName())
+                .isNewAddress(address.getIsNewAddress())
                 .isDefault(address.getIsDefault())
                 .build();
     }

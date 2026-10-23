@@ -41,6 +41,7 @@ import com.rehome.rehome.repository.PaymentRepository;
 import com.rehome.rehome.repository.PlatformFundRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
+import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.repository.ShippingAddressRepository;
 import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.repository.WalletTransactionRepository;
@@ -84,6 +85,7 @@ class OrderServiceImplTest {
     @Mock ProductRepository productRepository;
     @Mock OrderRepository orderRepository;
     @Mock OrderItemRepository orderItemRepository;
+    @Mock ReturnRequestRepository returnRequestRepository;
     @Mock ProductPhotoRepository productPhotoRepository;
     @Mock PaymentRepository paymentRepository;
     @Mock WalletRepository walletRepository;

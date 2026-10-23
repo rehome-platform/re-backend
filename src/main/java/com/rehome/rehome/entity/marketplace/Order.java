@@ -54,6 +54,27 @@ public class Order {
     @Column(name = "shipping_address_detail", nullable = true, length = 255)
     private String shippingAddressDetail;
 
+    // Bản chụp phường/xã/tỉnh lúc đặt hàng, dùng để tạo vận đơn GHN - F-127
+    @Column(name = "shipping_ward_name", nullable = true, length = 255)
+    private String shippingWardName;
+
+    @Column(name = "shipping_district_name", nullable = true, length = 255)
+    private String shippingDistrictName;
+
+    @Column(name = "shipping_province_name", nullable = true, length = 255)
+    private String shippingProvinceName;
+
+    @Column(name = "shipping_is_new_address", nullable = false)
+    @ColumnDefault("false")
+    @Builder.Default
+    private Boolean shippingIsNewAddress = false;
+
+    // Số món đã quét SKU đối chiếu trước khi tạo vận đơn, so với OrderItem - F-127
+    @Column(name = "scanned_count", nullable = false)
+    @ColumnDefault("0")
+    @Builder.Default
+    private Integer scannedCount = 0;
+
     // Tổng tiền sản phẩm, chưa gồm phí ship
     @Column(name = "subtotal", nullable = false, precision = 19, scale = 2)
     private BigDecimal subtotal;

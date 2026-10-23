@@ -5,14 +5,17 @@ import com.rehome.rehome.dto.request.UpdateCategoryRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.CatalogStatusResponse;
 import com.rehome.rehome.dto.response.CategoryResponse;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.CategoryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -42,5 +45,11 @@ public class CategoryController {
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<CatalogStatusResponse>> hide(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(categoryService.hide(id), 200, "Đã ẩn"));
+    }
+    @GetMapping
+    public ResponseEntity<ApiResponse<List<CategoryResponse>>> list(
+            @RequestParam(required = false) String status,
+            @AuthenticationPrincipal Account account) {
+        return ResponseEntity.ok(ApiResponse.success(categoryService.list(status, account), 200, ""));
     }
 }

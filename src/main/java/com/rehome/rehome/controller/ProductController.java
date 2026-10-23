@@ -2,9 +2,11 @@ package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.CreateProductRequest;
 import com.rehome.rehome.dto.request.PriceReductionRequest;
+import com.rehome.rehome.dto.request.UpdateShelfLocationRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.service.ProductService;
@@ -22,6 +24,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -69,16 +72,18 @@ public class ProductController {
         Page<MyProductResponse> result = productService.getMyProducts(account.getId(), status, pageable);
         return ApiResponse.success(PageResponse.from(result));
     }
-    @GetMapping("/{id}")
+    @GetMapping("/mine/{id}")
     @PreAuthorize("hasRole('MEMBER')")
     public ApiResponse<ProductEndOfTermDetailResponse> getProductById(@PathVariable String id) {
         return ApiResponse.success(productService.getProductById(id));
     }
+
     @PostMapping
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<ProductResponse>> create(
+            @AuthenticationPrincipal Account account,
             @Valid @RequestBody CreateProductRequest request) {
-        ProductResponse result = productService.create(request);
+        ProductResponse result = productService.create(request, account);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(result, 201, "Đã nhập kho"));
     }
@@ -92,5 +97,39 @@ public class ProductController {
 
         PriceReductionResponse result = productService.reducePrice(account, id, request);
         return ResponseEntity.ok(ApiResponse.success(result, 200, "Đã giảm giá sản phẩm"));
+    }
+
+    @GetMapping("/{id}/stock-movements")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<List<StockMovementResponse>>> getStockMovements(@PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.success(productService.getStockMovements(id), 200, ""));
+    }
+
+    @PatchMapping("/{id}/shelf-location")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<ShelfLocationResponse>> updateShelfLocation(
+            @AuthenticationPrincipal Account account,
+            @PathVariable String id,
+            @Valid @RequestBody UpdateShelfLocationRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                productService.updateShelfLocation(account, id, request), 200, "Đã cập nhật vị trí kệ"));
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse<Object>> getProduct(
+            @PathVariable String id,
+            @AuthenticationPrincipal Account account) {
+
+        if (account != null && account.getRole() == Role.MODERATOR) {
+            return ResponseEntity.ok(ApiResponse.<Object>success(productService.getBySku(account, id)));
+        }
+        return ResponseEntity.ok(ApiResponse.<Object>success(productService.getProductDetail(id)));
+    }
+    @GetMapping("/{id}/sku-label")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<SkuLabelResponse>> getSkuLabel(
+            @AuthenticationPrincipal Account account,
+            @PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.success(productService.getSkuLabel(account, id), 200, ""));
     }
 }

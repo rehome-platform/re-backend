@@ -74,7 +74,16 @@ public enum ErrorCode {
     BRAND_NAME_ALREADY_EXISTS(HttpStatus.CONFLICT, "Tên thương hiệu đã tồn tại."),
     // API 45, 47 - danh mục
     INVALID_TRYON_SLOT(HttpStatus.BAD_REQUEST, "tryonSlot phải là TOP, BOTTOM hoặc DRESS."),
-    CATEGORY_NAME_ALREADY_EXISTS(HttpStatus.CONFLICT, "Tên danh mục đã tồn tại.");
+    CATEGORY_NAME_ALREADY_EXISTS(HttpStatus.CONFLICT, "Tên danh mục đã tồn tại."),
+    // API 44 - lọc danh mục/thương hiệu
+    INVALID_STATUS(HttpStatus.BAD_REQUEST, "status không hợp lệ."),
+    // API 42 - đổi vị trí kệ
+    PRODUCT_NOT_IN_YOUR_WAREHOUSE(HttpStatus.FORBIDDEN, "Sản phẩm không thuộc kho bạn quản lý."),
+    // API 39 - tem SKU
+    SKU_LABEL_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo file PDF tem SKU."),
+
+    // API 40 - danh sách hàng trong kho
+    MODERATOR_NO_WAREHOUSE(HttpStatus.FORBIDDEN, "Tài khoản chưa được gán kho.");
     private final HttpStatus status;
     private final String defaultMessage;
 }

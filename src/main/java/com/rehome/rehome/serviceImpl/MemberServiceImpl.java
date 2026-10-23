@@ -42,6 +42,7 @@ public class MemberServiceImpl implements MemberService {
                 .fullName(memberProfile.getFullName())
                 .avatarUrl(memberProfile.getAvatarUrl())
                 .memberCode(memberProfile.getMemberCode())
+                .createdAt(account.getCreatedAt())
                 .emailVerified(account.isEmailVerified())
                 .build();
     }

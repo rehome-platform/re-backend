@@ -29,10 +29,15 @@ public class SkuLabelPdfServiceImpl implements SkuLabelPdfService {
 
     private static final String FONT_REGULAR = "/fonts/NotoSans-Regular.ttf";
     private static final String FONT_BOLD = "/fonts/NotoSans-Bold.ttf";
-
+    private static final int MAX_NAME_LENGTH = 40;
     // Tem 70x50mm (1mm = 2.835pt)
     private static final Rectangle LABEL_SIZE = new Rectangle(198.5f, 141.7f);
     private static final int QR_PIXELS = 300;
+
+    private static String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() <= max ? s : s.substring(0, max - 1).trim() + "…";
+    }
 
     private final FileStorageService fileStorageService;
 
@@ -63,8 +68,7 @@ public class SkuLabelPdfServiceImpl implements SkuLabelPdfService {
             sku.setAlignment(Element.ALIGN_CENTER);
             doc.add(sku);
 
-            Paragraph name = new Paragraph(p.getName(), new Font(regular, 8));
-            name.setAlignment(Element.ALIGN_CENTER);
+            Paragraph name = new Paragraph(truncate(p.getName(), MAX_NAME_LENGTH), new Font(regular, 8));            name.setAlignment(Element.ALIGN_CENTER);
             doc.add(name);
 
             if (p.getSize() != null && !p.getSize().isBlank()) {

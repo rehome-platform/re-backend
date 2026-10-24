@@ -105,7 +105,11 @@ public enum ErrorCode {
     // API 40 - danh sách hàng trong kho
     ACCESS_TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "Access token đã hết hạn."),
     ACCESS_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "Access token không hợp lệ."),
-    MODERATOR_NO_WAREHOUSE(HttpStatus.FORBIDDEN, "Tài khoản chưa được gán kho.");
+    MODERATOR_NO_WAREHOUSE(HttpStatus.FORBIDDEN, "Tài khoản chưa được gán kho."),
+    // API 26, 72 - xác nhận danh tính & bàn giao tại quầy (F-129)
+    COUNTER_CONTEXT_INVALID(HttpStatus.BAD_REQUEST, "context không hợp lệ."),
+    COUNTER_RECORD_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy yêu cầu tương ứng."),
+    COUNTER_IDENTITY_NOT_CONFIRMED(HttpStatus.CONFLICT, "Phải xác nhận danh tính Member trước khi bàn giao.");
     private final HttpStatus status;
     private final String defaultMessage;
 }

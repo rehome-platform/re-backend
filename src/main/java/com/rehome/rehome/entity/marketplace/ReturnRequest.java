@@ -90,6 +90,10 @@ public class ReturnRequest {
     @Column(name = "resolved_at", nullable = true)
     private Instant resolvedAt;
 
+    // Thời điểm Moderator giao lại hàng trả bị từ chối cho Member tại quầy — API 72
+    @Column(name = "picked_up_at", nullable = true)
+    private Instant pickedUpAt;
+
     @PrePersist
     private void onCreate() {
         Instant now = Instant.now();

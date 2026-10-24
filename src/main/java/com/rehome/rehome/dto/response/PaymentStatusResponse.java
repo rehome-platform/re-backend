@@ -17,5 +17,6 @@ public class PaymentStatusResponse {
     private PaymentStatus status;
     private BigDecimal amount;
     private String momoTransactionId;
+    private String vnpTransactionNo;
     private Instant paidAt;
 }

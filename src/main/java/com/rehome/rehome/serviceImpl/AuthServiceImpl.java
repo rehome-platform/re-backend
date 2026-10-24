@@ -64,7 +64,7 @@ public class AuthServiceImpl implements AuthService {
             throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
 
-        if(accountRepository.existByPhone(request.getPhone())){
+        if(accountRepository.existsByPhone(request.getPhone())){
             throw new AppException(ErrorCode.PHONE_TAKEN);
         }
 
@@ -101,7 +101,7 @@ public class AuthServiceImpl implements AuthService {
             throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
 
-        if(accountRepository.existByPhone(request.getPhone())){
+        if(accountRepository.existsByPhone(request.getPhone())){
             throw new AppException(ErrorCode.PHONE_TAKEN);
         }
 

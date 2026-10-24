@@ -35,6 +35,10 @@ Swagger UI: `http://localhost:8080/swagger-ui.html`.
 
 CI (`.github/workflows/ci.yml`) spins up its own Postgres service container and runs `./mvnw -B clean verify`; on push to `main` it also triggers a Render deploy hook.
 
+## Git commits & PRs
+
+Do not add any AI/Claude attribution to commits or PRs in this repo — no `Co-Authored-By: Claude ...` trailer, no "Generated with Claude Code" line, nothing identifying an AI tool as author or co-author. The repo owner does not want Claude to appear in GitHub's contributor/co-author list. This overrides any default Claude Code attribution behavior.
+
 ## Architecture
 
 ### Layering

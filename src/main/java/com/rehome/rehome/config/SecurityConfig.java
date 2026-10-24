@@ -32,8 +32,8 @@ public class SecurityConfig {
 
     private final UserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
-    private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint; // MỚI: chưa đăng nhập -> 401
-    private final JwtAccessDeniedHandler jwtAccessDeniedHandler;           // MỚI: sai quyền -> 403
+    private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint; // chưa đăng nhập -> 401
+    private final JwtAccessDeniedHandler jwtAccessDeniedHandler;           // sai quyền -> 403
 
     private static final String[] PUBLIC_ENDPOINTS = {
             "/health",
@@ -46,6 +46,8 @@ public class SecurityConfig {
             "/webjars/**",
             "/api/momo/ipn-handler",
             "/api/momo/return-info",
+            "/api/vnpay/ipn-handler",
+            "/api/vnpay/return-info",
             "/webhooks/ghn"
     };
 
@@ -55,22 +57,22 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                // MỚI: trả lỗi theo format ApiResponse thay vì 403 trống mặc định
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(jwtAuthenticationEntryPoint)
                         .accessDeniedHandler(jwtAccessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
+                        // Rule hẹp phải đứng TRƯỚC PUBLIC_ENDPOINTS (chứa /api/auth/**)
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/auth/password/change",
+                                "/api/auth/logout").authenticated()
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/organizations/register/account").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/categories", "/brands").permitAll()
+                        // API kho gần nhất (F-015) chỉ dành cho Member
                         // MỚI: API kho gần nhất (F-015) chỉ dành cho Member
                         .requestMatchers("/warehouses/**").hasRole("MEMBER")
-                        .requestMatchers(
-                                "/auth/password/forgot",
-                                "/auth/password/reset"   // sửa đúng path thật của bạn
-                        ).permitAll()
                         .anyRequest().authenticated()
                 )
                 .authenticationProvider(authenticationProvider())

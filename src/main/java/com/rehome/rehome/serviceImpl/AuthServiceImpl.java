@@ -64,6 +64,10 @@ public class AuthServiceImpl implements AuthService {
             throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
 
+        if(accountRepository.existsByPhone(request.getPhone())){
+            throw new AppException(ErrorCode.PHONE_TAKEN);
+        }
+
         Account account = Account.builder()
                 .email(request.getEmail())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
@@ -95,6 +99,10 @@ public class AuthServiceImpl implements AuthService {
 
         if (accountRepository.existsByEmail(request.getEmail())) {
             throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
+        }
+
+        if(accountRepository.existsByPhone(request.getPhone())){
+            throw new AppException(ErrorCode.PHONE_TAKEN);
         }
 
         Account account = Account.builder()
@@ -258,6 +266,8 @@ public class AuthServiceImpl implements AuthService {
                 .accessToken(accessToken)
                 .refreshToken(refreshToken.getToken())
                 .role(account.getRole())
+                .id(account.getId())
+                .is_verified(account.isEmailVerified())
                 .build();
     }
 

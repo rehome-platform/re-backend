@@ -1,18 +1,15 @@
 package com.rehome.rehome.dto.request;
 
 import com.rehome.rehome.entity.enums.ReturnOnsiteResult;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Getter
 @Setter
+@NoArgsConstructor
 public class ReturnOnsiteRequest {
-
-    @NotNull(message = "result là bắt buộc.")
+    // FAIL / SUSPECTED_FAKE / SUSPECTED_ILLEGAL / MEMBER_DECLINED
     private ReturnOnsiteResult result;
-
-    @NotBlank(message = "reason là bắt buộc.")
     private String reason;
 }

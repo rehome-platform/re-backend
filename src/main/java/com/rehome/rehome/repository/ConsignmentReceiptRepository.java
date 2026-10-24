@@ -22,4 +22,6 @@ public interface ConsignmentReceiptRepository extends JpaRepository<ConsignmentR
 
     @Query(value = "SELECT nextval('receipt_no_seq')", nativeQuery = true)
     long nextReceiptSequence();
+
+    boolean existsByConsignmentForm_Id(UUID consignmentFormId);
 }

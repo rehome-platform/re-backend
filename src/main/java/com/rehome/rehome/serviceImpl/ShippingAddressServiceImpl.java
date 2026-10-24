@@ -79,9 +79,7 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
                 .phone(request.getPhone())
                 .addressDetail(request.getAddressDetail())
                 .wardName(request.getWardName())
-                .districtName(request.getDistrictName())
                 .provinceName(request.getProvinceName())
-                .isNewAddress(Boolean.TRUE.equals(request.getIsNewAddress()))
                 .isDefault(isDefault)
                 .build();
         shippingAddressRepository.save(address);
@@ -120,26 +118,21 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
         address.setPhone(request.getPhone());
         address.setAddressDetail(request.getAddressDetail());
         address.setWardName(request.getWardName());
-        address.setDistrictName(request.getDistrictName());
         address.setProvinceName(request.getProvinceName());
-        address.setIsNewAddress(Boolean.TRUE.equals(request.getIsNewAddress()));
         address.setIsDefault(isDefault);
         shippingAddressRepository.save(address);
 
         return toResponse(address);
     }
 
-    // Phường/xã + tỉnh/thành luôn bắt buộc; quận/huyện chỉ bắt buộc khi còn dùng đơn vị hành chính cũ
-    // (is_new_to_address = false của GHN) — xem docs/ghnapi.md mục "Tạo đơn"
+    // Phường/xã + tỉnh/thành theo hành chính 2 cấp (sau 01/07/2025, không còn quận/huyện) luôn bắt buộc
+    // — xem docs/ghnapi.md mục "Lấy Phường/Xã (Mới)"/"Tạo đơn"
     private void validateAddressUnit(AddShippingAddressRequest request) {
         if (!StringUtils.hasText(request.getWardName())) {
             throw new BadRequestException("wardName là bắt buộc.");
         }
         if (!StringUtils.hasText(request.getProvinceName())) {
             throw new BadRequestException("provinceName là bắt buộc.");
-        }
-        if (!Boolean.TRUE.equals(request.getIsNewAddress()) && !StringUtils.hasText(request.getDistrictName())) {
-            throw new BadRequestException("districtName là bắt buộc khi không dùng địa chỉ hành chính mới.");
         }
     }
 
@@ -177,9 +170,7 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
                 .phone(address.getPhone())
                 .addressDetail(address.getAddressDetail())
                 .wardName(address.getWardName())
-                .districtName(address.getDistrictName())
                 .provinceName(address.getProvinceName())
-                .isNewAddress(address.getIsNewAddress())
                 .isDefault(address.getIsDefault())
                 .build();
     }

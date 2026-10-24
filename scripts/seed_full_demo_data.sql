@@ -209,23 +209,23 @@ BEGIN
     ------------------------------------------------------------------
     -- Phường Bến Nghé (Q.1 cũ) đã sáp nhập thành Phường Sài Gòn theo NQ 1685/NQ-UBTVQH15
     INSERT INTO shipping_addresss (id, member_id, recipient_name, phone, address_detail,
-                                    ward_name, district_name, province_name, is_new_address, is_default)
+                                    ward_name, province_name, is_default)
     VALUES (gen_random_uuid(), v_buyer1_id, 'Nguyễn Văn Buyer 1', '0911111101',
-            '12 Nguyễn Huệ, Phường Bến Nghé', 'Phường Sài Gòn', NULL, 'Hồ Chí Minh', true, true)
+            '12 Nguyễn Huệ, Phường Bến Nghé', 'Phường Sài Gòn', 'Hồ Chí Minh', true)
     RETURNING id INTO v_sa_buyer1_1;
 
     -- Phường Bến Thành (Q.1 cũ) giữ nguyên tên sau sáp nhập (gộp thêm Phạm Ngũ Lão + một phần Cầu Ông Lãnh, Nguyễn Thái Bình)
     INSERT INTO shipping_addresss (id, member_id, recipient_name, phone, address_detail,
-                                    ward_name, district_name, province_name, is_new_address, is_default)
+                                    ward_name, province_name, is_default)
     VALUES (gen_random_uuid(), v_buyer1_id, 'Nguyễn Văn Buyer 1 (Công ty)', '0911111199',
-            '45 Lê Lợi, Phường Bến Thành', 'Phường Bến Thành', NULL, 'Hồ Chí Minh', true, false)
+            '45 Lê Lợi, Phường Bến Thành', 'Phường Bến Thành', 'Hồ Chí Minh', false)
     RETURNING id INTO v_sa_buyer1_2;
 
     -- Phường Dịch Vọng (Cầu Giấy cũ) đã sáp nhập thành Phường Cầu Giấy
     INSERT INTO shipping_addresss (id, member_id, recipient_name, phone, address_detail,
-                                    ward_name, district_name, province_name, is_new_address, is_default)
+                                    ward_name, province_name, is_default)
     VALUES (gen_random_uuid(), v_buyer2_id, 'Đặng Thị Buyer 2', '0911111102',
-            '78 Trần Thái Tông, Phường Dịch Vọng', 'Phường Cầu Giấy', NULL, 'Hà Nội', true, true)
+            '78 Trần Thái Tông, Phường Dịch Vọng', 'Phường Cầu Giấy', 'Hà Nội', true)
     RETURNING id INTO v_sa_buyer2_1;
 
     ------------------------------------------------------------------

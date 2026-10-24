@@ -80,6 +80,16 @@ public enum ErrorCode {
     QUEUE_ITEM_ALREADY_CLAIMED(HttpStatus.CONFLICT, "ALREADY_CLAIMED: việc này đã được người khác nhận."),
     QUEUE_ITEM_NOT_CLAIMED_BY_YOU(HttpStatus.FORBIDDEN, "Bạn không phải người đang nhận việc này."),
 
+    // API 34 - hoàn tất kiểm định
+    INVALID_INSPECTION_RESULT(HttpStatus.BAD_REQUEST, "result phải là PASS."),
+    INVALID_AGREED_PRICE(HttpStatus.BAD_REQUEST, "agreedPrice phải lớn hơn 0."),
+    INVALID_TERM_LENGTH_DAYS(HttpStatus.BAD_REQUEST, "termLengthDays phải lớn hơn 0."),
+    // API 35 - trả hàng tại quầy
+    INVALID_RETURN_ONSITE_RESULT(HttpStatus.BAD_REQUEST, "result phải là FAIL, SUSPECTED_FAKE, SUSPECTED_ILLEGAL hoặc MEMBER_DECLINED."),
+    REASON_REQUIRED(HttpStatus.BAD_REQUEST, "reason là bắt buộc."),
+    // API 36 - hàng vô thừa nhận
+    PARTNER_ORGANIZATION_NAME_REQUIRED(HttpStatus.BAD_REQUEST, "partnerOrganizationName là bắt buộc."),
+    PRODUCT_NOT_UNCLAIMED(HttpStatus.CONFLICT, "Sản phẩm chưa ở trạng thái vô thừa nhận."),
     // API 46 - tạo thương hiệu (F-143, F-121)
     BRAND_NAME_ALREADY_EXISTS(HttpStatus.CONFLICT, "Tên thương hiệu đã tồn tại."),
     // API 45, 47 - danh mục

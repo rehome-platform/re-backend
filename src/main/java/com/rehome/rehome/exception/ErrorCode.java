@@ -81,8 +81,10 @@ public enum ErrorCode {
     PRODUCT_NOT_IN_YOUR_WAREHOUSE(HttpStatus.FORBIDDEN, "Sản phẩm không thuộc kho bạn quản lý."),
     // API 39 - tem SKU
     SKU_LABEL_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo file PDF tem SKU."),
-
+    PHONE_TAKEN(HttpStatus.CONFLICT, "Số điện thoại này đã được sử dụng."),
     // API 40 - danh sách hàng trong kho
+    ACCESS_TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "Access token đã hết hạn."),
+    ACCESS_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "Access token không hợp lệ."),
     MODERATOR_NO_WAREHOUSE(HttpStatus.FORBIDDEN, "Tài khoản chưa được gán kho.");
     private final HttpStatus status;
     private final String defaultMessage;

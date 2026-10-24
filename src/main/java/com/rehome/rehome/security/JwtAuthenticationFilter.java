@@ -2,7 +2,10 @@ package com.rehome.rehome.security;
 
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.AccountStatus;
+import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -11,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -35,14 +39,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(@NonNull HttpServletRequest request,
                                     @NonNull HttpServletResponse response,
                                     @NonNull FilterChain filterChain) throws ServletException, IOException {
-
         final String authHeader = request.getHeader(HEADER_NAME);
 
         if (authHeader == null || !authHeader.startsWith(PREFIX)) {
             filterChain.doFilter(request, response);
             return;
         }
-
         final String jwt = authHeader.substring(PREFIX.length());
         boolean banned = false;
 
@@ -63,10 +65,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     }
                 }
             }
-        } catch (Exception ex) {
-            // Token không hợp lệ / hết hạn -> để request đi tiếp không có Authentication,
-            // Spring Security sẽ tự trả 401/403 với endpoint cần bảo vệ.
-            logger.debug("Không thể xác thực JWT: " + ex.getMessage());
+        } catch (ExpiredJwtException ex) {
+            SecurityContextHolder.clearContext();
+            writeError(response, ErrorCode.ACCESS_TOKEN_EXPIRED);
+            return;
+        } catch (JwtException | IllegalArgumentException | UsernameNotFoundException ex) {
+            SecurityContextHolder.clearContext();
+            writeError(response, ErrorCode.ACCESS_TOKEN_INVALID);
+            return;
         }
 
         if (banned) {

@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @Data
@@ -19,4 +20,6 @@ public class MemberProfileResponse {
     private String avatarUrl;
     private String memberCode;
     private boolean emailVerified;
+    private Instant createdAt;
+    private String dateOfBirth;
 }

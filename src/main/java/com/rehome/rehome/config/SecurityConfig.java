@@ -46,6 +46,8 @@ public class SecurityConfig {
             "/webjars/**",
             "/api/momo/ipn-handler",
             "/api/momo/return-info",
+            "/api/vnpay/ipn-handler",
+            "/api/vnpay/return-info",
             "/webhooks/ghn"
     };
 

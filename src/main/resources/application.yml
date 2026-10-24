@@ -122,6 +122,17 @@ momo:
   # payWithMethod = hiện trang cho chọn Ví MoMo / ATM / VISA-Master-JCB; captureWallet = chỉ QR/app MoMo
   request-type: ${MOMO_REQUEST_TYPE:payWithMethod}
 
+# ==================== VNPAY PAYMENT (SANDBOX) ====================
+# tmn-code/hash-secret lấy từ tài khoản merchant sandbox tự đăng ký tại https://sandbox.vnpayment.vn/devreg,
+# không có giá trị demo công khai dùng chung như MoMo nên PHẢI set qua env var, không có default thật.
+vnpay:
+  tmn-code: ${VNPAY_TMN_CODE:}
+  hash-secret: ${VNPAY_HASH_SECRET:}
+  pay-url: ${VNPAY_PAY_URL:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
+  query-end-point: ${VNPAY_QUERY_ENDPOINT:https://sandbox.vnpayment.vn}
+  return-url: ${VNPAY_RETURN_URL:https://rehome-frontend.vercel.app/payment/vnpay-return}
+  version: ${VNPAY_VERSION:2.1.0}
+
 rehome:
   consignment:
     bring-in-deadline-days: 7

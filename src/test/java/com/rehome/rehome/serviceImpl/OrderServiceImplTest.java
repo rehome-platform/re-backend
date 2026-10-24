@@ -1,5 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.dto.request.CreateOrderRequest;
 import com.rehome.rehome.dto.request.RateOrderRequest;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
@@ -91,6 +92,7 @@ class OrderServiceImplTest {
     @Mock WalletRepository walletRepository;
     @Mock WalletTransactionRepository walletTransactionRepository;
     @Mock PlatformFundRepository platformFundRepository;
+    @Mock GhnShippingFeeCalculator ghnShippingFeeCalculator;
 
     @InjectMocks
     OrderServiceImpl orderService;
@@ -106,7 +108,6 @@ class OrderServiceImplTest {
 
     @BeforeEach
     void setup() {
-        ReflectionTestUtils.setField(orderService, "shippingFee", new BigDecimal("25000"));
         ReflectionTestUtils.setField(orderService, "paymentDeadlineMinutes", 15L);
         ReflectionTestUtils.setField(orderService, "taxRate", BigDecimal.ZERO);
 
@@ -272,6 +273,7 @@ class OrderServiceImplTest {
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
         when(productRepository.findByIdForUpdate("Q7-AK-000845")).thenReturn(Optional.of(product1));
+        when(ghnShippingFeeCalculator.calculate(any(), any(), any())).thenReturn(new BigDecimal("25000"));
         stubOrderSaveAssignsId();
 
         List<OrderResponse> responses = orderService.createOrders(email, request);
@@ -314,6 +316,7 @@ class OrderServiceImplTest {
         when(productRepository.findByIdForUpdate("Q7-AK-000845")).thenReturn(Optional.of(product1));
         when(cartRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(cart));
         when(cartItemRepository.findAllByCartIdWithProduct(cart.getId())).thenReturn(List.of(item1, item2));
+        when(ghnShippingFeeCalculator.calculate(any(), any(), any())).thenReturn(new BigDecimal("25000"));
         stubOrderSaveAssignsId();
 
         orderService.createOrders(email, request);
@@ -334,6 +337,7 @@ class OrderServiceImplTest {
         when(productRepository.findByIdForUpdate("Q7-AK-000845")).thenReturn(Optional.of(product1));
         when(cartRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(cart));
         when(cartItemRepository.findAllByCartIdWithProduct(cart.getId())).thenReturn(List.of(item2));
+        when(ghnShippingFeeCalculator.calculate(any(), any(), any())).thenReturn(new BigDecimal("25000"));
         stubOrderSaveAssignsId();
 
         orderService.createOrders(email, request);
@@ -349,6 +353,7 @@ class OrderServiceImplTest {
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
         when(productRepository.findByIdForUpdate("Q7-AK-000845")).thenReturn(Optional.of(product1));
+        when(ghnShippingFeeCalculator.calculate(any(), any(), any())).thenReturn(new BigDecimal("25000"));
         stubOrderSaveAssignsId();
 
         orderService.createOrders(email, request);
@@ -372,6 +377,7 @@ class OrderServiceImplTest {
         when(cartItemRepository.findAllByCartIdWithProduct(cart.getId())).thenReturn(List.of(item1, item2));
         when(productRepository.findByIdForUpdate("Q7-AK-000845")).thenReturn(Optional.of(product1));
         when(productRepository.findByIdForUpdate("Q7-AK-000912")).thenReturn(Optional.of(product2));
+        when(ghnShippingFeeCalculator.calculate(any(), any(), any())).thenReturn(new BigDecimal("25000"));
         stubOrderSaveAssignsId();
 
         List<OrderResponse> responses = orderService.createOrders(email, request);

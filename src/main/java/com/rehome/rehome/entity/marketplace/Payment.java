@@ -31,7 +31,7 @@ public class Payment {
     @Column(name = "amount", nullable = false, precision = 19, scale = 2)
     private BigDecimal amount;
 
-    // Luôn là MOMO; trả bằng ví không tạo dòng ở bảng này
+    // MOMO hoặc VNPAY; trả bằng ví không tạo dòng ở bảng này
     @Column(name = "method", nullable = false, length = 255)
     @ColumnDefault("'MOMO'")
     @Builder.Default
@@ -48,6 +48,18 @@ public class Payment {
     // requestId gửi cho MoMo lúc tạo giao dịch
     @Column(name = "momo_request_id", nullable = true, length = 255)
     private String momoRequestId;
+
+    // vnp_TxnRef gửi cho VNPay lúc tạo giao dịch (vai trò giống momoOrderId), dùng map IPN/return về đúng Payment
+    @Column(name = "vnp_txn_ref", nullable = true, length = 255, unique = true)
+    private String vnpTxnRef;
+
+    // Mã giao dịch VNPay (vnp_TransactionNo) trả về khi thanh toán xong
+    @Column(name = "vnp_transaction_no", nullable = true, length = 255)
+    private String vnpTransactionNo;
+
+    // vnp_CreateDate (yyyyMMddHHmmss) lúc tạo giao dịch - VNPay yêu cầu gửi lại giá trị này khi tra cứu (querydr)
+    @Column(name = "vnp_create_date", nullable = true, length = 32)
+    private String vnpCreateDate;
 
     // PENDING / SUCCESS / FAILED
     @Enumerated(EnumType.STRING)

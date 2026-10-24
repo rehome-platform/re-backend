@@ -235,9 +235,8 @@ public class OrderServiceImpl implements OrderService {
                     .shippingPhone(shippingAddress.getPhone())
                     .shippingAddressDetail(shippingAddress.getAddressDetail())
                     .shippingWardName(shippingAddress.getWardName())
-                    .shippingDistrictName(shippingAddress.getDistrictName())
                     .shippingProvinceName(shippingAddress.getProvinceName())
-                    .shippingIsNewAddress(Boolean.TRUE.equals(shippingAddress.getIsNewAddress()))
+                    .shippingIsNewAddress(true)
                     .subtotal(subtotal)
                     .shippingFee(shippingFee)
                     .totalAmount(subtotal.add(shippingFee))
@@ -659,6 +658,7 @@ public class OrderServiceImpl implements OrderService {
             ghnResponse = ghnApi.createOrder(ghnToken, ghnShopId, ghnRequest);
         } catch (Exception ex) {
             log.error(">>>> Loi goi GHN tao van don cho orderNo={}: {}", order.getOrderNo(), ex.getMessage());
+            logGhnAddressBlocks(order, ghnRequest);
             throw new GhnException("GHN_ERROR: không thể tạo vận đơn, vui lòng thử lại.");
         }
 
@@ -666,6 +666,7 @@ public class OrderServiceImpl implements OrderService {
                 || !StringUtils.hasText(ghnResponse.getData().getOrderCode())) {
             String ghnMessage = ghnResponse != null ? ghnResponse.getMessage() : null;
             log.error(">>>> GHN khong tra ve order_code cho orderNo={}: {}", order.getOrderNo(), ghnMessage);
+            logGhnAddressBlocks(order, ghnRequest);
             throw new GhnException("GHN_ERROR: không thể tạo vận đơn, vui lòng thử lại.");
         }
 
@@ -749,15 +750,20 @@ public class OrderServiceImpl implements OrderService {
                 .toName(order.getShippingRecipientName())
                 .toPhone(order.getShippingPhone())
                 .toAddress(order.getShippingAddressDetail())
-                .toWardName(order.getShippingWardName())
-                .toDistrictName(order.getShippingDistrictName())
-                .toProvinceName(order.getShippingProvinceName())
+                .toWardName(trimToNull(order.getShippingWardName()))
+                // Hệ 2 cấp không còn quận/huyện: phải bỏ hẳn key *_district_name khỏi body (null -> không serialize).
+                // Gửi chuỗi rỗng vẫn bị GHN hiểu là có khai quận/huyện và trả TO_ADDRESS_CONFLICT.
+                .toDistrictName(Boolean.TRUE.equals(order.getShippingIsNewAddress())
+                        ? null : trimToNull(order.getShippingDistrictName()))
+                .toProvinceName(trimToNull(order.getShippingProvinceName()))
                 .isNewToAddress(Boolean.TRUE.equals(order.getShippingIsNewAddress()))
                 .fromName(warehouse.getName())
+                .fromPhone(warehouse.getPhone())
                 .fromAddress(warehouse.getAddress())
-                .fromWardName(warehouse.getWardName())
-                .fromDistrictName(warehouse.getDistrictName())
-                .fromProvinceName(warehouse.getProvinceName())
+                .fromWardName(trimToNull(warehouse.getWardName()))
+                .fromDistrictName(Boolean.TRUE.equals(warehouse.getIsNewAddress())
+                        ? null : trimToNull(warehouse.getDistrictName()))
+                .fromProvinceName(trimToNull(warehouse.getProvinceName()))
                 .isNewFromAddress(Boolean.TRUE.equals(warehouse.getIsNewAddress()))
                 .weight(defaultPackageWeightGrams)
                 .length(defaultPackageLengthCm)
@@ -770,6 +776,26 @@ public class OrderServiceImpl implements OrderService {
                 .orderValue(order.getSubtotal().intValue())
                 .items(ghnItems)
                 .build();
+    }
+
+    // Khoảng trắng đầu/cuối làm GHN không khớp được tên phường/xã, tỉnh/thành trong danh mục
+    private static String trimToNull(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    // GHN chỉ trả TO_ADDRESS_CONFLICT/"Địa chỉ nhận không hợp lệ" mà không nói field nào sai,
+    // nên log lại đúng khối địa chỉ đã gửi để đối chiếu với GET /address-units/provinces|wards
+    private void logGhnAddressBlocks(Order order, GhnCreateOrderRequest ghnRequest) {
+        log.error(">>>> Dia chi gui GHN cho orderNo={}: to_name=[{}] to_phone=[{}] to_address=[{}] "
+                        + "to_ward_name=[{}] to_district_name=[{}] to_province_name=[{}] is_new_to_address={}",
+                order.getOrderNo(), ghnRequest.getToName(), ghnRequest.getToPhone(), ghnRequest.getToAddress(),
+                ghnRequest.getToWardName(), ghnRequest.getToDistrictName(), ghnRequest.getToProvinceName(),
+                ghnRequest.getIsNewToAddress());
+        log.error(">>>> Dia chi kho gui GHN cho orderNo={}: from_address=[{}] from_ward_name=[{}] "
+                        + "from_district_name=[{}] from_province_name=[{}] is_new_from_address={}",
+                order.getOrderNo(), ghnRequest.getFromAddress(), ghnRequest.getFromWardName(),
+                ghnRequest.getFromDistrictName(), ghnRequest.getFromProvinceName(),
+                ghnRequest.getIsNewFromAddress());
     }
 
     // Nhả RESERVED -> ON_SALE cho mọi món trong đơn, dùng chung cho hủy đơn do buyer và do GHN lỗi

@@ -2,10 +2,9 @@ package com.rehome.rehome.client;
 
 import com.rehome.rehome.dto.request.GhnCreateOrderRequest;
 import com.rehome.rehome.dto.response.GhnCreateOrderResponse;
-import com.rehome.rehome.dto.response.GhnDistrict;
 import com.rehome.rehome.dto.response.GhnMasterDataResponse;
-import com.rehome.rehome.dto.response.GhnProvince;
-import com.rehome.rehome.dto.response.GhnWard;
+import com.rehome.rehome.dto.response.GhnNewProvince;
+import com.rehome.rehome.dto.response.GhnNewWard;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,20 +21,21 @@ public interface GhnApi {
             @RequestHeader("ShopId") String shopId,
             @RequestBody GhnCreateOrderRequest request);
 
-    @GetMapping("/master-data/province")
-    GhnMasterDataResponse<GhnProvince> getProvinces(
-            @RequestHeader("Token") String token,
-            @RequestHeader("ShopId") String shopId);
-
-    @GetMapping("/master-data/district")
-    GhnMasterDataResponse<GhnDistrict> getDistricts(
+    // Hệ hành chính 2 cấp (mới, sau sáp nhập 01/07/2025) - danh mục này mới khớp với is_new_*_address: true
+    // dùng khi Tạo đơn. Xem docs/ghnapi.md "Lấy Tỉnh/Thành (Mới)".
+    @GetMapping("/v3/master-data/province/all")
+    GhnMasterDataResponse<GhnNewProvince> getProvinces(
             @RequestHeader("Token") String token,
             @RequestHeader("ShopId") String shopId,
-            @RequestParam("province_id") int provinceId);
+            @RequestParam("offset") int offset,
+            @RequestParam("limit") int limit);
 
-    @GetMapping("/master-data/ward")
-    GhnMasterDataResponse<GhnWard> getWards(
+    // Phường/xã thuộc thẳng tỉnh/thành (không còn quận/huyện) - xem docs/ghnapi.md "Lấy Phường/Xã (Mới)".
+    @GetMapping("/v3/master-data/ward/all-by-province-id")
+    GhnMasterDataResponse<GhnNewWard> getWards(
             @RequestHeader("Token") String token,
             @RequestHeader("ShopId") String shopId,
-            @RequestParam("district_id") int districtId);
+            @RequestParam("province_id") int provinceId,
+            @RequestParam("offset") int offset,
+            @RequestParam("limit") int limit);
 }

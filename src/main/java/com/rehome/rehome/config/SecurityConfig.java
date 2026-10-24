@@ -46,6 +46,8 @@ public class SecurityConfig {
             "/webjars/**",
             "/api/momo/ipn-handler",
             "/api/momo/return-info",
+            "/api/vnpay/ipn-handler",
+            "/api/vnpay/return-info",
             "/webhooks/ghn"
     };
 
@@ -69,6 +71,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/categories", "/brands").permitAll()
                         // API kho gần nhất (F-015) chỉ dành cho Member
+                        // MỚI: API kho gần nhất (F-015) chỉ dành cho Member
                         .requestMatchers("/warehouses/**").hasRole("MEMBER")
                         .anyRequest().authenticated()
                 )

@@ -1,115 +1,177 @@
--- Seed dữ liệu mẫu "đủ dùng" để test API thủ công (Postman/Swagger), phủ hầu hết
--- các bảng đứng sau các API đã implement: accounts + 3 loại profile, wallets,
--- shipping_addresss, brands, categories, consignment_forms/receipts, products,
--- carts/cart_items, orders/order_items, wallet_transactions, payments.
+-- Seed dữ liệu demo "đủ dùng" để test thủ công (Postman/Swagger) toàn bộ luồng
+-- đặt hàng -> thanh toán VNPay -> đóng gói -> vận đơn GHN -> giao -> hoàn tất,
+-- cộng với CRUD cơ bản (giỏ hàng, địa chỉ, ký gửi, ví).
 --
 -- Điều kiện chạy: app đã chạy ít nhất 1 lần (ddl-auto=update đã tạo xong schema).
--- Không phụ thuộc WarehouseInitializer/UserInitializer — script tự tạo warehouse
--- và account riêng, chạy trực tiếp trong DBeaver (PostgreSQL), theo đúng convention
--- của scripts/seed_products.sql (DO $$ ... $$, gen_random_uuid()).
+-- Không phụ thuộc UserInitializer — toàn bộ account (admin/moderator/member) do
+-- chính script này tạo, dùng domain @rehome.test để không bao giờ đụng với
+-- admin@rehome.com / moderator1-3@rehome.com mà UserInitializer tự seed lúc khởi động.
 --
--- Mật khẩu của TẤT CẢ account tạo trong script này: 123456
--- (hash bcrypt thật, đã verify bằng BCryptPasswordEncoder.matches, không phải placeholder giả).
+-- Mật khẩu của TẤT CẢ account trong script này: 123456
+-- (hash bcrypt đã verify bằng BCrypt.checkpw(), không phải placeholder giả).
 --
--- Lưu ý: order_no/receipt_no/transaction_no dùng hậu tố chữ "SEEDxx" (OD-2026-SEED01,
--- KG-2026-SEED01, WT-2026-SEED01, ...) thay vì số thuần, để không bao giờ trùng với
--- mã app thật sinh ra (app chỉ sinh toàn số, dùng COUNT(*) theo prefix năm).
+-- Dữ liệu được ráp khớp nhau theo đúng chuỗi FK bắt buộc của schema:
+--   warehouse  -> moderator_profiles.warehouse_id, products.warehouse_id, consignment_forms/receipts.warehouse_id
+--   consignment_form -> consignment_receipt -> product -> product_photo
+--   order -> order_item -> product ; order -> payment (VNPay) ; order -> order_tracking_event (GHN)
 --
--- Chạy lại nhiều lần sẽ lỗi unique constraint (email/order_no/...) — muốn reset thì xoá các
--- dòng seed trước (where email like '%@rehome.test' .. ) rồi chạy lại.
+-- Chạy lại nhiều lần sẽ lỗi unique constraint (email/order_no/receipt_no/...) — muốn
+-- reset thì xoá các dòng seed trước (where email like '%@rehome.test') rồi chạy lại,
+-- ví dụ: DELETE FROM accounts WHERE email LIKE '%@rehome.test'; (cascade theo FK).
 
 DO $$
 DECLARE
-    v_warehouse_id   uuid;
+    -- Kho
+    v_wh1_id         uuid; -- Kho Quận 7 - TP.HCM
+    v_wh2_id         uuid; -- Kho Cầu Giấy - Hà Nội
 
-    v_buyer_id       uuid;
+    -- Account
+    v_admin_id       uuid;
+    v_mod1_id        uuid; -- moderator1 -> kho 1
+    v_mod2_id        uuid; -- moderator2 -> kho 1
+    v_mod3_id        uuid; -- moderator3 -> kho 2
+    v_buyer1_id      uuid; -- member, địa chỉ ở TP.HCM
+    v_buyer2_id      uuid; -- member, địa chỉ ở Hà Nội
     v_seller1_id     uuid;
     v_seller2_id     uuid;
+    v_seller3_id     uuid;
     v_org_id         uuid;
-    v_moderator_id   uuid;
 
-    v_wallet_buyer   uuid;
+    -- Ví
+    v_wallet_buyer1  uuid;
+    v_wallet_buyer2  uuid;
     v_wallet_seller1 uuid;
     v_wallet_seller2 uuid;
+    v_wallet_seller3 uuid;
 
-    v_sa1_id         uuid; -- địa chỉ mặc định của buyer
-    v_sa2_id         uuid;
+    -- Địa chỉ giao hàng
+    v_sa_buyer1_1    uuid; -- mặc định, TP.HCM
+    v_sa_buyer1_2    uuid; -- phụ, TP.HCM
+    v_sa_buyer2_1    uuid; -- mặc định, Hà Nội
 
-    v_brand_uniqlo   uuid;
-    v_brand_zara     uuid;
-    v_brand_hm       uuid;
-
-    v_cat_aokhoac    uuid;
-    v_cat_quanjean   uuid;
-    v_cat_vaydam     uuid;
+    -- Thương hiệu / danh mục (mỗi loại 5, dùng chung cho 20 sản phẩm)
+    v_brand_ids      uuid[5];
+    v_cat_ids        uuid[5];
+    v_cat_codes      text[5]  := ARRAY['AK', 'AT', 'QJ', 'CV', 'DM'];
 
     v_cart_id        uuid;
 
     v_now            timestamptz := now();
-    v_pwd_hash        text := '$2a$10$wPf5RyANdLOfKAzGo3sP5OMj9coM3zNZde2xjV910qTti4zx3XTFe'; -- "123456"
+    v_pwd_hash       text := '$2a$10$9oLul/HMTIiG0xkAyG6zQuL9VlDY1gj6f8.Faz1CdLL/4PdfX2dXS'; -- "123456"
 
-    -- Dữ liệu 6 sản phẩm, xử lý bằng vòng lặp vì cùng một chuỗi FK bắt buộc
-    -- form -> receipt -> product -> photo
-    v_product_ids    text[]  := ARRAY['SEED-AK-0001','SEED-QJ-0001','SEED-VD-0001',
-                                       'SEED-VD-0002','SEED-AK-0002','SEED-QJ-0002'];
-    v_names          text[]  := ARRAY['Áo khoác denim','Quần jean slimfit','Váy đầm hoa',
-                                       'Váy đầm xòe','Áo khoác kaki','Quần tây'];
-    v_prices         numeric[] := ARRAY[220000,150000,180000,170000,200000,160000];
-    v_statuses       text[]  := ARRAY['SOLD','RESERVED','ON_SALE','ON_SALE','ON_SALE','RESERVED'];
-    v_days_ago       int[]   := ARRAY[15,14,13,12,11,10];
-    v_seller_ids     uuid[];   -- gán sau khi tạo account seller1/seller2
-    v_category_ids   uuid[];   -- gán sau khi tạo category
-    v_brand_ids      uuid[];   -- gán sau khi tạo brand
-    v_receipt_confirmed timestamptz;
+    -- 20 sản phẩm: 1-10 ở Kho Quận 7, 11-20 ở Kho Cầu Giấy (F-053: giỏ nhiều kho tách nhiều đơn)
+    v_names          text[20] := ARRAY[
+        'Áo khoác dạ Uniqlo', 'Áo thun Zara basic', 'Quần jean H&M slimfit', 'Chân váy Nike thể thao',
+        'Đầm Adidas năng động', 'Áo khoác kaki Uniqlo', 'Áo thun Zara polo', 'Quần jean H&M ống suông',
+        'Chân váy Nike xếp ly', 'Đầm Adidas dự tiệc', 'Áo khoác phao Uniqlo', 'Áo thun Zara basic trắng',
+        'Quần jean H&M baggy', 'Chân váy Nike dáng dài', 'Đầm Adidas công sở', 'Áo khoác dạ Uniqlo nữ',
+        'Áo thun Zara oversize', 'Quần jean H&M rách gối', 'Chân váy Nike chữ A', 'Đầm Adidas maxi'
+    ];
+    v_prices         numeric[20] := ARRAY[
+        450000, 180000, 320000, 250000, 550000, 480000, 190000, 340000, 260000, 570000,
+        430000, 170000, 300000, 270000, 530000, 500000, 200000, 360000, 280000, 600000
+    ];
+    -- Mặc định ON_SALE; #1 đã bán (Order A), #2/#3 đang RESERVED (Order B/C), #11 vừa đặt chờ thanh toán (Order E)
+    v_statuses       text[20] := ARRAY[
+        'SOLD', 'RESERVED', 'RESERVED', 'ON_SALE', 'ON_SALE', 'ON_SALE', 'ON_SALE', 'ON_SALE', 'ON_SALE', 'ON_SALE',
+        'RESERVED', 'ON_SALE', 'ON_SALE', 'ON_SALE', 'ON_SALE', 'ON_SALE', 'ON_SALE', 'ON_SALE', 'ON_SALE', 'ON_SALE'
+    ];
+    v_days_ago       int[20]; -- ngày ký gửi, trải từ 29 đến 10 ngày trước, vẫn trong kỳ 1 (<=30 ngày)
+    v_seller_ids     uuid[3]; -- gán sau khi tạo seller1/2/3, xoay vòng theo chỉ số sản phẩm
+
+    v_tmp_id         uuid; -- biến tạm: PL/pgSQL không cho "RETURNING ... INTO mang[i]" trực tiếp
+    v_product_id     text;
+    v_warehouse_id   uuid;
+    v_moderator_id   uuid;
+    v_seller_id      uuid;
+    v_confirmed_at   timestamptz;
     v_form_id        uuid;
     v_receipt_id     uuid;
     i                int;
 
-    -- Order 1 (COMPLETED) + Order 3 (CANCELLED) + Order 4 (PAID/MOMO) cần commission/order item
-    v_order1_id      uuid;
-    v_order2_id      uuid;
-    v_order3_id      uuid;
-    v_order4_id      uuid;
-    v_oi_id          uuid;
+    -- Order A..E minh hoạ 5 trạng thái/luồng khác nhau (xem ghi chú cuối file)
+    v_order_a_id     uuid;
+    v_order_b_id     uuid;
+    v_order_c_id     uuid;
+    v_order_d_id     uuid;
+    v_order_e_id     uuid;
+    v_oi_c_id        uuid;
 BEGIN
     ------------------------------------------------------------------
-    -- 1. Kho (warehouse riêng cho bộ seed này)
+    -- 1. Kho — đủ ward_name/province_name/is_new_address để GHN tạo vận đơn chạy được
     ------------------------------------------------------------------
-    INSERT INTO warehouses (id, name, address, latitude, longitude, opening_hours, status, created_at)
-    VALUES (gen_random_uuid(), 'Kho Demo Seed', '1 Lê Duẩn, P. Bến Nghé, Q.1, TP.HCM',
-            10.7816, 106.7006, '08:00 - 20:00', 'ACTIVE', v_now)
-    RETURNING id INTO v_warehouse_id;
+    -- Phường Tân Phú (Q.7 cũ) đã sáp nhập thành Phường Tân Mỹ theo NQ 1685/NQ-UBTVQH15 (hiệu lực 01/07/2025)
+    INSERT INTO warehouses (id, name, address, phone, latitude, longitude, opening_hours, status,
+                             code, ward_name, district_name, province_name, is_new_address, created_at)
+    VALUES (gen_random_uuid(), 'Địa điểm ký gửi - TPHCM', '123 Nguyễn Thị Thập, Phường Tân Phú', '02838225566',
+            10.7329000, 106.7240000, '08:00 - 20:00 (Thứ 2 - Chủ nhật)', 'ACTIVE',
+            'WH-Q7', 'Phường Tân Mỹ', NULL, 'Hồ Chí Minh', true, v_now)
+    RETURNING id INTO v_wh1_id;
+
+    -- Phường Dịch Vọng Hậu (Cầu Giấy cũ, khu vực Xuân Thủy) đã sáp nhập thành Phường Cầu Giấy
+    INSERT INTO warehouses (id, name, address, phone, latitude, longitude, opening_hours, status,
+                             code, ward_name, district_name, province_name, is_new_address, created_at)
+    VALUES (gen_random_uuid(), 'Địa điểm ký gửi - Hà Nội', '45 Xuân Thủy, Phường Dịch Vọng Hậu', '02437912345',
+            21.0368000, 105.7828000, '08:00 - 20:00 (Thứ 2 - Chủ nhật)', 'ACTIVE',
+            'WH-CG', 'Phường Cầu Giấy', NULL, 'Hà Nội', true, v_now)
+    RETURNING id INTO v_wh2_id;
 
     ------------------------------------------------------------------
-    -- 2. Tài khoản + hồ sơ (mật khẩu chung: 123456)
+    -- 2. Tài khoản (mật khẩu chung: 123456) — admin + 3 moderator (2 ở kho 1, 1 ở kho 2) + 5 member
     ------------------------------------------------------------------
+    INSERT INTO accounts (id, email, password_hash, phone, role, status, email_verified, created_at, updated_at)
+    VALUES (gen_random_uuid(), 'admin1@rehome.test', v_pwd_hash, '0922222201', 'ADMIN', 'ACTIVE', true, v_now, v_now)
+    RETURNING id INTO v_admin_id;
+
+    INSERT INTO accounts (id, email, password_hash, phone, role, status, email_verified, warehouse_id, created_at, updated_at)
+    VALUES (gen_random_uuid(), 'moderator1@rehome.test', v_pwd_hash, '0922222202', 'MODERATOR', 'ACTIVE', true, v_wh1_id, v_now, v_now)
+    RETURNING id INTO v_mod1_id;
+
+    INSERT INTO accounts (id, email, password_hash, phone, role, status, email_verified, warehouse_id, created_at, updated_at)
+    VALUES (gen_random_uuid(), 'moderator2@rehome.test', v_pwd_hash, '0922222203', 'MODERATOR', 'ACTIVE', true, v_wh1_id, v_now, v_now)
+    RETURNING id INTO v_mod2_id;
+
+    INSERT INTO accounts (id, email, password_hash, phone, role, status, email_verified, warehouse_id, created_at, updated_at)
+    VALUES (gen_random_uuid(), 'moderator3@rehome.test', v_pwd_hash, '0922222204', 'MODERATOR', 'ACTIVE', true, v_wh2_id, v_now, v_now)
+    RETURNING id INTO v_mod3_id;
+
     INSERT INTO accounts (id, email, password_hash, phone, role, status, email_verified, created_at, updated_at)
     VALUES (gen_random_uuid(), 'buyer1@rehome.test', v_pwd_hash, '0911111101', 'MEMBER', 'ACTIVE', true, v_now, v_now)
-    RETURNING id INTO v_buyer_id;
+    RETURNING id INTO v_buyer1_id;
 
     INSERT INTO accounts (id, email, password_hash, phone, role, status, email_verified, created_at, updated_at)
-    VALUES (gen_random_uuid(), 'seller1@rehome.test', v_pwd_hash, '0911111102', 'MEMBER', 'ACTIVE', true, v_now, v_now)
+    VALUES (gen_random_uuid(), 'buyer2@rehome.test', v_pwd_hash, '0911111102', 'MEMBER', 'ACTIVE', true, v_now, v_now)
+    RETURNING id INTO v_buyer2_id;
+
+    INSERT INTO accounts (id, email, password_hash, phone, role, status, email_verified, created_at, updated_at)
+    VALUES (gen_random_uuid(), 'seller1@rehome.test', v_pwd_hash, '0911111103', 'MEMBER', 'ACTIVE', true, v_now, v_now)
     RETURNING id INTO v_seller1_id;
 
     INSERT INTO accounts (id, email, password_hash, phone, role, status, email_verified, created_at, updated_at)
-    VALUES (gen_random_uuid(), 'seller2@rehome.test', v_pwd_hash, '0911111103', 'MEMBER', 'ACTIVE', true, v_now, v_now)
+    VALUES (gen_random_uuid(), 'seller2@rehome.test', v_pwd_hash, '0911111104', 'MEMBER', 'ACTIVE', true, v_now, v_now)
     RETURNING id INTO v_seller2_id;
 
     INSERT INTO accounts (id, email, password_hash, phone, role, status, email_verified, created_at, updated_at)
-    VALUES (gen_random_uuid(), 'org1@rehome.test', v_pwd_hash, '0911111104', 'ORGANIZATION', 'ACTIVE', true, v_now, v_now)
-    RETURNING id INTO v_org_id;
+    VALUES (gen_random_uuid(), 'seller3@rehome.test', v_pwd_hash, '0911111105', 'MEMBER', 'ACTIVE', true, v_now, v_now)
+    RETURNING id INTO v_seller3_id;
 
     INSERT INTO accounts (id, email, password_hash, phone, role, status, email_verified, created_at, updated_at)
-    VALUES (gen_random_uuid(), 'moderator1@rehome.test', v_pwd_hash, '0911111105', 'MODERATOR', 'ACTIVE', true, v_now, v_now)
-    RETURNING id INTO v_moderator_id;
+    VALUES (gen_random_uuid(), 'org1@rehome.test', v_pwd_hash, '0911111106', 'ORGANIZATION', 'ACTIVE', true, v_now, v_now)
+    RETURNING id INTO v_org_id;
+
+    v_seller_ids := ARRAY[v_seller1_id, v_seller2_id, v_seller3_id];
+
+    INSERT INTO moderator_profiles (account_id, full_name, moderator_code, warehouse_id) VALUES
+        (v_mod1_id, 'Phạm Thị Moderator 1', 'MOD-SEED-0001', v_wh1_id),
+        (v_mod2_id, 'Ngô Văn Moderator 2',  'MOD-SEED-0002', v_wh1_id),
+        (v_mod3_id, 'Bùi Thị Moderator 3',  'MOD-SEED-0003', v_wh2_id);
 
     INSERT INTO member_profiles (account_id, full_name, avatar_url, member_code) VALUES
-        (v_buyer_id,   'Nguyễn Văn Buyer',  NULL, 'MEM-SEED-0001'),
-        (v_seller1_id, 'Trần Thị Seller 1', NULL, 'MEM-SEED-0002'),
-        (v_seller2_id, 'Lê Văn Seller 2',   NULL, 'MEM-SEED-0003');
-
-    INSERT INTO moderator_profiles (account_id, full_name, moderator_code, warehouse_id)
-    VALUES (v_moderator_id, 'Phạm Thị Moderator', 'MOD-SEED-0001', v_warehouse_id);
+        (v_buyer1_id,  'Nguyễn Văn Buyer 1', NULL, 'MEM-SEED-0001'),
+        (v_buyer2_id,  'Đặng Thị Buyer 2',   NULL, 'MEM-SEED-0002'),
+        (v_seller1_id, 'Trần Thị Seller 1',  NULL, 'MEM-SEED-0003'),
+        (v_seller2_id, 'Lê Văn Seller 2',    NULL, 'MEM-SEED-0004'),
+        (v_seller3_id, 'Phạm Thị Seller 3',  NULL, 'MEM-SEED-0005');
 
     INSERT INTO organization_profiles (
         account_id, legal_name, display_name, org_type, tax_code, operation_scope,
@@ -120,73 +182,94 @@ BEGIN
         full_name, position, cccd_number, cccd_front_url, cccd_back_url
     ) VALUES (
         v_org_id, 'Tổ chức Thiện Nguyện ABC', 'ABC Charity', 'NGO', NULL, 'TP.HCM',
-        '10 Nguyễn Huệ, Q.1, TP.HCM', '0911111104', 'org1@rehome.test', NULL,
+        '10 Nguyễn Huệ, Phường Bến Nghé, TP.HCM', '0911111106', 'org1@rehome.test', NULL,
         'Tổ chức thiện nguyện tiếp nhận quần áo cũ, seed cho mục đích test API.', NULL,
-        'VERIFIED', NULL, v_moderator_id, v_now - interval '5 days',
-        'Điểm nhận đồ ABC', '10 Nguyễn Huệ, Q.1, TP.HCM', 10.7745, 106.7030,
-        '08:00 - 17:00 (Thứ 2 - Thứ 6)', '0911111104',
+        'VERIFIED', NULL, v_mod1_id, v_now - interval '5 days',
+        'Điểm nhận đồ ABC', '10 Nguyễn Huệ, Phường Bến Nghé, TP.HCM', 10.7745000, 106.7030000,
+        '08:00 - 17:00 (Thứ 2 - Thứ 6)', '0911111106',
         'Hoàng Văn Đại Diện', 'Giám đốc', '079123456789', NULL, NULL
     );
 
     ------------------------------------------------------------------
-    -- 3. Ví (số dư set sẵn, khớp với wallet_transactions sẽ insert ở bước 8)
+    -- 3. Ví — số dư khớp với wallet_transactions sẽ insert ở bước 8
     ------------------------------------------------------------------
     INSERT INTO wallets (id, member_id, balance, locked_balance, updated_at)
-    VALUES (gen_random_uuid(), v_buyer_id, 5000000, 0, v_now)
-    RETURNING id INTO v_wallet_buyer;
-
+    VALUES (gen_random_uuid(), v_buyer1_id, 5000000, 0, v_now) RETURNING id INTO v_wallet_buyer1;
     INSERT INTO wallets (id, member_id, balance, locked_balance, updated_at)
-    VALUES (gen_random_uuid(), v_seller1_id, 198000, 0, v_now)
-    RETURNING id INTO v_wallet_seller1;
-
+    VALUES (gen_random_uuid(), v_buyer2_id, 3000000, 0, v_now) RETURNING id INTO v_wallet_buyer2;
     INSERT INTO wallets (id, member_id, balance, locked_balance, updated_at)
-    VALUES (gen_random_uuid(), v_seller2_id, 0, 0, v_now)
-    RETURNING id INTO v_wallet_seller2;
+    VALUES (gen_random_uuid(), v_seller1_id, 405000, 0, v_now) RETURNING id INTO v_wallet_seller1;
+    INSERT INTO wallets (id, member_id, balance, locked_balance, updated_at)
+    VALUES (gen_random_uuid(), v_seller2_id, 0, 0, v_now) RETURNING id INTO v_wallet_seller2;
+    INSERT INTO wallets (id, member_id, balance, locked_balance, updated_at)
+    VALUES (gen_random_uuid(), v_seller3_id, 0, 0, v_now) RETURNING id INTO v_wallet_seller3;
 
     ------------------------------------------------------------------
-    -- 4. Địa chỉ giao hàng của buyer
+    -- 4. Địa chỉ giao hàng — đủ ward/province/is_new_address để GHN tạo vận đơn
     ------------------------------------------------------------------
-    INSERT INTO shipping_addresss (id, member_id, recipient_name, phone, address_detail, is_default)
-    VALUES (gen_random_uuid(), v_buyer_id, 'Nguyễn Văn Buyer', '0911111101',
-            '12 Nguyễn Huệ, P. Bến Nghé, Q.1, TP.HCM', true)
-    RETURNING id INTO v_sa1_id;
+    -- Phường Bến Nghé (Q.1 cũ) đã sáp nhập thành Phường Sài Gòn theo NQ 1685/NQ-UBTVQH15
+    INSERT INTO shipping_addresss (id, member_id, recipient_name, phone, address_detail,
+                                    ward_name, province_name, is_default)
+    VALUES (gen_random_uuid(), v_buyer1_id, 'Nguyễn Văn Buyer 1', '0911111101',
+            '12 Nguyễn Huệ, Phường Bến Nghé', 'Phường Sài Gòn', 'Hồ Chí Minh', true)
+    RETURNING id INTO v_sa_buyer1_1;
 
-    INSERT INTO shipping_addresss (id, member_id, recipient_name, phone, address_detail, is_default)
-    VALUES (gen_random_uuid(), v_buyer_id, 'Nguyễn Văn Buyer (Công ty)', '0911111199',
-            '45 Lê Lợi, P. Bến Thành, Q.1, TP.HCM', false)
-    RETURNING id INTO v_sa2_id;
+    -- Phường Bến Thành (Q.1 cũ) giữ nguyên tên sau sáp nhập (gộp thêm Phạm Ngũ Lão + một phần Cầu Ông Lãnh, Nguyễn Thái Bình)
+    INSERT INTO shipping_addresss (id, member_id, recipient_name, phone, address_detail,
+                                    ward_name, province_name, is_default)
+    VALUES (gen_random_uuid(), v_buyer1_id, 'Nguyễn Văn Buyer 1 (Công ty)', '0911111199',
+            '45 Lê Lợi, Phường Bến Thành', 'Phường Bến Thành', 'Hồ Chí Minh', false)
+    RETURNING id INTO v_sa_buyer1_2;
 
-    ------------------------------------------------------------------
-    -- 5. Thương hiệu & danh mục
-    ------------------------------------------------------------------
-    INSERT INTO brands (id, name, status) VALUES (gen_random_uuid(), 'Uniqlo', 'ACTIVE') RETURNING id INTO v_brand_uniqlo;
-    INSERT INTO brands (id, name, status) VALUES (gen_random_uuid(), 'Zara', 'ACTIVE') RETURNING id INTO v_brand_zara;
-    INSERT INTO brands (id, name, status) VALUES (gen_random_uuid(), 'H&M', 'ACTIVE') RETURNING id INTO v_brand_hm;
-
-    INSERT INTO categories (id, name, tryon_slot, status)
-    VALUES (gen_random_uuid(), 'Áo khoác', 'TOP', 'ACTIVE') RETURNING id INTO v_cat_aokhoac;
-    INSERT INTO categories (id, name, tryon_slot, status)
-    VALUES (gen_random_uuid(), 'Quần jean', 'BOTTOM', 'ACTIVE') RETURNING id INTO v_cat_quanjean;
-    INSERT INTO categories (id, name, tryon_slot, status)
-    VALUES (gen_random_uuid(), 'Váy đầm', 'DRESS', 'ACTIVE') RETURNING id INTO v_cat_vaydam;
-
-    v_seller_ids   := ARRAY[v_seller1_id, v_seller2_id, v_seller1_id, v_seller2_id, v_seller1_id, v_seller2_id];
-    v_category_ids := ARRAY[v_cat_aokhoac, v_cat_quanjean, v_cat_vaydam, v_cat_vaydam, v_cat_aokhoac, v_cat_quanjean];
-    v_brand_ids    := ARRAY[v_brand_uniqlo, v_brand_zara, v_brand_hm, v_brand_zara, v_brand_uniqlo, v_brand_hm];
+    -- Phường Dịch Vọng (Cầu Giấy cũ) đã sáp nhập thành Phường Cầu Giấy
+    INSERT INTO shipping_addresss (id, member_id, recipient_name, phone, address_detail,
+                                    ward_name, province_name, is_default)
+    VALUES (gen_random_uuid(), v_buyer2_id, 'Đặng Thị Buyer 2', '0911111102',
+            '78 Trần Thái Tông, Phường Dịch Vọng', 'Phường Cầu Giấy', 'Hà Nội', true)
+    RETURNING id INTO v_sa_buyer2_1;
 
     ------------------------------------------------------------------
-    -- 6. Ký gửi -> sản phẩm (6 món, chuỗi form -> receipt -> product -> photo)
+    -- 5. Thương hiệu & danh mục (5 + 5, dùng chung cho 20 sản phẩm theo chỉ số xoay vòng)
     ------------------------------------------------------------------
-    FOR i IN 1..6 LOOP
-        v_receipt_confirmed := v_now - (v_days_ago[i] || ' days')::interval;
+    INSERT INTO brands (id, name, status) VALUES (gen_random_uuid(), 'Uniqlo', 'ACTIVE') RETURNING id INTO v_tmp_id; v_brand_ids[1] := v_tmp_id;
+    INSERT INTO brands (id, name, status) VALUES (gen_random_uuid(), 'Zara', 'ACTIVE') RETURNING id INTO v_tmp_id; v_brand_ids[2] := v_tmp_id;
+    INSERT INTO brands (id, name, status) VALUES (gen_random_uuid(), 'H&M', 'ACTIVE') RETURNING id INTO v_tmp_id; v_brand_ids[3] := v_tmp_id;
+    INSERT INTO brands (id, name, status) VALUES (gen_random_uuid(), 'Nike', 'ACTIVE') RETURNING id INTO v_tmp_id; v_brand_ids[4] := v_tmp_id;
+    INSERT INTO brands (id, name, status) VALUES (gen_random_uuid(), 'Adidas', 'ACTIVE') RETURNING id INTO v_tmp_id; v_brand_ids[5] := v_tmp_id;
+
+    INSERT INTO categories (id, name, tryon_slot, status, code)
+    VALUES (gen_random_uuid(), 'Áo khoác', 'TOP', 'ACTIVE', 'AK') RETURNING id INTO v_tmp_id; v_cat_ids[1] := v_tmp_id;
+    INSERT INTO categories (id, name, tryon_slot, status, code)
+    VALUES (gen_random_uuid(), 'Áo thun', 'TOP', 'ACTIVE', 'AT') RETURNING id INTO v_tmp_id; v_cat_ids[2] := v_tmp_id;
+    INSERT INTO categories (id, name, tryon_slot, status, code)
+    VALUES (gen_random_uuid(), 'Quần jean', 'BOTTOM', 'ACTIVE', 'QJ') RETURNING id INTO v_tmp_id; v_cat_ids[3] := v_tmp_id;
+    INSERT INTO categories (id, name, tryon_slot, status, code)
+    VALUES (gen_random_uuid(), 'Chân váy', 'BOTTOM', 'ACTIVE', 'CV') RETURNING id INTO v_tmp_id; v_cat_ids[4] := v_tmp_id;
+    INSERT INTO categories (id, name, tryon_slot, status, code)
+    VALUES (gen_random_uuid(), 'Đầm', 'DRESS', 'ACTIVE', 'DM') RETURNING id INTO v_tmp_id; v_cat_ids[5] := v_tmp_id;
+
+    ------------------------------------------------------------------
+    -- 6. 20 sản phẩm: #1-10 ở Kho Quận 7, #11-20 ở Kho Cầu Giấy
+    --    chuỗi FK bắt buộc: consignment_form -> consignment_receipt -> product -> product_photo
+    ------------------------------------------------------------------
+    FOR i IN 1..20 LOOP
+        v_days_ago[i]    := 30 - i; -- trải 29..10 ngày trước, vẫn trong kỳ 1 (<=30 ngày)
+        v_confirmed_at   := v_now - (v_days_ago[i] || ' days')::interval;
+        v_warehouse_id   := CASE WHEN i <= 10 THEN v_wh1_id ELSE v_wh2_id END;
+        v_moderator_id   := CASE WHEN i > 10 THEN v_mod3_id
+                                  WHEN i % 2 = 1 THEN v_mod1_id
+                                  ELSE v_mod2_id END;
+        v_seller_id      := v_seller_ids[((i - 1) % 3) + 1];
+        v_product_id     := (CASE WHEN i <= 10 THEN 'Q7-' ELSE 'CG-' END)
+                                || v_cat_codes[((i - 1) % 5) + 1] || '-' || lpad(i::text, 6, '0');
 
         INSERT INTO consignment_forms (id, member_id, warehouse_id, category_id, brand_id,
                                         product_name, description, desired_price, status,
                                         reject_reason, bring_in_deadline, created_at, updated_at)
-        VALUES (gen_random_uuid(), v_seller_ids[i], v_warehouse_id, v_category_ids[i], v_brand_ids[i],
+        VALUES (gen_random_uuid(), v_seller_id, v_warehouse_id, v_cat_ids[((i - 1) % 5) + 1], v_brand_ids[((i - 1) % 5) + 1],
                 v_names[i], 'Hàng còn mới, ít sử dụng (seed data)', v_prices[i], 'APPROVED',
-                NULL, (v_receipt_confirmed - interval '1 day')::date + 7,
-                v_receipt_confirmed - interval '1 day', v_receipt_confirmed - interval '1 day')
+                NULL, (v_confirmed_at - interval '1 day')::date + 7,
+                v_confirmed_at - interval '1 day', v_confirmed_at - interval '1 day')
         RETURNING id INTO v_form_id;
 
         INSERT INTO consignment_receipts (id, receipt_no, consignment_form_id, member_id, moderator_id,
@@ -194,157 +277,205 @@ BEGIN
                                            max_renewals, free_withdrawal_window_days,
                                            commission_rate_term1, commission_rate_term2, commission_rate_term3,
                                            withdrawal_fee, degraded_compensation_rate, confirmed_at, pdf_url,
-                                           created_at)
-        VALUES (gen_random_uuid(), 'KG-2026-SEED' || lpad(i::text, 2, '0'), v_form_id, v_seller_ids[i], v_moderator_id,
+                                           condition_note, created_at)
+        VALUES (gen_random_uuid(), 'KG-2026-SEED' || lpad(i::text, 2, '0'), v_form_id, v_seller_id, v_moderator_id,
                 v_warehouse_id, v_prices[i], round(v_prices[i] * 0.5), 30, 2, 7,
-                0.10, 0.15, 0.20, 20000, 0.50, v_receipt_confirmed,
-                'https://example.com/receipts/seed-' || i || '.pdf', v_receipt_confirmed)
+                0.10, 0.15, 0.20, 50000, 0.50, v_confirmed_at,
+                'https://example.com/receipts/seed-' || i || '.pdf',
+                'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.', v_confirmed_at)
         RETURNING id INTO v_receipt_id;
 
         INSERT INTO products (id, consignment_receipt_id, member_id, warehouse_id, category_id, brand_id,
                                name, size, condition_note, current_price, status, current_term,
                                term_started_at, end_of_term_deadline, unclaimed_decision_deadline,
                                shelf_location, created_at, updated_at)
-        VALUES (v_product_ids[i], v_receipt_id, v_seller_ids[i], v_warehouse_id, v_category_ids[i], v_brand_ids[i],
-                v_names[i], 'M', 'Còn mới 90%, không lỗi', v_prices[i], v_statuses[i], 1,
-                v_receipt_confirmed, v_receipt_confirmed + interval '90 days', NULL,
-                NULL, v_receipt_confirmed, v_now);
+        VALUES (v_product_id, v_receipt_id, v_seller_id, v_warehouse_id, v_cat_ids[((i - 1) % 5) + 1], v_brand_ids[((i - 1) % 5) + 1],
+                v_names[i], 'M', 'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.',
+                v_prices[i], v_statuses[i], 1,
+                v_confirmed_at, v_confirmed_at + interval '90 days', NULL,
+                'A1-' || lpad(i::text, 2, '0'), v_confirmed_at, v_now);
 
-        INSERT INTO product_photos (id, product_id, image_url, is_background_removed)
-        VALUES (gen_random_uuid(), v_product_ids[i],
-                'https://cdn.rehome.vn/products/' || v_product_ids[i] || '/thumb.jpg', false);
+        INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
+        VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
     END LOOP;
 
     ------------------------------------------------------------------
-    -- 7. Giỏ hàng của buyer: 2 món đang ON_SALE (P3 của seller1, P4 của seller2)
-    --    -> test "checkout từ giỏ" sẽ tạo 1 đơn gồm hàng của 2 seller khác nhau
+    -- 7. Giỏ hàng của buyer1: 1 món Kho Quận 7 (#7) + 1 món Kho Cầu Giấy (#16)
+    --    -> test "checkout từ giỏ" sẽ tách thành 2 đơn khác kho (F-053)
     ------------------------------------------------------------------
-    INSERT INTO carts (id, member_id) VALUES (gen_random_uuid(), v_buyer_id) RETURNING id INTO v_cart_id;
+    INSERT INTO carts (id, member_id) VALUES (gen_random_uuid(), v_buyer1_id) RETURNING id INTO v_cart_id;
 
     INSERT INTO cart_items (id, cart_id, product_id, added_at) VALUES
-        (gen_random_uuid(), v_cart_id, v_product_ids[3], v_now - interval '1 hour'),
-        (gen_random_uuid(), v_cart_id, v_product_ids[4], v_now - interval '30 minutes');
+        (gen_random_uuid(), v_cart_id, 'Q7-AT-000007', v_now - interval '1 hour'),
+        (gen_random_uuid(), v_cart_id, 'CG-AK-000016', v_now - interval '30 minutes');
 
     ------------------------------------------------------------------
-    -- 8. Đơn hàng (4 đơn, mỗi đơn minh hoạ 1 trạng thái/flow khác nhau)
+    -- 8. Đơn hàng — 5 đơn minh hoạ 5 bước trong luồng đặt hàng/thanh toán/giao hàng
     ------------------------------------------------------------------
 
-    -- Order 1: COMPLETED — P1 (seller1), đã confirm-receipt -> có WalletTransaction ORDER_PAYOUT
-    -- Dùng để test: GET /orders/{id}, GET /wallet/revenue, GET /wallet/transactions, POST /orders/{id}/rating
+    -- Order A: COMPLETED — #1 (seller1, 450000đ), đã confirm-receipt -> có WalletTransaction ORDER_PAYOUT
+    -- Test: GET /orders/{id}, GET /orders?status=COMPLETED, POST /orders/{id}/rating
     INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
                          shipping_recipient_name, shipping_phone, shipping_address_detail,
-                         subtotal, shipping_fee, total_amount, payment_method, status,
+                         shipping_ward_name, shipping_district_name, shipping_province_name, shipping_is_new_address,
+                         scanned_count, subtotal, shipping_fee, total_amount, payment_method, status,
                          ghn_tracking_code, payment_deadline, delivered_at, auto_complete_deadline,
                          cancel_reason, cancelled_at, refund_amount, completed_at,
                          service_rating, rated_at, rating_comment, created_at, updated_at)
-    VALUES (gen_random_uuid(), 'OD-2026-SEED01', v_buyer_id, v_warehouse_id, v_sa1_id,
-            'Nguyễn Văn Buyer', '0911111101', '12 Nguyễn Huệ, P. Bến Nghé, Q.1, TP.HCM',
-            220000, 25000, 245000, 'WALLET', 'COMPLETED',
-            NULL, v_now - interval '5 days' + interval '15 minutes',
+    VALUES (gen_random_uuid(), 'OD-2026-SEED01', v_buyer1_id, v_wh1_id, v_sa_buyer1_1,
+            'Nguyễn Văn Buyer 1', '0911111101', '12 Nguyễn Huệ, Phường Bến Nghé',
+            'Phường Sài Gòn', NULL, 'Hồ Chí Minh', true,
+            1, 450000, 25000, 475000, 'WALLET', 'COMPLETED',
+            NULL, v_now - interval '6 days' + interval '15 minutes',
             v_now - interval '2 days', v_now - interval '2 days' + interval '3 days',
             NULL, NULL, NULL, v_now - interval '1 day',
-            NULL, NULL, NULL, v_now - interval '5 days', v_now - interval '1 day')
-    RETURNING id INTO v_order1_id;
+            NULL, NULL, NULL, v_now - interval '6 days', v_now - interval '1 day')
+    RETURNING id INTO v_order_a_id;
 
     INSERT INTO order_items (id, order_id, product_id, price_at_order, commission_rate_applied,
-                              tax_rate_applied, term_applied)
-    VALUES (gen_random_uuid(), v_order1_id, v_product_ids[1], 220000, 0.10, 0, 1)
-    RETURNING id INTO v_oi_id;
+                              tax_rate_applied, term_applied, scanned)
+    VALUES (gen_random_uuid(), v_order_a_id, 'Q7-AK-000001', 450000, 0.10, 0, 1, true);
 
     INSERT INTO wallet_transactions (id, transaction_no, wallet_type, wallet_id, type, amount,
                                       balance_after, related_order_id, related_order_item_id,
                                       counterpart_transaction_id, status, note, created_at)
-    VALUES (gen_random_uuid(), 'WT-2026-SEED01', 'MEMBER', v_wallet_seller1, 'ORDER_PAYOUT', 198000,
-            198000, v_order1_id, v_oi_id, NULL, 'SUCCESS',
+    VALUES (gen_random_uuid(), 'WT-2026-SEED01', 'MEMBER', v_wallet_seller1, 'ORDER_PAYOUT', 405000,
+            405000, v_order_a_id, NULL, NULL, 'SUCCESS',
             'Thanh toán đơn hàng OD-2026-SEED01', v_now - interval '1 day');
 
-    -- Order 2: PAID — P2 (seller2), chưa giao/chưa hoàn tất -> test POST /orders/{id}/cancel
+    -- Order B: PAID (ví) — #2 (seller2, 180000đ), chưa đóng gói -> test POST /orders/{id}/pack/scan, /cancel
     INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
                          shipping_recipient_name, shipping_phone, shipping_address_detail,
-                         subtotal, shipping_fee, total_amount, payment_method, status,
+                         shipping_ward_name, shipping_district_name, shipping_province_name, shipping_is_new_address,
+                         scanned_count, subtotal, shipping_fee, total_amount, payment_method, status,
                          ghn_tracking_code, payment_deadline, delivered_at, auto_complete_deadline,
                          cancel_reason, cancelled_at, refund_amount, completed_at,
                          service_rating, rated_at, rating_comment, created_at, updated_at)
-    VALUES (gen_random_uuid(), 'OD-2026-SEED02', v_buyer_id, v_warehouse_id, v_sa1_id,
-            'Nguyễn Văn Buyer', '0911111101', '12 Nguyễn Huệ, P. Bến Nghé, Q.1, TP.HCM',
-            150000, 25000, 175000, 'WALLET', 'PAID',
+    VALUES (gen_random_uuid(), 'OD-2026-SEED02', v_buyer1_id, v_wh1_id, v_sa_buyer1_1,
+            'Nguyễn Văn Buyer 1', '0911111101', '12 Nguyễn Huệ, Phường Bến Nghé',
+            'Phường Sài Gòn', NULL, 'Hồ Chí Minh', true,
+            0, 180000, 25000, 205000, 'WALLET', 'PAID',
             NULL, v_now - interval '2 hours' + interval '15 minutes', NULL, NULL,
             NULL, NULL, NULL, NULL,
             NULL, NULL, NULL, v_now - interval '2 hours', v_now - interval '2 hours')
-    RETURNING id INTO v_order2_id;
+    RETURNING id INTO v_order_b_id;
 
     INSERT INTO order_items (id, order_id, product_id, price_at_order, commission_rate_applied,
-                              tax_rate_applied, term_applied)
-    VALUES (gen_random_uuid(), v_order2_id, v_product_ids[2], 150000, 0.10, 0, 1);
+                              tax_rate_applied, term_applied, scanned)
+    VALUES (gen_random_uuid(), v_order_b_id, 'Q7-AT-000002', 180000, 0.10, 0, 1, false);
 
-    -- Order 3: CANCELLED — P5 (seller1), đã được hoàn tiền -> test WalletTransaction REFUND,
-    -- và lọc GET /orders?status=CANCELLED
+    -- Order C: PAID qua VNPay, đã tạo vận đơn GHN -> SHIPPING — #3 (seller3, 320000đ)
+    -- Test: GET /orders/{id}/tracking, POST /webhooks/ghn (status=delivered) để chuyển DELIVERED
     INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
                          shipping_recipient_name, shipping_phone, shipping_address_detail,
-                         subtotal, shipping_fee, total_amount, payment_method, status,
+                         shipping_ward_name, shipping_district_name, shipping_province_name, shipping_is_new_address,
+                         scanned_count, subtotal, shipping_fee, total_amount, payment_method, status,
                          ghn_tracking_code, payment_deadline, delivered_at, auto_complete_deadline,
                          cancel_reason, cancelled_at, refund_amount, completed_at,
                          service_rating, rated_at, rating_comment, created_at, updated_at)
-    VALUES (gen_random_uuid(), 'OD-2026-SEED03', v_buyer_id, v_warehouse_id, v_sa1_id,
-            'Nguyễn Văn Buyer', '0911111101', '12 Nguyễn Huệ, P. Bến Nghé, Q.1, TP.HCM',
-            200000, 25000, 225000, 'WALLET', 'CANCELLED',
-            NULL, v_now - interval '3 days 1 hour' + interval '15 minutes', NULL, NULL,
-            'BUYER_CANCELLED', v_now - interval '3 days', 225000, NULL,
-            NULL, NULL, NULL, v_now - interval '3 days 1 hour', v_now - interval '3 days')
-    RETURNING id INTO v_order3_id;
+    VALUES (gen_random_uuid(), 'OD-2026-SEED03', v_buyer1_id, v_wh1_id, v_sa_buyer1_1,
+            'Nguyễn Văn Buyer 1', '0911111101', '12 Nguyễn Huệ, Phường Bến Nghé',
+            'Phường Sài Gòn', NULL, 'Hồ Chí Minh', true,
+            1, 320000, 25000, 345000, 'WALLET', 'SHIPPING',
+            'GHNSEED00001', v_now - interval '2 days' + interval '15 minutes', NULL, NULL,
+            NULL, NULL, NULL, NULL,
+            NULL, NULL, NULL, v_now - interval '2 days', v_now - interval '6 hours')
+    RETURNING id INTO v_order_c_id;
 
     INSERT INTO order_items (id, order_id, product_id, price_at_order, commission_rate_applied,
-                              tax_rate_applied, term_applied)
-    VALUES (gen_random_uuid(), v_order3_id, v_product_ids[5], 200000, 0.10, 0, 1);
+                              tax_rate_applied, term_applied, scanned)
+    VALUES (gen_random_uuid(), v_order_c_id, 'Q7-QJ-000003', 320000, 0.10, 0, 1, true)
+    RETURNING id INTO v_oi_c_id;
+
+    INSERT INTO payments (id, order_id, amount, method, momo_transaction_id, momo_order_id, momo_request_id,
+                           vnp_txn_ref, vnp_transaction_no, vnp_create_date, status, paid_at)
+    VALUES (gen_random_uuid(), v_order_c_id, 345000, 'VNPAY', NULL, NULL, NULL,
+            v_order_c_id::text || '-seed03', '14000555',
+            to_char((v_now - interval '2 days') AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYYMMDDHH24MISS'),
+            'SUCCESS', v_now - interval '2 days' + interval '3 minutes');
+
+    INSERT INTO order_tracking_events (id, order_id, ghn_status, description, occurred_at, created_at) VALUES
+        (gen_random_uuid(), v_order_c_id, 'ready_to_pick', 'Đã lấy hàng từ kho', v_now - interval '1 day 12 hours', v_now - interval '1 day 12 hours'),
+        (gen_random_uuid(), v_order_c_id, 'delivering', 'Đang giao cho người nhận', v_now - interval '6 hours', v_now - interval '6 hours');
+
+    -- Order D: CANCELLED — #4 (seller1, 250000đ), buyer tự hủy -> đã hoàn tiền vào ví, hàng nhả về ON_SALE
+    -- Test: GET /orders?status=CANCELLED, xem WalletTransaction REFUND
+    INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
+                         shipping_recipient_name, shipping_phone, shipping_address_detail,
+                         shipping_ward_name, shipping_district_name, shipping_province_name, shipping_is_new_address,
+                         scanned_count, subtotal, shipping_fee, total_amount, payment_method, status,
+                         ghn_tracking_code, payment_deadline, delivered_at, auto_complete_deadline,
+                         cancel_reason, cancelled_at, refund_amount, completed_at,
+                         service_rating, rated_at, rating_comment, created_at, updated_at)
+    VALUES (gen_random_uuid(), 'OD-2026-SEED04', v_buyer1_id, v_wh1_id, v_sa_buyer1_1,
+            'Nguyễn Văn Buyer 1', '0911111101', '12 Nguyễn Huệ, Phường Bến Nghé',
+            'Phường Sài Gòn', NULL, 'Hồ Chí Minh', true,
+            0, 250000, 25000, 275000, 'WALLET', 'CANCELLED',
+            NULL, v_now - interval '3 days 1 hour' + interval '15 minutes', NULL, NULL,
+            'BUYER_CANCELLED', v_now - interval '3 days', 275000, NULL,
+            NULL, NULL, NULL, v_now - interval '3 days 1 hour', v_now - interval '3 days')
+    RETURNING id INTO v_order_d_id;
+
+    INSERT INTO order_items (id, order_id, product_id, price_at_order, commission_rate_applied,
+                              tax_rate_applied, term_applied, scanned)
+    VALUES (gen_random_uuid(), v_order_d_id, 'Q7-CV-000004', 250000, 0.10, 0, 1, false);
 
     INSERT INTO wallet_transactions (id, transaction_no, wallet_type, wallet_id, type, amount,
                                       balance_after, related_order_id, related_order_item_id,
                                       counterpart_transaction_id, status, note, created_at)
-    VALUES (gen_random_uuid(), 'WT-2026-SEED02', 'MEMBER', v_wallet_buyer, 'REFUND', 225000,
-            5000000, v_order3_id, NULL, NULL, 'SUCCESS',
-            'Hoàn tiền hủy đơn OD-2026-SEED03', v_now - interval '3 days');
+    VALUES (gen_random_uuid(), 'WT-2026-SEED02', 'MEMBER', v_wallet_buyer1, 'REFUND', 275000,
+            5000000, v_order_d_id, NULL, NULL, 'SUCCESS',
+            'Hoàn tiền hủy đơn OD-2026-SEED04', v_now - interval '3 days');
 
-    -- Order 4: PAID qua MOMO — P6 (seller2) -> test bảng payments / GET /orders (payment_method=MOMO)
+    -- Order E: PENDING_PAYMENT, mới tạo, CHƯA thanh toán — #11 (seller2, 430000đ), buyer2 ở Hà Nội
+    -- Test: POST /api/vnpay/create?orderId=<id-của-đơn-này> để bắt đầu lại từ đầu luồng VNPay
     INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
                          shipping_recipient_name, shipping_phone, shipping_address_detail,
-                         subtotal, shipping_fee, total_amount, payment_method, status,
+                         shipping_ward_name, shipping_district_name, shipping_province_name, shipping_is_new_address,
+                         scanned_count, subtotal, shipping_fee, total_amount, payment_method, status,
                          ghn_tracking_code, payment_deadline, delivered_at, auto_complete_deadline,
                          cancel_reason, cancelled_at, refund_amount, completed_at,
                          service_rating, rated_at, rating_comment, created_at, updated_at)
-    VALUES (gen_random_uuid(), 'OD-2026-SEED04', v_buyer_id, v_warehouse_id, v_sa1_id,
-            'Nguyễn Văn Buyer', '0911111101', '12 Nguyễn Huệ, P. Bến Nghé, Q.1, TP.HCM',
-            160000, 25000, 185000, 'MOMO', 'PAID',
-            NULL, v_now - interval '1 hour' + interval '15 minutes', NULL, NULL,
+    VALUES (gen_random_uuid(), 'OD-2026-SEED05', v_buyer2_id, v_wh2_id, v_sa_buyer2_1,
+            'Đặng Thị Buyer 2', '0911111102', '78 Trần Thái Tông, Phường Dịch Vọng',
+            'Phường Cầu Giấy', NULL, 'Hà Nội', true,
+            0, 430000, 25000, 455000, 'WALLET', 'PENDING_PAYMENT',
+            NULL, v_now + interval '15 minutes', NULL, NULL,
             NULL, NULL, NULL, NULL,
-            NULL, NULL, NULL, v_now - interval '1 hour', v_now - interval '1 hour')
-    RETURNING id INTO v_order4_id;
+            NULL, NULL, NULL, v_now, v_now)
+    RETURNING id INTO v_order_e_id;
 
     INSERT INTO order_items (id, order_id, product_id, price_at_order, commission_rate_applied,
-                              tax_rate_applied, term_applied)
-    VALUES (gen_random_uuid(), v_order4_id, v_product_ids[6], 160000, 0.10, 0, 1);
-
-    INSERT INTO payments (id, order_id, amount, method, momo_transaction_id, momo_order_id,
-                           momo_request_id, status, paid_at)
-    VALUES (gen_random_uuid(), v_order4_id, 185000, 'MOMO', '555000111', 'SEED-MOMO-0001',
-            'SEED-MOMO-REQ-0001', 'SUCCESS', v_now - interval '1 hour' + interval '2 minutes');
+                              tax_rate_applied, term_applied, scanned)
+    VALUES (gen_random_uuid(), v_order_e_id, 'CG-AK-000011', 430000, 0.10, 0, 1, false);
 
 END $$;
 
 -- ============================================================================
--- Tài khoản test (mật khẩu chung: 123456)
---   buyer1@rehome.test      MEMBER        — ví 5,000,000đ, 2 địa chỉ giao hàng, giỏ có 2 món
---   seller1@rehome.test     MEMBER        — ví 198,000đ (đã nhận payout từ đơn OD-2026-SEED01)
---   seller2@rehome.test     MEMBER        — ví 0đ, chưa có giao dịch
---   org1@rehome.test        ORGANIZATION  — hồ sơ VERIFIED
---   moderator1@rehome.test  MODERATOR     — gắn vào "Kho Demo Seed"
---   admin@rehome.com        ADMIN         — đã có sẵn từ UserInitializer (password 123456)
+-- Tài khoản test (mật khẩu chung: 123456, domain @rehome.test, tự chứa không cần UserInitializer)
+--   admin1@rehome.test      ADMIN
+--   moderator1@rehome.test  MODERATOR  — phụ trách "Kho Quận 7 - TP.HCM"
+--   moderator2@rehome.test  MODERATOR  — phụ trách "Kho Quận 7 - TP.HCM"
+--   moderator3@rehome.test  MODERATOR  — phụ trách "Kho Cầu Giấy - Hà Nội"
+--   buyer1@rehome.test      MEMBER     — ví 5.000.000đ, 2 địa chỉ (TP.HCM), giỏ có 2 món (2 kho khác nhau)
+--   buyer2@rehome.test      MEMBER     — ví 3.000.000đ, 1 địa chỉ (Hà Nội), có đơn OD-2026-SEED05 chờ thanh toán
+--   seller1@rehome.test     MEMBER     — ví 405.000đ (đã nhận payout từ OD-2026-SEED01)
+--   seller2@rehome.test     MEMBER     — ví 0đ
+--   seller3@rehome.test     MEMBER     — ví 0đ
+--   org1@rehome.test        ORGANIZATION — hồ sơ VERIFIED
 --
--- Đơn hàng:
---   OD-2026-SEED01  COMPLETED  — test GET /wallet/revenue, GET /orders/{id}, POST rating
---   OD-2026-SEED02  PAID       — test POST /orders/{id}/cancel
---   OD-2026-SEED03  CANCELLED — đã có WalletTransaction REFUND
---   OD-2026-SEED04  PAID (MOMO) — có kèm 1 dòng payments
+-- Kho:
+--   Kho Quận 7 - TP.HCM     — sản phẩm #1-10 (SKU Q7-xx-0000NN)
+--   Kho Cầu Giấy - Hà Nội   — sản phẩm #11-20 (SKU CG-xx-0000NN)
 --
--- Sản phẩm ON_SALE còn lại để test thêm giỏ hàng / đặt đơn mới: SEED-VD-0001, SEED-VD-0002,
--- SEED-AK-0002 (2 món đầu đã có sẵn trong giỏ của buyer1).
+-- Đơn hàng (buyer1 trừ OD-2026-SEED05 là của buyer2):
+--   OD-2026-SEED01  COMPLETED           — test GET /orders/{id}, POST /orders/{id}/rating
+--   OD-2026-SEED02  PAID (ví)           — test POST /orders/{id}/pack/scan rồi /shipment
+--   OD-2026-SEED03  SHIPPING (VNPay)    — có payments(VNPAY) + ghn_tracking_code GHNSEED00001 + 2 tracking event
+--                                          -> test GET /orders/{id}/tracking, POST /webhooks/ghn (status=delivered)
+--   OD-2026-SEED04  CANCELLED           — đã hoàn 275.000đ vào ví buyer1 (WalletTransaction REFUND)
+--   OD-2026-SEED05  PENDING_PAYMENT     — test POST /api/vnpay/create?orderId=... từ đầu luồng VNPay
+--
+-- Sản phẩm ON_SALE còn trống để test thêm giỏ hàng / đặt đơn mới: tất cả trừ
+-- Q7-AK-000001 (SOLD), Q7-AT-000002 (RESERVED), Q7-QJ-000003 (RESERVED), CG-AK-000011 (RESERVED).
 -- ============================================================================

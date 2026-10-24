@@ -1,6 +1,5 @@
 package com.rehome.rehome.repository;
 
-import com.beust.ah.A;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.Role;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -19,5 +18,5 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
     long countByRole(Role role);
     Optional<Account> findByEmailIgnoreCase(String email);
     Optional<Account> findFirstByRole(Role role);
-    boolean existByPhone(String phone);
+    boolean existsByPhone(String phone);
 }

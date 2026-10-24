@@ -95,7 +95,7 @@ class AuthServiceImplTest {
         when(req.getEmail()).thenReturn("a@x.com");
         when(req.getPhone()).thenReturn("0909");
         when(accountRepository.existsByEmail("a@x.com")).thenReturn(false);
-        when(accountRepository.existByPhone("0909")).thenReturn(true);
+        when(accountRepository.existsByPhone("0909")).thenReturn(true);
 
         assertAppError(() -> service.registerMember(req), ErrorCode.PHONE_TAKEN);
 
@@ -155,7 +155,7 @@ class AuthServiceImplTest {
         when(req.getEmail()).thenReturn("org@x.com");
         when(req.getPhone()).thenReturn("0909");
         when(accountRepository.existsByEmail("org@x.com")).thenReturn(false);
-        when(accountRepository.existByPhone("0909")).thenReturn(true);
+        when(accountRepository.existsByPhone("0909")).thenReturn(true);
 
         assertAppError(() -> service.registerOrganization(req), ErrorCode.PHONE_TAKEN);
 
@@ -170,7 +170,7 @@ class AuthServiceImplTest {
         when(req.getPassword()).thenReturn("pw");
         when(req.getPhone()).thenReturn("0909");
         when(accountRepository.existsByEmail("org@x.com")).thenReturn(false);
-        when(accountRepository.existByPhone("0909")).thenReturn(false);
+        when(accountRepository.existsByPhone("0909")).thenReturn(false);
         when(passwordEncoder.encode("pw")).thenReturn("hashed");
 
         OtpResponse res = service.registerOrganization(req);

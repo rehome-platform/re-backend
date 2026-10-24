@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.dto.request.AddShippingAddressRequest;
+import com.rehome.rehome.dto.response.ResolvedAddressUnit;
 import com.rehome.rehome.dto.response.ShippingAddressResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.marketplace.ShippingAddress;
@@ -9,6 +10,7 @@ import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.ShippingAddressRepository;
+import com.rehome.rehome.service.AddressUnitService;
 import com.rehome.rehome.service.ShippingAddressService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -28,6 +30,7 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
     private final AccountRepository accountRepository;
     private final ShippingAddressRepository shippingAddressRepository;
     private final OrderRepository orderRepository;
+    private final AddressUnitService addressUnitService;
 
     @Override
     public List<ShippingAddressResponse> getAddresses(String email) {
@@ -56,7 +59,7 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
         if (!StringUtils.hasText(request.getAddressDetail())) {
             throw new BadRequestException("addressDetail là bắt buộc.");
         }
-        validateAddressUnit(request);
+        ResolvedAddressUnit unit = resolveAddressUnit(request);
 
         Account member = accountRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
@@ -78,8 +81,8 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
                 .recipientName(request.getRecipientName())
                 .phone(request.getPhone())
                 .addressDetail(request.getAddressDetail())
-                .wardName(request.getWardName())
-                .provinceName(request.getProvinceName())
+                .wardName(unit.wardName())
+                .provinceName(unit.provinceName())
                 .isDefault(isDefault)
                 .build();
         shippingAddressRepository.save(address);
@@ -100,7 +103,7 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
         if (!StringUtils.hasText(request.getAddressDetail())) {
             throw new BadRequestException("addressDetail là bắt buộc.");
         }
-        validateAddressUnit(request);
+        ResolvedAddressUnit unit = resolveAddressUnit(request);
 
         Account member = accountRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
@@ -117,23 +120,26 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
         address.setRecipientName(request.getRecipientName());
         address.setPhone(request.getPhone());
         address.setAddressDetail(request.getAddressDetail());
-        address.setWardName(request.getWardName());
-        address.setProvinceName(request.getProvinceName());
+        address.setWardName(unit.wardName());
+        address.setProvinceName(unit.provinceName());
         address.setIsDefault(isDefault);
         shippingAddressRepository.save(address);
 
         return toResponse(address);
     }
 
-    // Phường/xã + tỉnh/thành theo hành chính 2 cấp (sau 01/07/2025, không còn quận/huyện) luôn bắt buộc
-    // — xem docs/ghnapi.md mục "Lấy Phường/Xã (Mới)"/"Tạo đơn"
-    private void validateAddressUnit(AddShippingAddressRequest request) {
+    // Phường/xã + tỉnh/thành theo hành chính 2 cấp (sau 01/07/2025, không còn quận/huyện) luôn bắt buộc,
+    // và phải khớp danh mục GHN mới tạo được vận đơn — xem docs/ghnapi.md mục "Lấy Phường/Xã (Mới)"/"Tạo đơn".
+    // Chặn tên tự do ngay ở form địa chỉ, thay vì để Moderator đụng TO_ADDRESS_CONFLICT ở bước tạo vận đơn;
+    // tên đã chuẩn hóa được lưu lại để Order snapshot đúng giá trị GHN chấp nhận.
+    private ResolvedAddressUnit resolveAddressUnit(AddShippingAddressRequest request) {
         if (!StringUtils.hasText(request.getWardName())) {
             throw new BadRequestException("wardName là bắt buộc.");
         }
         if (!StringUtils.hasText(request.getProvinceName())) {
             throw new BadRequestException("provinceName là bắt buộc.");
         }
+        return addressUnitService.resolveNewUnit(request.getProvinceName(), request.getWardName());
     }
 
     @Override

@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -18,4 +19,8 @@ public interface EndOfTermDecisionRepository extends JpaRepository<EndOfTermDeci
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select d from EndOfTermDecision d where d.id = :id")
     Optional<EndOfTermDecision> findByIdForUpdate(@Param("id") UUID id);
+
+    @Query("select d from EndOfTermDecision d join fetch d.product p "
+            + "where p.member.id = :memberId and d.decision is null order by d.deadline asc")
+    List<EndOfTermDecision> findUndecidedByMemberId(@Param("memberId") UUID memberId);
 }

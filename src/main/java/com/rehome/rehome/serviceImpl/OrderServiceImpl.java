@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.client.GhnApi;
+import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.dto.request.CreateOrderRequest;
 import com.rehome.rehome.dto.request.GhnCreateOrderRequest;
 import com.rehome.rehome.dto.request.GhnOrderItem;
@@ -113,10 +114,7 @@ public class OrderServiceImpl implements OrderService {
     private final WalletTransactionRepository walletTransactionRepository;
     private final PlatformFundRepository platformFundRepository;
     private final GhnApi ghnApi;
-
-    // Phí ship cố định tạm thời, chưa tích hợp GHN
-    @Value("${app.order.shipping-fee}")
-    private BigDecimal shippingFee;
+    private final GhnShippingFeeCalculator ghnShippingFeeCalculator;
 
     @Value("${app.order.payment-deadline-minutes}")
     private long paymentDeadlineMinutes;
@@ -225,6 +223,10 @@ public class OrderServiceImpl implements OrderService {
             BigDecimal subtotal = products.stream()
                     .map(Product::getCurrentPrice)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            // F-054: phí ship thật theo tuyến kho -> địa chỉ nhận, không còn số cố định
+            BigDecimal shippingFee = ghnShippingFeeCalculator.calculate(
+                    warehouse, shippingAddress.getWardName(), shippingAddress.getProvinceName());
 
             Order order = Order.builder()
                     .orderNo(generateOrderNo())

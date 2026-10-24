@@ -1,6 +1,5 @@
 package com.rehome.rehome.repository;
 
-import com.beust.ah.A;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.Role;
 import org.springframework.data.jpa.repository.JpaRepository;

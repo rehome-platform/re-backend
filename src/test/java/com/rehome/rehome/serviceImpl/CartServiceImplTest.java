@@ -1,9 +1,11 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.dto.request.AddCartItemRequest;
 import com.rehome.rehome.dto.response.CartItemResponse;
 import com.rehome.rehome.dto.response.CartResponse;
 import com.rehome.rehome.dto.response.CartWarehouseGroupResponse;
+import com.rehome.rehome.dto.response.CheckoutPreviewResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.marketplace.Cart;
@@ -12,6 +14,7 @@ import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
+import com.rehome.rehome.entity.marketplace.ShippingAddress;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
@@ -20,6 +23,7 @@ import com.rehome.rehome.repository.CartItemRepository;
 import com.rehome.rehome.repository.CartRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
+import com.rehome.rehome.repository.ShippingAddressRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,6 +41,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -49,6 +54,8 @@ class CartServiceImplTest {
     @Mock CartItemRepository cartItemRepository;
     @Mock ProductRepository productRepository;
     @Mock ProductPhotoRepository productPhotoRepository;
+    @Mock ShippingAddressRepository shippingAddressRepository;
+    @Mock GhnShippingFeeCalculator ghnShippingFeeCalculator;
 
     @InjectMocks
     CartServiceImpl cartService;
@@ -359,5 +366,128 @@ class CartServiceImplTest {
 
         assertThat(response.getGroupedByWarehouse().get(0).getItems().get(0).getProduct().getThumbnailUrl())
                 .isEqualTo("https://cdn.rehome.vn/first.jpg");
+    }
+
+    @Test
+    void checkoutPreview_throwsNotFound_whenAccountDoesNotExist() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> cartService.checkoutPreview(email, UUID.randomUUID().toString()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Account không tồn tại");
+    }
+
+    @Test
+    void checkoutPreview_throwsNotFound_whenShippingAddressIdIsMalformed() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+
+        assertThatThrownBy(() -> cartService.checkoutPreview(email, "not-a-uuid"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy địa chỉ giao hàng.");
+
+        verify(shippingAddressRepository, never()).findById(any());
+    }
+
+    @Test
+    void checkoutPreview_throwsNotFound_whenShippingAddressDoesNotBelongToMember() {
+        UUID addressId = UUID.randomUUID();
+        Account otherMember = Account.builder().id(UUID.randomUUID()).build();
+        ShippingAddress address = ShippingAddress.builder().id(addressId).member(otherMember).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(address));
+
+        assertThatThrownBy(() -> cartService.checkoutPreview(email, addressId.toString()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy địa chỉ giao hàng.");
+    }
+
+    @Test
+    void checkoutPreview_throwsConflict_whenMemberHasNoCart() {
+        UUID addressId = UUID.randomUUID();
+        ShippingAddress address = ShippingAddress.builder().id(addressId).member(member).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(address));
+        when(cartRepository.findByMember_Id(member.getId())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> cartService.checkoutPreview(email, addressId.toString()))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Giỏ hàng đang trống.");
+
+        verify(ghnShippingFeeCalculator, never()).calculate(any(), any(), any());
+    }
+
+    @Test
+    void checkoutPreview_throwsConflict_whenCartIsEmpty() {
+        UUID addressId = UUID.randomUUID();
+        ShippingAddress address = ShippingAddress.builder().id(addressId).member(member).build();
+        Cart cart = Cart.builder().id(UUID.randomUUID()).member(member).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(address));
+        when(cartRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(cart));
+        when(cartItemRepository.findAllByCartIdWithProduct(cart.getId())).thenReturn(List.of());
+
+        assertThatThrownBy(() -> cartService.checkoutPreview(email, addressId.toString()))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Giỏ hàng đang trống.");
+    }
+
+    @Test
+    void checkoutPreview_groupsByWarehouse_splitsUnavailableItems_andUsesGhnFee() {
+        UUID addressId = UUID.randomUUID();
+        ShippingAddress address = ShippingAddress.builder()
+                .id(addressId).member(member)
+                .wardName("Phường Bến Nghé").provinceName("TP.HCM")
+                .build();
+
+        Cart cart = Cart.builder().id(UUID.randomUUID()).member(member).build();
+
+        Warehouse warehouse1 = Warehouse.builder().id(UUID.randomUUID()).name("Kho Quận 7")
+                .wardName("Phường Tân Phú").provinceName("TP.HCM").isNewAddress(true).build();
+        Warehouse warehouse2 = Warehouse.builder().id(UUID.randomUUID()).name("Kho Bình Thạnh")
+                .wardName("Phường 13").provinceName("TP.HCM").isNewAddress(true).build();
+
+        Product availableProduct = Product.builder()
+                .id("Q7-AK-000845")
+                .currentPrice(new BigDecimal("220000"))
+                .status(ProductStatus.ON_SALE)
+                .warehouse(warehouse1)
+                .build();
+
+        Product soldProduct = Product.builder()
+                .id("Q7-AK-000912")
+                .currentPrice(new BigDecimal("380000"))
+                .status(ProductStatus.SOLD)
+                .warehouse(warehouse2)
+                .build();
+
+        CartItem item1 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(availableProduct).build();
+        CartItem item2 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(soldProduct).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(address));
+        when(cartRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(cart));
+        when(cartItemRepository.findAllByCartIdWithProduct(cart.getId())).thenReturn(List.of(item1, item2));
+
+        when(ghnShippingFeeCalculator.calculate(eq(warehouse1), eq("Phường Bến Nghé"), eq("TP.HCM")))
+                .thenReturn(new BigDecimal("19500"));
+
+        CheckoutPreviewResponse response = cartService.checkoutPreview(email, addressId.toString());
+
+        assertThat(response.getUnavailableItems()).hasSize(1);
+        assertThat(response.getUnavailableItems().get(0).getProductId()).isEqualTo("Q7-AK-000912");
+        assertThat(response.getUnavailableItems().get(0).getReason()).isEqualTo("SOLD");
+
+        assertThat(response.getOrders()).hasSize(1);
+        var order = response.getOrders().get(0);
+        assertThat(order.getWarehouseId()).isEqualTo(warehouse1.getId().toString());
+        assertThat(order.getItems()).containsExactly("Q7-AK-000845");
+        assertThat(order.getSubtotal()).isEqualTo(new BigDecimal("220000"));
+        assertThat(order.getShippingFee()).isEqualTo(new BigDecimal("19500"));
+        assertThat(order.getTotal()).isEqualTo(new BigDecimal("239500"));
+
+        verify(ghnShippingFeeCalculator, never()).calculate(eq(warehouse2), any(), any());
     }
 }

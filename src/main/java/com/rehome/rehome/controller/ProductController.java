@@ -132,4 +132,16 @@ public class ProductController {
             @PathVariable String id) {
         return ResponseEntity.ok(ApiResponse.success(productService.getSkuLabel(account, id), 200, ""));
     }
+
+    // Xem trước phí ship GHN thật cho 1 sản phẩm - chỉ cần nhập địa chỉ, không cần giỏ hàng/đơn hàng
+    @GetMapping("/{id}/shipping-fee-preview")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<ShippingFeePreviewResponse>> getShippingFeePreview(
+            @PathVariable String id,
+            @RequestParam String wardName,
+            @RequestParam String provinceName) {
+
+        ShippingFeePreviewResponse result = productService.getShippingFeePreview(id, wardName, provinceName);
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
 }

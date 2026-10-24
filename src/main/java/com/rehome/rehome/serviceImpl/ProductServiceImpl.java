@@ -1,5 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.dto.request.CreateProductRequest;
 import com.rehome.rehome.dto.request.PriceReductionRequest;
 import com.rehome.rehome.dto.request.UpdateShelfLocationRequest;
@@ -24,6 +25,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -50,6 +52,7 @@ public class ProductServiceImpl implements ProductService {
     private final ConsignmentReceiptRepository receiptRepository;
     private final StockMovementLogRepository stockMovementLogRepository;
     private final SkuLabelPdfService skuLabelPdfService;
+    private final GhnShippingFeeCalculator ghnShippingFeeCalculator;
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
@@ -246,6 +249,29 @@ public class ProductServiceImpl implements ProductService {
         productRepository.save(product);
 
         return new PriceReductionResponse(product.getCurrentPrice());
+    }
+
+    @Override
+    public ShippingFeePreviewResponse getShippingFeePreview(String productId, String wardName, String provinceName) {
+
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm."));
+
+        if (!StringUtils.hasText(wardName) || !StringUtils.hasText(provinceName)) {
+            throw new BadRequestException("wardName và provinceName là bắt buộc.");
+        }
+
+        Warehouse warehouse = product.getWarehouse();
+        BigDecimal shippingFee = ghnShippingFeeCalculator.calculate(warehouse, wardName, provinceName);
+
+        return ShippingFeePreviewResponse.builder()
+                .productId(product.getId())
+                .warehouseId(warehouse.getId().toString())
+                .warehouseName(warehouse.getName())
+                .wardName(wardName)
+                .provinceName(provinceName)
+                .shippingFee(shippingFee)
+                .build();
     }
 
     // ProductServiceImpl

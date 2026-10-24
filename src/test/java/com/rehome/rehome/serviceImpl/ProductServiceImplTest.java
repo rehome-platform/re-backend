@@ -1,5 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.dto.request.CreateProductRequest;
 import com.rehome.rehome.dto.request.PriceReductionRequest;
 import com.rehome.rehome.dto.response.*;
@@ -72,6 +73,7 @@ class ProductServiceImplTest {
     @Mock EndOfTermDecisionRepository endOfTermDecisionRepository;
 
     @Mock ConsignmentReceiptRepository receiptRepository;
+    @Mock GhnShippingFeeCalculator ghnShippingFeeCalculator;
 
     @InjectMocks ProductServiceImpl service;
 
@@ -789,5 +791,45 @@ class ProductServiceImplTest {
         verify(productRepository, never()).save(any());
         verify(productPhotoRepository, never()).saveAll(any());
         verifyNoInteractions(stockMovementLogRepository);
+    }
+
+    // ---------- getShippingFeePreview ----------
+
+    @Test
+    void getShippingFeePreview_throwsNotFound_whenProductDoesNotExist() {
+        when(productRepository.findById("P-404")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getShippingFeePreview("P-404", "Phường Bến Nghé", "TP.HCM"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy sản phẩm.");
+    }
+
+    @Test
+    void getShippingFeePreview_throwsBadRequest_whenWardNameIsBlank() {
+        Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).name("Kho Quận 7").build();
+        Product product = Product.builder().id("P-001").warehouse(warehouse).build();
+        when(productRepository.findById("P-001")).thenReturn(Optional.of(product));
+
+        assertThatThrownBy(() -> service.getShippingFeePreview("P-001", "  ", "TP.HCM"))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("wardName và provinceName là bắt buộc.");
+
+        verifyNoInteractions(ghnShippingFeeCalculator);
+    }
+
+    @Test
+    void getShippingFeePreview_returnsFeeFromCalculator_onSuccess() {
+        Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).name("Kho Quận 7").build();
+        Product product = Product.builder().id("P-001").warehouse(warehouse).build();
+        when(productRepository.findById("P-001")).thenReturn(Optional.of(product));
+        when(ghnShippingFeeCalculator.calculate(eq(warehouse), eq("Phường Bến Nghé"), eq("TP.HCM")))
+                .thenReturn(new BigDecimal("19500"));
+
+        ShippingFeePreviewResponse response = service.getShippingFeePreview("P-001", "Phường Bến Nghé", "TP.HCM");
+
+        assertThat(response.getProductId()).isEqualTo("P-001");
+        assertThat(response.getWarehouseId()).isEqualTo(warehouse.getId().toString());
+        assertThat(response.getWarehouseName()).isEqualTo("Kho Quận 7");
+        assertThat(response.getShippingFee()).isEqualTo(new BigDecimal("19500"));
     }
 }

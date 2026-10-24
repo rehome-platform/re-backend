@@ -31,4 +31,7 @@ public interface ProductService {
     ProductSkuLookupResponse getBySku(Account account, String sku);
     ShelfLocationResponse updateShelfLocation(Account account, String productId, UpdateShelfLocationRequest request);
     PriceReductionResponse reducePrice(Account account, String productId, PriceReductionRequest request);
+
+    // Xem trước phí ship GHN thật cho 1 sản phẩm, chỉ cần nhập địa chỉ - không cần giỏ hàng/đơn hàng
+    ShippingFeePreviewResponse getShippingFeePreview(String productId, String wardName, String provinceName);
 }

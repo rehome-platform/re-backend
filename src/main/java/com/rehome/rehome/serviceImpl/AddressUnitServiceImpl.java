@@ -2,10 +2,9 @@ package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.client.GhnApi;
 import com.rehome.rehome.dto.response.AddressUnitResponse;
-import com.rehome.rehome.dto.response.GhnDistrict;
 import com.rehome.rehome.dto.response.GhnMasterDataResponse;
-import com.rehome.rehome.dto.response.GhnProvince;
-import com.rehome.rehome.dto.response.GhnWard;
+import com.rehome.rehome.dto.response.GhnNewProvince;
+import com.rehome.rehome.dto.response.GhnNewWard;
 import com.rehome.rehome.exception.GhnException;
 import com.rehome.rehome.service.AddressUnitService;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +20,9 @@ import java.util.function.Supplier;
 @Slf4j
 public class AddressUnitServiceImpl implements AddressUnitService {
 
+    // GHN hiện có 34 tỉnh/thành và tối đa 168 phường/xã/tỉnh (TP.HCM) sau sáp nhập - 200 đủ lấy hết trong 1 lần gọi
+    private static final int MAX_PAGE_SIZE = 200;
+
     private final GhnApi ghnApi;
 
     @Value("${ghn.token}")
@@ -31,39 +33,26 @@ public class AddressUnitServiceImpl implements AddressUnitService {
 
     @Override
     public List<AddressUnitResponse> getProvinces() {
-        GhnMasterDataResponse<GhnProvince> response =
-                call(() -> ghnApi.getProvinces(ghnToken, ghnShopId), "danh sách tỉnh/thành");
+        GhnMasterDataResponse<GhnNewProvince> response =
+                call(() -> ghnApi.getProvinces(ghnToken, ghnShopId, 0, MAX_PAGE_SIZE), "danh sách tỉnh/thành");
 
         return response.getData().stream()
                 .map(p -> AddressUnitResponse.builder()
-                        .code(String.valueOf(p.getProvinceId()))
-                        .name(p.getProvinceName())
+                        .code(String.valueOf(p.getId()))
+                        .name(p.getName())
                         .build())
                 .toList();
     }
 
     @Override
-    public List<AddressUnitResponse> getDistricts(int provinceId) {
-        GhnMasterDataResponse<GhnDistrict> response =
-                call(() -> ghnApi.getDistricts(ghnToken, ghnShopId, provinceId), "danh sách quận/huyện");
-
-        return response.getData().stream()
-                .map(d -> AddressUnitResponse.builder()
-                        .code(String.valueOf(d.getDistrictId()))
-                        .name(d.getDistrictName())
-                        .build())
-                .toList();
-    }
-
-    @Override
-    public List<AddressUnitResponse> getWards(int districtId) {
-        GhnMasterDataResponse<GhnWard> response =
-                call(() -> ghnApi.getWards(ghnToken, ghnShopId, districtId), "danh sách phường/xã");
+    public List<AddressUnitResponse> getWards(int provinceId) {
+        GhnMasterDataResponse<GhnNewWard> response =
+                call(() -> ghnApi.getWards(ghnToken, ghnShopId, provinceId, 0, MAX_PAGE_SIZE), "danh sách phường/xã");
 
         return response.getData().stream()
                 .map(w -> AddressUnitResponse.builder()
-                        .code(w.getWardCode())
-                        .name(w.getWardName())
+                        .code(String.valueOf(w.getId()))
+                        .name(w.getName())
                         .build())
                 .toList();
     }

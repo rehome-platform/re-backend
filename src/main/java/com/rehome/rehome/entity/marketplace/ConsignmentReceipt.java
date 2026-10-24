@@ -105,7 +105,7 @@
         private Instant confirmedAt;
 
         // Tệp PDF hệ thống sinh ra — F-022
-        @Column(name = "pdf_url", nullable = false, length = 2048)
+        @Column(name = "pdf_url", nullable = true, length = 2048)
         private String pdfUrl;
 
         // Thời điểm tạo bản ghi

@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 @Slf4j
-@Component
+// @Component // tạm tắt: chỉ cần app chạy 1 lần để Hibernate sync schema, chưa cần seed account thật
 @Order(0)
 @RequiredArgsConstructor
 public class UserInitializer implements CommandLineRunner {

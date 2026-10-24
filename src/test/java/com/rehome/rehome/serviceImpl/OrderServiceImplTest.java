@@ -49,6 +49,8 @@ import com.rehome.rehome.repository.WalletTransactionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -1263,5 +1265,181 @@ class OrderServiceImplTest {
         assertThat(response.getServiceRating()).isEqualTo((short) 5);
         assertThat(response.getComment()).isEqualTo("Sửa lại, giao ổn");
         assertThat(order.getRatedAt()).isNotEqualTo(firstRatedAt);
+    }
+
+    // ---------------------------------------------------------------- F-062: tự hủy đơn khi GHN lỗi
+
+    private Order carrierFailureOrder(UUID orderId, OrderStatus status) {
+        return Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000777")
+                .buyer(member)
+                .status(status)
+                .totalAmount(new BigDecimal("245000"))
+                .build();
+    }
+
+    @Test
+    void cancelOrderForCarrierFailure_doesNothing_whenOrderNoLongerExists() {
+        UUID orderId = UUID.randomUUID();
+        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
+
+        orderService.cancelOrderForCarrierFailure(orderId, "lost");
+
+        verify(orderItemRepository, never()).findAllByOrder_Id(any());
+        verify(orderRepository, never()).save(any());
+        verify(walletRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
+    }
+
+    // Webhook GHN có thể bắn trùng hoặc đến muộn: chỉ đơn đang PACKING/SHIPPING mới được hủy + hoàn tiền,
+    // nếu không đơn đã giao/đã hoàn tất/đã hủy sẽ bị hoàn tiền lần hai.
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = {"PACKING", "SHIPPING"}, mode = EnumSource.Mode.EXCLUDE)
+    void cancelOrderForCarrierFailure_doesNothing_whenOrderIsNotInTransit(OrderStatus status) {
+        UUID orderId = UUID.randomUUID();
+        Order order = carrierFailureOrder(orderId, status);
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        orderService.cancelOrderForCarrierFailure(orderId, "lost");
+
+        assertThat(order.getStatus()).isEqualTo(status);
+        assertThat(order.getRefundAmount()).isNull();
+        verify(orderItemRepository, never()).findAllByOrder_Id(any());
+        verify(orderRepository, never()).save(any());
+        verify(walletRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
+    }
+
+    @Test
+    void cancelOrderForCarrierFailure_releasesProductsAndRefundsBuyer_whenOrderIsShipping() {
+        UUID orderId = UUID.randomUUID();
+        product1.setStatus(ProductStatus.RESERVED);
+        Order order = carrierFailureOrder(orderId, OrderStatus.SHIPPING);
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).build();
+        Wallet existingWallet = Wallet.builder().id(UUID.randomUUID()).member(member)
+                .balance(new BigDecimal("50000")).build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+        when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(existingWallet));
+        when(platformFundRepository.save(any())).thenAnswer(invocation -> {
+            PlatformFund saved = invocation.getArgument(0);
+            if (saved.getId() == null) {
+                saved.setId(UUID.randomUUID());
+            }
+            return saved;
+        });
+
+        orderService.cancelOrderForCarrierFailure(orderId, "Thất lạc trong quá trình vận chuyển");
+
+        // Hàng chưa giao được thì nhả lại lên sàn
+        assertThat(product1.getStatus()).isEqualTo(ProductStatus.ON_SALE);
+        verify(productRepository).save(product1);
+
+        // Hoàn 100% tổng tiền đơn vào ví người mua
+        assertThat(existingWallet.getBalance()).isEqualTo(new BigDecimal("295000"));
+        verify(walletRepository).save(existingWallet);
+
+        ArgumentCaptor<WalletTransaction> txCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository, times(2)).save(txCaptor.capture());
+        WalletTransaction memberTx = txCaptor.getAllValues().stream()
+                .filter(tx -> tx.getWalletType() == WalletType.MEMBER).findFirst().orElseThrow();
+        WalletTransaction platformTx = txCaptor.getAllValues().stream()
+                .filter(tx -> tx.getWalletType() == WalletType.PLATFORM).findFirst().orElseThrow();
+
+        assertThat(memberTx.getWalletId()).isEqualTo(existingWallet.getId());
+        assertThat(memberTx.getType()).isEqualTo(WalletTransactionType.REFUND);
+        assertThat(memberTx.getAmount()).isEqualByComparingTo(new BigDecimal("245000"));
+        assertThat(memberTx.getBalanceAfter()).isEqualByComparingTo(new BigDecimal("295000"));
+        assertThat(memberTx.getRelatedOrder()).isEqualTo(order);
+        assertThat(memberTx.getTransactionNo()).startsWith("WT-" + Year.now(ZoneOffset.UTC).getValue() + "-");
+        assertThat(memberTx.getNote()).isEqualTo(
+                "Hoàn tiền do vận chuyển GHN lỗi - đơn OD-2026-000777 (Thất lạc trong quá trình vận chuyển)");
+
+        // Bút toán đối ứng của quỹ nền tảng, ngược dấu (F-039)
+        assertThat(platformTx.getType()).isEqualTo(WalletTransactionType.REFUND);
+        assertThat(platformTx.getAmount()).isEqualByComparingTo(new BigDecimal("-245000"));
+        assertThat(platformTx.getCounterpartTransaction()).isEqualTo(memberTx);
+        assertThat(platformTx.getRelatedOrder()).isEqualTo(order);
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(order.getCancelReason()).isEqualTo(CancelReason.CARRIER_FAILED);
+        assertThat(order.getCancelledAt()).isNotNull();
+        assertThat(order.getRefundAmount()).isEqualByComparingTo(new BigDecimal("245000"));
+        verify(orderRepository).save(order);
+    }
+
+    @Test
+    void cancelOrderForCarrierFailure_alsoCancels_whenOrderIsStillPacking() {
+        UUID orderId = UUID.randomUUID();
+        Order order = carrierFailureOrder(orderId, OrderStatus.PACKING);
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of());
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.empty());
+
+        orderService.cancelOrderForCarrierFailure(orderId, "Hủy vận đơn");
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(order.getCancelReason()).isEqualTo(CancelReason.CARRIER_FAILED);
+        assertThat(order.getRefundAmount()).isEqualByComparingTo(new BigDecimal("245000"));
+        verify(orderRepository).save(order);
+    }
+
+    @Test
+    void cancelOrderForCarrierFailure_omitsReasonFromNote_whenReasonIsBlank() {
+        UUID orderId = UUID.randomUUID();
+        Order order = carrierFailureOrder(orderId, OrderStatus.SHIPPING);
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of());
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.empty());
+
+        orderService.cancelOrderForCarrierFailure(orderId, null);
+
+        ArgumentCaptor<WalletTransaction> txCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository, times(2)).save(txCaptor.capture());
+        WalletTransaction memberTx = txCaptor.getAllValues().stream()
+                .filter(tx -> tx.getWalletType() == WalletType.MEMBER).findFirst().orElseThrow();
+
+        assertThat(memberTx.getNote()).isEqualTo("Hoàn tiền do vận chuyển GHN lỗi - đơn OD-2026-000777");
+    }
+
+    @Test
+    void cancelOrderForCarrierFailure_createsNewWallet_whenBuyerHasNoWalletYet() {
+        UUID orderId = UUID.randomUUID();
+        Order order = carrierFailureOrder(orderId, OrderStatus.SHIPPING);
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of());
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.empty());
+
+        orderService.cancelOrderForCarrierFailure(orderId, "lost");
+
+        ArgumentCaptor<Wallet> walletCaptor = ArgumentCaptor.forClass(Wallet.class);
+        verify(walletRepository).save(walletCaptor.capture());
+        assertThat(walletCaptor.getValue().getMember()).isEqualTo(member);
+        assertThat(walletCaptor.getValue().getBalance()).isEqualByComparingTo(new BigDecimal("245000"));
+    }
+
+    @Test
+    void cancelOrderForCarrierFailure_skipsProductsNotCurrentlyReserved() {
+        UUID orderId = UUID.randomUUID();
+        product1.setStatus(ProductStatus.SOLD);
+        Order order = carrierFailureOrder(orderId, OrderStatus.SHIPPING);
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+        when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.empty());
+
+        orderService.cancelOrderForCarrierFailure(orderId, "lost");
+
+        verify(productRepository, never()).save(any());
+        assertThat(product1.getStatus()).isEqualTo(ProductStatus.SOLD);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
     }
 }

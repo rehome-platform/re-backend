@@ -23,7 +23,7 @@ class LocalFileStorageServiceImplTest {
         assertThatThrownBy(() -> storage.store(path, "x".getBytes(StandardCharsets.UTF_8), "application/pdf"))
                 .isInstanceOf(AppException.class)
                 .extracting(ex -> ((AppException) ex).getErrorCode())
-                .isEqualTo(ErrorCode.RECEIPT_PDF_GENERATION_FAILED);
+                .isEqualTo(ErrorCode.FILE_UPLOAD_FAILED);
     }
 
     @Test
@@ -68,6 +68,39 @@ class LocalFileStorageServiceImplTest {
 
         assertThat(tempDir.resolve("evil.pdf")).doesNotExist();
         assertThat(root.resolve("../evil.pdf").normalize()).doesNotExist();
+    }
+
+    @Test
+    void delete_removesFileAndReturnsTrue() {
+        LocalFileStorageServiceImpl storage = new LocalFileStorageServiceImpl(tempDir.toString(), BASE_URL);
+        storage.store("organization-documents/cccd.jpg", new byte[] {1}, "image/jpeg");
+
+        assertThat(storage.delete("organization-documents/cccd.jpg", "image/jpeg")).isTrue();
+        assertThat(tempDir.resolve("organization-documents/cccd.jpg")).doesNotExist();
+    }
+
+    @Test
+    void delete_missingFile_returnsFalse() {
+        LocalFileStorageServiceImpl storage = new LocalFileStorageServiceImpl(tempDir.toString(), BASE_URL);
+
+        assertThat(storage.delete("organization-documents/khong-co.jpg", "image/jpeg")).isFalse();
+    }
+
+    @Test
+    void delete_pathTraversal_throwsAndDeletesNothingOutsideRoot() throws IOException {
+        Path root = tempDir.resolve("root");
+        Files.createDirectories(root);
+        Path outside = tempDir.resolve("keep-me.pdf");
+        Files.writeString(outside, "important");
+
+        LocalFileStorageServiceImpl storage = new LocalFileStorageServiceImpl(root.toString(), BASE_URL);
+
+        assertThatThrownBy(() -> storage.delete("../keep-me.pdf", "application/pdf"))
+                .isInstanceOf(AppException.class)
+                .extracting(ex -> ((AppException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.FILE_UPLOAD_FAILED);
+
+        assertThat(outside).exists();
     }
 
     @Test

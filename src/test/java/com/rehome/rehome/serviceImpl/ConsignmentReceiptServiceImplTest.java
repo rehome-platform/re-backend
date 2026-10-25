@@ -13,19 +13,23 @@ import com.rehome.rehome.dto.request.CompleteInspectionRequest;
 import com.rehome.rehome.dto.response.CompleteInspectionResponse;
 import com.rehome.rehome.dto.response.ConsignmentReceiptConfirmResponse;
 import com.rehome.rehome.dto.response.ConsignmentReceiptResponse;
+import com.rehome.rehome.dto.response.PdfDownload;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
+import com.rehome.rehome.entity.marketplace.ConsignmentReceiptPdf;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.ConsignmentFormRepository;
+import com.rehome.rehome.repository.ConsignmentReceiptPdfRepository;
 import com.rehome.rehome.repository.ConsignmentReceiptRepository;
 import com.rehome.rehome.service.ReceiptPdfService;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.Year;
 import java.time.ZoneId;
@@ -51,6 +55,9 @@ class ConsignmentReceiptServiceImplTest {
 
     @Mock
     private ConsignmentReceiptRepository consignmentReceiptRepository;
+
+    @Mock
+    private ConsignmentReceiptPdfRepository consignmentReceiptPdfRepository;
 
     @Mock
     private ReceiptPdfService receiptPdfService;
@@ -168,22 +175,21 @@ class ConsignmentReceiptServiceImplTest {
         assertThat(result.getCommissionRateTerm3()).isEqualByComparingTo("0.20");
         assertThat(result.getDegradedCompensationRate()).isEqualByComparingTo("0.50");
         assertThat(result.getConfirmedAt()).isNull();
-        assertThat(result.getPdfUrl()).isNull();
+        assertThat(result.isPdfAvailable()).isFalse();
     }
 
     @Test
-    void getMyReceipt_ownerConfirmed_returnsConfirmedAtAndPdfUrl() {
+    void getMyReceipt_ownerConfirmed_reportsPdfAvailable() {
         Account owner = member();
         Instant confirmedAt = Instant.parse("2026-10-20T03:00:00Z");
         ConsignmentReceipt receipt = unconfirmedReceiptOf(owner);
         receipt.setConfirmedAt(confirmedAt);
-        receipt.setPdfUrl("https://cdn.example.com/receipts/RC-2026-000045.pdf");
         when(consignmentReceiptRepository.findById(receipt.getId())).thenReturn(Optional.of(receipt));
 
         ConsignmentReceiptResponse result = service.getMyReceipt(owner, receipt.getId());
 
         assertThat(result.getConfirmedAt()).isEqualTo(confirmedAt);
-        assertThat(result.getPdfUrl()).isEqualTo("https://cdn.example.com/receipts/RC-2026-000045.pdf");
+        assertThat(result.isPdfAvailable()).isTrue();
     }
 
     // ------------------------------------------------------------------
@@ -237,27 +243,160 @@ class ConsignmentReceiptServiceImplTest {
     void confirmReceipt_owner_confirmsAndGeneratesPdf() {
         Account owner = member();
         ConsignmentReceipt receipt = unconfirmedReceiptOf(owner);
-        String pdfUrl = "https://cdn.rehome.vn/receipts/rc-001.pdf";
+        byte[] pdf = "%PDF-snapshot".getBytes(StandardCharsets.US_ASCII);
 
         when(consignmentReceiptRepository.findByIdForUpdate(receipt.getId()))
                 .thenReturn(Optional.of(receipt));
-        when(receiptPdfService.generate(receipt)).thenReturn(pdfUrl);
+        when(receiptPdfService.generate(receipt)).thenReturn(pdf);
 
         Instant before = Instant.now();
         ConsignmentReceiptConfirmResponse result = service.confirmReceipt(owner, receipt.getId());
         Instant after = Instant.now();
 
-        // Response
+        // Response: không còn URL, chỉ báo đã có PDF để tải qua endpoint riêng
         assertThat(result.getId()).isEqualTo(receipt.getId());
-        assertThat(result.getPdfUrl()).isEqualTo(pdfUrl);
+        assertThat(result.isPdfAvailable()).isTrue();
         assertThat(result.getConfirmedAt()).isBetween(before, after);
 
-        // Receipt được cập nhật
         assertThat(receipt.getConfirmedAt()).isEqualTo(result.getConfirmedAt());
-        assertThat(receipt.getPdfUrl()).isEqualTo(pdfUrl);
 
         verify(receiptPdfService).generate(receipt);
         verify(consignmentReceiptRepository).save(receipt);
+
+        // PDF được lưu vào bảng riêng, cùng transaction với confirmedAt
+        ArgumentCaptor<ConsignmentReceiptPdf> saved = ArgumentCaptor.forClass(ConsignmentReceiptPdf.class);
+        verify(consignmentReceiptPdfRepository).save(saved.capture());
+        assertThat(saved.getValue().getReceipt()).isSameAs(receipt);
+        assertThat(saved.getValue().getContent()).isEqualTo(pdf);
+        assertThat(saved.getValue().getByteSize()).isEqualTo(pdf.length);
+        assertThat(saved.getValue().getGeneratedAt()).isEqualTo(receipt.getConfirmedAt());
+        // SHA-256 của "%PDF-snapshot"
+        assertThat(saved.getValue().getSha256())
+                .isEqualTo(sha256Hex(pdf))
+                .hasSize(64);
+    }
+
+    @Test
+    void confirmReceipt_pdfGenerationFails_nothingIsSaved() {
+        Account owner = member();
+        ConsignmentReceipt receipt = unconfirmedReceiptOf(owner);
+
+        when(consignmentReceiptRepository.findByIdForUpdate(receipt.getId()))
+                .thenReturn(Optional.of(receipt));
+        when(receiptPdfService.generate(receipt))
+                .thenThrow(new AppException(ErrorCode.RECEIPT_PDF_GENERATION_FAILED));
+
+        assertAppError(() -> service.confirmReceipt(owner, receipt.getId()),
+                ErrorCode.RECEIPT_PDF_GENERATION_FAILED);
+
+        // Không được commit confirmedAt mà thiếu file bằng chứng
+        verify(consignmentReceiptRepository, never()).save(any());
+        verify(consignmentReceiptPdfRepository, never()).save(any());
+    }
+
+    // ------------------------------------------------------------------
+    // getReceiptPdf (F-023)
+    // ------------------------------------------------------------------
+
+    private ConsignmentReceipt confirmedReceiptOf(Account owner) {
+        ConsignmentReceipt receipt = unconfirmedReceiptOf(owner);
+        receipt.setConfirmedAt(Instant.parse("2026-10-20T03:00:00Z"));
+        return receipt;
+    }
+
+    private Account staff(Role role) {
+        Account account = new Account();
+        account.setId(UUID.randomUUID());
+        account.setRole(role);
+        return account;
+    }
+
+    private static String sha256Hex(byte[] content) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(content);
+            StringBuilder hex = new StringBuilder();
+            for (byte b : digest) {
+                hex.append("%02x".formatted(b));
+            }
+            return hex.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Test
+    void getReceiptPdf_owner_returnsBytesNamedAfterReceiptNo() {
+        Account owner = member();
+        ConsignmentReceipt receipt = confirmedReceiptOf(owner);
+        byte[] pdf = "%PDF-stored".getBytes(StandardCharsets.US_ASCII);
+
+        when(consignmentReceiptRepository.findById(receipt.getId())).thenReturn(Optional.of(receipt));
+        when(consignmentReceiptPdfRepository.findById(receipt.getId()))
+                .thenReturn(Optional.of(ConsignmentReceiptPdf.builder().content(pdf).build()));
+
+        PdfDownload download = service.getReceiptPdf(owner, receipt.getId());
+
+        assertThat(download.fileName()).isEqualTo("RC-2026-000045.pdf");
+        assertThat(download.content()).isEqualTo(pdf);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Role.class, names = {"MODERATOR", "ADMIN"})
+    void getReceiptPdf_staff_canReadAnyReceipt(Role role) {
+        ConsignmentReceipt receipt = confirmedReceiptOf(member());
+        byte[] pdf = "%PDF-stored".getBytes(StandardCharsets.US_ASCII);
+
+        when(consignmentReceiptRepository.findById(receipt.getId())).thenReturn(Optional.of(receipt));
+        when(consignmentReceiptPdfRepository.findById(receipt.getId()))
+                .thenReturn(Optional.of(ConsignmentReceiptPdf.builder().content(pdf).build()));
+
+        assertThat(service.getReceiptPdf(staff(role), receipt.getId()).content()).isEqualTo(pdf);
+    }
+
+    @Test
+    void getReceiptPdf_otherMember_throwsForbidden_andNeverReadsThePdf() {
+        ConsignmentReceipt receipt = confirmedReceiptOf(member());
+
+        when(consignmentReceiptRepository.findById(receipt.getId())).thenReturn(Optional.of(receipt));
+
+        assertAppError(() -> service.getReceiptPdf(member(), receipt.getId()),
+                ErrorCode.CONSIGNMENT_RECEIPT_FORBIDDEN);
+
+        verify(consignmentReceiptPdfRepository, never()).findById(any());
+    }
+
+    @Test
+    void getReceiptPdf_notConfirmedYet_throwsPdfNotReady() {
+        Account owner = member();
+        ConsignmentReceipt receipt = unconfirmedReceiptOf(owner);
+
+        when(consignmentReceiptRepository.findById(receipt.getId())).thenReturn(Optional.of(receipt));
+
+        assertAppError(() -> service.getReceiptPdf(owner, receipt.getId()),
+                ErrorCode.CONSIGNMENT_RECEIPT_PDF_NOT_READY);
+
+        verify(consignmentReceiptPdfRepository, never()).findById(any());
+    }
+
+    @Test
+    void getReceiptPdf_receiptNotFound_throwsNotFound() {
+        UUID id = UUID.randomUUID();
+        when(consignmentReceiptRepository.findById(id)).thenReturn(Optional.empty());
+
+        assertAppError(() -> service.getReceiptPdf(member(), id),
+                ErrorCode.CONSIGNMENT_RECEIPT_NOT_FOUND);
+    }
+
+    @Test
+    void getReceiptPdf_confirmedButRowMissing_throwsPdfMissing() {
+        Account owner = member();
+        ConsignmentReceipt receipt = confirmedReceiptOf(owner);
+
+        when(consignmentReceiptRepository.findById(receipt.getId())).thenReturn(Optional.of(receipt));
+        when(consignmentReceiptPdfRepository.findById(receipt.getId())).thenReturn(Optional.empty());
+
+        assertAppError(() -> service.getReceiptPdf(owner, receipt.getId()),
+                ErrorCode.CONSIGNMENT_RECEIPT_PDF_MISSING);
     }
 
     // ------------------------------------------------------------------
@@ -339,8 +478,8 @@ class ConsignmentReceiptServiceImplTest {
 
         // phiếu mới tạo: chưa xác nhận, chưa có PDF (Member xác nhận ở API 20)
         assertThat(r.getConfirmedAt()).isNull();
-        assertThat(r.getPdfUrl()).isNull();
         verifyNoInteractions(receiptPdfService);
+        verifyNoInteractions(consignmentReceiptPdfRepository);
     }
 
     @Test

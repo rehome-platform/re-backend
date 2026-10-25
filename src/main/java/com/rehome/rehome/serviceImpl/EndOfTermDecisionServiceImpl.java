@@ -109,7 +109,6 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
                 .withdrawalFee(old.getWithdrawalFee())
                 .degradedCompensationRate(old.getDegradedCompensationRate())
                 .confirmedAt(null)
-                .pdfUrl(null)
                 .build();
     }
 

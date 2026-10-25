@@ -13,7 +13,6 @@ import com.lowagie.text.pdf.PdfWriter;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
-import com.rehome.rehome.service.FileStorageService;
 import com.rehome.rehome.service.ReceiptPdfService;
 import java.awt.Color;
 import java.io.ByteArrayOutputStream;
@@ -23,11 +22,9 @@ import java.text.NumberFormat;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 @Service
-@RequiredArgsConstructor
 public class ReceiptPdfServiceImpl implements ReceiptPdfService {
 
     private static final String FONT_REGULAR = "/fonts/NotoSans-Regular.ttf";
@@ -36,16 +33,12 @@ public class ReceiptPdfServiceImpl implements ReceiptPdfService {
     private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
     private static final Color BORDER_COLOR = new Color(200, 200, 200);
 
-    private final FileStorageService fileStorageService;
-
     @Override
-    public String generate(ConsignmentReceipt receipt) {
-        byte[] pdf = render(receipt);
-        String path = "receipts/" + receipt.getReceiptNo() + ".pdf";
-        return fileStorageService.store(path, pdf, "application/pdf");
+    public byte[] generate(ConsignmentReceipt receipt) {
+        return render(receipt);
     }
 
-    // package-private để test được mà không cần storage
+    // package-private để test riêng phần render
     byte[] render(ConsignmentReceipt r) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Fonts fonts = loadFonts();

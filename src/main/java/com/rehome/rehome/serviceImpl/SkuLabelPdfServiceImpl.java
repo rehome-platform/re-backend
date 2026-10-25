@@ -15,16 +15,13 @@ import com.lowagie.text.pdf.PdfWriter;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
-import com.rehome.rehome.service.FileStorageService;
 import com.rehome.rehome.service.SkuLabelPdfService;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 
 @Service
-@RequiredArgsConstructor
 public class SkuLabelPdfServiceImpl implements SkuLabelPdfService {
 
     private static final String FONT_REGULAR = "/fonts/NotoSans-Regular.ttf";
@@ -39,16 +36,12 @@ public class SkuLabelPdfServiceImpl implements SkuLabelPdfService {
         return s.length() <= max ? s : s.substring(0, max - 1).trim() + "…";
     }
 
-    private final FileStorageService fileStorageService;
-
     @Override
-    public String generate(Product product) {
-        byte[] pdf = render(product);
-        String path = "labels/" + product.getId() + ".pdf";
-        return fileStorageService.store(path, pdf, "application/pdf");
+    public byte[] generate(Product product) {
+        return render(product);
     }
 
-    // package-private để test được mà không cần storage
+    // package-private để test riêng phần render
     byte[] render(Product p) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             BaseFont regular = loadBaseFont(FONT_REGULAR);

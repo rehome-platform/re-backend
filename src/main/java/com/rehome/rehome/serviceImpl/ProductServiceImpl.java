@@ -340,13 +340,13 @@ public class ProductServiceImpl implements ProductService {
     }
     @Override
     @Transactional(readOnly = true)
-    public SkuLabelResponse getSkuLabel(Account account, String productId) {
+    public PdfDownload getSkuLabel(Account account, String productId) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));    // 404
 
         assertSameWarehouse(account, product);                                        // 403
 
-        return new SkuLabelResponse(skuLabelPdfService.generate(product));
+        return new PdfDownload("sku-" + product.getId() + ".pdf", skuLabelPdfService.generate(product));
     }
 
     @Override

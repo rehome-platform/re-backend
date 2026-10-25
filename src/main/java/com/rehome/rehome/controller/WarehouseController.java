@@ -1,12 +1,15 @@
 package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.response.ApiResponse;
+import com.rehome.rehome.dto.response.MyWarehouseResponse;
 import com.rehome.rehome.dto.response.WarehouseNearestResponse;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.WarehouseService;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -34,5 +37,11 @@ public class WarehouseController {
     @GetMapping
     public ResponseEntity<List<WarehouseResponse>> getWarehouses() {
         return ResponseEntity.ok(warehouseService.getActiveWarehouses());
+    }
+
+
+    @GetMapping("/moderator")
+    public List<MyWarehouseResponse> getMyWarehouses(@AuthenticationPrincipal Account account) {
+        return warehouseService.getManagedWarehouses(account.getId());
     }
 }

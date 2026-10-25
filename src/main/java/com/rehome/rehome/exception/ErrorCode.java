@@ -87,6 +87,10 @@ public enum ErrorCode {
     MEMBER_PROFILE_NOT_FOUND(HttpStatus.NOT_FOUND, "Hồ sơ Member không tồn tại."),
     INVALID_PHONE_FORMAT(HttpStatus.BAD_REQUEST, "Số điện thoại không đúng định dạng."),
     // API 71 - webhook GHN
+
+
+    MODERATOR_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy modeartor nào."),
+
     GHN_ORDER_CODE_REQUIRED(HttpStatus.BAD_REQUEST, "Thiếu OrderCode trong webhook."),
     GHN_SHIPMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy vận đơn."),
     PRODUCT_ID_REQUIRED(HttpStatus.BAD_REQUEST, "productId không được để trống."),

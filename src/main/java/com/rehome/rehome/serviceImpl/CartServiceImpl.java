@@ -13,8 +13,8 @@ import com.rehome.rehome.entity.marketplace.CartItem;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.Warehouse;
-import com.rehome.rehome.exception.AppException;
-import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.CartItemRepository;
 import com.rehome.rehome.repository.CartRepository;
@@ -50,24 +50,24 @@ public class CartServiceImpl implements CartService {
     public CartItemResponse addItem(String email, AddCartItemRequest request) {
 
         if (!StringUtils.hasText(request.getProductId())) {
-            throw new AppException(ErrorCode.PRODUCT_ID_REQUIRED);
+            throw new BadRequestException("productId không được để trống.");
         }
 
         Account member = accountRepository.findByEmail(email)
-                .orElseThrow(() -> new AppException(ErrorCode.ACCOUNT_NOT_FOUND));
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
 
         Product product = productRepository.findById(request.getProductId())
-                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm."));
 
         if (product.getStatus() != ProductStatus.ON_SALE) {
-            throw new AppException(ErrorCode.PRODUCT_NOT_AVAILABLE);
+            throw new ConflictException("Sản phẩm không còn để bán.", "PRODUCT_NOT_AVAILABLE");
         }
 
         Cart cart = cartRepository.findByMember_Id(member.getId())
                 .orElseGet(() -> cartRepository.save(Cart.builder().member(member).build()));
 
         if (cartItemRepository.existsByCart_IdAndProduct_Id(cart.getId(), product.getId())) {
-            throw new AppException(ErrorCode.ALREADY_IN_CART);
+            throw new ConflictException("Sản phẩm đã có trong giỏ hàng.", "ALREADY_IN_CART");
         }
 
         CartItem item = CartItem.builder()
@@ -87,7 +87,7 @@ public class CartServiceImpl implements CartService {
     public CartResponse getCart(String email) {
 
         Account member = accountRepository.findByEmail(email)
-                .orElseThrow(() -> new AppException(ErrorCode.ACCOUNT_NOT_FOUND));
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
 
         Cart cart = cartRepository.findByMember_Id(member.getId()).orElse(null);
         if (cart == null) {
@@ -167,10 +167,10 @@ public class CartServiceImpl implements CartService {
     public void deleteItem(String email, UUID id) {
 
         Account member = accountRepository.findByEmail(email)
-                .orElseThrow(() -> new AppException(ErrorCode.ACCOUNT_NOT_FOUND));
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
 
         CartItem item = cartItemRepository.findByIdAndCart_Member_Id(id, member.getId())
-                .orElseThrow(() -> new AppException(ErrorCode.CART_ITEM_NOT_FOUND));
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy mục giỏ hàng."));
 
         cartItemRepository.delete(item);
     }

@@ -1,23 +1,29 @@
 package com.rehome.rehome.serviceImpl;
 import com.rehome.rehome.dto.marketplace.response.WarehouseResponse;
+import com.rehome.rehome.dto.response.MyWarehouseResponse;
 import com.rehome.rehome.dto.response.WarehouseNearestResponse;
+import com.rehome.rehome.entity.auth.ModeratorProfile;
 import com.rehome.rehome.entity.enums.CatalogStatus;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.repository.ModeratorProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.WarehouseService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class WarehouseServiceImpl implements WarehouseService {
     private final WarehouseRepository warehouseRepository;
+    private final ModeratorProfileRepository moderatorProfileRepository;
 
     private static final double EARTH_RADIUS_KM = 6371.0;
 
@@ -65,6 +71,15 @@ public class WarehouseServiceImpl implements WarehouseService {
                 .longitude(w.getLongitude())
                 .openingHours(w.getOpeningHours())
                 .build();
+    }
+
+    @Transactional
+    public List<MyWarehouseResponse> getManagedWarehouses(UUID accountId) {
+        ModeratorProfile profile = moderatorProfileRepository
+                .findWithWarehouseByAccountId(accountId)
+                .orElseThrow(() -> new AppException(ErrorCode.MODERATOR_NOT_FOUND));
+
+        return List.of(MyWarehouseResponse.from(profile.getWarehouse()));
     }
 
 //    Code này dùng khi tạo warehouse thủ công

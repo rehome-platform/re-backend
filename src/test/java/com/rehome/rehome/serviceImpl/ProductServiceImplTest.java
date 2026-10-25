@@ -299,7 +299,7 @@ class ProductServiceImplTest {
         try (MockedStatic<PageResponse> mocked = mockStatic(PageResponse.class)) {
             mocked.when(() -> PageResponse.from(any(Page.class))).thenReturn(mock(PageResponse.class));
 
-            service.getProducts("áo", null, null, min, max, null, page, size);
+            service.getProducts("áo", null, null, min, max, null, page, size, null);
 
             ArgumentCaptor<Page> captor = ArgumentCaptor.forClass(Page.class);
             mocked.verify(() -> PageResponse.from(captor.capture()));
@@ -310,7 +310,7 @@ class ProductServiceImplTest {
     @Test
     void getProducts_priceMinGreaterThanMax_throws() {
         assertThatThrownBy(() -> service.getProducts(null, null, null,
-                new BigDecimal("200"), new BigDecimal("100"), null, 0, 10))
+                new BigDecimal("200"), new BigDecimal("100"), null, 0, 10, null))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("priceMin không được lớn hơn priceMax.");
 
@@ -400,7 +400,7 @@ class ProductServiceImplTest {
         when(productPhotoRepository.findByProduct_IdOrderByIdAsc("p1"))
                 .thenReturn(List.of(photoA, photoB));
 
-        ProductDetailResponse result = service.getProductDetail("p1");
+        ProductDetailResponse result = service.getProductDetail("p1", null);
 
         assertThat(result.getId()).isEqualTo("p1");
         assertThat(result.getName()).isEqualTo("Áo A");
@@ -424,7 +424,7 @@ class ProductServiceImplTest {
     void getProductDetail_notFound_throwsAppException() {
         when(productRepository.findById("missing")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.getProductDetail("missing"))
+        assertThatThrownBy(() -> service.getProductDetail("missing", null))
                 .isInstanceOf(AppException.class)
                 .satisfies(e -> assertThat(((AppException) e).getErrorCode())
                         .isEqualTo(ErrorCode.PRODUCT_NOT_FOUND));

@@ -24,6 +24,9 @@ import com.rehome.rehome.dto.response.PackScanResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.PaidOrderResponse;
 import com.rehome.rehome.dto.response.PayOrdersResponse;
+import com.rehome.rehome.dto.response.SoldOrderItemResponse;
+import com.rehome.rehome.dto.response.SoldOrderListResponse;
+import com.rehome.rehome.dto.response.SoldOrderResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.CancelReason;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
@@ -192,7 +195,7 @@ public class OrderServiceImpl implements OrderService {
 
         if (buyNow) {
             for (String productId : requestedProductIds) {
-                lockedProducts.add(lockAndValidateProduct(productId));
+                lockedProducts.add(lockAndValidateProduct(productId, buyer.getId()));
             }
 
             // Món vừa đặt mà cũng đang nằm trong giỏ thì dọn khỏi giỏ, để các món còn lại
@@ -221,7 +224,7 @@ public class OrderServiceImpl implements OrderService {
             for (CartItem ci : cartItems) {
                 String productId = ci.getProduct().getId();
                 productIdsFromCart.add(productId);
-                lockedProducts.add(lockAndValidateProduct(productId));
+                lockedProducts.add(lockAndValidateProduct(productId, buyer.getId()));
             }
         }
 
@@ -389,6 +392,121 @@ public class OrderServiceImpl implements OrderService {
             counts.put(s.name(), 0L);
         }
         for (Object[] row : orderRepository.countGroupedByStatusForBuyer(buyerId)) {
+            counts.put(((OrderStatus) row[0]).name(), (Long) row[1]);
+        }
+        return counts;
+    }
+
+    @Override
+    public SoldOrderListResponse getSoldOrders(String email, String status, int page, int size) {
+
+        Account seller = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        List<OrderStatus> statuses = parseSoldStatuses(status);
+
+        // Không truyền Sort: thứ tự đã nằm trong câu JPQL (root là OrderItem, không phải Order)
+        PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1));
+
+        Page<Order> result = orderRepository.findOrdersContainingSellerItems(
+                seller.getId(), statuses, pageable);
+
+        List<UUID> orderIds = result.getContent().stream().map(Order::getId).toList();
+
+        // Chỉ lấy món của chính người bán này - một đơn có thể gồm hàng của nhiều người ký gửi
+        List<OrderItem> sellerItems = orderIds.isEmpty()
+                ? List.of()
+                : orderItemRepository.findSellerItemsByOrderIds(orderIds, seller.getId());
+
+        Map<UUID, List<OrderItem>> itemsByOrderId = sellerItems.stream()
+                .collect(Collectors.groupingBy(oi -> oi.getOrder().getId(),
+                        LinkedHashMap::new, Collectors.toList()));
+
+        List<String> productIds = sellerItems.stream()
+                .map(oi -> oi.getProduct().getId())
+                .distinct()
+                .toList();
+
+        Map<String, String> thumbnailByProductId = productPhotoRepository
+                .findByProduct_IdInOrderByIdAsc(productIds).stream()
+                .collect(Collectors.toMap(
+                        photo -> photo.getProduct().getId(),
+                        ProductPhoto::getImageUrl,
+                        (first, second) -> first
+                ));
+
+        Page<SoldOrderResponse> mapped = result.map(order -> {
+            List<OrderItem> items = itemsByOrderId.getOrDefault(order.getId(), List.of());
+
+            List<SoldOrderItemResponse> itemResponses = items.stream()
+                    .map(item -> toSoldOrderItem(item, thumbnailByProductId))
+                    .toList();
+
+            BigDecimal subtotal = itemResponses.stream()
+                    .map(SoldOrderItemResponse::getSalePrice)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal netAmount = itemResponses.stream()
+                    .map(SoldOrderItemResponse::getNetAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            return SoldOrderResponse.builder()
+                    .orderId(order.getId().toString())
+                    .orderNo(order.getOrderNo())
+                    .status(order.getStatus().name())
+                    .warehouseName(order.getWarehouse().getName())
+                    .itemCount(itemResponses.size())
+                    .subtotal(subtotal)
+                    .netAmount(netAmount)
+                    .paidOut(order.getStatus() == OrderStatus.COMPLETED)
+                    .createdAt(order.getCreatedAt())
+                    .deliveredAt(order.getDeliveredAt())
+                    .completedAt(order.getCompletedAt())
+                    .cancelledAt(order.getCancelledAt())
+                    .items(itemResponses)
+                    .build();
+        });
+
+        return SoldOrderListResponse.builder()
+                .orders(PageResponse.from(mapped))
+                .statusCounts(buildStatusCountsForSeller(seller.getId()))
+                .build();
+    }
+
+    // netAmount dùng đúng công thức của confirmReceipt (giá - hoa hồng), nên đơn COMPLETED
+    // khớp số với GET /wallet/revenue. tax chỉ để hiển thị: payout hiện không trừ thuế.
+    private SoldOrderItemResponse toSoldOrderItem(OrderItem item, Map<String, String> thumbnailByProductId) {
+        BigDecimal salePrice = item.getPriceAtOrder();
+        BigDecimal commission = salePrice.multiply(item.getCommissionRateApplied());
+
+        return SoldOrderItemResponse.builder()
+                .productId(item.getProduct().getId())
+                .productName(item.getProduct().getName())
+                .thumbnailUrl(thumbnailByProductId.get(item.getProduct().getId()))
+                .salePrice(salePrice)
+                .termApplied(item.getTermApplied())
+                .commissionRate(item.getCommissionRateApplied())
+                .commission(commission)
+                .tax(salePrice.multiply(item.getTaxRateApplied()))
+                .netAmount(salePrice.subtract(commission))
+                .build();
+    }
+
+    // Mặc định bỏ PENDING_PAYMENT (người mua chưa trả, đơn có thể tự hủy sau 15 phút nên
+    // chưa phải "đã bán") và CANCELLED. Muốn xem đơn hủy thì gọi ?status=CANCELLED.
+    private List<OrderStatus> parseSoldStatuses(String status) {
+        if (!StringUtils.hasText(status)) {
+            return List.of(OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.SHIPPING,
+                    OrderStatus.DELIVERED, OrderStatus.COMPLETED, OrderStatus.RETURNED);
+        }
+        return parseStatuses(status);
+    }
+
+    private Map<String, Long> buildStatusCountsForSeller(UUID sellerId) {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        for (OrderStatus s : OrderStatus.values()) {
+            counts.put(s.name(), 0L);
+        }
+        for (Object[] row : orderRepository.countGroupedByStatusForSeller(sellerId)) {
             counts.put(((OrderStatus) row[0]).name(), (Long) row[1]);
         }
         return counts;
@@ -1120,12 +1238,18 @@ public class OrderServiceImpl implements OrderService {
                 .orElseGet(() -> Wallet.builder().member(member).build());
     }
 
-    private Product lockAndValidateProduct(String productId) {
+    private Product lockAndValidateProduct(String productId, UUID buyerId) {
         Product product = productRepository.findByIdForUpdate(productId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm."));
 
         if (product.getStatus() != ProductStatus.ON_SALE) {
             throw new ConflictException("Sản phẩm không còn để bán.", "PRODUCT_NOT_AVAILABLE");
+        }
+        // Phải chặn lại ở đây chứ không chỉ ở addItem: luồng buy-now gửi productIds trực tiếp,
+        // không đi qua giỏ hàng.
+        if (product.getMember().getId().equals(buyerId)) {
+            throw new ConflictException(
+                    "Bạn không thể mua món do chính mình ký gửi.", "CANNOT_BUY_OWN_PRODUCT");
         }
         return product;
     }

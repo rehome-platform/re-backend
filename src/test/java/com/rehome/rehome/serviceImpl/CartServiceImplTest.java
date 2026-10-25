@@ -61,6 +61,7 @@ class CartServiceImplTest {
     CartServiceImpl cartService;
 
     Account member;
+    Account seller;
     Product product;
     String email;
 
@@ -68,7 +69,9 @@ class CartServiceImplTest {
     void setup() {
         email = "member@example.com";
         member = Account.builder().id(UUID.randomUUID()).email(email).build();
-        product = Product.builder().id("P-001").status(ProductStatus.ON_SALE).build();
+        // Product.member_id là NOT NULL, và addItem phải so người ký gửi với người mua
+        seller = Account.builder().id(UUID.randomUUID()).email("seller@example.com").build();
+        product = Product.builder().id("P-001").status(ProductStatus.ON_SALE).member(seller).build();
     }
 
     @Test
@@ -101,6 +104,20 @@ class CartServiceImplTest {
                 .hasMessage("Sản phẩm không còn để bán.");
 
         verify(cartRepository, never()).findByMember_Id(any());
+    }
+
+    @Test
+    void addItem_throwsConflict_whenProductIsOwnedByBuyer() {
+        product.setMember(member);
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(productRepository.findById("P-001")).thenReturn(Optional.of(product));
+
+        assertThatThrownBy(() -> cartService.addItem(email, new AddCartItemRequest("P-001")))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Bạn không thể mua món do chính mình ký gửi.");
+
+        verify(cartRepository, never()).findByMember_Id(any());
+        verify(cartItemRepository, never()).save(any());
     }
 
     @Test

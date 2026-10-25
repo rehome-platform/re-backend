@@ -1,10 +1,13 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.dto.response.MyWarehouseResponse;
 import com.rehome.rehome.dto.response.WarehouseNearestResponse;
+import com.rehome.rehome.entity.auth.ModeratorProfile;
 import com.rehome.rehome.entity.enums.CatalogStatus;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.repository.ModeratorProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,6 +33,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class WarehouseServiceImplTest {
 
+    @Mock
+    private ModeratorProfileRepository moderatorProfileRepository;
     @Mock private WarehouseRepository warehouseRepository;
     @InjectMocks private WarehouseServiceImpl service;
 
@@ -134,5 +140,53 @@ class WarehouseServiceImplTest {
         assertThat(result.get(19).name()).isEqualTo("W20");
         assertThat(result).extracting(WarehouseNearestResponse::name)
                 .doesNotContain("W21", "W22", "W23", "W24", "W25");
+    }
+
+    @Test
+    void getManagedWarehouses_whenProfileExists_returnsListWithItsWarehouse() {
+        // given
+        UUID accountId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+
+        Warehouse warehouse = Warehouse.builder()
+                .id(warehouseId)
+                .name("Kho Quận 7")
+                .address("123 Nguyễn Văn Linh, Q7")
+                .openingHours("08:00 - 18:00")
+                .build();
+
+        ModeratorProfile profile = ModeratorProfile.builder()
+                .accountId(accountId)
+                .fullName("Nguyễn Văn A")
+                .moderatorCode("MOD-07-003")
+                .warehouse(warehouse)
+                .build();
+
+        when(moderatorProfileRepository.findWithWarehouseByAccountId(accountId))
+                .thenReturn(Optional.of(profile));
+
+        // when
+        List<MyWarehouseResponse> result = service.getManagedWarehouses(accountId);
+
+        // then
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getName()).isEqualTo("Kho Quận 7");
+        verify(moderatorProfileRepository).findWithWarehouseByAccountId(accountId);
+    }
+
+    @Test
+    void getManagedWarehouses_whenProfileNotFound_throwsModeratorNotFound() {
+        // given
+        UUID accountId = UUID.randomUUID();
+        when(moderatorProfileRepository.findWithWarehouseByAccountId(accountId))
+                .thenReturn(Optional.empty());
+
+        // when + then
+        assertThatThrownBy(() -> service.getManagedWarehouses(accountId))
+                .isInstanceOf(AppException.class)
+                .extracting(ex -> ((AppException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.MODERATOR_NOT_FOUND);
+
+        verify(moderatorProfileRepository).findWithWarehouseByAccountId(accountId);
     }
 }

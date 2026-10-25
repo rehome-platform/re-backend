@@ -4,7 +4,8 @@ import com.rehome.rehome.dto.request.GhnWebhookPayload;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderTrackingEvent;
-import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.exception.AppException;
+import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.OrderTrackingEventRepository;
 import com.rehome.rehome.service.OrderService;
@@ -85,8 +86,8 @@ class GhnWebhookServiceImplTest {
         p.setStatus("delivered");
 
         assertThatThrownBy(() -> ghnWebhookService.handleWebhook(p))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessage("Thiếu OrderCode trong webhook.");
+                .isInstanceOf(AppException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.GHN_ORDER_CODE_REQUIRED);
 
         verifyNoInteractions(orderRepository, orderTrackingEventRepository, orderService, returnRequestService);
     }
@@ -97,8 +98,8 @@ class GhnWebhookServiceImplTest {
         when(returnRequestService.applyGhnReturnStatus(TRACKING_CODE, "lost", "Thất lạc")).thenReturn(false);
 
         assertThatThrownBy(() -> ghnWebhookService.handleWebhook(payload("lost", "Thất lạc", null)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Không tìm thấy vận đơn.");
+                .isInstanceOf(AppException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.GHN_SHIPMENT_NOT_FOUND);
 
         verifyNoInteractions(orderTrackingEventRepository, orderService);
     }

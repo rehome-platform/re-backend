@@ -1,7 +1,10 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.dto.request.CounterHandoverRequest;
+import com.rehome.rehome.dto.request.CounterLookupRequest;
+import com.rehome.rehome.dto.response.MemberLookupItemResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.counter.CounterIdentityConfirmation;
 import com.rehome.rehome.entity.enums.EndOfTermChoice;
 import com.rehome.rehome.entity.enums.InvalidReturnChoice;
@@ -18,6 +21,7 @@ import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.CounterIdentityConfirmationRepository;
 import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.ItemWithdrawalRequestRepository;
+import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -30,6 +34,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -50,6 +55,7 @@ class CounterServiceImplTest {
     @Mock private ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
     @Mock private EndOfTermDecisionRepository endOfTermDecisionRepository;
     @Mock private ReturnRequestRepository returnRequestRepository;
+    @Mock private MemberProfileRepository memberProfileRepository;
 
     @InjectMocks private CounterServiceImpl service;
 
@@ -96,6 +102,128 @@ class CounterServiceImplTest {
         verifyNoInteractions(itemWithdrawalRequestRepository);
         verifyNoInteractions(endOfTermDecisionRepository);
         verifyNoInteractions(returnRequestRepository);
+    }
+
+    private CounterLookupRequest lookupRequest(String memberCode, String phone, String qrPayload) {
+        CounterLookupRequest r = new CounterLookupRequest();
+        r.setMemberCode(memberCode);
+        r.setPhone(phone);
+        r.setQrPayload(qrPayload);
+        return r;
+    }
+
+    private MemberProfile profile(String memberCode, String fullName) {
+        return MemberProfile.builder()
+                .accountId(memberId)
+                .fullName(fullName)
+                .avatarUrl("https://cdn.rehome.vn/uploads/avatar.jpg")
+                .memberCode(memberCode)
+                .build();
+    }
+
+    // ---------------------------------------------------------------- lookup
+
+    @Test
+    @DisplayName("lookup: theo memberCode -> trả đúng 1 item")
+    void lookup_byMemberCode_returnsOneItem() {
+        when(memberProfileRepository.findByMemberCode("MB000123"))
+                .thenReturn(Optional.of(profile("MB000123", "Tạ Thị Ngọc Anh")));
+
+        List<MemberLookupItemResponse> result = service.lookup(lookupRequest("MB000123", null, null));
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getAccountId()).isEqualTo(memberId);
+        assertThat(result.get(0).getMemberCode()).isEqualTo("MB000123");
+        assertThat(result.get(0).getFullName()).isEqualTo("Tạ Thị Ngọc Anh");
+    }
+
+    @Test
+    @DisplayName("lookup: memberCode nhập tay chữ thường/có space -> chuẩn hoá trước khi tra")
+    void lookup_byMemberCode_normalizesInput() {
+        when(memberProfileRepository.findByMemberCode("MB000123"))
+                .thenReturn(Optional.of(profile("MB000123", "Tạ Thị Ngọc Anh")));
+
+        service.lookup(lookupRequest("  mb000123 ", null, null));
+
+        verify(memberProfileRepository).findByMemberCode("MB000123");
+    }
+
+    @Test
+    @DisplayName("lookup: quét QR -> bóc memberCode trong payload rồi tra như mã")
+    void lookup_byQrPayload_resolvesMemberCode() {
+        when(memberProfileRepository.findByMemberCode("MB000123"))
+                .thenReturn(Optional.of(profile("MB000123", "Tạ Thị Ngọc Anh")));
+
+        List<MemberLookupItemResponse> result =
+                service.lookup(lookupRequest(null, null, "REHOME:MEMBER:v1:MB000123"));
+
+        assertThat(result).hasSize(1);
+        verify(memberProfileRepository).findByMemberCode("MB000123");
+    }
+
+    @Test
+    @DisplayName("lookup: QR sai tiền tố (ví dụ QR sản phẩm) -> QR_PAYLOAD_INVALID")
+    void lookup_byQrPayload_wrongPrefix_throws() {
+        assertErrorCode(() -> service.lookup(lookupRequest(null, null, "REHOME:PRODUCT:v1:SKU-1")),
+                ErrorCode.QR_PAYLOAD_INVALID);
+
+        verifyNoInteractions(memberProfileRepository);
+    }
+
+    @Test
+    @DisplayName("lookup: QR đúng tiền tố nhưng rỗng phần mã -> QR_PAYLOAD_INVALID")
+    void lookup_byQrPayload_emptyCode_throws() {
+        assertErrorCode(() -> service.lookup(lookupRequest(null, null, "REHOME:MEMBER:v1:   ")),
+                ErrorCode.QR_PAYLOAD_INVALID);
+
+        verifyNoInteractions(memberProfileRepository);
+    }
+
+    @Test
+    @DisplayName("lookup: theo số điện thoại -> trả hết các Member khớp để Moderator chọn")
+    void lookup_byPhone_returnsAllMatches() {
+        when(memberProfileRepository.findByAccount_Phone("0912345678")).thenReturn(List.of(
+                profile("MB000123", "Tạ Thị Ngọc Anh"),
+                profile("MB000124", "Nguyễn Văn B")));
+
+        List<MemberLookupItemResponse> result = service.lookup(lookupRequest(null, "0912345678", null));
+
+        assertThat(result).hasSize(2);
+        assertThat(result).extracting(MemberLookupItemResponse::getMemberCode)
+                .containsExactly("MB000123", "MB000124");
+    }
+
+    @Test
+    @DisplayName("lookup: không gửi field nào -> LOOKUP_INVALID_INPUT")
+    void lookup_noField_throws() {
+        assertErrorCode(() -> service.lookup(lookupRequest(null, "  ", "")), ErrorCode.LOOKUP_INVALID_INPUT);
+
+        verifyNoInteractions(memberProfileRepository);
+    }
+
+    @Test
+    @DisplayName("lookup: gửi hơn 1 field -> LOOKUP_INVALID_INPUT")
+    void lookup_moreThanOneField_throws() {
+        assertErrorCode(() -> service.lookup(lookupRequest("MB000123", "0912345678", null)),
+                ErrorCode.LOOKUP_INVALID_INPUT);
+
+        verifyNoInteractions(memberProfileRepository);
+    }
+
+    @Test
+    @DisplayName("lookup: mã không tồn tại -> MEMBER_NOT_FOUND")
+    void lookup_memberCodeNotFound_throws() {
+        when(memberProfileRepository.findByMemberCode("MB999999")).thenReturn(Optional.empty());
+
+        assertErrorCode(() -> service.lookup(lookupRequest("MB999999", null, null)), ErrorCode.MEMBER_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("lookup: số điện thoại không khớp ai -> MEMBER_NOT_FOUND")
+    void lookup_phoneNotFound_throws() {
+        when(memberProfileRepository.findByAccount_Phone("0900000000")).thenReturn(List.of());
+
+        assertErrorCode(() -> service.lookup(lookupRequest(null, "0900000000", null)), ErrorCode.MEMBER_NOT_FOUND);
     }
 
     // ---------------------------------------------------------------- confirmIdentity

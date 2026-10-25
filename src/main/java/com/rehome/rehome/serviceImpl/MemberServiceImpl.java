@@ -6,10 +6,12 @@ import com.rehome.rehome.dto.response.MemberProfileResponse;
 import com.rehome.rehome.dto.response.MemberProfileUpdateResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.MemberProfile;
-import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.exception.AppException;
+import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.service.MemberService;
+import com.rehome.rehome.util.MemberQrPayload;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,10 +32,10 @@ public class MemberServiceImpl implements MemberService {
     @Override
     public MemberProfileResponse getMemberProfile(String email) {
         Account account = accountRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+                .orElseThrow(() -> new AppException(ErrorCode.ACCOUNT_NOT_FOUND));
 
         MemberProfile memberProfile = memberProfileRepository.findByAccountId(account.getId())
-                .orElseThrow(() -> new IllegalArgumentException("Hồ sơ Member không tồn tại"));
+                .orElseThrow(() -> new AppException(ErrorCode.MEMBER_PROFILE_NOT_FOUND));
 
         return MemberProfileResponse.builder()
                 .accountId(account.getId())
@@ -51,10 +53,10 @@ public class MemberServiceImpl implements MemberService {
     @Transactional
     public MemberProfileUpdateResponse updateMemberProfile(String email, UpdateMemberProfileRequest request) {
         Account account = accountRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+                .orElseThrow(() -> new AppException(ErrorCode.ACCOUNT_NOT_FOUND));
 
         MemberProfile memberProfile = memberProfileRepository.findByAccountId(account.getId())
-                .orElseThrow(() -> new IllegalArgumentException("Hồ sơ Member không tồn tại"));
+                .orElseThrow(() -> new AppException(ErrorCode.MEMBER_PROFILE_NOT_FOUND));
 
         if (StringUtils.hasText(request.getFullName())) {
             memberProfile.setFullName(request.getFullName().trim());
@@ -67,7 +69,7 @@ public class MemberServiceImpl implements MemberService {
         if (StringUtils.hasText(request.getPhone())) {
             String phone = request.getPhone().trim();
             if (!PHONE_PATTERN.matcher(phone).matches()) {
-                throw new BadRequestException("Số điện thoại không đúng định dạng.");
+                throw new AppException(ErrorCode.INVALID_PHONE_FORMAT);
             }
             account.setPhone(phone);
         }
@@ -86,13 +88,14 @@ public class MemberServiceImpl implements MemberService {
     @Override
     public MemberCodeResponse getMemberCode(String email) {
         Account account = accountRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+                .orElseThrow(() -> new AppException(ErrorCode.ACCOUNT_NOT_FOUND));
 
         MemberProfile memberProfile = memberProfileRepository.findByAccountId(account.getId())
-                .orElseThrow(() -> new IllegalArgumentException("Hồ sơ Member không tồn tại"));
+                .orElseThrow(() -> new AppException(ErrorCode.MEMBER_PROFILE_NOT_FOUND));
 
         return MemberCodeResponse.builder()
                 .memberCode(memberProfile.getMemberCode())
+                .qrPayload(MemberQrPayload.encode(memberProfile.getMemberCode()))
                 .build();
     }
 }

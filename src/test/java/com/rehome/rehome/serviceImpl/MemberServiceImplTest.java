@@ -6,7 +6,8 @@ import com.rehome.rehome.dto.response.MemberProfileResponse;
 import com.rehome.rehome.dto.response.MemberProfileUpdateResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.MemberProfile;
-import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.exception.AppException;
+import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -77,8 +78,8 @@ class MemberServiceImplTest {
         when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> memberService.getMemberProfile(email))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Account không tồn tại");
+                .isInstanceOf(AppException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ACCOUNT_NOT_FOUND);
     }
 
     @Test void getMemberProfileThrowsWhenProfileNotFound() {
@@ -86,8 +87,8 @@ class MemberServiceImplTest {
         when(memberProfileRepository.findByAccountId(account.getId())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> memberService.getMemberProfile(email))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Hồ sơ Member không tồn tại");
+                .isInstanceOf(AppException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.MEMBER_PROFILE_NOT_FOUND);
     }
 
     // ---------- updateMemberProfile ----------
@@ -142,8 +143,8 @@ class MemberServiceImplTest {
         UpdateMemberProfileRequest request = new UpdateMemberProfileRequest(null, "12345", null);
 
         assertThatThrownBy(() -> memberService.updateMemberProfile(email, request))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessage("Số điện thoại không đúng định dạng.");
+                .isInstanceOf(AppException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_PHONE_FORMAT);
 
         assertThat(account.getPhone()).isEqualTo("0900000000");
         verify(memberProfileRepository, never()).save(any());
@@ -154,8 +155,8 @@ class MemberServiceImplTest {
         when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> memberService.updateMemberProfile(email, new UpdateMemberProfileRequest()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Account không tồn tại");
+                .isInstanceOf(AppException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ACCOUNT_NOT_FOUND);
     }
 
     @Test void updateMemberProfileThrowsWhenProfileNotFound() {
@@ -163,8 +164,8 @@ class MemberServiceImplTest {
         when(memberProfileRepository.findByAccountId(account.getId())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> memberService.updateMemberProfile(email, new UpdateMemberProfileRequest()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Hồ sơ Member không tồn tại");
+                .isInstanceOf(AppException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.MEMBER_PROFILE_NOT_FOUND);
     }
 
     // ---------- getMemberCode ----------
@@ -176,14 +177,15 @@ class MemberServiceImplTest {
         MemberCodeResponse result = memberService.getMemberCode(email);
 
         assertThat(result.getMemberCode()).isEqualTo("MEM-ABC123");
+        assertThat(result.getQrPayload()).isEqualTo("REHOME:MEMBER:v1:MEM-ABC123");
     }
 
     @Test void getMemberCodeThrowsWhenAccountNotFound() {
         when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> memberService.getMemberCode(email))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Account không tồn tại");
+                .isInstanceOf(AppException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ACCOUNT_NOT_FOUND);
     }
 
     @Test void getMemberCodeThrowsWhenProfileNotFound() {
@@ -191,7 +193,7 @@ class MemberServiceImplTest {
         when(memberProfileRepository.findByAccountId(account.getId())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> memberService.getMemberCode(email))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Hồ sơ Member không tồn tại");
+                .isInstanceOf(AppException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.MEMBER_PROFILE_NOT_FOUND);
     }
 }

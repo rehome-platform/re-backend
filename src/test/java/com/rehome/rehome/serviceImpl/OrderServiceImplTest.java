@@ -11,6 +11,7 @@ import com.rehome.rehome.dto.response.OrderListResponse;
 import com.rehome.rehome.dto.response.OrderRatingResponse;
 import com.rehome.rehome.dto.response.OrderResponse;
 import com.rehome.rehome.dto.response.OrderSummaryResponse;
+import com.rehome.rehome.dto.response.OrderTrackingResponse;
 import com.rehome.rehome.dto.response.PayOrdersResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.CancelReason;
@@ -25,10 +26,12 @@ import com.rehome.rehome.entity.marketplace.CartItem;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
+import com.rehome.rehome.entity.marketplace.OrderTrackingEvent;
 import com.rehome.rehome.entity.marketplace.Payment;
 import com.rehome.rehome.entity.marketplace.PlatformFund;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
+import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.entity.marketplace.ShippingAddress;
 import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.entity.marketplace.WalletTransaction;
@@ -41,6 +44,7 @@ import com.rehome.rehome.repository.CartItemRepository;
 import com.rehome.rehome.repository.CartRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
+import com.rehome.rehome.repository.OrderTrackingEventRepository;
 import com.rehome.rehome.repository.PaymentRepository;
 import com.rehome.rehome.repository.PlatformFundRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
@@ -67,6 +71,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.Year;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -91,6 +96,7 @@ class OrderServiceImplTest {
     @Mock ProductRepository productRepository;
     @Mock OrderRepository orderRepository;
     @Mock OrderItemRepository orderItemRepository;
+    @Mock OrderTrackingEventRepository orderTrackingEventRepository;
     @Mock ReturnRequestRepository returnRequestRepository;
     @Mock ProductPhotoRepository productPhotoRepository;
     @Mock PaymentRepository paymentRepository;
@@ -115,6 +121,7 @@ class OrderServiceImplTest {
     void setup() {
         ReflectionTestUtils.setField(orderService, "paymentDeadlineMinutes", 15L);
         ReflectionTestUtils.setField(orderService, "taxRate", BigDecimal.ZERO);
+        ReflectionTestUtils.setField(orderService, "returnRequestWindowDays", 3L);
 
         email = "member@example.com";
         member = Account.builder().id(UUID.randomUUID()).email(email).build();
@@ -1707,6 +1714,192 @@ class OrderServiceImplTest {
 
         assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
         assertThat(wallet.getBalance()).isEqualByComparingTo("150000");
+    }
+
+    // ==================== getOrderDetail: field cho màn chi tiết đơn (P4.1) ====================
+
+    @Test
+    void getOrderDetail_exposesPaymentDeadlineWarehouseIdAndReturnInfo() {
+        UUID orderId = UUID.randomUUID();
+        UUID returnRequestId = UUID.randomUUID();
+        Instant paymentDeadline = Instant.parse("2026-01-01T00:15:00Z");
+        Instant deliveredAt = Instant.parse("2026-01-05T00:00:00Z");
+
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000001")
+                .buyer(member)
+                .warehouse(warehouse1)
+                .status(OrderStatus.DELIVERED)
+                .createdAt(Instant.parse("2026-01-01T00:00:00Z"))
+                .paymentMethod(OrderPaymentMethod.MOMO)
+                .subtotal(new BigDecimal("600000"))
+                .shippingFee(new BigDecimal("25000"))
+                .totalAmount(new BigDecimal("625000"))
+                .paymentDeadline(paymentDeadline)
+                .deliveredAt(deliveredAt)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId)).thenReturn(List.of());
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(any())).thenReturn(List.of());
+        when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.empty());
+        when(returnRequestRepository.findFirstByOrder_IdOrderByCreatedAtDesc(orderId))
+                .thenReturn(Optional.of(ReturnRequest.builder().id(returnRequestId).order(order).build()));
+
+        OrderDetailResponse result = orderService.getOrderDetail(email, orderId);
+
+        assertThat(result.getPaymentDeadline()).isEqualTo(paymentDeadline);
+        assertThat(result.getWarehouseId()).isEqualTo(warehouse1.getId().toString());
+        assertThat(result.getReturnRequestId()).isEqualTo(returnRequestId.toString());
+        // 3 ngày kể từ lúc GHN báo đã giao, khớp app.return.request-window-days
+        assertThat(result.getReturnDeadline()).isEqualTo(deliveredAt.plus(3, ChronoUnit.DAYS));
+    }
+
+    @Test
+    void getOrderDetail_returnFieldsAreNull_whenOrderNotDeliveredYet() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000001")
+                .buyer(member)
+                .warehouse(warehouse1)
+                .status(OrderStatus.PENDING_PAYMENT)
+                .createdAt(Instant.parse("2026-01-01T00:00:00Z"))
+                .paymentMethod(OrderPaymentMethod.MOMO)
+                .subtotal(new BigDecimal("600000"))
+                .shippingFee(new BigDecimal("25000"))
+                .totalAmount(new BigDecimal("625000"))
+                .paymentDeadline(Instant.parse("2026-01-01T00:15:00Z"))
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId)).thenReturn(List.of());
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(any())).thenReturn(List.of());
+        when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.empty());
+        when(returnRequestRepository.findFirstByOrder_IdOrderByCreatedAtDesc(orderId))
+                .thenReturn(Optional.empty());
+
+        OrderDetailResponse result = orderService.getOrderDetail(email, orderId);
+
+        assertThat(result.getReturnRequestId()).isNull();
+        // Chưa giao thì chưa có mốc nào để tính hạn trả hàng
+        assertThat(result.getReturnDeadline()).isNull();
+    }
+
+    // ==================== getTracking: màn theo dõi vận chuyển (P4.2) ====================
+
+    private Order shippingOrder(UUID orderId, Instant expectedDeliveryDate) {
+        return Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000001")
+                .buyer(member)
+                .warehouse(warehouse1)
+                .status(OrderStatus.SHIPPING)
+                .ghnTrackingCode("GHN123456789")
+                .expectedDeliveryDate(expectedDeliveryDate)
+                .build();
+    }
+
+    private OrderTrackingEvent trackingEvent(Order order, String status, String description,
+                                              String location, Instant occurredAt) {
+        return OrderTrackingEvent.builder()
+                .id(UUID.randomUUID())
+                .order(order)
+                .ghnStatus(status)
+                .description(description)
+                .location(location)
+                .occurredAt(occurredAt)
+                .build();
+    }
+
+    @Test
+    void getTracking_mapsExpectedDeliveryDateAndEventLocation() {
+        UUID orderId = UUID.randomUUID();
+        Instant expected = Instant.parse("2026-01-07T10:00:00Z");
+        Instant firstAt = Instant.parse("2026-01-05T08:00:00Z");
+        Instant secondAt = Instant.parse("2026-01-06T09:00:00Z");
+
+        Order order = shippingOrder(orderId, expected);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderTrackingEventRepository.findAllByOrder_IdOrderByOccurredAtAsc(orderId))
+                .thenReturn(List.of(
+                        trackingEvent(order, "picked", "Đã lấy hàng", "Kho Quận 7", firstAt),
+                        trackingEvent(order, "delivering", "Đang giao", "Kho Bình Thạnh", secondAt)));
+
+        OrderTrackingResponse result = orderService.getTracking(email, orderId);
+
+        assertThat(result.getGhnTrackingCode()).isEqualTo("GHN123456789");
+        assertThat(result.getExpectedDeliveryDate()).isEqualTo(expected);
+        assertThat(result.getHasIssue()).isFalse();
+        assertThat(result.getIssueNote()).isNull();
+
+        assertThat(result.getEvents()).hasSize(2);
+        assertThat(result.getEvents().get(0).getStatus()).isEqualTo("picked");
+        assertThat(result.getEvents().get(0).getLocation()).isEqualTo("Kho Quận 7");
+        assertThat(result.getEvents().get(0).getTimestamp()).isEqualTo(firstAt);
+        assertThat(result.getEvents().get(1).getTimestamp()).isEqualTo(secondAt);
+    }
+
+    @Test
+    void getTracking_flagsIssue_whenLatestEventIsDeliveryFail() {
+        UUID orderId = UUID.randomUUID();
+        Order order = shippingOrder(orderId, null);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderTrackingEventRepository.findAllByOrder_IdOrderByOccurredAtAsc(orderId))
+                .thenReturn(List.of(
+                        trackingEvent(order, "delivering", "Đang giao", null,
+                                Instant.parse("2026-01-05T08:00:00Z")),
+                        trackingEvent(order, "delivery_fail", "Khách không nghe máy", null,
+                                Instant.parse("2026-01-06T09:00:00Z"))));
+
+        OrderTrackingResponse result = orderService.getTracking(email, orderId);
+
+        assertThat(result.getHasIssue()).isTrue();
+        assertThat(result.getIssueNote()).isEqualTo("Khách không nghe máy");
+    }
+
+    // Giao hụt rồi giao lại thành công thì không còn là sự cố nữa - chỉ xét sự kiện mới nhất
+    @Test
+    void getTracking_clearsIssue_whenRedeliverySucceededAfterFailure() {
+        UUID orderId = UUID.randomUUID();
+        Order order = shippingOrder(orderId, null);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderTrackingEventRepository.findAllByOrder_IdOrderByOccurredAtAsc(orderId))
+                .thenReturn(List.of(
+                        trackingEvent(order, "delivery_fail", "Khách không nghe máy", null,
+                                Instant.parse("2026-01-05T08:00:00Z")),
+                        trackingEvent(order, "delivered", "Giao thành công", null,
+                                Instant.parse("2026-01-06T09:00:00Z"))));
+
+        OrderTrackingResponse result = orderService.getTracking(email, orderId);
+
+        assertThat(result.getHasIssue()).isFalse();
+        assertThat(result.getIssueNote()).isNull();
+    }
+
+    @Test
+    void getTracking_hasIssueIsFalse_whenNoEventYet() {
+        UUID orderId = UUID.randomUUID();
+        Order order = shippingOrder(orderId, null);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderTrackingEventRepository.findAllByOrder_IdOrderByOccurredAtAsc(orderId))
+                .thenReturn(List.of());
+
+        OrderTrackingResponse result = orderService.getTracking(email, orderId);
+
+        assertThat(result.getHasIssue()).isFalse();
+        assertThat(result.getEvents()).isEmpty();
     }
 
     @Test

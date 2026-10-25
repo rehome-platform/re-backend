@@ -5,6 +5,7 @@ import com.rehome.rehome.dto.response.OrderRevenueResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.PayoutRequestResponse;
 import com.rehome.rehome.dto.response.WalletBalanceResponse;
+import com.rehome.rehome.dto.response.WalletConfigResponse;
 import com.rehome.rehome.dto.response.WalletTransactionResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.TransactionStatus;
@@ -649,6 +650,61 @@ class WalletServiceImplTest {
         assertThat(platformTx.getType()).isEqualTo(WalletTransactionType.WITHDRAWAL);
         assertThat(platformTx.getAmount()).isEqualByComparingTo("100000");
         assertThat(platformTx.getCounterpartTransaction()).isEqualTo(memberTx);
+
+        // P4.4: bút toán rút tiền phải trỏ về yêu cầu rút, để app mở được chi tiết từ lịch sử ví
+        assertThat(memberTx.getRelatedPayoutRequest()).isEqualTo(savedPayoutRequest);
+        assertThat(platformTx.getRelatedPayoutRequest()).isEqualTo(savedPayoutRequest);
+    }
+
+    // ==================== getWalletConfig (P4.3) ====================
+
+    @Test
+    void getWalletConfig_returnsDefaults_whenAdminHasNotConfiguredAnything() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(wallet));
+        when(payoutRequestRepository.countByWallet_IdAndCreatedAtBetween(
+                eq(wallet.getId()), any(Instant.class), any(Instant.class)))
+                .thenReturn(2L);
+
+        WalletConfigResponse result = walletService.getWalletConfig(email);
+
+        assertThat(result.getMinPayout()).isEqualByComparingTo("50000");
+        assertThat(result.getMaxPayoutsPerDay()).isEqualTo(3);
+        assertThat(result.getUsedToday()).isEqualTo(2L);
+    }
+
+    @Test
+    void getWalletConfig_reflectsSystemConfigOverrides() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(wallet));
+        when(systemConfigRepository.findByKey("min_payout_amount"))
+                .thenReturn(Optional.of(SystemConfig.builder()
+                        .key("min_payout_amount").value("10000").build()));
+        when(systemConfigRepository.findByKey("max_payout_requests_per_day"))
+                .thenReturn(Optional.of(SystemConfig.builder()
+                        .key("max_payout_requests_per_day").value("5").build()));
+        when(payoutRequestRepository.countByWallet_IdAndCreatedAtBetween(
+                eq(wallet.getId()), any(Instant.class), any(Instant.class)))
+                .thenReturn(1L);
+
+        WalletConfigResponse result = walletService.getWalletConfig(email);
+
+        assertThat(result.getMinPayout()).isEqualByComparingTo("10000");
+        assertThat(result.getMaxPayoutsPerDay()).isEqualTo(5);
+        assertThat(result.getUsedToday()).isEqualTo(1L);
+    }
+
+    // Member chưa từng có giao dịch nào thì chưa có ví, không được nổ NPE ở màn rút tiền
+    @Test
+    void getWalletConfig_usedTodayIsZero_whenMemberHasNoWallet() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.empty());
+
+        WalletConfigResponse result = walletService.getWalletConfig(email);
+
+        assertThat(result.getUsedToday()).isZero();
+        verify(payoutRequestRepository, never())
+                .countByWallet_IdAndCreatedAtBetween(any(), any(), any());
     }
 
     @Test

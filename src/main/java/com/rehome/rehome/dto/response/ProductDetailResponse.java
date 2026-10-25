@@ -31,4 +31,7 @@ public class ProductDetailResponse {
     private UUID warehouseId;
     private String warehouseName;
     private List<String> photos;
+    // true = món này do chính người đang xem ký gửi, FE ẩn nút mua/thêm giỏ.
+    // Xem ghi chú kiểu Boolean ở ProductSummaryResponse.
+    private Boolean isMine;
 }

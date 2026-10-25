@@ -13,6 +13,8 @@ import com.rehome.rehome.dto.response.OrderResponse;
 import com.rehome.rehome.dto.response.OrderSummaryResponse;
 import com.rehome.rehome.dto.response.OrderTrackingResponse;
 import com.rehome.rehome.dto.response.PayOrdersResponse;
+import com.rehome.rehome.dto.response.SoldOrderListResponse;
+import com.rehome.rehome.dto.response.SoldOrderResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.CancelReason;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
@@ -109,6 +111,7 @@ class OrderServiceImplTest {
     OrderServiceImpl orderService;
 
     Account member;
+    Account seller;
     String email;
     ShippingAddress address;
     Warehouse warehouse1;
@@ -141,6 +144,9 @@ class OrderServiceImplTest {
                 .commissionRateTerm3(new BigDecimal("0.20"))
                 .build();
 
+        // Product.member_id là NOT NULL, và createOrders phải so người ký gửi với người mua
+        seller = Account.builder().id(UUID.randomUUID()).email("seller@example.com").build();
+
         product1 = Product.builder()
                 .id("Q7-AK-000845")
                 .status(ProductStatus.ON_SALE)
@@ -148,6 +154,7 @@ class OrderServiceImplTest {
                 .currentTerm((short) 1)
                 .warehouse(warehouse1)
                 .consignmentReceipt(receipt)
+                .member(seller)
                 .build();
 
         product2 = Product.builder()
@@ -157,6 +164,7 @@ class OrderServiceImplTest {
                 .currentTerm((short) 1)
                 .warehouse(warehouse2)
                 .consignmentReceipt(receipt)
+                .member(seller)
                 .build();
     }
 
@@ -276,6 +284,24 @@ class OrderServiceImplTest {
                 .hasMessage("Sản phẩm không còn để bán.");
 
         verify(orderRepository, never()).save(any());
+    }
+
+    // Buy-now không đi qua giỏ nên phải chặn lại ở createOrders, không chỉ ở addItem
+    @Test
+    void createOrders_throwsConflict_whenBuyNowProductIsOwnedByBuyer() {
+        product1.setMember(member);
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"));
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
+        when(productRepository.findByIdForUpdate("Q7-AK-000845")).thenReturn(Optional.of(product1));
+
+        assertThatThrownBy(() -> orderService.createOrders(email, request))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Bạn không thể mua món do chính mình ký gửi.");
+
+        verify(orderRepository, never()).save(any());
+        verify(productRepository, never()).save(any());
     }
 
     @Test
@@ -1900,6 +1926,143 @@ class OrderServiceImplTest {
 
         assertThat(result.getHasIssue()).isFalse();
         assertThat(result.getEvents()).isEmpty();
+    }
+
+    // ==================== getSoldOrders ====================
+
+    /** Đơn của người mua khác, chứa hàng do `seller` ký gửi. */
+    private Order soldOrder(UUID orderId, OrderStatus status) {
+        return Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000777")
+                .buyer(Account.builder().id(UUID.randomUUID()).email("buyer@example.com").build())
+                .warehouse(warehouse1)
+                .status(status)
+                .totalAmount(new BigDecimal("250000"))
+                .createdAt(Instant.parse("2026-10-01T00:00:00Z"))
+                .build();
+    }
+
+    private OrderItem soldItem(Order order, Product product, String price, String commissionRate) {
+        return OrderItem.builder()
+                .id(UUID.randomUUID())
+                .order(order)
+                .product(product)
+                .priceAtOrder(new BigDecimal(price))
+                .commissionRateApplied(new BigDecimal(commissionRate))
+                .taxRateApplied(BigDecimal.ZERO)
+                .termApplied((short) 1)
+                .build();
+    }
+
+    @Test
+    void getSoldOrders_defaultStatuses_excludePendingPaymentAndCancelled() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findOrdersContainingSellerItems(eq(member.getId()), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        orderService.getSoldOrders(email, null, 0, 20);
+
+        ArgumentCaptor<List<OrderStatus>> statuses = ArgumentCaptor.forClass(List.class);
+        verify(orderRepository).findOrdersContainingSellerItems(
+                eq(member.getId()), statuses.capture(), any(Pageable.class));
+
+        assertThat(statuses.getValue())
+                .containsExactly(OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.SHIPPING,
+                        OrderStatus.DELIVERED, OrderStatus.COMPLETED, OrderStatus.RETURNED)
+                .doesNotContain(OrderStatus.PENDING_PAYMENT, OrderStatus.CANCELLED);
+    }
+
+    @Test
+    void getSoldOrders_explicitStatusIsHonoured() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findOrdersContainingSellerItems(eq(member.getId()), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        orderService.getSoldOrders(email, "CANCELLED", 0, 20);
+
+        ArgumentCaptor<List<OrderStatus>> statuses = ArgumentCaptor.forClass(List.class);
+        verify(orderRepository).findOrdersContainingSellerItems(
+                eq(member.getId()), statuses.capture(), any(Pageable.class));
+
+        assertThat(statuses.getValue()).containsExactly(OrderStatus.CANCELLED);
+    }
+
+    @Test
+    void getSoldOrders_throwsBadRequest_whenStatusIsNotAValidOrderStatus() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+
+        assertThatThrownBy(() -> orderService.getSoldOrders(email, "NOPE", 0, 20))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("status không hợp lệ: NOPE");
+
+        verify(orderRepository, never()).findOrdersContainingSellerItems(any(), any(), any());
+    }
+
+    @Test
+    void getSoldOrders_skipsItemQuery_whenNoOrdersFound() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findOrdersContainingSellerItems(eq(member.getId()), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        SoldOrderListResponse result = orderService.getSoldOrders(email, null, 0, 20);
+
+        assertThat(result.getOrders().getContent()).isEmpty();
+        verify(orderItemRepository, never()).findSellerItemsByOrderIds(any(), any());
+    }
+
+    // Tiền hiển thị phải khớp công thức payout của confirmReceipt: giá - hoa hồng
+    @Test
+    void getSoldOrders_sumsOnlySellerItems_andComputesNetAmount() {
+        UUID orderId = UUID.randomUUID();
+        Order order = soldOrder(orderId, OrderStatus.SHIPPING);
+        OrderItem mine = soldItem(order, product1, "220000", "0.10");
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findOrdersContainingSellerItems(eq(member.getId()), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(order)));
+        when(orderItemRepository.findSellerItemsByOrderIds(List.of(orderId), member.getId()))
+                .thenReturn(List.of(mine));
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(List.of("Q7-AK-000845")))
+                .thenReturn(List.of());
+
+        SoldOrderListResponse result = orderService.getSoldOrders(email, null, 0, 20);
+
+        assertThat(result.getOrders().getContent()).hasSize(1);
+        SoldOrderResponse sold = result.getOrders().getContent().get(0);
+
+        assertThat(sold.getOrderId()).isEqualTo(orderId.toString());
+        assertThat(sold.getStatus()).isEqualTo("SHIPPING");
+        assertThat(sold.getWarehouseName()).isEqualTo("Kho Quận 7");
+        assertThat(sold.getItemCount()).isEqualTo(1);
+        // Đơn 250000 nhưng món của người bán chỉ 220000 - subtotal là của người bán, không của đơn
+        assertThat(sold.getSubtotal()).isEqualByComparingTo("220000");
+        assertThat(sold.getNetAmount()).isEqualByComparingTo("198000");
+        assertThat(sold.getPaidOut()).isFalse();
+        assertThat(sold.getItems()).hasSize(1);
+        assertThat(sold.getItems().get(0).getCommission()).isEqualByComparingTo("22000");
+        assertThat(sold.getItems().get(0).getNetAmount()).isEqualByComparingTo("198000");
+    }
+
+    @Test
+    void getSoldOrders_marksPaidOut_whenOrderIsCompleted() {
+        UUID orderId = UUID.randomUUID();
+        Order order = soldOrder(orderId, OrderStatus.COMPLETED);
+        order.setCompletedAt(Instant.parse("2026-10-05T00:00:00Z"));
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findOrdersContainingSellerItems(eq(member.getId()), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(order)));
+        when(orderItemRepository.findSellerItemsByOrderIds(List.of(orderId), member.getId()))
+                .thenReturn(List.of(soldItem(order, product1, "220000", "0.10")));
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(List.of("Q7-AK-000845")))
+                .thenReturn(List.of());
+
+        SoldOrderListResponse result = orderService.getSoldOrders(email, null, 0, 20);
+
+        SoldOrderResponse sold = result.getOrders().getContent().get(0);
+        assertThat(sold.getPaidOut()).isTrue();
+        assertThat(sold.getCompletedAt()).isEqualTo(Instant.parse("2026-10-05T00:00:00Z"));
     }
 
     @Test

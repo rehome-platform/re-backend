@@ -46,17 +46,22 @@ public class ProductController {
             @RequestParam(required = false) BigDecimal priceMax,
             @RequestParam(required = false) UUID warehouseId,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal Account account) {
 
         PageResponse<ProductSummaryResponse> result = productService.getProducts(
-                search, categoryId, brandId, priceMin, priceMax, warehouseId, page, size);
+                search, categoryId, brandId, priceMin, priceMax, warehouseId, page, size,
+                account != null ? account.getId() : null);
 
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
     @GetMapping("/detail/{id}")
-    public ResponseEntity<ApiResponse<ProductDetailResponse>> getProductDetail(@PathVariable String id) {
-        ProductDetailResponse result = productService.getProductDetail(id);
+    public ResponseEntity<ApiResponse<ProductDetailResponse>> getProductDetail(
+            @PathVariable String id,
+            @AuthenticationPrincipal Account account) {
+        ProductDetailResponse result = productService.getProductDetail(
+                id, account != null ? account.getId() : null);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
@@ -126,7 +131,8 @@ public class ProductController {
         if (account != null && account.getRole() == Role.MODERATOR) {
             return ResponseEntity.ok(ApiResponse.<Object>success(productService.getBySku(account, id)));
         }
-        return ResponseEntity.ok(ApiResponse.<Object>success(productService.getProductDetail(id)));
+        return ResponseEntity.ok(ApiResponse.<Object>success(
+                productService.getProductDetail(id, account != null ? account.getId() : null)));
     }
     // Trả thẳng file PDF để Moderator in tem, không qua URL trung gian
     @GetMapping("/{id}/sku-label")

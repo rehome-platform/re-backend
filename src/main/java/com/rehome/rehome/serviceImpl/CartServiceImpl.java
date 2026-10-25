@@ -71,6 +71,13 @@ public class CartServiceImpl implements CartService {
             throw new ConflictException("Sản phẩm không còn để bán.", "PRODUCT_NOT_AVAILABLE");
         }
 
+        // Chặn ngay ở cửa vào giỏ, nên getCart/checkout-preview không cần thêm lý do mới:
+        // món của chính mình không bao giờ vào được giỏ (quyền sở hữu không chuyển tay).
+        if (product.getMember().getId().equals(member.getId())) {
+            throw new ConflictException(
+                    "Bạn không thể mua món do chính mình ký gửi.", "CANNOT_BUY_OWN_PRODUCT");
+        }
+
         Cart cart = cartRepository.findByMember_Id(member.getId())
                 .orElseGet(() -> cartRepository.save(Cart.builder().member(member).build()));
 

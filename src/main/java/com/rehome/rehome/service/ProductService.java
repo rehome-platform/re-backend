@@ -14,11 +14,13 @@ import java.util.List;
 import java.util.UUID;
 
 public interface ProductService {
+    // viewerId = người đang xem, chỉ để tính cờ isMine; null thì isMine = false
     PageResponse<ProductSummaryResponse> getProducts(String search, UUID categoryId, UUID brandId,
                                                        BigDecimal priceMin, BigDecimal priceMax,
-                                                       UUID warehouseId, int page, int size);
+                                                       UUID warehouseId, int page, int size,
+                                                       UUID viewerId);
 
-    ProductDetailResponse getProductDetail(String id);
+    ProductDetailResponse getProductDetail(String id, UUID viewerId);
     ProductEndOfTermDetailResponse getProductById(String id);
     Page<MyProductResponse> getMyProducts(UUID memberId, ProductStatus status, Pageable pageable);
     ProductResponse create(CreateProductRequest request, Account account);

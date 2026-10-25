@@ -1,7 +1,9 @@
 package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.CounterHandoverRequest;
+import com.rehome.rehome.dto.request.CounterLookupRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
+import com.rehome.rehome.dto.response.MemberLookupItemResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.CounterService;
 import jakarta.validation.Valid;
@@ -11,6 +13,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -19,6 +22,15 @@ import java.util.UUID;
 public class CounterController {
 
     private final CounterService counterService;
+
+    // API 25
+    @PostMapping("/lookup")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<List<MemberLookupItemResponse>>> lookup(
+            @RequestBody CounterLookupRequest request) {
+
+        return ResponseEntity.ok(ApiResponse.success(counterService.lookup(request)));
+    }
 
     // API 26
     @PostMapping("/members/{accountId}/confirm-identity")

@@ -176,6 +176,7 @@ class MemberServiceImplTest {
         MemberCodeResponse result = memberService.getMemberCode(email);
 
         assertThat(result.getMemberCode()).isEqualTo("MEM-ABC123");
+        assertThat(result.getQrPayload()).isEqualTo("REHOME:MEMBER:v1:MEM-ABC123");
     }
 
     @Test void getMemberCodeThrowsWhenAccountNotFound() {

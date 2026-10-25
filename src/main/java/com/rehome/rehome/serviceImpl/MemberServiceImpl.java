@@ -11,6 +11,7 @@ import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.service.MemberService;
+import com.rehome.rehome.util.MemberQrPayload;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -94,6 +95,7 @@ public class MemberServiceImpl implements MemberService {
 
         return MemberCodeResponse.builder()
                 .memberCode(memberProfile.getMemberCode())
+                .qrPayload(MemberQrPayload.encode(memberProfile.getMemberCode()))
                 .build();
     }
 }

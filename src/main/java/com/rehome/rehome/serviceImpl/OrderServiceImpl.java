@@ -6,6 +6,7 @@ import com.rehome.rehome.dto.request.CreateOrderRequest;
 import com.rehome.rehome.dto.request.GhnCreateOrderRequest;
 import com.rehome.rehome.dto.request.GhnOrderItem;
 import com.rehome.rehome.dto.request.PackScanRequest;
+import com.rehome.rehome.dto.request.PayOrdersRequest;
 import com.rehome.rehome.dto.request.RateOrderRequest;
 import com.rehome.rehome.dto.response.CreateShipmentResponse;
 import com.rehome.rehome.dto.response.GhnCreateOrderResponse;
@@ -21,6 +22,8 @@ import com.rehome.rehome.dto.response.OrderTrackingEventResponse;
 import com.rehome.rehome.dto.response.OrderTrackingResponse;
 import com.rehome.rehome.dto.response.PackScanResponse;
 import com.rehome.rehome.dto.response.PageResponse;
+import com.rehome.rehome.dto.response.PaidOrderResponse;
+import com.rehome.rehome.dto.response.PayOrdersResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.CancelReason;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
@@ -81,6 +84,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -463,23 +467,211 @@ public class OrderServiceImpl implements OrderService {
             throw new ForbiddenException("Bạn không có quyền hủy đơn này.");
         }
 
-        if (order.getStatus() == OrderStatus.PENDING_PAYMENT) {
-            throw new ConflictException("Đơn chưa thanh toán, không thể hủy theo cách này.", "ORDER_NOT_PAID_YET");
-        }
         if (order.getStatus() == OrderStatus.CANCELLED) {
             throw new ConflictException("Đơn đã hủy trước đó.", "ORDER_ALREADY_CANCELLED");
         }
-        if (order.getStatus() != OrderStatus.PAID) {
+        if (order.getStatus() != OrderStatus.PENDING_PAYMENT && order.getStatus() != OrderStatus.PAID) {
             throw new ConflictException("Đơn đã đóng gói, không thể hủy.", "CANNOT_CANCEL_AFTER_PACKING");
         }
 
         releaseReservedProducts(orderId);
-        refundBuyerAndCancel(order, CancelReason.BUYER_CANCELLED, "Hoàn tiền hủy đơn " + order.getOrderNo());
+
+        // Đơn còn chờ thanh toán thì chưa thu tiền của ai, chỉ đóng đơn và nhả hàng về sàn.
+        // Gọi refundBuyerAndCancel ở đây sẽ cộng khống tiền chưa từng trả vào ví người mua.
+        if (order.getStatus() == OrderStatus.PENDING_PAYMENT) {
+            order.setStatus(OrderStatus.CANCELLED);
+            order.setCancelReason(CancelReason.BUYER_CANCELLED);
+            order.setCancelledAt(Instant.now());
+            orderRepository.save(order);
+        } else {
+            refundBuyerAndCancel(order, CancelReason.BUYER_CANCELLED, "Hoàn tiền hủy đơn " + order.getOrderNo());
+        }
 
         return OrderCancelResponse.builder()
                 .id(order.getId().toString())
                 .status(order.getStatus().name())
+                .refundAmount(order.getRefundAmount())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public PayOrdersResponse payOrders(String email, PayOrdersRequest request) {
+
+        if (request == null || request.getOrderIds() == null || request.getOrderIds().isEmpty()) {
+            throw new BadRequestException("orderIds là bắt buộc.");
+        }
+
+        OrderPaymentMethod method = parsePaymentMethod(request.getMethod());
+        if (method != OrderPaymentMethod.WALLET) {
+            throw new BadRequestException(
+                    "method chỉ nhận WALLET ở endpoint này. Trả bằng MoMo/VNPay dùng "
+                            + "POST /api/momo/create hoặc POST /api/vnpay/create.");
+        }
+
+        Account buyer = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        List<Order> orders = loadPayableOrders(email, parseOrderIds(request.getOrderIds()));
+
+        // Khóa ví trước khi đọc số dư: hai request trả ví song song của cùng người mua phải nối
+        // đuôi nhau, nếu không cả hai cùng thấy đủ tiền rồi trừ thành số dư âm.
+        Wallet wallet = walletRepository.findByMemberIdForUpdate(buyer.getId())
+                .orElseThrow(() -> new ConflictException(
+                        "INSUFFICIENT_BALANCE: ví chưa có số dư.", "INSUFFICIENT_BALANCE"));
+
+        BigDecimal total = orders.stream()
+                .map(Order::getTotalAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // Tiền đang khóa cho yêu cầu rút không được tiêu tiếp
+        BigDecimal available = wallet.getBalance().subtract(wallet.getLockedBalance());
+        if (total.compareTo(available) > 0) {
+            throw new ConflictException(
+                    "INSUFFICIENT_BALANCE: ví không đủ số dư khả dụng để thanh toán.", "INSUFFICIENT_BALANCE");
+        }
+
+        List<PaidOrderResponse> paidOrders = new ArrayList<>();
+        for (Order order : orders) {
+            wallet.setBalance(wallet.getBalance().subtract(order.getTotalAmount()));
+            walletRepository.save(wallet);
+
+            WalletTransaction paymentTransaction = WalletTransaction.builder()
+                    .transactionNo(generateTransactionNo())
+                    .walletType(WalletType.MEMBER)
+                    .walletId(wallet.getId())
+                    .type(WalletTransactionType.ORDER_PAYMENT)
+                    .amount(order.getTotalAmount().negate())
+                    .balanceAfter(wallet.getBalance())
+                    .relatedOrder(order)
+                    .status(TransactionStatus.SUCCESS)
+                    .note("Thanh toán bằng ví cho đơn " + order.getOrderNo())
+                    .build();
+            walletTransactionRepository.save(paymentTransaction);
+            recordPlatformCounterpart(paymentTransaction);
+
+            order.setPaymentMethod(OrderPaymentMethod.WALLET);
+            order.setStatus(OrderStatus.PAID);
+            orderRepository.save(order);
+
+            paidOrders.add(PaidOrderResponse.builder()
+                    .id(order.getId().toString())
+                    .orderNo(order.getOrderNo())
+                    .status(order.getStatus().name())
+                    .totalAmount(order.getTotalAmount())
+                    .build());
+        }
+
+        return PayOrdersResponse.builder()
+                .orders(paidOrders)
+                .totalAmount(total)
+                .walletBalance(wallet.getBalance())
+                .build();
+    }
+
+    @Override
+    public List<Order> loadPayableOrders(String email, List<UUID> orderIds) {
+
+        if (orderIds == null || orderIds.isEmpty()) {
+            throw new BadRequestException("orderIds là bắt buộc.");
+        }
+
+        Account buyer = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        List<Order> orders = new ArrayList<>();
+        for (UUID orderId : orderIds) {
+            Order order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
+
+            if (!order.getBuyer().getId().equals(buyer.getId())) {
+                throw new ForbiddenException("Đơn hàng này không thuộc về bạn.");
+            }
+            if (order.getStatus() == OrderStatus.PAID) {
+                throw new ConflictException(
+                        "Đơn " + order.getOrderNo() + " đã được thanh toán.", "ORDER_ALREADY_PAID");
+            }
+            if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+                throw new ConflictException(
+                        "Đơn " + order.getOrderNo() + " không ở trạng thái chờ thanh toán.", "ORDER_NOT_PENDING");
+            }
+
+            orders.add(order);
+        }
+
+        return orders;
+    }
+
+    // Tiền từ cổng thanh toán về sau khi đơn đã rời trạng thái chờ thanh toán (IPN muộn, hoặc
+    // người mua đã trả bằng ví trong lúc chờ) thì tuyệt đối không được chốt lại đơn: hàng đã nhả
+    // về sàn và có thể đã bán cho người khác. Tiền vẫn là tiền thật nên phải vào ví người mua.
+    @Override
+    @Transactional
+    public void applyGatewayPaymentSuccess(UUID orderId, OrderPaymentMethod method, String note) {
+
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order == null) {
+            log.warn(">>>> Ket qua thanh toan thanh cong cho orderId={} khong con don tuong ung", orderId);
+            return;
+        }
+
+        if (order.getStatus() == OrderStatus.PENDING_PAYMENT) {
+            order.setPaymentMethod(method);
+            order.setStatus(OrderStatus.PAID);
+            orderRepository.save(order);
+            return;
+        }
+
+        // IPN lặp lại của chính cổng đã chốt đơn này - tiền chỉ về một lần, không hoàn gì cả
+        if (order.getPaymentMethod() == method && order.getStatus() != OrderStatus.CANCELLED) {
+            return;
+        }
+
+        // Đơn hủy có hoàn tiền (F-061/F-062) hoặc đơn trả hàng đã hoàn rồi thì không hoàn thêm lần nữa
+        if (order.getRefundAmount() != null) {
+            log.warn(">>>> Don {} da duoc hoan tien truoc do, bo qua ket qua thanh toan muon tu {}",
+                    order.getOrderNo(), method);
+            return;
+        }
+
+        refundBuyerWallet(order, note);
+        order.setRefundAmount(order.getTotalAmount());
+        orderRepository.save(order);
+
+        log.warn(">>>> Tien {} ve muon cho don {} dang o trang thai {} - da hoan {} vao vi nguoi mua",
+                method, order.getOrderNo(), order.getStatus(), order.getTotalAmount());
+    }
+
+    private static OrderPaymentMethod parsePaymentMethod(String method) {
+        if (!StringUtils.hasText(method)) {
+            throw new BadRequestException("method là bắt buộc.");
+        }
+        try {
+            return OrderPaymentMethod.valueOf(method.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException("method không hợp lệ: " + method);
+        }
+    }
+
+    // Giữ nguyên thứ tự người mua gửi lên nhưng bỏ id trùng, để một đơn lặp hai lần trong body
+    // không bị trừ tiền hai lần.
+    private static List<UUID> parseOrderIds(List<String> rawOrderIds) {
+        List<UUID> orderIds = new ArrayList<>();
+        for (String rawOrderId : rawOrderIds) {
+            if (!StringUtils.hasText(rawOrderId)) {
+                throw new BadRequestException("orderIds chứa giá trị rỗng.");
+            }
+            UUID orderId;
+            try {
+                orderId = UUID.fromString(rawOrderId.trim());
+            } catch (IllegalArgumentException ex) {
+                throw new BadRequestException("orderId không hợp lệ: " + rawOrderId);
+            }
+            if (!orderIds.contains(orderId)) {
+                orderIds.add(orderId);
+            }
+        }
+        return orderIds;
     }
 
     @Override

@@ -2,6 +2,7 @@ package com.rehome.rehome.repository.spec;
 
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.marketplace.Product;
+import com.rehome.rehome.util.VietnameseText;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
 
@@ -22,8 +23,11 @@ public class ProductSpecifications {
 
             predicates.add(cb.equal(root.get("status"), ProductStatus.ON_SALE));
 
+            // So trên cột đã bỏ dấu để "ao khoac" khớp "Áo khoác"; từ khóa cũng phải bỏ dấu
+            // để người gõ đủ dấu vẫn tìm được như cũ.
             if (search != null && !search.isBlank()) {
-                predicates.add(cb.like(cb.lower(root.get("name")), "%" + search.trim().toLowerCase() + "%"));
+                String keyword = VietnameseText.normalize(search);
+                predicates.add(cb.like(root.get("nameNormalized"), "%" + keyword + "%"));
             }
             if (categoryId != null) {
                 predicates.add(cb.equal(root.get("category").get("id"), categoryId));

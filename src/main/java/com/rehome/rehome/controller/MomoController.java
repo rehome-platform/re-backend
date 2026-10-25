@@ -1,5 +1,6 @@
 package com.rehome.rehome.controller;
 
+import com.rehome.rehome.dto.request.CreateGatewayPaymentRequest;
 import com.rehome.rehome.dto.request.MomoIpnRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.CreateMomoResponse;
@@ -23,12 +24,12 @@ public class MomoController {
     @PostMapping("create")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<CreateMomoResponse>> createPayment(
-            @RequestParam UUID orderId,
-            @RequestParam(required = false) String redirectUrl,
+            @RequestBody CreateGatewayPaymentRequest request,
             Authentication authentication) {
 
         String email = authentication.getName();
-        CreateMomoResponse response = momoService.createPaymentForOrder(email, orderId, redirectUrl);
+        CreateMomoResponse response = momoService.createPaymentForOrders(
+                email, request.toOrderIds(), request.getRedirectUrl());
 
         return ResponseEntity.ok(ApiResponse.success(response));
     }
@@ -60,5 +61,4 @@ public class MomoController {
 
         return ResponseEntity.ok(ApiResponse.success(response));
     }
-
 }

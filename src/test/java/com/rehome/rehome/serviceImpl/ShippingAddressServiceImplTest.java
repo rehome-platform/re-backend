@@ -53,7 +53,7 @@ class ShippingAddressServiceImplTest {
         // Mặc định coi như phường/xã + tỉnh/thành khớp danh mục GHN; test nào cần ca không khớp
         // thì stub lại resolveNewUnit trong chính test đó
         lenient().when(addressUnitService.resolveNewUnit(any(), any()))
-                .thenReturn(new ResolvedAddressUnit(1000001, "Hồ Chí Minh", "Phường Bến Thành"));
+                .thenReturn(new ResolvedAddressUnit(1000001, "Hồ Chí Minh", "20308", "Phường Bến Thành"));
     }
 
     @Test
@@ -199,7 +199,7 @@ class ShippingAddressServiceImplTest {
                 "P. Bến Thành", "TP. Hồ Chí Minh", true);
 
         when(addressUnitService.resolveNewUnit("TP. Hồ Chí Minh", "P. Bến Thành"))
-                .thenReturn(new ResolvedAddressUnit(1000001, "Hồ Chí Minh", "Phường Bến Thành"));
+                .thenReturn(new ResolvedAddressUnit(1000001, "Hồ Chí Minh", "20308", "Phường Bến Thành"));
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.countByMember_Id(member.getId())).thenReturn(0L);
         when(shippingAddressRepository.save(any())).thenAnswer(invocation -> {
@@ -468,7 +468,7 @@ class ShippingAddressServiceImplTest {
                 .build();
 
         when(addressUnitService.resolveNewUnit("TP.HCM", "P. Bến Thành"))
-                .thenReturn(new ResolvedAddressUnit(1000001, "Hồ Chí Minh", "Phường Bến Thành"));
+                .thenReturn(new ResolvedAddressUnit(1000001, "Hồ Chí Minh", "20308", "Phường Bến Thành"));
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(existing));
 

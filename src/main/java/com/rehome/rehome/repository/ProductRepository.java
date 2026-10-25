@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -33,6 +34,8 @@ public interface ProductRepository extends JpaRepository<Product, String>, JpaSp
                            @Param("status") ProductStatus status,
                            Pageable pageable);
     boolean existsByConsignmentReceiptId(UUID consignmentReceiptId);
+
+    List<Product> findAllByNameNormalizedIsNull();
 
     @Query(value = "SELECT nextval('product_sku_seq')", nativeQuery = true)
     long nextSkuSequence();

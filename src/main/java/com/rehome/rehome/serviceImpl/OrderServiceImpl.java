@@ -38,6 +38,7 @@ import com.rehome.rehome.entity.marketplace.CartItem;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
+import com.rehome.rehome.entity.marketplace.OrderTrackingEvent;
 import com.rehome.rehome.entity.marketplace.Payment;
 import com.rehome.rehome.entity.marketplace.PlatformFund;
 import com.rehome.rehome.entity.marketplace.Product;
@@ -77,8 +78,10 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.Year;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -95,6 +98,12 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 @Slf4j
 public class OrderServiceImpl implements OrderService {
+
+    // Trạng thái GHN mà người mua cần biết là đơn đang có trục trặc, không chỉ là chậm.
+    // Xem bảng trạng thái trong docs/ghnapi.md mục "Mã trạng thái đơn hàng".
+    private static final Set<String> ISSUE_GHN_STATUSES = Set.of(
+            "delivery_fail", "waiting_to_return", "return", "return_transporting", "return_sorting",
+            "returning", "return_fail", "returned", "exception", "lost", "damage", "scrap", "cancel");
 
     // Yêu cầu trả hàng còn đang mở - chưa chốt được đơn khi còn một trong các trạng thái này
     private static final List<ReturnRequestStatus> OPEN_RETURN_STATUSES = List.of(
@@ -129,6 +138,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Value("${app.order.auto-complete-days:3}")
     private long autoCompleteDays;
+
+    @Value("${app.return.request-window-days}")
+    private long returnRequestWindowDays;
 
     @Value("${ghn.token}")
     private String ghnToken;
@@ -425,6 +437,11 @@ public class OrderServiceImpl implements OrderService {
                 .map(Payment::getPaidAt)
                 .orElse(null);
 
+        String returnRequestId = returnRequestRepository
+                .findFirstByOrder_IdOrderByCreatedAtDesc(orderId)
+                .map(returnRequest -> returnRequest.getId().toString())
+                .orElse(null);
+
         return OrderDetailResponse.builder()
                 .id(order.getId().toString())
                 .orderNo(order.getOrderNo())
@@ -432,10 +449,14 @@ public class OrderServiceImpl implements OrderService {
                 .createdAt(order.getCreatedAt())
                 .paymentMethod(order.getPaymentMethod().name())
                 .paidAt(paidAt)
+                .paymentDeadline(order.getPaymentDeadline())
                 .subtotal(order.getSubtotal())
                 .shippingFee(order.getShippingFee())
                 .totalAmount(order.getTotalAmount())
+                .warehouseId(order.getWarehouse().getId().toString())
                 .warehouseName(order.getWarehouse().getName())
+                .returnRequestId(returnRequestId)
+                .returnDeadline(returnDeadline(order))
                 .shippingRecipientName(order.getShippingRecipientName())
                 .shippingPhone(order.getShippingPhone())
                 .shippingAddressDetail(order.getShippingAddressDetail())
@@ -451,6 +472,15 @@ public class OrderServiceImpl implements OrderService {
                 .completedAt(order.getCompletedAt())
                 .ratingComment(order.getRatingComment())
                 .build();
+    }
+
+    // Cùng công thức với ReturnRequestServiceImpl khi chặn RETURN_WINDOW_EXPIRED - nếu lệch nhau
+    // thì app vẫn hiện nút trả hàng trong lúc API đã từ chối.
+    private Instant returnDeadline(Order order) {
+        if (order.getDeliveredAt() == null) {
+            return null;
+        }
+        return order.getDeliveredAt().plus(returnRequestWindowDays, ChronoUnit.DAYS);
     }
 
     @Override
@@ -865,6 +895,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         order.setGhnTrackingCode(ghnResponse.getData().getOrderCode());
+        order.setExpectedDeliveryDate(parseGhnTime(ghnResponse.getData().getExpectedDeliveryTime()));
         order.setStatus(OrderStatus.SHIPPING);
         orderRepository.save(order);
 
@@ -888,23 +919,39 @@ public class OrderServiceImpl implements OrderService {
             throw new ForbiddenException("Bạn không có quyền xem đơn này.");
         }
 
-        List<OrderTrackingEventResponse> events = orderTrackingEventRepository
-                .findAllByOrder_IdOrderByOccurredAtAsc(orderId).stream()
+        List<OrderTrackingEvent> trackingEvents =
+                orderTrackingEventRepository.findAllByOrder_IdOrderByOccurredAtAsc(orderId);
+
+        List<OrderTrackingEventResponse> events = trackingEvents.stream()
                 .map(e -> OrderTrackingEventResponse.builder()
                         .status(e.getGhnStatus())
                         .description(e.getDescription())
-                        .occurredAt(e.getOccurredAt())
+                        .location(e.getLocation())
+                        .timestamp(e.getOccurredAt())
                         .build())
                 .toList();
+
+        // Chỉ xét sự kiện mới nhất: giao thất bại rồi giao lại thành công thì không còn là sự cố nữa
+        OrderTrackingEvent latest = trackingEvents.isEmpty()
+                ? null
+                : trackingEvents.get(trackingEvents.size() - 1);
+        boolean hasIssue = latest != null && isIssueStatus(latest.getGhnStatus());
 
         return OrderTrackingResponse.builder()
                 .id(order.getId().toString())
                 .orderNo(order.getOrderNo())
                 .status(order.getStatus().name())
                 .ghnTrackingCode(order.getGhnTrackingCode())
+                .expectedDeliveryDate(order.getExpectedDeliveryDate())
                 .deliveredAt(order.getDeliveredAt())
+                .hasIssue(hasIssue)
+                .issueNote(hasIssue ? latest.getDescription() : null)
                 .events(events)
                 .build();
+    }
+
+    private static boolean isIssueStatus(String ghnStatus) {
+        return ghnStatus != null && ISSUE_GHN_STATUSES.contains(ghnStatus.toLowerCase(Locale.ROOT));
     }
 
     // F-062: GHN báo thất lạc/hư hỏng/hủy vận đơn -> tự hủy đơn, nhả hàng về sàn, hoàn 100% vào ví người mua
@@ -970,6 +1017,20 @@ public class OrderServiceImpl implements OrderService {
                 .orderValue(order.getSubtotal().intValue())
                 .items(ghnItems)
                 .build();
+    }
+
+    // Ngày giao dự kiến chỉ để hiển thị, GHN đổi định dạng thì mất field này chứ không được
+    // làm hỏng cả lệnh tạo vận đơn vốn đã gọi thành công.
+    private static Instant parseGhnTime(String time) {
+        if (!StringUtils.hasText(time)) {
+            return null;
+        }
+        try {
+            return OffsetDateTime.parse(time).toInstant();
+        } catch (DateTimeParseException ex) {
+            log.warn(">>>> Khong doc duoc expected_delivery_time tu GHN: {}", time);
+            return null;
+        }
     }
 
     // Khoảng trắng đầu/cuối làm GHN không khớp được tên phường/xã, tỉnh/thành trong danh mục

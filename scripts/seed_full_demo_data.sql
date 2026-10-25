@@ -390,15 +390,16 @@ BEGIN
                          shipping_recipient_name, shipping_phone, shipping_address_detail,
                          shipping_ward_name, shipping_district_name, shipping_province_name, shipping_is_new_address,
                          scanned_count, subtotal, shipping_fee, total_amount, payment_method, status,
-                         ghn_tracking_code, payment_deadline, delivered_at, auto_complete_deadline,
-                         cancel_reason, cancelled_at, refund_amount, completed_at,
+                         ghn_tracking_code, expected_delivery_date, payment_deadline, delivered_at,
+                         auto_complete_deadline, cancel_reason, cancelled_at, refund_amount, completed_at,
                          service_rating, rated_at, rating_comment, created_at, updated_at)
     VALUES (gen_random_uuid(), 'OD-2026-SEED03', v_buyer1_id, v_wh1_id, v_sa_buyer1_1,
             'Nguyễn Văn Buyer 1', '0911111101', '12 Nguyễn Huệ, Phường Bến Nghé',
             'Phường Sài Gòn', NULL, 'Hồ Chí Minh', true,
             1, 320000, 25000, 345000, 'WALLET', 'SHIPPING',
-            'GHNSEED00001', v_now - interval '2 days' + interval '15 minutes', NULL, NULL,
-            NULL, NULL, NULL, NULL,
+            'GHNSEED00001', v_now + interval '1 day',
+            v_now - interval '2 days' + interval '15 minutes', NULL,
+            NULL, NULL, NULL, NULL, NULL,
             NULL, NULL, NULL, v_now - interval '2 days', v_now - interval '6 hours')
     RETURNING id INTO v_order_c_id;
 
@@ -414,9 +415,12 @@ BEGIN
             to_char((v_now - interval '2 days') AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYYMMDDHH24MISS'),
             'SUCCESS', v_now - interval '2 days' + interval '3 minutes');
 
-    INSERT INTO order_tracking_events (id, order_id, ghn_status, description, occurred_at, created_at) VALUES
-        (gen_random_uuid(), v_order_c_id, 'ready_to_pick', 'Đã lấy hàng từ kho', v_now - interval '1 day 12 hours', v_now - interval '1 day 12 hours'),
-        (gen_random_uuid(), v_order_c_id, 'delivering', 'Đang giao cho người nhận', v_now - interval '6 hours', v_now - interval '6 hours');
+    -- location = kho GHN đang giữ kiện hàng, hiện trên màn theo dõi vận chuyển.
+    -- Sự kiện mới nhất là 'delivering' (trạng thái bình thường) nên GET /orders/{id}/tracking
+    -- sẽ trả hasIssue = false; đổi thành 'delivery_fail' để test nhánh có sự cố.
+    INSERT INTO order_tracking_events (id, order_id, ghn_status, description, location, occurred_at, created_at) VALUES
+        (gen_random_uuid(), v_order_c_id, 'ready_to_pick', 'Đã lấy hàng từ kho', 'Kho Quận 7 - TP.HCM', v_now - interval '1 day 12 hours', v_now - interval '1 day 12 hours'),
+        (gen_random_uuid(), v_order_c_id, 'delivering', 'Đang giao cho người nhận', 'Bưu cục Quận 1 - TP.HCM', v_now - interval '6 hours', v_now - interval '6 hours');
 
     -- Order D: CANCELLED — #4 (seller1, 250000đ), buyer tự hủy -> đã hoàn tiền vào ví, hàng nhả về ON_SALE
     -- Test: GET /orders?status=CANCELLED, xem WalletTransaction REFUND

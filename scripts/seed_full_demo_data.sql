@@ -205,8 +205,12 @@ BEGIN
     VALUES (gen_random_uuid(), v_seller3_id, 0, 0, v_now) RETURNING id INTO v_wallet_seller3;
 
     ------------------------------------------------------------------
-    -- 4. Địa chỉ giao hàng — đủ ward/province/is_new_address để GHN tạo vận đơn
+    -- 4. Địa chỉ giao hàng — đủ ward_name/province_name để GHN tạo vận đơn
     ------------------------------------------------------------------
+    -- ward_code / province_id để NULL: đây là mã trong danh mục GHN, chỉ lấy được khi gọi
+    -- GET /address-units/provinces|wards với token thật, bịa số vào đây sẽ khiến FE hiển thị
+    -- sai mục đã chọn. Cả hai cột đều nullable và việc tạo vận đơn đi theo tên, nên không sao;
+    -- địa chỉ nào Member tự thêm/sửa qua API sẽ được điền đầy đủ.
     -- Phường Bến Nghé (Q.1 cũ) đã sáp nhập thành Phường Sài Gòn theo NQ 1685/NQ-UBTVQH15
     INSERT INTO shipping_addresss (id, member_id, recipient_name, phone, address_detail,
                                     ward_name, province_name, is_default)
@@ -272,16 +276,19 @@ BEGIN
                 v_confirmed_at - interval '1 day', v_confirmed_at - interval '1 day')
         RETURNING id INTO v_form_id;
 
+        -- Không có pdf_url: PDF biên nhận (F-022) đã chuyển sang bảng consignment_receipt_pdfs,
+        -- cột pdf_url không còn trong entity nên DB mới tạo sẽ không có cột này.
+        -- Seed không sinh PDF (phải render bằng ReceiptPdfServiceImpl), nên GET
+        -- /consignment-receipts/{id}/pdf của các biên nhận seed sẽ trả pdfAvailable = false.
         INSERT INTO consignment_receipts (id, receipt_no, consignment_form_id, member_id, moderator_id,
                                            warehouse_id, agreed_price, floor_price, term_length_days,
                                            max_renewals, free_withdrawal_window_days,
                                            commission_rate_term1, commission_rate_term2, commission_rate_term3,
-                                           withdrawal_fee, degraded_compensation_rate, confirmed_at, pdf_url,
+                                           withdrawal_fee, degraded_compensation_rate, confirmed_at,
                                            condition_note, created_at)
         VALUES (gen_random_uuid(), 'KG-2026-SEED' || lpad(i::text, 2, '0'), v_form_id, v_seller_id, v_moderator_id,
                 v_warehouse_id, v_prices[i], round(v_prices[i] * 0.5), 30, 2, 7,
                 0.10, 0.15, 0.20, 50000, 0.50, v_confirmed_at,
-                'https://example.com/receipts/seed-' || i || '.pdf',
                 'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.', v_confirmed_at)
         RETURNING id INTO v_receipt_id;
 
@@ -298,6 +305,19 @@ BEGIN
         INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
         VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
     END LOOP;
+
+    -- name_normalized là cột GET /products?search= so khớp (gõ "ao khoac" ra "Áo khoác").
+    -- App tự sinh cột này trong @PrePersist/@PreUpdate của entity Product, nhưng seed ghi
+    -- thẳng vào DB nên không chạy qua Hibernate -> phải tự điền, nếu không 20 sản phẩm seed
+    -- sẽ không bao giờ hiện ra khi tìm kiếm.
+    -- Công thức phải khớp VietnameseText.normalize: lower() trước rồi bỏ dấu (gồm cả dấu móc
+    -- của ơ/ư), riêng đ -> d vì đ là ký tự độc lập chứ không phải chữ có dấu.
+    UPDATE products
+    SET name_normalized = translate(
+            lower(name),
+            'àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ',
+            'aaaaaaaaaaaaaaaaaeeeeeeeeeeeiiiiiooooooooooooooooouuuuuuuuuuuyyyyyd')
+    WHERE name_normalized IS NULL;
 
     ------------------------------------------------------------------
     -- 7. Giỏ hàng của buyer1: 1 món Kho Quận 7 (#7) + 1 món Kho Cầu Giấy (#16)
@@ -428,7 +448,9 @@ BEGIN
             'Hoàn tiền hủy đơn OD-2026-SEED04', v_now - interval '3 days');
 
     -- Order E: PENDING_PAYMENT, mới tạo, CHƯA thanh toán — #11 (seller2, 430000đ), buyer2 ở Hà Nội
-    -- Test: POST /api/vnpay/create?orderId=<id-của-đơn-này> để bắt đầu lại từ đầu luồng VNPay
+    -- Test: POST /api/vnpay/create (hoặc /api/momo/create) với body {"orderIds":["<id-đơn-này>"]}
+    --       để chạy lại luồng cổng thanh toán từ đầu; hoặc POST /orders/pay với
+    --       {"orderIds":["<id-đơn-này>"],"method":"WALLET"} để trả bằng ví (buyer2 có 3.000.000đ)
     INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
                          shipping_recipient_name, shipping_phone, shipping_address_detail,
                          shipping_ward_name, shipping_district_name, shipping_province_name, shipping_is_new_address,
@@ -474,7 +496,9 @@ END $$;
 --   OD-2026-SEED03  SHIPPING (VNPay)    — có payments(VNPAY) + ghn_tracking_code GHNSEED00001 + 2 tracking event
 --                                          -> test GET /orders/{id}/tracking, POST /webhooks/ghn (status=delivered)
 --   OD-2026-SEED04  CANCELLED           — đã hoàn 275.000đ vào ví buyer1 (WalletTransaction REFUND)
---   OD-2026-SEED05  PENDING_PAYMENT     — test POST /api/vnpay/create?orderId=... từ đầu luồng VNPay
+--   OD-2026-SEED05  PENDING_PAYMENT     — test POST /api/vnpay/create | /api/momo/create với
+--                                          body {"orderIds":[...]}, hoặc POST /orders/pay bằng ví,
+--                                          hoặc POST /orders/{id}/cancel (huỷ đơn chưa thanh toán)
 --
 -- Sản phẩm ON_SALE còn trống để test thêm giỏ hàng / đặt đơn mới: tất cả trừ
 -- Q7-AK-000001 (SOLD), Q7-AT-000002 (RESERVED), Q7-QJ-000003 (RESERVED), CG-AK-000011 (RESERVED).

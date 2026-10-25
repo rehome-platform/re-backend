@@ -82,7 +82,9 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
                 .phone(request.getPhone())
                 .addressDetail(request.getAddressDetail())
                 .wardName(unit.wardName())
+                .wardCode(unit.wardCode())
                 .provinceName(unit.provinceName())
+                .provinceId(unit.provinceId())
                 .isDefault(isDefault)
                 .build();
         shippingAddressRepository.save(address);
@@ -121,7 +123,9 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
         address.setPhone(request.getPhone());
         address.setAddressDetail(request.getAddressDetail());
         address.setWardName(unit.wardName());
+        address.setWardCode(unit.wardCode());
         address.setProvinceName(unit.provinceName());
+        address.setProvinceId(unit.provinceId());
         address.setIsDefault(isDefault);
         shippingAddressRepository.save(address);
 
@@ -176,7 +180,9 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
                 .phone(address.getPhone())
                 .addressDetail(address.getAddressDetail())
                 .wardName(address.getWardName())
+                .wardCode(address.getWardCode())
                 .provinceName(address.getProvinceName())
+                .provinceId(address.getProvinceId())
                 .isDefault(address.getIsDefault())
                 .build();
     }

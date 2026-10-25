@@ -76,6 +76,16 @@ Download is `GET /consignment-receipts/{id}/pdf` (F-023) → `ConsignmentReceipt
 
 A leftover `pdf_url` column stays on `consignment_receipts` after deploy (`ddl-auto: update` never drops columns); `scripts/drop-consignment-receipt-pdf-url.sql` has the checks and the drop, to run by hand.
 
+### Order payment
+Three payment routes share one validation path. `OrderService.loadPayableOrders(email, orderIds)` is the single place that checks ownership (`ForbiddenException` → 403) and status (`ORDER_ALREADY_PAID` / `ORDER_NOT_PENDING` → 409); wallet, MoMo and VNPay all call it, so don't re-implement those checks per gateway.
+
+- **Wallet** — `POST /orders/pay` `{orderIds, method: "WALLET"}` → `OrderServiceImpl.payOrders`. Debits inside a `findByMemberIdForUpdate` row lock (two concurrent pays must not both see enough balance), spends only `balance − lockedBalance`, writes one `ORDER_PAYMENT` ledger pair per order, and sets each order `PAID` in the same transaction. Wallet payment writes **no `payments` row** — that table is gateway-only.
+- **MoMo / VNPay** — `POST /api/momo/create` and `/api/vnpay/create` take `{orderIds[], redirectUrl}` and open **one** gateway transaction for the whole lot (a cart spanning two warehouses becomes two orders but one QR). Each order keeps its own `payments` row for reconciliation, all sharing one `momo_order_id` / `vnp_txn_ref` — which is why those columns are **not unique**. `ddl-auto: update` cannot drop the unique index Hibernate already created, so `scripts/drop-payment-gateway-ref-unique.sql` must be run by hand on Postgres after deploy, or the second row of a batch fails on duplicate key.
+
+A gateway reporting success never sets `PAID` itself — it calls `OrderService.applyGatewayPaymentSuccess(orderId, method, note)`, which marks the order paid only while it is still `PENDING_PAYMENT`. If the order has moved on (auto-cancelled past its payment deadline, cancelled by the buyer, or already paid by another method), the money is real but the goods are back on sale, so it is refunded to the buyer's wallet instead; `refundAmount != null` guards against refunding twice.
+
+`POST /orders/{id}/cancel` cancels both `PENDING_PAYMENT` and `PAID` orders. Only the `PAID` branch refunds — cancelling an unpaid order must not credit a wallet with money never collected.
+
 ### Response/error conventions
 There are **two parallel response shapes** in this codebase — check which one a feature already uses before adding to it:
 - `ApiResponse<T>` (`result`, `isSuccess`, `statusCode`, optional `code`, `message`) — the shape used by newer endpoints (e.g. `ShippingAddressController`) and `ApiResponse.success(...)`/`ApiResponse.error(...)` factory methods.

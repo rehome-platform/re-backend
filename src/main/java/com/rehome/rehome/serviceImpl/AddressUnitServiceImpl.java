@@ -90,7 +90,8 @@ public class AddressUnitServiceImpl implements AddressUnitService {
                         "wardName \"" + wardName + "\" không thuộc " + province.getName()
                                 + " trong danh mục phường/xã (hệ 2 cấp, sau sáp nhập 01/07/2025) của GHN."));
 
-        return new ResolvedAddressUnit(province.getId(), province.getName(), ward.getName());
+        return new ResolvedAddressUnit(
+                province.getId(), province.getName(), String.valueOf(ward.getId()), ward.getName());
     }
 
     // GHN trả tên chuẩn ("Hồ Chí Minh") kèm extension_names ("tp.hồ chí minh", "ho chi minh"...).

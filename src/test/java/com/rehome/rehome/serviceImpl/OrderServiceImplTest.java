@@ -2,6 +2,7 @@ package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.dto.request.CreateOrderRequest;
+import com.rehome.rehome.dto.request.PayOrdersRequest;
 import com.rehome.rehome.dto.request.RateOrderRequest;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
 import com.rehome.rehome.dto.response.OrderConfirmReceiptResponse;
@@ -10,8 +11,10 @@ import com.rehome.rehome.dto.response.OrderListResponse;
 import com.rehome.rehome.dto.response.OrderRatingResponse;
 import com.rehome.rehome.dto.response.OrderResponse;
 import com.rehome.rehome.dto.response.OrderSummaryResponse;
+import com.rehome.rehome.dto.response.PayOrdersResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.CancelReason;
+import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
@@ -787,21 +790,33 @@ class OrderServiceImplTest {
         verify(walletRepository, never()).save(any());
     }
 
+    // P3.7: nút "Huỷ đơn" ở màn chờ thanh toán — đơn chưa trả tiền vẫn phải hủy được
     @Test
-    void cancelOrder_throwsConflictWithCode_whenOrderNotPaidYet() {
+    void cancelOrder_cancelsWithoutRefund_whenOrderStillPendingPayment() {
         UUID orderId = UUID.randomUUID();
-        Order order = Order.builder().id(orderId).buyer(member).status(OrderStatus.PENDING_PAYMENT).build();
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000001")
+                .buyer(member)
+                .totalAmount(new BigDecimal("150000"))
+                .status(OrderStatus.PENDING_PAYMENT)
+                .build();
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> orderService.cancelOrder(email, orderId))
-                .isInstanceOf(ConflictException.class)
-                .hasMessage("Đơn chưa thanh toán, không thể hủy theo cách này.")
-                .satisfies(ex -> assertThat(((ConflictException) ex).getCode())
-                        .isEqualTo("ORDER_NOT_PAID_YET"));
+        OrderCancelResponse response = orderService.cancelOrder(email, orderId);
 
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.CANCELLED.name());
+        assertThat(order.getCancelReason()).isEqualTo(CancelReason.BUYER_CANCELLED);
+        assertThat(order.getCancelledAt()).isNotNull();
+
+        // Chưa thu tiền thì không được hoàn: cộng khống vào ví là tạo tiền từ không khí
+        assertThat(response.getRefundAmount()).isNull();
+        assertThat(order.getRefundAmount()).isNull();
         verify(walletRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
     }
 
     @Test
@@ -1441,5 +1456,271 @@ class OrderServiceImplTest {
         verify(productRepository, never()).save(any());
         assertThat(product1.getStatus()).isEqualTo(ProductStatus.SOLD);
         assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+    }
+
+    // ==================== loadPayableOrders (P3.5) ====================
+
+    private Order pendingOrder(UUID orderId, String orderNo, String totalAmount) {
+        return Order.builder()
+                .id(orderId)
+                .orderNo(orderNo)
+                .buyer(member)
+                .totalAmount(new BigDecimal(totalAmount))
+                .status(OrderStatus.PENDING_PAYMENT)
+                .build();
+    }
+
+    @Test
+    void loadPayableOrders_throwsOrderAlreadyPaid_whenOrderIsPaid() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+        order.setStatus(OrderStatus.PAID);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.loadPayableOrders(email, List.of(orderId)))
+                .isInstanceOf(ConflictException.class)
+                .satisfies(ex -> assertThat(((ConflictException) ex).getCode()).isEqualTo("ORDER_ALREADY_PAID"));
+    }
+
+    @Test
+    void loadPayableOrders_throwsOrderNotPending_whenOrderAlreadyCancelled() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+        order.setStatus(OrderStatus.CANCELLED);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.loadPayableOrders(email, List.of(orderId)))
+                .isInstanceOf(ConflictException.class)
+                .satisfies(ex -> assertThat(((ConflictException) ex).getCode()).isEqualTo("ORDER_NOT_PENDING"));
+    }
+
+    @Test
+    void loadPayableOrders_throwsForbidden_whenOrderBelongsToSomeoneElse() {
+        UUID orderId = UUID.randomUUID();
+        Account otherBuyer = Account.builder().id(UUID.randomUUID()).email("other@example.com").build();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+        order.setBuyer(otherBuyer);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.loadPayableOrders(email, List.of(orderId)))
+                .isInstanceOf(ForbiddenException.class);
+    }
+
+    // ==================== payOrders (P3.3) ====================
+
+    @Test
+    void payOrders_rejectsMethodOtherThanWallet() {
+        PayOrdersRequest request = new PayOrdersRequest(List.of(UUID.randomUUID().toString()), "MOMO");
+
+        assertThatThrownBy(() -> orderService.payOrders(email, request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("WALLET");
+
+        verify(walletRepository, never()).save(any());
+    }
+
+    @Test
+    void payOrders_throwsInsufficientBalance_whenAvailableBalanceTooLow() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+
+        // Số dư 200k nhưng đang khóa 100k cho yêu cầu rút -> khả dụng chỉ 100k
+        Wallet wallet = Wallet.builder().id(UUID.randomUUID()).member(member)
+                .balance(new BigDecimal("200000"))
+                .lockedBalance(new BigDecimal("100000"))
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(walletRepository.findByMemberIdForUpdate(member.getId())).thenReturn(Optional.of(wallet));
+
+        PayOrdersRequest request = new PayOrdersRequest(List.of(orderId.toString()), "WALLET");
+
+        assertThatThrownBy(() -> orderService.payOrders(email, request))
+                .isInstanceOf(ConflictException.class)
+                .satisfies(ex -> assertThat(((ConflictException) ex).getCode()).isEqualTo("INSUFFICIENT_BALANCE"));
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+        verify(walletRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
+    }
+
+    @Test
+    void payOrders_debitsWalletAndMarksOrdersPaid() {
+        UUID firstOrderId = UUID.randomUUID();
+        UUID secondOrderId = UUID.randomUUID();
+        Order firstOrder = pendingOrder(firstOrderId, "OD-2026-000001", "150000");
+        Order secondOrder = pendingOrder(secondOrderId, "OD-2026-000002", "50000");
+
+        Wallet wallet = Wallet.builder().id(UUID.randomUUID()).member(member)
+                .balance(new BigDecimal("500000"))
+                .lockedBalance(BigDecimal.ZERO)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(firstOrderId)).thenReturn(Optional.of(firstOrder));
+        when(orderRepository.findById(secondOrderId)).thenReturn(Optional.of(secondOrder));
+        when(walletRepository.findByMemberIdForUpdate(member.getId())).thenReturn(Optional.of(wallet));
+        when(platformFundRepository.findTopByOrderByIdAsc())
+                .thenReturn(Optional.of(PlatformFund.builder().id(UUID.randomUUID())
+                        .balance(BigDecimal.ZERO).build()));
+
+        PayOrdersRequest request = new PayOrdersRequest(
+                List.of(firstOrderId.toString(), secondOrderId.toString()), "WALLET");
+
+        PayOrdersResponse response = orderService.payOrders(email, request);
+
+        assertThat(response.getTotalAmount()).isEqualByComparingTo("200000");
+        assertThat(response.getWalletBalance()).isEqualByComparingTo("300000");
+        assertThat(response.getOrders()).hasSize(2);
+
+        assertThat(firstOrder.getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(secondOrder.getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(firstOrder.getPaymentMethod()).isEqualTo(OrderPaymentMethod.WALLET);
+        assertThat(wallet.getBalance()).isEqualByComparingTo("300000");
+
+        // Mỗi đơn một bút toán ví Member + một bút toán đối ứng quỹ nền tảng (ghi sổ kép F-039)
+        ArgumentCaptor<WalletTransaction> captor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository, times(4)).save(captor.capture());
+        List<WalletTransaction> memberTransactions = captor.getAllValues().stream()
+                .filter(tx -> tx.getWalletType() == WalletType.MEMBER)
+                .toList();
+        assertThat(memberTransactions).hasSize(2);
+        assertThat(memberTransactions).allSatisfy(tx ->
+                assertThat(tx.getType()).isEqualTo(WalletTransactionType.ORDER_PAYMENT));
+        // Tiền ra khỏi ví nên bút toán phải âm
+        assertThat(memberTransactions).extracting(WalletTransaction::getAmount)
+                .containsExactly(new BigDecimal("-150000"), new BigDecimal("-50000"));
+    }
+
+    @Test
+    void payOrders_doesNotChargeTwice_whenSameOrderIdRepeated() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+
+        Wallet wallet = Wallet.builder().id(UUID.randomUUID()).member(member)
+                .balance(new BigDecimal("500000"))
+                .lockedBalance(BigDecimal.ZERO)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(walletRepository.findByMemberIdForUpdate(member.getId())).thenReturn(Optional.of(wallet));
+        when(platformFundRepository.findTopByOrderByIdAsc())
+                .thenReturn(Optional.of(PlatformFund.builder().id(UUID.randomUUID())
+                        .balance(BigDecimal.ZERO).build()));
+
+        PayOrdersRequest request = new PayOrdersRequest(
+                List.of(orderId.toString(), orderId.toString()), "WALLET");
+
+        PayOrdersResponse response = orderService.payOrders(email, request);
+
+        assertThat(response.getTotalAmount()).isEqualByComparingTo("150000");
+        assertThat(wallet.getBalance()).isEqualByComparingTo("350000");
+    }
+
+    // ==================== applyGatewayPaymentSuccess (P3.2) ====================
+
+    @Test
+    void applyGatewayPaymentSuccess_marksPaid_whenOrderStillPendingPayment() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.MOMO, "note");
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(order.getPaymentMethod()).isEqualTo(OrderPaymentMethod.MOMO);
+        verify(walletRepository, never()).save(any());
+    }
+
+    // Đây là bug P3.2: IPN về muộn sau khi đơn tự hủy vì quá hạn thanh toán. Hàng đã nhả về sàn
+    // nên tuyệt đối không được chốt lại đơn, tiền phải vào ví người mua.
+    @Test
+    void applyGatewayPaymentSuccess_refundsToWallet_whenOrderAlreadyCancelled() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+        order.setStatus(OrderStatus.CANCELLED);
+        order.setCancelReason(CancelReason.PAYMENT_EXPIRED);
+
+        Wallet wallet = Wallet.builder().id(UUID.randomUUID()).member(member)
+                .balance(BigDecimal.ZERO).lockedBalance(BigDecimal.ZERO).build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(wallet));
+        when(platformFundRepository.findTopByOrderByIdAsc())
+                .thenReturn(Optional.of(PlatformFund.builder().id(UUID.randomUUID())
+                        .balance(BigDecimal.ZERO).build()));
+
+        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.MOMO, "Hoàn tiền MoMo về muộn");
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(order.getRefundAmount()).isEqualByComparingTo("150000");
+        assertThat(wallet.getBalance()).isEqualByComparingTo("150000");
+
+        ArgumentCaptor<WalletTransaction> captor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository, times(2)).save(captor.capture());
+        assertThat(captor.getAllValues().get(0).getType()).isEqualTo(WalletTransactionType.REFUND);
+    }
+
+    @Test
+    void applyGatewayPaymentSuccess_doesNothing_whenSameGatewayAlreadySettledOrder() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+        order.setStatus(OrderStatus.PAID);
+        order.setPaymentMethod(OrderPaymentMethod.MOMO);
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.MOMO, "note");
+
+        assertThat(order.getRefundAmount()).isNull();
+        verify(walletRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
+    }
+
+    // Người mua bấm trả MoMo rồi đổi ý trả bằng ví trước khi IPN về: tiền MoMo vẫn về thật
+    @Test
+    void applyGatewayPaymentSuccess_refundsToWallet_whenOrderAlreadyPaidByAnotherMethod() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+        order.setStatus(OrderStatus.PAID);
+        order.setPaymentMethod(OrderPaymentMethod.WALLET);
+
+        Wallet wallet = Wallet.builder().id(UUID.randomUUID()).member(member)
+                .balance(BigDecimal.ZERO).lockedBalance(BigDecimal.ZERO).build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(wallet));
+        when(platformFundRepository.findTopByOrderByIdAsc())
+                .thenReturn(Optional.of(PlatformFund.builder().id(UUID.randomUUID())
+                        .balance(BigDecimal.ZERO).build()));
+
+        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.MOMO, "Hoàn tiền MoMo trùng");
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(wallet.getBalance()).isEqualByComparingTo("150000");
+    }
+
+    @Test
+    void applyGatewayPaymentSuccess_doesNotRefundTwice_whenOrderAlreadyRefunded() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+        order.setStatus(OrderStatus.CANCELLED);
+        order.setRefundAmount(new BigDecimal("150000"));
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.MOMO, "note");
+
+        verify(walletRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
     }
 }

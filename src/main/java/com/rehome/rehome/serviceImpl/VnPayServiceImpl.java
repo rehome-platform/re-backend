@@ -6,7 +6,7 @@ import com.rehome.rehome.dto.response.CreateVnPayResponse;
 import com.rehome.rehome.dto.response.PaymentStatusResponse;
 import com.rehome.rehome.dto.response.QueryVnPayResponse;
 import com.rehome.rehome.dto.response.VnPayIpnResult;
-import com.rehome.rehome.entity.enums.OrderStatus;
+import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.PaymentStatus;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.Payment;
@@ -14,6 +14,7 @@ import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.PaymentRepository;
+import com.rehome.rehome.service.OrderService;
 import com.rehome.rehome.service.VnPayService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +27,7 @@ import org.springframework.util.StringUtils;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.UnsupportedEncodingException;
+import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -62,31 +64,37 @@ public class VnPayServiceImpl implements VnPayService {
     private final VnPayApi vnPayApi;
     private final OrderRepository orderRepository;
     private final PaymentRepository paymentRepository;
+    private final OrderService orderService;
 
     @Override
     @Transactional
-    public CreateVnPayResponse createPaymentForOrder(String email, UUID orderId, String customReturnUrl, String clientIp) {
+    public CreateVnPayResponse createPaymentForOrders(String email, List<UUID> orderIds, String customReturnUrl,
+                                                       String clientIp) {
 
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng"));
+        // Quyền sở hữu và trạng thái đơn do OrderService kiểm, để trả ví / MoMo / VNPay
+        // dùng chung đúng một bộ mã lỗi ORDER_ALREADY_PAID / ORDER_NOT_PENDING
+        List<Order> orders = orderService.loadPayableOrders(email, orderIds);
 
-        if (!order.getBuyer().getEmail().equalsIgnoreCase(email)) {
-            throw new AccessDeniedException("Đơn hàng này không thuộc về bạn");
-        }
-
-        if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
-            throw new ConflictException("Đơn hàng không ở trạng thái chờ thanh toán");
-        }
-
-        Payment payment = paymentRepository.findByOrder_Id(orderId).orElse(null);
-        if (payment != null && payment.getStatus() == PaymentStatus.SUCCESS) {
-            throw new ConflictException("Đơn hàng đã được thanh toán");
+        for (Order order : orders) {
+            Payment existing = paymentRepository.findByOrder_Id(order.getId()).orElse(null);
+            if (existing != null && existing.getStatus() == PaymentStatus.SUCCESS) {
+                throw new ConflictException(
+                        "Đơn " + order.getOrderNo() + " đã được thanh toán.", "ORDER_ALREADY_PAID");
+            }
         }
 
         String effectiveReturnUrl = StringUtils.hasText(customReturnUrl) ? customReturnUrl : returnUrl;
-        String txnRef = orderId + "-" + System.currentTimeMillis();
-        String orderInfo = "Thanh toan don hang: " + order.getOrderNo();
-        long amount = order.getTotalAmount().setScale(0, RoundingMode.HALF_UP).longValueExact() * 100;
+        // Với lô nhiều đơn thì lấy đơn đầu làm mốc, các đơn còn lại tra qua bảng payments
+        String txnRef = orders.get(0).getId() + "-" + System.currentTimeMillis();
+        // Không nối hết mã đơn vào đây: vnp_OrderInfo có giới hạn độ dài, lô nhiều đơn sẽ tràn.
+        // Muốn biết lô gồm đơn nào thì tra payments theo vnp_txn_ref.
+        String orderInfo = orders.size() == 1
+                ? "Thanh toan don hang: " + orders.get(0).getOrderNo()
+                : "Thanh toan " + orders.size() + " don hang ReHome";
+        BigDecimal totalAmount = orders.stream()
+                .map(Order::getTotalAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        long amount = totalAmount.setScale(0, RoundingMode.HALF_UP).longValueExact() * 100;
 
         ZonedDateTime now = ZonedDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh"));
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
@@ -122,23 +130,25 @@ public class VnPayServiceImpl implements VnPayService {
 
         String paymentUrl = payUrl + "?" + query + "&vnp_SecureHash=" + secureHash;
 
-        if (payment == null) {
-            payment = Payment.builder()
-                    .order(order)
-                    .amount(order.getTotalAmount())
-                    .build();
+        // Mỗi đơn vẫn một dòng payments riêng (để đối soát theo đơn), nhưng chung vnp_TxnRef
+        // vì chỉ có một giao dịch VNPay
+        for (Order order : orders) {
+            Payment payment = paymentRepository.findByOrder_Id(order.getId())
+                    .orElseGet(() -> Payment.builder().order(order).build());
+
+            payment.setAmount(order.getTotalAmount());
+            payment.setMethod("VNPAY");
+            payment.setVnpTxnRef(txnRef);
+            payment.setVnpCreateDate(createDate);
+            payment.setVnpTransactionNo(null);
+            payment.setStatus(PaymentStatus.PENDING);
+            payment.setPaidAt(null);
+            paymentRepository.save(payment);
         }
-        payment.setMethod("VNPAY");
-        payment.setVnpTxnRef(txnRef);
-        payment.setVnpCreateDate(createDate);
-        payment.setVnpTransactionNo(null);
-        payment.setStatus(PaymentStatus.PENDING);
-        payment.setPaidAt(null);
-        paymentRepository.save(payment);
 
         return CreateVnPayResponse.builder()
                 .txnRef(txnRef)
-                .amount(order.getTotalAmount())
+                .amount(totalAmount)
                 .payUrl(paymentUrl)
                 .build();
     }
@@ -165,18 +175,19 @@ public class VnPayServiceImpl implements VnPayService {
             return new VnPayIpnResult("97", "Invalid signature");
         }
 
-        Payment payment = paymentRepository.findByVnpTxnRef(params.get("vnp_TxnRef")).orElse(null);
-        if (payment == null) {
+        List<Payment> payments = paymentRepository.findAllByVnpTxnRef(params.get("vnp_TxnRef"));
+        if (payments.isEmpty()) {
             log.warn(">>>> IPN cho vnp_TxnRef={} khong khop giao dich nao, bo qua", params.get("vnp_TxnRef"));
             return new VnPayIpnResult("01", "Order not found");
         }
 
-        if (payment.getStatus() != PaymentStatus.PENDING) {
+        if (payments.stream().noneMatch(p -> p.getStatus() == PaymentStatus.PENDING)) {
             log.info(">>>> IPN cho vnp_TxnRef={} da duoc xu ly truoc do, bo qua", params.get("vnp_TxnRef"));
             return new VnPayIpnResult("02", "Order already confirmed");
         }
 
-        long expectedAmount = payment.getAmount().setScale(0, RoundingMode.HALF_UP).longValueExact() * 100;
+        // Giao dịch trả gộp nhiều đơn thì VNPay thu tổng, nên phải đối chiếu với tổng các dòng payments
+        long expectedAmount = totalAmount(payments).setScale(0, RoundingMode.HALF_UP).longValueExact() * 100;
         long receivedAmount;
         try {
             receivedAmount = Long.parseLong(params.get("vnp_Amount"));
@@ -189,7 +200,7 @@ public class VnPayServiceImpl implements VnPayService {
             return new VnPayIpnResult("04", "Invalid amount");
         }
 
-        applyResult(payment, params.get("vnp_ResponseCode"), params.get("vnp_TransactionNo"));
+        applyResult(payments, params.get("vnp_ResponseCode"), params.get("vnp_TransactionNo"));
 
         return new VnPayIpnResult("00", "Confirm Success");
     }
@@ -208,11 +219,19 @@ public class VnPayServiceImpl implements VnPayService {
         Payment payment = paymentRepository.findByOrder_Id(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Chưa có giao dịch VNPay nào cho đơn hàng này"));
 
+        // Đơn này có thể nằm trong một giao dịch VNPay trả gộp nhiều đơn - hỏi VNPay một lần rồi
+        // áp kết quả cho cả lô, không để các đơn anh em kẹt PENDING
         if (payment.getStatus() == PaymentStatus.PENDING) {
-            syncWithVnPay(payment);
+            syncWithVnPay(paymentRepository.findAllByVnpTxnRef(payment.getVnpTxnRef()));
         }
 
-        return toStatusResponse(payment);
+        return PaymentStatusResponse.builder()
+                .orderIds(List.of(orderId))
+                .status(payment.getStatus())
+                .amount(payment.getAmount())
+                .vnpTransactionNo(payment.getVnpTransactionNo())
+                .paidAt(payment.getPaidAt())
+                .build();
     }
 
     @Override
@@ -237,19 +256,29 @@ public class VnPayServiceImpl implements VnPayService {
             throw new BadRequestException("Chữ ký không hợp lệ");
         }
 
-        Payment payment = paymentRepository.findByVnpTxnRef(params.get("vnp_TxnRef"))
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy giao dịch tương ứng"));
+        List<Payment> payments = paymentRepository.findAllByVnpTxnRef(params.get("vnp_TxnRef"));
+        if (payments.isEmpty()) {
+            throw new IllegalArgumentException("Không tìm thấy giao dịch tương ứng");
+        }
 
         // Trạng thái hiển thị luôn lấy từ DB (do IPN cập nhật), không tin tham số trên URL redirect
         // vì đây đi qua browser, có thể bị sửa. Nếu IPN chưa kịp tới thì hỏi lại VNPay 1 lần.
-        if (payment.getStatus() == PaymentStatus.PENDING) {
-            syncWithVnPay(payment);
+        if (payments.stream().anyMatch(p -> p.getStatus() == PaymentStatus.PENDING)) {
+            syncWithVnPay(payments);
         }
 
-        return toStatusResponse(payment);
+        Payment first = payments.get(0);
+        return PaymentStatusResponse.builder()
+                .orderIds(payments.stream().map(p -> p.getOrder().getId()).toList())
+                .status(first.getStatus())
+                .amount(totalAmount(payments))
+                .vnpTransactionNo(first.getVnpTransactionNo())
+                .paidAt(first.getPaidAt())
+                .build();
     }
 
-    private void syncWithVnPay(Payment payment) {
+    private void syncWithVnPay(List<Payment> payments) {
+        Payment payment = payments.get(0);
 
         String requestId = UUID.randomUUID().toString();
         String createDate = ZonedDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh"))
@@ -310,33 +339,36 @@ public class VnPayServiceImpl implements VnPayService {
             return;
         }
 
-        applyResult(payment, response.getTransactionStatus(), response.getTransactionNo());
+        applyResult(payments, response.getTransactionStatus(), response.getTransactionNo());
     }
 
-    private void applyResult(Payment payment, String resultCode, String transactionNo) {
-        if ("00".equals(resultCode)) {
+    private void applyResult(List<Payment> payments, String resultCode, String transactionNo) {
+        for (Payment payment : payments) {
+            if (!"00".equals(resultCode)) {
+                payment.setStatus(PaymentStatus.FAILED);
+                paymentRepository.save(payment);
+                continue;
+            }
+
             payment.setStatus(PaymentStatus.SUCCESS);
             payment.setVnpTransactionNo(transactionNo);
             payment.setPaidAt(Instant.now());
+            paymentRepository.save(payment);
 
-            Order order = payment.getOrder();
-            order.setStatus(OrderStatus.PAID);
-            orderRepository.save(order);
-        } else {
-            payment.setStatus(PaymentStatus.FAILED);
+            // Không tự set PAID ở đây: đơn có thể đã bị hủy trước khi IPN về, khi đó hàng đã nhả
+            // lại lên sàn nên tiền phải vào ví người mua chứ không được chốt lại đơn
+            orderService.applyGatewayPaymentSuccess(
+                    payment.getOrder().getId(),
+                    OrderPaymentMethod.VNPAY,
+                    "Hoàn tiền VNPay về sau khi đơn " + payment.getOrder().getOrderNo()
+                            + " không còn chờ thanh toán");
         }
-
-        paymentRepository.save(payment);
     }
 
-    private static PaymentStatusResponse toStatusResponse(Payment payment) {
-        return PaymentStatusResponse.builder()
-                .orderId(payment.getOrder().getId())
-                .status(payment.getStatus())
-                .amount(payment.getAmount())
-                .vnpTransactionNo(payment.getVnpTransactionNo())
-                .paidAt(payment.getPaidAt())
-                .build();
+    private static BigDecimal totalAmount(List<Payment> payments) {
+        return payments.stream()
+                .map(Payment::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     // Sắp xếp field theo tên, bỏ field rỗng, nối "key=value" (value url-encode) bằng "&".

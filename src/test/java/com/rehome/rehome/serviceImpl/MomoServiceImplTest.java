@@ -7,6 +7,7 @@ import com.rehome.rehome.dto.response.CreateMomoResponse;
 import com.rehome.rehome.dto.response.PaymentStatusResponse;
 import com.rehome.rehome.dto.response.QueryMomoResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.PaymentStatus;
 import com.rehome.rehome.entity.marketplace.Order;
@@ -15,6 +16,7 @@ import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.PaymentRepository;
+import com.rehome.rehome.service.OrderService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,12 +31,15 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -45,6 +50,7 @@ class MomoServiceImplTest {
     @Mock MomoApi momoApi;
     @Mock OrderRepository orderRepository;
     @Mock PaymentRepository paymentRepository;
+    @Mock OrderService orderService;
 
     @InjectMocks
     MomoServiceImpl momoService;
@@ -104,59 +110,41 @@ class MomoServiceImplTest {
         return hmacSha256(raw, SECRET_KEY);
     }
 
-    // ==================== createPaymentForOrder ====================
+    // ==================== createPaymentForOrders ====================
 
     @Test
-    void createPaymentForOrder_orderNotFound_throws() {
-        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
+    void createPaymentForOrders_orderNotPayable_propagatesAndSkipsMomo() {
+        when(orderService.loadPayableOrders(email, List.of(orderId)))
+                .thenThrow(new ConflictException("Đơn ORD-0001 đã được thanh toán.", "ORDER_ALREADY_PAID"));
 
-        assertThatThrownBy(() -> momoService.createPaymentForOrder(email, orderId, null))
-                .isInstanceOf(IllegalArgumentException.class);
-
-        verify(momoApi, never()).createMomoQR(any());
-    }
-
-    @Test
-    void createPaymentForOrder_notOwner_throwsAccessDenied() {
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
-
-        assertThatThrownBy(() -> momoService.createPaymentForOrder("other@example.com", orderId, null))
-                .isInstanceOf(AccessDeniedException.class);
-
-        verify(momoApi, never()).createMomoQR(any());
-    }
-
-    @Test
-    void createPaymentForOrder_notPendingPayment_throwsConflict() {
-        order.setStatus(OrderStatus.PAID);
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
-
-        assertThatThrownBy(() -> momoService.createPaymentForOrder(email, orderId, null))
+        assertThatThrownBy(() -> momoService.createPaymentForOrders(email, List.of(orderId), null))
                 .isInstanceOf(ConflictException.class);
 
         verify(momoApi, never()).createMomoQR(any());
     }
 
     @Test
-    void createPaymentForOrder_alreadyPaid_throwsConflict() {
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+    void createPaymentForOrders_paymentRowAlreadySuccess_throwsOrderAlreadyPaid() {
+        when(orderService.loadPayableOrders(email, List.of(orderId))).thenReturn(List.of(order));
         Payment paidPayment = Payment.builder().order(order).status(PaymentStatus.SUCCESS).build();
         when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.of(paidPayment));
 
-        assertThatThrownBy(() -> momoService.createPaymentForOrder(email, orderId, null))
-                .isInstanceOf(ConflictException.class);
+        assertThatThrownBy(() -> momoService.createPaymentForOrders(email, List.of(orderId), null))
+                .isInstanceOf(ConflictException.class)
+                .extracting(ex -> ((ConflictException) ex).getCode())
+                .isEqualTo("ORDER_ALREADY_PAID");
 
         verify(momoApi, never()).createMomoQR(any());
     }
 
     @Test
-    void createPaymentForOrder_momoRejects_throwsBadRequest() {
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+    void createPaymentForOrders_momoRejects_throwsBadRequest() {
+        when(orderService.loadPayableOrders(email, List.of(orderId))).thenReturn(List.of(order));
         when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.empty());
         when(momoApi.createMomoQR(any())).thenReturn(
                 CreateMomoResponse.builder().resultCode(99).message("Loi tu MoMo").build());
 
-        assertThatThrownBy(() -> momoService.createPaymentForOrder(email, orderId, null))
+        assertThatThrownBy(() -> momoService.createPaymentForOrders(email, List.of(orderId), null))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("Loi tu MoMo");
 
@@ -164,13 +152,13 @@ class MomoServiceImplTest {
     }
 
     @Test
-    void createPaymentForOrder_success_savesNewPendingPayment() {
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+    void createPaymentForOrders_success_savesNewPendingPayment() {
+        when(orderService.loadPayableOrders(email, List.of(orderId))).thenReturn(List.of(order));
         when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.empty());
         when(momoApi.createMomoQR(any())).thenReturn(
                 CreateMomoResponse.builder().resultCode(0).message("Thanh cong").payUrl("https://momo/pay").build());
 
-        CreateMomoResponse response = momoService.createPaymentForOrder(email, orderId, null);
+        CreateMomoResponse response = momoService.createPaymentForOrders(email, List.of(orderId), null);
 
         assertThat(response.getPayUrl()).isEqualTo("https://momo/pay");
 
@@ -185,19 +173,52 @@ class MomoServiceImplTest {
     }
 
     @Test
-    void createPaymentForOrder_retry_reusesExistingPaymentRow() {
+    void createPaymentForOrders_multipleOrders_oneTransactionWithSummedAmount() {
+        UUID secondOrderId = UUID.randomUUID();
+        Order secondOrder = Order.builder()
+                .id(secondOrderId)
+                .orderNo("ORD-0002")
+                .buyer(order.getBuyer())
+                .totalAmount(new BigDecimal("50000.00"))
+                .status(OrderStatus.PENDING_PAYMENT)
+                .build();
+
+        when(orderService.loadPayableOrders(email, List.of(orderId, secondOrderId)))
+                .thenReturn(List.of(order, secondOrder));
+        when(paymentRepository.findByOrder_Id(any())).thenReturn(Optional.empty());
+        when(momoApi.createMomoQR(any())).thenReturn(
+                CreateMomoResponse.builder().resultCode(0).message("Thanh cong").build());
+
+        momoService.createPaymentForOrders(email, List.of(orderId, secondOrderId), null);
+
+        ArgumentCaptor<CreateMomoRequest> requestCaptor = ArgumentCaptor.forClass(CreateMomoRequest.class);
+        verify(momoApi).createMomoQR(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().getAmount()).isEqualTo(200000L);
+
+        // Mỗi đơn một dòng payments để đối soát, nhưng chung một mã giao dịch MoMo
+        ArgumentCaptor<Payment> paymentCaptor = ArgumentCaptor.forClass(Payment.class);
+        verify(paymentRepository, org.mockito.Mockito.times(2)).save(paymentCaptor.capture());
+        List<Payment> saved = paymentCaptor.getAllValues();
+        assertThat(saved).extracting(Payment::getAmount)
+                .containsExactly(new BigDecimal("150000.00"), new BigDecimal("50000.00"));
+        assertThat(saved.get(0).getMomoOrderId()).isEqualTo(saved.get(1).getMomoOrderId());
+        assertThat(saved.get(0).getMomoRequestId()).isEqualTo(saved.get(1).getMomoRequestId());
+    }
+
+    @Test
+    void createPaymentForOrders_retry_reusesExistingPaymentRow() {
         Payment existing = Payment.builder()
                 .order(order)
                 .amount(order.getTotalAmount())
                 .status(PaymentStatus.FAILED)
                 .momoOrderId("old-momo-order-id")
                 .build();
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderService.loadPayableOrders(email, List.of(orderId))).thenReturn(List.of(order));
         when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.of(existing));
         when(momoApi.createMomoQR(any())).thenReturn(
                 CreateMomoResponse.builder().resultCode(0).message("Thanh cong").build());
 
-        momoService.createPaymentForOrder(email, orderId, null);
+        momoService.createPaymentForOrders(email, List.of(orderId), null);
 
         ArgumentCaptor<Payment> captor = ArgumentCaptor.forClass(Payment.class);
         verify(paymentRepository).save(captor.capture());
@@ -207,13 +228,13 @@ class MomoServiceImplTest {
     }
 
     @Test
-    void createPaymentForOrder_customRedirectUrl_overridesDefault() {
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+    void createPaymentForOrders_customRedirectUrl_overridesDefault() {
+        when(orderService.loadPayableOrders(email, List.of(orderId))).thenReturn(List.of(order));
         when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.empty());
         when(momoApi.createMomoQR(any())).thenReturn(
                 CreateMomoResponse.builder().resultCode(0).message("Thanh cong").build());
 
-        momoService.createPaymentForOrder(email, orderId, "rehome://payment-result");
+        momoService.createPaymentForOrders(email, List.of(orderId), "rehome://payment-result");
 
         ArgumentCaptor<CreateMomoRequest> captor = ArgumentCaptor.forClass(CreateMomoRequest.class);
         verify(momoApi).createMomoQR(captor.capture());
@@ -238,19 +259,19 @@ class MomoServiceImplTest {
     @Test
     void handleIpn_paymentNotFound_doesNothing() throws Exception {
         MomoIpnRequest ipn = validIpn("unknown-momo-order-id", 0, 12345L);
-        when(paymentRepository.findByMomoOrderId("unknown-momo-order-id")).thenReturn(Optional.empty());
+        when(paymentRepository.findAllByMomoOrderId("unknown-momo-order-id")).thenReturn(List.of());
 
         momoService.handleIpn(ipn);
 
         verify(paymentRepository, never()).save(any());
-        verify(orderRepository, never()).save(any());
+        verify(orderService, never()).applyGatewayPaymentSuccess(any(), any(), anyString());
     }
 
     @Test
     void handleIpn_alreadyProcessed_skipsUpdate() throws Exception {
         Payment payment = Payment.builder().order(order).status(PaymentStatus.SUCCESS).momoOrderId("momo-1").build();
         MomoIpnRequest ipn = validIpn("momo-1", 0, 12345L);
-        when(paymentRepository.findByMomoOrderId("momo-1")).thenReturn(Optional.of(payment));
+        when(paymentRepository.findAllByMomoOrderId("momo-1")).thenReturn(List.of(payment));
 
         momoService.handleIpn(ipn);
 
@@ -258,31 +279,59 @@ class MomoServiceImplTest {
     }
 
     @Test
-    void handleIpn_resultCodeZero_marksSuccessAndPaysOrder() throws Exception {
+    void handleIpn_resultCodeZero_marksSuccessAndDelegatesOrderSettlement() throws Exception {
         Payment payment = Payment.builder().order(order).status(PaymentStatus.PENDING).momoOrderId("momo-1").build();
         MomoIpnRequest ipn = validIpn("momo-1", 0, 999L);
-        when(paymentRepository.findByMomoOrderId("momo-1")).thenReturn(Optional.of(payment));
+        when(paymentRepository.findAllByMomoOrderId("momo-1")).thenReturn(List.of(payment));
 
         momoService.handleIpn(ipn);
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
         assertThat(payment.getMomoTransactionId()).isEqualTo("999");
         assertThat(payment.getPaidAt()).isNotNull();
-        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
-        verify(orderRepository).save(order);
         verify(paymentRepository).save(payment);
+
+        // Chốt đơn hay hoàn vào ví là quyết định của OrderService: IPN về muộn khi đơn đã hủy
+        // thì không được set PAID nữa
+        verify(orderService).applyGatewayPaymentSuccess(
+                eq(orderId), eq(OrderPaymentMethod.MOMO), anyString());
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void handleIpn_multipleOrdersInOneTransaction_settlesEveryOrder() throws Exception {
+        UUID secondOrderId = UUID.randomUUID();
+        Order secondOrder = Order.builder()
+                .id(secondOrderId)
+                .orderNo("ORD-0002")
+                .buyer(order.getBuyer())
+                .totalAmount(new BigDecimal("50000.00"))
+                .status(OrderStatus.PENDING_PAYMENT)
+                .build();
+        Payment first = Payment.builder().order(order).status(PaymentStatus.PENDING).momoOrderId("momo-1").build();
+        Payment second = Payment.builder().order(secondOrder).status(PaymentStatus.PENDING).momoOrderId("momo-1").build();
+
+        MomoIpnRequest ipn = validIpn("momo-1", 0, 999L);
+        when(paymentRepository.findAllByMomoOrderId("momo-1")).thenReturn(List.of(first, second));
+
+        momoService.handleIpn(ipn);
+
+        assertThat(first.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
+        assertThat(second.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
+        verify(orderService).applyGatewayPaymentSuccess(eq(orderId), eq(OrderPaymentMethod.MOMO), anyString());
+        verify(orderService).applyGatewayPaymentSuccess(eq(secondOrderId), eq(OrderPaymentMethod.MOMO), anyString());
     }
 
     @Test
     void handleIpn_resultCodeNonZero_marksFailed() throws Exception {
         Payment payment = Payment.builder().order(order).status(PaymentStatus.PENDING).momoOrderId("momo-1").build();
         MomoIpnRequest ipn = validIpn("momo-1", 1006, 999L);
-        when(paymentRepository.findByMomoOrderId("momo-1")).thenReturn(Optional.of(payment));
+        when(paymentRepository.findAllByMomoOrderId("momo-1")).thenReturn(List.of(payment));
 
         momoService.handleIpn(ipn);
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
-        verify(orderRepository, never()).save(any());
+        verify(orderService, never()).applyGatewayPaymentSuccess(any(), any(), anyString());
         verify(paymentRepository).save(payment);
     }
 
@@ -345,6 +394,7 @@ class MomoServiceImplTest {
         PaymentStatusResponse response = momoService.checkPaymentStatus(email, orderId);
 
         assertThat(response.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
+        assertThat(response.getOrderIds()).containsExactly(orderId);
         verify(momoApi, never()).queryTransaction(any());
     }
 
@@ -354,6 +404,7 @@ class MomoServiceImplTest {
                 .amount(order.getTotalAmount()).momoOrderId("momo-1").momoRequestId("req-1").build();
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
         when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.of(payment));
+        when(paymentRepository.findAllByMomoOrderId("momo-1")).thenReturn(List.of(payment));
 
         QueryMomoResponse momoResponse = queryResponse("momo-1", "req-1", 0, 555L);
         when(momoApi.queryTransaction(any())).thenReturn(momoResponse);
@@ -362,7 +413,8 @@ class MomoServiceImplTest {
 
         assertThat(response.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
         assertThat(response.getMomoTransactionId()).isEqualTo("555");
-        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
+        verify(orderService).applyGatewayPaymentSuccess(
+                eq(orderId), eq(OrderPaymentMethod.MOMO), anyString());
     }
 
     @Test
@@ -371,6 +423,7 @@ class MomoServiceImplTest {
                 .amount(order.getTotalAmount()).momoOrderId("momo-1").momoRequestId("req-1").build();
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
         when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.of(payment));
+        when(paymentRepository.findAllByMomoOrderId("momo-1")).thenReturn(List.of(payment));
 
         QueryMomoResponse momoResponse = queryResponse("momo-1", "req-1", 7002, 0L);
         when(momoApi.queryTransaction(any())).thenReturn(momoResponse);

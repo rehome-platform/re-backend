@@ -1,5 +1,6 @@
 package com.rehome.rehome.controller;
 
+import com.rehome.rehome.dto.request.CreateGatewayPaymentRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.CreateVnPayResponse;
 import com.rehome.rehome.dto.response.PaymentStatusResponse;
@@ -27,14 +28,13 @@ public class VnPayController {
     @PostMapping("create")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<CreateVnPayResponse>> createPayment(
-            @RequestParam UUID orderId,
-            @RequestParam(required = false) String returnUrl,
+            @RequestBody CreateGatewayPaymentRequest request,
             Authentication authentication,
             HttpServletRequest httpRequest) {
 
         String email = authentication.getName();
-        CreateVnPayResponse response = vnPayService.createPaymentForOrder(
-                email, orderId, returnUrl, clientIp(httpRequest));
+        CreateVnPayResponse response = vnPayService.createPaymentForOrders(
+                email, request.toOrderIds(), request.getRedirectUrl(), clientIp(httpRequest));
 
         return ResponseEntity.ok(ApiResponse.success(response));
     }

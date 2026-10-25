@@ -71,6 +71,28 @@ public enum ErrorCode {
     INVALID_DECISION(HttpStatus.BAD_REQUEST, "Chỉ được chọn TAKE_BACK hoặc RE_CONSIGN."),
     DECISION_EXPIRED(HttpStatus.CONFLICT, "DECISION_EXPIRED: đã quá hạn quyết định, hàng chuyển sang xử lý vô thừa nhận."),
 
+    // API - giỏ hàng
+    // API - hồ sơ Member
+    // Thanh toán MoMo
+    ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy đơn hàng."),
+    ORDER_FORBIDDEN(HttpStatus.FORBIDDEN, "Đơn hàng này không thuộc về bạn."),
+    ORDER_NOT_PENDING_PAYMENT(HttpStatus.CONFLICT, "Đơn hàng không ở trạng thái chờ thanh toán."),
+    ORDER_ALREADY_PAID(HttpStatus.CONFLICT, "Đơn hàng đã được thanh toán."),
+    PAYMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy giao dịch thanh toán."),
+    MOMO_SIGNATURE_CREATE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo chữ ký thanh toán."),
+    MOMO_CREATE_PAYMENT_FAILED(HttpStatus.BAD_REQUEST, "Tạo giao dịch MoMo thất bại."),
+    MOMO_IPN_VERIFY_FAILED(HttpStatus.BAD_REQUEST, "Không thể xác thực IPN."),
+    MOMO_RETURN_VERIFY_FAILED(HttpStatus.BAD_REQUEST, "Không thể xác thực kết quả thanh toán."),
+    MOMO_INVALID_SIGNATURE(HttpStatus.BAD_REQUEST, "Chữ ký MoMo không hợp lệ."),
+    MEMBER_PROFILE_NOT_FOUND(HttpStatus.NOT_FOUND, "Hồ sơ Member không tồn tại."),
+    INVALID_PHONE_FORMAT(HttpStatus.BAD_REQUEST, "Số điện thoại không đúng định dạng."),
+    // API 71 - webhook GHN
+    GHN_ORDER_CODE_REQUIRED(HttpStatus.BAD_REQUEST, "Thiếu OrderCode trong webhook."),
+    GHN_SHIPMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy vận đơn."),
+    PRODUCT_ID_REQUIRED(HttpStatus.BAD_REQUEST, "productId không được để trống."),
+    PRODUCT_NOT_AVAILABLE(HttpStatus.CONFLICT, "PRODUCT_NOT_AVAILABLE: sản phẩm không còn để bán."),
+    ALREADY_IN_CART(HttpStatus.CONFLICT, "ALREADY_IN_CART: sản phẩm đã có trong giỏ hàng."),
+    CART_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy mục giỏ hàng."),
     // API 25, 27 - quầy
     LOOKUP_INVALID_INPUT(HttpStatus.BAD_REQUEST, "Phải cung cấp memberCode, phone hoặc qrPayload."),
     MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy Member."),

@@ -11,15 +11,14 @@ import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.PaymentStatus;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.Payment;
-import com.rehome.rehome.exception.BadRequestException;
-import com.rehome.rehome.exception.ConflictException;
+import com.rehome.rehome.exception.AppException;
+import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.PaymentRepository;
 import com.rehome.rehome.service.MomoService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -64,19 +63,19 @@ public class MomoServiceImpl implements MomoService {
     public CreateMomoResponse createPaymentForOrder(String email, UUID orderId, String customRedirectUrl) {
 
         Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng"));
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
 
         if (!order.getBuyer().getEmail().equalsIgnoreCase(email)) {
-            throw new AccessDeniedException("Đơn hàng này không thuộc về bạn");
+            throw new AppException(ErrorCode.ORDER_FORBIDDEN);
         }
 
         if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
-            throw new ConflictException("Đơn hàng không ở trạng thái chờ thanh toán");
+            throw new AppException(ErrorCode.ORDER_NOT_PENDING_PAYMENT);
         }
 
         Payment payment = paymentRepository.findByOrder_Id(orderId).orElse(null);
         if (payment != null && payment.getStatus() == PaymentStatus.SUCCESS) {
-            throw new ConflictException("Đơn hàng đã được thanh toán");
+            throw new AppException(ErrorCode.ORDER_ALREADY_PAID);
         }
 
         String effectiveRedirectUrl = StringUtils.hasText(customRedirectUrl) ? customRedirectUrl : redirectUrl;
@@ -95,12 +94,12 @@ public class MomoServiceImpl implements MomoService {
             prettySignature = signHmacSHA256(rawSignature, secretKey);
         } catch (Exception e) {
             log.error(">>>> Co loi khi hash code: " + e);
-            throw new BadRequestException("Không thể tạo chữ ký thanh toán");
+            throw new AppException(ErrorCode.MOMO_SIGNATURE_CREATE_FAILED);
         }
 
         if (prettySignature.isBlank()) {
             log.error(">>>> Signature is blank");
-            throw new BadRequestException("Không thể tạo chữ ký thanh toán");
+            throw new AppException(ErrorCode.MOMO_SIGNATURE_CREATE_FAILED);
         }
 
         CreateMomoRequest request = CreateMomoRequest.builder()
@@ -121,7 +120,8 @@ public class MomoServiceImpl implements MomoService {
 
         if (response == null || response.getResultCode() != 0) {
             String message = response != null ? response.getMessage() : "Không nhận được phản hồi từ MoMo";
-            throw new BadRequestException("Tạo giao dịch MoMo thất bại: " + message);
+            log.error(">>>> Tao giao dich MoMo that bai: {}", message);
+            throw new AppException(ErrorCode.MOMO_CREATE_PAYMENT_FAILED);
         }
 
         if (payment == null) {
@@ -155,12 +155,12 @@ public class MomoServiceImpl implements MomoService {
             expectedSignature = signHmacSHA256(rawSignature, secretKey);
         } catch (Exception e) {
             log.error(">>>> Co loi khi verify chu ky IPN: " + e);
-            throw new BadRequestException("Không thể xác thực IPN");
+            throw new AppException(ErrorCode.MOMO_IPN_VERIFY_FAILED);
         }
 
         if (!expectedSignature.equals(ipnRequest.getSignature())) {
             log.error(">>>> IPN signature mismatch cho orderId={}", ipnRequest.getOrderId());
-            throw new BadRequestException("Chữ ký IPN không hợp lệ");
+            throw new AppException(ErrorCode.MOMO_INVALID_SIGNATURE);
         }
 
         Payment payment = paymentRepository.findByMomoOrderId(ipnRequest.getOrderId()).orElse(null);
@@ -182,14 +182,14 @@ public class MomoServiceImpl implements MomoService {
     public PaymentStatusResponse checkPaymentStatus(String email, UUID orderId) {
 
         Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng"));
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
 
         if (!order.getBuyer().getEmail().equalsIgnoreCase(email)) {
-            throw new AccessDeniedException("Đơn hàng này không thuộc về bạn");
+            throw new AppException(ErrorCode.ORDER_FORBIDDEN);
         }
 
         Payment payment = paymentRepository.findByOrder_Id(orderId)
-                .orElseThrow(() -> new IllegalArgumentException("Chưa có giao dịch MoMo nào cho đơn hàng này"));
+                .orElseThrow(() -> new AppException(ErrorCode.PAYMENT_NOT_FOUND));
 
         if (payment.getStatus() == PaymentStatus.PENDING) {
             syncWithMomo(payment);
@@ -219,16 +219,16 @@ public class MomoServiceImpl implements MomoService {
             expectedSignature = signHmacSHA256(rawSignature, secretKey);
         } catch (Exception e) {
             log.error(">>>> Co loi khi verify chu ky return URL: " + e);
-            throw new BadRequestException("Không thể xác thực kết quả thanh toán");
+            throw new AppException(ErrorCode.MOMO_RETURN_VERIFY_FAILED);
         }
 
         if (!expectedSignature.equals(returnParams.getSignature())) {
             log.error(">>>> Chu ky tren return URL khong hop le cho momoOrderId={}", returnParams.getOrderId());
-            throw new BadRequestException("Chữ ký không hợp lệ");
+            throw new AppException(ErrorCode.MOMO_INVALID_SIGNATURE);
         }
 
         Payment payment = paymentRepository.findByMomoOrderId(returnParams.getOrderId())
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy giao dịch tương ứng"));
+                .orElseThrow(() -> new AppException(ErrorCode.PAYMENT_NOT_FOUND));
 
         // Trạng thái hiển thị luôn lấy từ DB (do IPN cập nhật), không tin resultCode trên URL redirect
         // vì đây là tham số đi qua browser, có thể bị sửa. Nếu IPN chưa kịp tới thì hỏi lại MoMo 1 lần.
@@ -325,8 +325,8 @@ public class MomoServiceImpl implements MomoService {
     }
 
     private String buildResultSignature(long amount, String extraData, String message, String orderId,
-                                         String orderInfo, String orderType, String payType, String requestId,
-                                         long responseTime, int resultCode, long transId) {
+                                        String orderInfo, String orderType, String payType, String requestId,
+                                        long responseTime, int resultCode, long transId) {
         return String.format(
                 "accessKey=%s&amount=%s&extraData=%s&message=%s&orderId=%s&orderInfo=%s&orderType=%s&partnerCode=%s&payType=%s&requestId=%s&responseTime=%s&resultCode=%s&transId=%s",
                 accessKey, amount, extraData, message, orderId, orderInfo, orderType, partnerCode,

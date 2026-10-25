@@ -1,11 +1,13 @@
 package com.rehome.rehome.serviceImpl;
-
+import com.rehome.rehome.dto.marketplace.response.WarehouseResponse;
 import com.rehome.rehome.dto.response.WarehouseNearestResponse;
 import com.rehome.rehome.entity.enums.CatalogStatus;
+import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.WarehouseService;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -43,6 +45,26 @@ public class WarehouseServiceImpl implements WarehouseService {
                 .sorted(Comparator.comparingDouble(WarehouseNearestResponse::distanceKm))
                 .limit(20)
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    public List<WarehouseResponse> getActiveWarehouses() {
+        return warehouseRepository.findByStatusOrderByNameAsc(CatalogStatus.ACTIVE)
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    private com.rehome.rehome.dto.marketplace.response.WarehouseResponse toResponse(Warehouse w) {
+        return WarehouseResponse.builder()
+                .id(w.getId())
+                .name(w.getName())
+                .address(w.getAddress())
+                .latitude(w.getLatitude())
+                .longitude(w.getLongitude())
+                .openingHours(w.getOpeningHours())
+                .build();
     }
 
 //    Code này dùng khi tạo warehouse thủ công

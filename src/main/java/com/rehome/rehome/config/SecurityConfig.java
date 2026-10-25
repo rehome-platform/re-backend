@@ -66,6 +66,7 @@ public class SecurityConfig {
                                 "/api/auth/password/change",
                                 "/api/auth/logout").authenticated()
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/warehouses").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/organizations/register/account").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")

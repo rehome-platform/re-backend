@@ -61,7 +61,8 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public PageResponse<ProductSummaryResponse> getProducts(String search, UUID categoryId, UUID brandId,
                                                               BigDecimal priceMin, BigDecimal priceMax,
-                                                              UUID warehouseId, int page, int size) {
+                                                              UUID warehouseId, int page, int size,
+                                                              UUID viewerId) {
 
         if (priceMin != null && priceMax != null && priceMin.compareTo(priceMax) > 0) {
             throw new BadRequestException("priceMin không được lớn hơn priceMax.");
@@ -94,13 +95,14 @@ public class ProductServiceImpl implements ProductService {
                 .condition(product.getConditionNote())
                 .originalPrice(product.getConsignmentReceipt().getAgreedPrice())
                 .currentPrice(product.getCurrentPrice())
+                .isMine(isOwnedBy(product, viewerId))
                 .build());
 
         return PageResponse.from(mapped);
     }
 
     @Override
-    public ProductDetailResponse getProductDetail(String id) {
+    public ProductDetailResponse getProductDetail(String id, UUID viewerId) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
@@ -124,7 +126,14 @@ public class ProductServiceImpl implements ProductService {
                 .warehouseId(product.getWarehouse().getId())
                 .warehouseName(product.getWarehouse().getName())
                 .photos(photos)
+                .isMine(isOwnedBy(product, viewerId))
                 .build();
+    }
+
+    // Người ký gửi không được mua lại món của chính mình (chặn thật ở CartService/OrderService),
+    // cờ này chỉ để FE ẩn nút trước. Null-safe hai đầu: khách chưa đăng nhập -> false.
+    private static boolean isOwnedBy(Product product, UUID viewerId) {
+        return viewerId != null && viewerId.equals(product.getMember().getId());
     }
 
     @Override

@@ -23,4 +23,13 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
             "where oi.order.id = :orderId " +
             "order by oi.id asc")
     List<OrderItem> findAllByOrder_IdWithProductOrderByIdAsc(@Param("orderId") UUID orderId);
+
+    // Chỉ các món của :sellerId trong các đơn đã cho. Lọc theo người bán ngay trong query
+    // là điều giữ cho API "đơn đã bán" không lộ hàng của người ký gửi khác trong cùng đơn.
+    @Query("select oi from OrderItem oi " +
+            "join fetch oi.product p " +
+            "where oi.order.id in :orderIds and p.member.id = :sellerId " +
+            "order by oi.id asc")
+    List<OrderItem> findSellerItemsByOrderIds(@Param("orderIds") List<UUID> orderIds,
+                                              @Param("sellerId") UUID sellerId);
 }

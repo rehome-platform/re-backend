@@ -14,6 +14,7 @@ import com.rehome.rehome.dto.response.OrderResponse;
 import com.rehome.rehome.dto.response.OrderTrackingResponse;
 import com.rehome.rehome.dto.response.PackScanResponse;
 import com.rehome.rehome.dto.response.PayOrdersResponse;
+import com.rehome.rehome.dto.response.SoldOrderListResponse;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.marketplace.Order;
 
@@ -24,6 +25,11 @@ public interface OrderService {
     List<OrderResponse> createOrders(String email, CreateOrderRequest request);
 
     OrderListResponse getOrders(String email, String status, int page, int size);
+
+    // Đơn có chứa hàng do chính người gọi ký gửi ("Đơn đã bán"). Khác getOrders: cái kia
+    // lọc theo buyer_id. Mỗi đơn chỉ trả các món của người bán này, không trả thông tin
+    // người mua. status rỗng = mọi trạng thái từ PAID trở đi.
+    SoldOrderListResponse getSoldOrders(String email, String status, int page, int size);
 
     OrderDetailResponse getOrderDetail(String email, UUID orderId);
 

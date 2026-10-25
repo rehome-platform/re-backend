@@ -103,6 +103,11 @@ public class Order {
     @Column(name = "ghn_tracking_code", nullable = true, length = 255)
     private String ghnTrackingCode;
 
+    // Ngày giao dự kiến GHN trả về lúc tạo vận đơn (expected_delivery_time), chụp lại để màn
+    // theo dõi vận chuyển hiện được mà không phải gọi lại GHN
+    @Column(name = "expected_delivery_date", nullable = true)
+    private Instant expectedDeliveryDate;
+
     // Hạn thanh toán, mặc định 15 phút; quá hạn hủy đơn và nhả hàng về sàn
     @Column(name = "payment_deadline", nullable = false)
     private Instant paymentDeadline;

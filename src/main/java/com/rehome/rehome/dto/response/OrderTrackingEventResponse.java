@@ -14,5 +14,9 @@ import java.time.Instant;
 public class OrderTrackingEventResponse {
     private String status;
     private String description;
-    private Instant occurredAt;
+
+    // Kho GHN đang giữ hàng lúc xảy ra sự kiện; GHN không phải lúc nào cũng gửi nên có thể null
+    private String location;
+
+    private Instant timestamp;
 }

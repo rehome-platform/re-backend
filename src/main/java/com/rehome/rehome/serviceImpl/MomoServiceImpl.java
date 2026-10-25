@@ -7,7 +7,7 @@ import com.rehome.rehome.dto.request.QueryMomoRequest;
 import com.rehome.rehome.dto.response.CreateMomoResponse;
 import com.rehome.rehome.dto.response.PaymentStatusResponse;
 import com.rehome.rehome.dto.response.QueryMomoResponse;
-import com.rehome.rehome.entity.enums.OrderStatus;
+import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.PaymentStatus;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.Payment;
@@ -16,6 +16,7 @@ import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.PaymentRepository;
 import com.rehome.rehome.service.MomoService;
+import com.rehome.rehome.service.OrderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,10 +27,13 @@ import org.springframework.util.StringUtils;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 
 @Service
@@ -58,33 +62,41 @@ public class MomoServiceImpl implements MomoService {
     private final MomoApi momoApi;
     private final OrderRepository orderRepository;
     private final PaymentRepository paymentRepository;
+    private final OrderService orderService;
 
     @Override
     @Transactional
-    public CreateMomoResponse createPaymentForOrder(String email, UUID orderId, String customRedirectUrl) {
+    public CreateMomoResponse createPaymentForOrders(String email, List<UUID> orderIds, String customRedirectUrl) {
 
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng"));
+        // Quyền sở hữu và trạng thái đơn do OrderService kiểm, để trả ví / MoMo / VNPay
+        // dùng chung đúng một bộ mã lỗi ORDER_ALREADY_PAID / ORDER_NOT_PENDING
+        List<Order> orders = orderService.loadPayableOrders(email, orderIds);
 
-        if (!order.getBuyer().getEmail().equalsIgnoreCase(email)) {
-            throw new AccessDeniedException("Đơn hàng này không thuộc về bạn");
-        }
-
-        if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
-            throw new ConflictException("Đơn hàng không ở trạng thái chờ thanh toán");
-        }
-
-        Payment payment = paymentRepository.findByOrder_Id(orderId).orElse(null);
-        if (payment != null && payment.getStatus() == PaymentStatus.SUCCESS) {
-            throw new ConflictException("Đơn hàng đã được thanh toán");
+        for (Order order : orders) {
+            Payment existing = paymentRepository.findByOrder_Id(order.getId()).orElse(null);
+            if (existing != null && existing.getStatus() == PaymentStatus.SUCCESS) {
+                throw new ConflictException(
+                        "Đơn " + order.getOrderNo() + " đã được thanh toán.", "ORDER_ALREADY_PAID");
+            }
         }
 
         String effectiveRedirectUrl = StringUtils.hasText(customRedirectUrl) ? customRedirectUrl : redirectUrl;
-        String momoOrderId = orderId + "-" + System.currentTimeMillis();
-        String orderInfo = "Thanh toan don hang: " + order.getOrderNo();
+        // Giữ nguyên dạng cũ <orderId>-<millis> (50 ký tự, đúng giới hạn orderId của MoMo);
+        // với lô nhiều đơn thì lấy đơn đầu làm mốc, các đơn còn lại tra qua bảng payments
+        String momoOrderId = orders.get(0).getId() + "-" + System.currentTimeMillis();
+        // Không nối hết mã đơn vào đây: orderInfo của MoMo có giới hạn độ dài, lô nhiều đơn
+        // sẽ tràn. Muốn biết lô gồm đơn nào thì tra payments theo momo_order_id.
+        String orderInfo = orders.size() == 1
+                ? "Thanh toan don hang: " + orders.get(0).getOrderNo()
+                : "Thanh toan " + orders.size() + " don hang ReHome";
         String requestId = UUID.randomUUID().toString();
-        String extraData = orderId.toString();
-        long amount = order.getTotalAmount().setScale(0, RoundingMode.HALF_UP).longValueExact();
+        String extraData = orders.stream()
+                .map(o -> o.getId().toString())
+                .collect(Collectors.joining(","));
+        BigDecimal totalAmount = orders.stream()
+                .map(Order::getTotalAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        long amount = totalAmount.setScale(0, RoundingMode.HALF_UP).longValueExact();
 
         String rawSignature = String.format(
                 "accessKey=%s&amount=%s&extraData=%s&ipnUrl=%s&orderId=%s&orderInfo=%s&partnerCode=%s&redirectUrl=%s&requestId=%s&requestType=%s",
@@ -124,18 +136,21 @@ public class MomoServiceImpl implements MomoService {
             throw new BadRequestException("Tạo giao dịch MoMo thất bại: " + message);
         }
 
-        if (payment == null) {
-            payment = Payment.builder()
-                    .order(order)
-                    .amount(order.getTotalAmount())
-                    .build();
+        // Mỗi đơn vẫn một dòng payments riêng (để đối soát theo đơn), nhưng chung
+        // momoOrderId/requestId vì chỉ có một giao dịch MoMo
+        for (Order order : orders) {
+            Payment payment = paymentRepository.findByOrder_Id(order.getId())
+                    .orElseGet(() -> Payment.builder().order(order).build());
+
+            payment.setAmount(order.getTotalAmount());
+            payment.setMethod("MOMO");
+            payment.setMomoOrderId(momoOrderId);
+            payment.setMomoRequestId(requestId);
+            payment.setStatus(PaymentStatus.PENDING);
+            payment.setMomoTransactionId(null);
+            payment.setPaidAt(null);
+            paymentRepository.save(payment);
         }
-        payment.setMomoOrderId(momoOrderId);
-        payment.setMomoRequestId(requestId);
-        payment.setStatus(PaymentStatus.PENDING);
-        payment.setMomoTransactionId(null);
-        payment.setPaidAt(null);
-        paymentRepository.save(payment);
 
         return response;
     }
@@ -163,18 +178,18 @@ public class MomoServiceImpl implements MomoService {
             throw new BadRequestException("Chữ ký IPN không hợp lệ");
         }
 
-        Payment payment = paymentRepository.findByMomoOrderId(ipnRequest.getOrderId()).orElse(null);
-        if (payment == null) {
+        List<Payment> payments = paymentRepository.findAllByMomoOrderId(ipnRequest.getOrderId());
+        if (payments.isEmpty()) {
             log.warn(">>>> IPN cho momoOrderId={} khong khop giao dich nao, bo qua", ipnRequest.getOrderId());
             return;
         }
 
-        if (payment.getStatus() != PaymentStatus.PENDING) {
+        if (payments.stream().noneMatch(p -> p.getStatus() == PaymentStatus.PENDING)) {
             log.info(">>>> IPN cho momoOrderId={} da duoc xu ly truoc do, bo qua", ipnRequest.getOrderId());
             return;
         }
 
-        applyResult(payment, ipnRequest.getResultCode(), ipnRequest.getTransId());
+        applyResult(payments, ipnRequest.getResultCode(), ipnRequest.getTransId());
     }
 
     @Override
@@ -191,12 +206,14 @@ public class MomoServiceImpl implements MomoService {
         Payment payment = paymentRepository.findByOrder_Id(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Chưa có giao dịch MoMo nào cho đơn hàng này"));
 
+        // Đơn này có thể nằm trong một giao dịch MoMo trả gộp nhiều đơn - hỏi MoMo một lần rồi
+        // áp kết quả cho cả lô, không để các đơn anh em kẹt PENDING
         if (payment.getStatus() == PaymentStatus.PENDING) {
-            syncWithMomo(payment);
+            syncWithMomo(paymentRepository.findAllByMomoOrderId(payment.getMomoOrderId()));
         }
 
         return PaymentStatusResponse.builder()
-                .orderId(orderId)
+                .orderIds(List.of(orderId))
                 .status(payment.getStatus())
                 .amount(payment.getAmount())
                 .momoTransactionId(payment.getMomoTransactionId())
@@ -227,25 +244,31 @@ public class MomoServiceImpl implements MomoService {
             throw new BadRequestException("Chữ ký không hợp lệ");
         }
 
-        Payment payment = paymentRepository.findByMomoOrderId(returnParams.getOrderId())
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy giao dịch tương ứng"));
+        List<Payment> payments = paymentRepository.findAllByMomoOrderId(returnParams.getOrderId());
+        if (payments.isEmpty()) {
+            throw new IllegalArgumentException("Không tìm thấy giao dịch tương ứng");
+        }
 
         // Trạng thái hiển thị luôn lấy từ DB (do IPN cập nhật), không tin resultCode trên URL redirect
         // vì đây là tham số đi qua browser, có thể bị sửa. Nếu IPN chưa kịp tới thì hỏi lại MoMo 1 lần.
-        if (payment.getStatus() == PaymentStatus.PENDING) {
-            syncWithMomo(payment);
+        if (payments.stream().anyMatch(p -> p.getStatus() == PaymentStatus.PENDING)) {
+            syncWithMomo(payments);
         }
 
+        Payment first = payments.get(0);
         return PaymentStatusResponse.builder()
-                .orderId(payment.getOrder().getId())
-                .status(payment.getStatus())
-                .amount(payment.getAmount())
-                .momoTransactionId(payment.getMomoTransactionId())
-                .paidAt(payment.getPaidAt())
+                .orderIds(payments.stream().map(p -> p.getOrder().getId()).toList())
+                .status(first.getStatus())
+                .amount(payments.stream()
+                        .map(Payment::getAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add))
+                .momoTransactionId(first.getMomoTransactionId())
+                .paidAt(first.getPaidAt())
                 .build();
     }
 
-    private void syncWithMomo(Payment payment) {
+    private void syncWithMomo(List<Payment> payments) {
+        Payment payment = payments.get(0);
 
         String rawSignature = String.format(
                 "accessKey=%s&orderId=%s&partnerCode=%s&requestId=%s",
@@ -305,23 +328,29 @@ public class MomoServiceImpl implements MomoService {
             return;
         }
 
-        applyResult(payment, response.getResultCode(), response.getTransId());
+        applyResult(payments, response.getResultCode(), response.getTransId());
     }
 
-    private void applyResult(Payment payment, int resultCode, long transId) {
-        if (resultCode == 0) {
+    private void applyResult(List<Payment> payments, int resultCode, long transId) {
+        for (Payment payment : payments) {
+            if (resultCode != 0) {
+                payment.setStatus(PaymentStatus.FAILED);
+                paymentRepository.save(payment);
+                continue;
+            }
+
             payment.setStatus(PaymentStatus.SUCCESS);
             payment.setMomoTransactionId(String.valueOf(transId));
             payment.setPaidAt(Instant.now());
+            paymentRepository.save(payment);
 
-            Order order = payment.getOrder();
-            order.setStatus(OrderStatus.PAID);
-            orderRepository.save(order);
-        } else {
-            payment.setStatus(PaymentStatus.FAILED);
+            // Không tự set PAID ở đây: đơn có thể đã bị hủy trước khi IPN về, khi đó hàng đã nhả
+            // lại lên sàn nên tiền phải vào ví người mua chứ không được chốt lại đơn
+            orderService.applyGatewayPaymentSuccess(
+                    payment.getOrder().getId(),
+                    OrderPaymentMethod.MOMO,
+                    "Hoàn tiền MoMo về sau khi đơn " + payment.getOrder().getOrderNo() + " không còn chờ thanh toán");
         }
-
-        paymentRepository.save(payment);
     }
 
     private String buildResultSignature(long amount, String extraData, String message, String orderId,

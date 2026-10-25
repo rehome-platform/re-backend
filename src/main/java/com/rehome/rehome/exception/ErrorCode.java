@@ -131,7 +131,26 @@ public enum ErrorCode {
     // API 40 - danh sách hàng trong kho
     ACCESS_TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "Access token đã hết hạn."),
     ACCESS_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "Access token không hợp lệ."),
-    MODERATOR_NO_WAREHOUSE(HttpStatus.FORBIDDEN, "Tài khoản chưa được gán kho.");
+    MODERATOR_NO_WAREHOUSE(HttpStatus.FORBIDDEN, "Tài khoản chưa được gán kho."),
+    // API 26, 72 - xác nhận danh tính & bàn giao tại quầy (F-129)
+    COUNTER_CONTEXT_INVALID(HttpStatus.BAD_REQUEST, "context không hợp lệ."),
+    COUNTER_RECORD_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy yêu cầu tương ứng."),
+    COUNTER_IDENTITY_NOT_CONFIRMED(HttpStatus.CONFLICT, "Phải xác nhận danh tính Member trước khi bàn giao."),
+
+    // F-023 - tải lại PDF biên nhận
+    CONSIGNMENT_RECEIPT_PDF_NOT_READY(HttpStatus.CONFLICT, "Biên nhận chưa được xác nhận nên chưa có PDF."),
+    CONSIGNMENT_RECEIPT_PDF_MISSING(HttpStatus.INTERNAL_SERVER_ERROR, "Không tìm thấy file PDF của biên nhận đã xác nhận."),
+
+    // Upload file (ảnh sản phẩm/form ký gửi/avatar..., PDF giấy tờ tổ chức)
+    FILE_EMPTY(HttpStatus.BAD_REQUEST, "File rỗng."),
+    FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "File vượt quá kích thước cho phép."),
+    FILE_TYPE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "Định dạng file không được hỗ trợ."),
+    FILE_CONTENT_MISMATCH(HttpStatus.BAD_REQUEST, "Nội dung file không khớp với định dạng khai báo."),
+    INVALID_UPLOAD_FOLDER(HttpStatus.BAD_REQUEST, "folder không hợp lệ."),
+    TOO_MANY_FILES(HttpStatus.BAD_REQUEST, "Vượt quá số file cho phép trong một lần upload."),
+    FILE_UPLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể lưu file. Vui lòng thử lại."),
+    FILE_DELETE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể xóa file.");
+
     private final HttpStatus status;
     private final String defaultMessage;
 }

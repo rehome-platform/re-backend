@@ -41,16 +41,19 @@ public class Payment {
     @Column(name = "momo_transaction_id", nullable = true, length = 255)
     private String momoTransactionId;
 
-    // orderId gửi cho MoMo lúc tạo giao dịch (khác order_id nội bộ, dùng để map IPN về đúng Payment)
-    @Column(name = "momo_order_id", nullable = true, length = 255, unique = true)
+    // orderId gửi cho MoMo lúc tạo giao dịch (khác order_id nội bộ, dùng để map IPN về đúng Payment).
+    // Không unique: một giao dịch MoMo có thể trả cho nhiều đơn cùng lúc (giỏ nhiều kho),
+    // khi đó mỗi đơn vẫn có một dòng payments riêng nhưng chung momo_order_id.
+    @Column(name = "momo_order_id", nullable = true, length = 255)
     private String momoOrderId;
 
     // requestId gửi cho MoMo lúc tạo giao dịch
     @Column(name = "momo_request_id", nullable = true, length = 255)
     private String momoRequestId;
 
-    // vnp_TxnRef gửi cho VNPay lúc tạo giao dịch (vai trò giống momoOrderId), dùng map IPN/return về đúng Payment
-    @Column(name = "vnp_txn_ref", nullable = true, length = 255, unique = true)
+    // vnp_TxnRef gửi cho VNPay lúc tạo giao dịch (vai trò giống momoOrderId), dùng map IPN/return về đúng Payment.
+    // Không unique, vì lý do giống momo_order_id.
+    @Column(name = "vnp_txn_ref", nullable = true, length = 255)
     private String vnpTxnRef;
 
     // Mã giao dịch VNPay (vnp_TransactionNo) trả về khi thanh toán xong

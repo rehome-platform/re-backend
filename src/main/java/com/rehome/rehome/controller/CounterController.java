@@ -1,33 +1,44 @@
 package com.rehome.rehome.controller;
 
-import com.rehome.rehome.dto.request.CounterLookupRequest;
+import com.rehome.rehome.dto.request.CounterHandoverRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
-import com.rehome.rehome.dto.response.MemberLookupItemResponse;
-import com.rehome.rehome.dto.response.MemberTasksResponse;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.CounterService;
-import java.util.List;
-import java.util.UUID;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/counter")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('MODERATOR')")
 public class CounterController {
 
     private final CounterService counterService;
 
-    // API 25
-    @PostMapping("/lookup")
-    public ApiResponse<List<MemberLookupItemResponse>> lookup(@RequestBody CounterLookupRequest request) {
-        return ApiResponse.success(counterService.lookup(request));
+    // API 26
+    @PostMapping("/members/{accountId}/confirm-identity")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<Void>> confirmIdentity(
+            @AuthenticationPrincipal Account moderator,
+            @PathVariable UUID accountId) {
+
+        counterService.confirmIdentity(moderator, accountId);
+        return ResponseEntity.ok(ApiResponse.success(null, 200, "Đã xác nhận danh tính"));
     }
 
-    // API 27
-    @GetMapping("/members/{accountId}/tasks")
-    public ApiResponse<MemberTasksResponse> tasks(@PathVariable UUID accountId) {
-        return ApiResponse.success(counterService.getTasks(accountId));
+    // API 72
+    @PostMapping("/handover")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<Void>> handover(
+            @AuthenticationPrincipal Account moderator,
+            @Valid @RequestBody CounterHandoverRequest request) {
+
+        counterService.handover(moderator, request);
+        return ResponseEntity.ok(ApiResponse.success(null, 200, "Đã bàn giao"));
     }
 }

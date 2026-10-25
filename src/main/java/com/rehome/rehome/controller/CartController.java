@@ -4,6 +4,7 @@ import com.rehome.rehome.dto.request.AddCartItemRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.CartItemResponse;
 import com.rehome.rehome.dto.response.CartResponse;
+import com.rehome.rehome.dto.response.CheckoutPreviewResponse;
 import com.rehome.rehome.service.CartService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
@@ -62,5 +64,18 @@ public class CartController {
         ApiResponse<Void> response = ApiResponse.success(null, "Đã xóa khỏi giỏ");
 
         return ResponseEntity.ok(response);
+    }
+
+    // API 58 (F-054)
+    @GetMapping("/checkout-preview")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<CheckoutPreviewResponse>> checkoutPreview(
+            Authentication authentication,
+            @RequestParam String shippingAddressId) {
+
+        String email = authentication.getName();
+        CheckoutPreviewResponse result = cartService.checkoutPreview(email, shippingAddressId);
+
+        return ResponseEntity.ok(ApiResponse.success(result));
     }
 }

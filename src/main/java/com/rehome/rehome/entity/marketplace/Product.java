@@ -2,6 +2,7 @@ package com.rehome.rehome.entity.marketplace;
 
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.util.VietnameseText;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -52,6 +53,11 @@ public class Product implements Persistable<String> {
     // Tên sản phẩm hiển thị trên sàn
     @Column(name = "name", nullable = false, length = 255)
     private String name;
+
+    // Bản không dấu + viết thường của name, chỉ để GET /products tìm được khi gõ không dấu.
+    // Luôn được dẫn xuất lại từ name trong @PrePersist/@PreUpdate nên không set tay ở service.
+    @Column(name = "name_normalized", nullable = true, length = 255)
+    private String nameNormalized;
 
     // Kích cỡ, ví dụ M
     @Column(name = "size", nullable = true, length = 255)
@@ -110,11 +116,13 @@ public class Product implements Persistable<String> {
         Instant now = Instant.now();
         if (createdAt == null) createdAt = now;
         if (updatedAt == null) updatedAt = now;
+        nameNormalized = VietnameseText.normalize(name);
     }
 
     @PreUpdate
     private void onUpdate() {
         updatedAt = Instant.now();
+        nameNormalized = VietnameseText.normalize(name);
     }
 
     @Transient

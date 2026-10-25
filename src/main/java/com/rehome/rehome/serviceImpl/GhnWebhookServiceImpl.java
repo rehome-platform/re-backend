@@ -70,6 +70,7 @@ public class GhnWebhookServiceImpl implements GhnWebhookService {
                 .order(order)
                 .ghnStatus(payload.getStatus())
                 .description(StringUtils.hasText(payload.getReason()) ? payload.getReason() : payload.getDescription())
+                .location(payload.getWarehouse())
                 .occurredAt(occurredAt)
                 .build());
 

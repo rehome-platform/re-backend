@@ -4,22 +4,17 @@ import com.lowagie.text.pdf.PdfReader;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
-import com.rehome.rehome.service.FileStorageService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
-import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -29,7 +24,6 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class SkuLabelPdfServiceImplTest {
 
-    @Mock private FileStorageService fileStorageService;
     @InjectMocks private SkuLabelPdfServiceImpl service;
 
     private Product product(String id, String name, String size) {
@@ -107,19 +101,10 @@ class SkuLabelPdfServiceImplTest {
     // ---------------------------------------------------------------- generate
 
     @Test
-    @DisplayName("generate: lưu PDF vào labels/{id}.pdf và trả về URL từ storage")
-    void generate_storesPdfAndReturnsUrl() {
+    @DisplayName("generate: trả thẳng byte PDF, không lưu file ở đâu")
+    void generate_returnsPdfBytes() throws Exception {
         Product p = product("SKU-0005", "Áo thun basic", "S");
-        when(fileStorageService.store(eq("labels/SKU-0005.pdf"), org.mockito.ArgumentMatchers.any(byte[].class),
-                eq("application/pdf")))
-                .thenReturn("https://cdn.example.com/labels/SKU-0005.pdf");
 
-        String url = service.generate(p);
-
-        assertThat(url).isEqualTo("https://cdn.example.com/labels/SKU-0005.pdf");
-
-        ArgumentCaptor<byte[]> bytes = ArgumentCaptor.forClass(byte[].class);
-        verify(fileStorageService).store(eq("labels/SKU-0005.pdf"), bytes.capture(), eq("application/pdf"));
-        assertThat(new String(bytes.getValue(), 0, 5, StandardCharsets.US_ASCII)).isEqualTo("%PDF-");
+        assertValidLabelPdf(service.generate(p));
     }
 }

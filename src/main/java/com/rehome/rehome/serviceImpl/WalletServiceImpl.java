@@ -5,6 +5,7 @@ import com.rehome.rehome.dto.response.OrderRevenueResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.PayoutRequestResponse;
 import com.rehome.rehome.dto.response.WalletBalanceResponse;
+import com.rehome.rehome.dto.response.WalletConfigResponse;
 import com.rehome.rehome.dto.response.WalletTransactionResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.TransactionStatus;
@@ -156,6 +157,32 @@ public class WalletServiceImpl implements WalletService {
     }
 
     @Override
+    public WalletConfigResponse getWalletConfig(String email) {
+
+        Account member = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        // Chưa có ví thì chưa từng rút lần nào
+        long usedToday = walletRepository.findByMember_Id(member.getId())
+                .map(wallet -> countPayoutsToday(wallet.getId()))
+                .orElse(0L);
+
+        return WalletConfigResponse.builder()
+                .minPayout(getConfigAmount(CONFIG_MIN_PAYOUT_AMOUNT, DEFAULT_MIN_PAYOUT_AMOUNT))
+                .maxPayoutsPerDay(getConfigInt(CONFIG_MAX_PAYOUT_PER_DAY, DEFAULT_MAX_PAYOUT_PER_DAY))
+                .usedToday(usedToday)
+                .build();
+    }
+
+    // Phải dùng chung với createPayoutRequest: nếu hai chỗ cắt mốc "hôm nay" khác nhau thì màn rút
+    // tiền sẽ báo còn lượt trong khi API tạo yêu cầu lại trả DAILY_PAYOUT_LIMIT_REACHED.
+    private long countPayoutsToday(UUID walletId) {
+        Instant startOfDay = LocalDate.now(ZoneOffset.UTC).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant endOfDay = startOfDay.plusSeconds(24 * 60 * 60);
+        return payoutRequestRepository.countByWallet_IdAndCreatedAtBetween(walletId, startOfDay, endOfDay);
+    }
+
+    @Override
     @Transactional
     public PayoutRequestResponse createPayoutRequest(String email, CreatePayoutRequestRequest request) {
 
@@ -183,10 +210,7 @@ public class WalletServiceImpl implements WalletService {
         }
 
         int maxPerDay = getConfigInt(CONFIG_MAX_PAYOUT_PER_DAY, DEFAULT_MAX_PAYOUT_PER_DAY);
-        Instant startOfDay = LocalDate.now(ZoneOffset.UTC).atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant endOfDay = startOfDay.plusSeconds(24 * 60 * 60);
-        long todayCount = payoutRequestRepository.countByWallet_IdAndCreatedAtBetween(
-                wallet.getId(), startOfDay, endOfDay);
+        long todayCount = countPayoutsToday(wallet.getId());
         if (todayCount >= maxPerDay) {
             throw new ConflictException(
                     "DAILY_PAYOUT_LIMIT_REACHED: đã đạt số lần rút tối đa trong ngày.", "DAILY_PAYOUT_LIMIT_REACHED");
@@ -235,6 +259,7 @@ public class WalletServiceImpl implements WalletService {
                 .type(WalletTransactionType.WITHDRAWAL)
                 .amount(amount.negate())
                 .balanceAfter(wallet.getBalance())
+                .relatedPayoutRequest(payoutRequest)
                 .status(TransactionStatus.SUCCESS)
                 .note("Rút tiền về tài khoản ngân hàng.")
                 .build();
@@ -291,6 +316,7 @@ public class WalletServiceImpl implements WalletService {
                 .balanceAfter(fund.getBalance())
                 .relatedOrder(memberTransaction.getRelatedOrder())
                 .relatedOrderItem(memberTransaction.getRelatedOrderItem())
+                .relatedPayoutRequest(memberTransaction.getRelatedPayoutRequest())
                 .counterpartTransaction(memberTransaction)
                 .status(TransactionStatus.SUCCESS)
                 .note(memberTransaction.getNote())
@@ -407,6 +433,8 @@ public class WalletServiceImpl implements WalletService {
                 .relatedOrderId(tx.getRelatedOrder() != null ? tx.getRelatedOrder().getId().toString() : null)
                 .relatedOrderNo(tx.getRelatedOrder() != null ? tx.getRelatedOrder().getOrderNo() : null)
                 .itemName(tx.getRelatedOrderItem() != null ? tx.getRelatedOrderItem().getProduct().getName() : null)
+                .payoutId(tx.getRelatedPayoutRequest() != null
+                        ? tx.getRelatedPayoutRequest().getId().toString() : null)
                 .status(tx.getStatus().name())
                 .note(tx.getNote())
                 .createdAt(tx.getCreatedAt())

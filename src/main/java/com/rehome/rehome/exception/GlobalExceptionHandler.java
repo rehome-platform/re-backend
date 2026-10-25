@@ -98,6 +98,40 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.UNAUTHORIZED, "Sai email hoặc password", req);
     }
 
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiResponse<?>> handleMaxUploadSize(
+            org.springframework.web.multipart.MaxUploadSizeExceededException ex,
+            HttpServletRequest req) {
+
+        // Spring chặn ở tầng multipart trước khi vào controller nên không qua FileUploadService
+        ErrorCode ec = ErrorCode.FILE_TOO_LARGE;
+        return ResponseEntity.status(ec.getStatus()).body(ApiResponse.error(ec));
+    }
+
+    @ExceptionHandler(org.springframework.web.multipart.support.MissingServletRequestPartException.class)
+    public ResponseEntity<ApiResponse<?>> handleMissingPart(
+            org.springframework.web.multipart.support.MissingServletRequestPartException ex,
+            HttpServletRequest req) {
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(400, "Thiếu phần '" + ex.getRequestPartName() + "' trong request."));
+    }
+
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<?>> handleTypeMismatch(
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ex,
+            HttpServletRequest req) {
+
+        // Sai giá trị enum/UUID trong query param -> lỗi của client, không phải 500
+        String message = "Giá trị của '" + ex.getName() + "' không hợp lệ.";
+        Class<?> required = ex.getRequiredType();
+        if (required != null && required.isEnum()) {
+            message += " Cho phép: " + String.join(", ",
+                    java.util.Arrays.stream(required.getEnumConstants()).map(Object::toString).toList()) + ".";
+        }
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(400, message));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException ex, HttpServletRequest req) {
         String message = ex.getBindingResult().getFieldErrors().stream()

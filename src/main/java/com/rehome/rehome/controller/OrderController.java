@@ -2,6 +2,7 @@ package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.CreateOrderRequest;
 import com.rehome.rehome.dto.request.PackScanRequest;
+import com.rehome.rehome.dto.request.PayOrdersRequest;
 import com.rehome.rehome.dto.request.RateOrderRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.CreateShipmentResponse;
@@ -13,6 +14,8 @@ import com.rehome.rehome.dto.response.OrderRatingResponse;
 import com.rehome.rehome.dto.response.OrderResponse;
 import com.rehome.rehome.dto.response.OrderTrackingResponse;
 import com.rehome.rehome.dto.response.PackScanResponse;
+import com.rehome.rehome.dto.response.PayOrdersResponse;
+import com.rehome.rehome.dto.response.SoldOrderListResponse;
 import com.rehome.rehome.service.OrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -69,6 +72,22 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
+    // Đơn đã bán: đơn có chứa hàng do chính người gọi ký gửi.
+    // Phải đứng TRƯỚC @GetMapping("/{id}") để "sold" không bị khớp vào {id}.
+    @GetMapping("/sold")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<SoldOrderListResponse>> getSoldOrders(
+            Authentication authentication,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        String email = authentication.getName();
+        SoldOrderListResponse result = orderService.getSoldOrders(email, status, page, size);
+
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<OrderDetailResponse>> getOrderDetail(
@@ -90,7 +109,23 @@ public class OrderController {
         String email = authentication.getName();
         OrderCancelResponse result = orderService.cancelOrder(email, id);
 
-        return ResponseEntity.ok(ApiResponse.success(result, "Đã hủy đơn, hoàn tiền vào ví"));
+        String message = result.getRefundAmount() != null
+                ? "Đã hủy đơn, hoàn tiền vào ví"
+                : "Đã hủy đơn";
+
+        return ResponseEntity.ok(ApiResponse.success(result, message));
+    }
+
+    @PostMapping("/pay")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<PayOrdersResponse>> payOrders(
+            Authentication authentication,
+            @RequestBody PayOrdersRequest request) {
+
+        String email = authentication.getName();
+        PayOrdersResponse result = orderService.payOrders(email, request);
+
+        return ResponseEntity.ok(ApiResponse.success(result, "Thanh toán bằng ví thành công"));
     }
 
     @PostMapping("/{id}/confirm-receipt")

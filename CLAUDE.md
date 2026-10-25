@@ -31,7 +31,7 @@ Swagger UI: `http://localhost:8080/swagger-ui.html`.
 
 ## Environment variables
 
-`application.yml` drives everything through `${VAR:default}` placeholders — check it before assuming a value. Key ones: `DB_HOST/DB_PORT/DB_NAME/DB_USERNAME/DB_PASSWORD` (defaults point at local Docker Postgres), `BREVO_API_KEY` (transactional email), `JWT_SECRET`, `GOOGLE_CLIENT_ID` (Google login), `MAIL_FROM`. In IntelliJ these are set per-run-config in `.idea/workspace.xml` (machine-local, not committed) — don't assume the committed defaults are what actually runs if that file overrides them (e.g. it was previously pointed at a Supabase instance instead of local Docker).
+`application.yml` drives everything through `${VAR:default}` placeholders — check it before assuming a value. Key ones: `DB_HOST/DB_PORT/DB_NAME/DB_USERNAME/DB_PASSWORD` (defaults point at local Docker Postgres), `BREVO_API_KEY` (transactional email), `JWT_SECRET`, `GOOGLE_CLIENT_ID` (Google login), `MAIL_FROM`, `STORAGE_PROVIDER` + `CLOUDINARY_CLOUD_NAME/CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET` (file storage, see below). In IntelliJ these are set per-run-config in `.idea/workspace.xml` (machine-local, not committed) — don't assume the committed defaults are what actually runs if that file overrides them (e.g. it was previously pointed at a Supabase instance instead of local Docker).
 
 CI (`.github/workflows/ci.yml`) spins up its own Postgres service container and runs `./mvnw -B clean verify`; on push to `main` it also triggers a Render deploy hook.
 
@@ -51,6 +51,40 @@ Controller → Service (interface) → ServiceImpl → Repository (Spring Data J
 - `UserInitializer` (a `CommandLineRunner`) seeds one `ADMIN` and three `MODERATOR` accounts on startup if they don't already exist — relevant when writing tests/migrations that touch `accounts`.
 - Google login goes through `GoogleTokenVerifier`.
 - OTP-based email verification / password reset flow (register → verify-otp → login, forgot-password → resend-otp → verify-otp → reset-password) is documented in detail in `OTP.md` — read it before touching anything under `auth/`, `EmailOtp`, or the Brevo email integration. Key facts: OTPs and reset tokens are hashed before storage, never returned by any API, 6 digits, 5-minute TTL, 60s resend cooldown, 5 wrong-attempt limit.
+
+### File storage
+Storage is split by what the file *is* — don't move a file between these tiers without re-reading why it's there.
+
+**Images → external storage.** `FileStorageService.store(path, bytes, contentType) → public URL` / `delete(path, contentType)` is the port; pick the impl with `app.storage.provider`:
+- `local` (default) — `LocalFileStorageServiceImpl` writes to `app.storage.local-dir`, served at `/files/**` by `LocalStorageWebConfig` (GET is `permitAll` in `SecurityConfig`). **Dev only**: the Render deploy uses the `Dockerfile` with no volume, so the container filesystem is wiped on every redeploy.
+- `cloudinary` — `CloudinaryFileStorageServiceImpl`; images go up as `resource_type=image` (extension stripped from `public_id`, Cloudinary re-adds it), PDFs as `raw` (extension kept). Needs the three `cloudinary.*` env vars. `StorageProviderWiringTest` locks the `@ConditionalOnProperty` wiring (two impls of one interface — a wrong condition means a duplicate-bean startup failure).
+
+Client uploads go through `FileUploadController` (`POST /uploads`, `POST /uploads/batch`) → `FileUploadServiceImpl`, which owns all validation: size (`app.storage.max-file-size-bytes`), MIME whitelist (jpeg/png/webp, plus PDF only for folders where `UploadFolder.pdfAllowed`), **magic-byte check against the declared content type** (the `Content-Type` header is client-controlled), and a UUID filename so the client never picks the storage path. `UploadFolder` is the whitelist of destinations — add a constant there rather than accepting a free-form path.
+
+Path split: `/uploads` is the API (auth required), `/files/**` is local static serving. Don't merge them.
+
+**Receipt PDF (F-022) → Postgres, not external storage.** The consignment receipt is the contract between the platform and the consignor and has no handwritten signature (`docs/OVERVIEW.md` line 748), so the file itself is the evidence. It lives in `consignment_receipt_pdfs` (`ConsignmentReceiptPdf`, PK shared with the receipt via `@MapsId`, plus `sha256`/`byte_size`). Reasons it is *not* on Cloudinary, in order:
+1. `ReceiptPdfServiceImpl.generate()` is called inside `confirmReceipt`'s transaction. It is pure CPU with no network call, so `confirmedAt` and the PDF commit or roll back together — an external upload there would leave orphan files on rollback, or a confirmed receipt with no evidence on upload failure.
+2. A Cloudinary `raw/upload` URL is public and `receiptNo` is sequential, so one leaked link exposes other members' contracts.
+3. Re-rendering on demand is not an option either: F-022 is explicitly a *snapshot*, so a later template change must not alter an existing contract.
+
+Download is `GET /consignment-receipts/{id}/pdf` (F-023) → `ConsignmentReceiptServiceImpl.getReceiptPdf`, which authorizes per request (owner Member, or MODERATOR/ADMIN) and returns binary. There is no URL field any more: `ConsignmentReceiptResponse`/`ConsignmentReceiptConfirmResponse` expose `pdfAvailable` instead of the old `pdfUrl`.
+
+`ConsignmentReceiptPdf.content` needs its explicit `length` — plain `byte[]` defaults to `varbinary(255)` and a ~40KB PDF will not insert; `@Lob` would instead give Postgres `oid` (large object), which plain `byte[]` access cannot read. `PostgresSchemaContractTest` generates the DDL with `PostgreSQLDialect` and asserts the column is `bytea`, because the normal test suite runs on H2 and would never catch either mistake.
+
+**SKU label PDF → not stored at all.** `SkuLabelPdfServiceImpl.generate()` returns bytes; `GET /products/{id}/sku-label` streams them. It is a print-and-stick label, fully derivable from `Product`, not a document anyone has to keep.
+
+A leftover `pdf_url` column stays on `consignment_receipts` after deploy (`ddl-auto: update` never drops columns); `scripts/drop-consignment-receipt-pdf-url.sql` has the checks and the drop, to run by hand.
+
+### Order payment
+Three payment routes share one validation path. `OrderService.loadPayableOrders(email, orderIds)` is the single place that checks ownership (`ForbiddenException` → 403) and status (`ORDER_ALREADY_PAID` / `ORDER_NOT_PENDING` → 409); wallet, MoMo and VNPay all call it, so don't re-implement those checks per gateway.
+
+- **Wallet** — `POST /orders/pay` `{orderIds, method: "WALLET"}` → `OrderServiceImpl.payOrders`. Debits inside a `findByMemberIdForUpdate` row lock (two concurrent pays must not both see enough balance), spends only `balance − lockedBalance`, writes one `ORDER_PAYMENT` ledger pair per order, and sets each order `PAID` in the same transaction. Wallet payment writes **no `payments` row** — that table is gateway-only.
+- **MoMo / VNPay** — `POST /api/momo/create` and `/api/vnpay/create` take `{orderIds[], redirectUrl}` and open **one** gateway transaction for the whole lot (a cart spanning two warehouses becomes two orders but one QR). Each order keeps its own `payments` row for reconciliation, all sharing one `momo_order_id` / `vnp_txn_ref` — which is why those columns are **not unique**. `ddl-auto: update` cannot drop the unique index Hibernate already created, so `scripts/drop-payment-gateway-ref-unique.sql` must be run by hand on Postgres after deploy, or the second row of a batch fails on duplicate key.
+
+A gateway reporting success never sets `PAID` itself — it calls `OrderService.applyGatewayPaymentSuccess(orderId, method, note)`, which marks the order paid only while it is still `PENDING_PAYMENT`. If the order has moved on (auto-cancelled past its payment deadline, cancelled by the buyer, or already paid by another method), the money is real but the goods are back on sale, so it is refunded to the buyer's wallet instead; `refundAmount != null` guards against refunding twice.
+
+`POST /orders/{id}/cancel` cancels both `PENDING_PAYMENT` and `PAID` orders. Only the `PAID` branch refunds — cancelling an unpaid order must not credit a wallet with money never collected.
 
 ### Response/error conventions
 There are **two parallel response shapes** in this codebase — check which one a feature already uses before adding to it:

@@ -1,6 +1,8 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.dto.request.CreateOrderRequest;
+import com.rehome.rehome.dto.request.PayOrdersRequest;
 import com.rehome.rehome.dto.request.RateOrderRequest;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
 import com.rehome.rehome.dto.response.OrderConfirmReceiptResponse;
@@ -9,8 +11,13 @@ import com.rehome.rehome.dto.response.OrderListResponse;
 import com.rehome.rehome.dto.response.OrderRatingResponse;
 import com.rehome.rehome.dto.response.OrderResponse;
 import com.rehome.rehome.dto.response.OrderSummaryResponse;
+import com.rehome.rehome.dto.response.OrderTrackingResponse;
+import com.rehome.rehome.dto.response.PayOrdersResponse;
+import com.rehome.rehome.dto.response.SoldOrderListResponse;
+import com.rehome.rehome.dto.response.SoldOrderResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.CancelReason;
+import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
@@ -21,10 +28,12 @@ import com.rehome.rehome.entity.marketplace.CartItem;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
+import com.rehome.rehome.entity.marketplace.OrderTrackingEvent;
 import com.rehome.rehome.entity.marketplace.Payment;
 import com.rehome.rehome.entity.marketplace.PlatformFund;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
+import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.entity.marketplace.ShippingAddress;
 import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.entity.marketplace.WalletTransaction;
@@ -37,6 +46,7 @@ import com.rehome.rehome.repository.CartItemRepository;
 import com.rehome.rehome.repository.CartRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
+import com.rehome.rehome.repository.OrderTrackingEventRepository;
 import com.rehome.rehome.repository.PaymentRepository;
 import com.rehome.rehome.repository.PlatformFundRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
@@ -48,6 +58,8 @@ import com.rehome.rehome.repository.WalletTransactionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -61,6 +73,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.Year;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -85,17 +98,20 @@ class OrderServiceImplTest {
     @Mock ProductRepository productRepository;
     @Mock OrderRepository orderRepository;
     @Mock OrderItemRepository orderItemRepository;
+    @Mock OrderTrackingEventRepository orderTrackingEventRepository;
     @Mock ReturnRequestRepository returnRequestRepository;
     @Mock ProductPhotoRepository productPhotoRepository;
     @Mock PaymentRepository paymentRepository;
     @Mock WalletRepository walletRepository;
     @Mock WalletTransactionRepository walletTransactionRepository;
     @Mock PlatformFundRepository platformFundRepository;
+    @Mock GhnShippingFeeCalculator ghnShippingFeeCalculator;
 
     @InjectMocks
     OrderServiceImpl orderService;
 
     Account member;
+    Account seller;
     String email;
     ShippingAddress address;
     Warehouse warehouse1;
@@ -106,9 +122,9 @@ class OrderServiceImplTest {
 
     @BeforeEach
     void setup() {
-        ReflectionTestUtils.setField(orderService, "shippingFee", new BigDecimal("25000"));
         ReflectionTestUtils.setField(orderService, "paymentDeadlineMinutes", 15L);
         ReflectionTestUtils.setField(orderService, "taxRate", BigDecimal.ZERO);
+        ReflectionTestUtils.setField(orderService, "returnRequestWindowDays", 3L);
 
         email = "member@example.com";
         member = Account.builder().id(UUID.randomUUID()).email(email).build();
@@ -128,6 +144,9 @@ class OrderServiceImplTest {
                 .commissionRateTerm3(new BigDecimal("0.20"))
                 .build();
 
+        // Product.member_id là NOT NULL, và createOrders phải so người ký gửi với người mua
+        seller = Account.builder().id(UUID.randomUUID()).email("seller@example.com").build();
+
         product1 = Product.builder()
                 .id("Q7-AK-000845")
                 .status(ProductStatus.ON_SALE)
@@ -135,6 +154,7 @@ class OrderServiceImplTest {
                 .currentTerm((short) 1)
                 .warehouse(warehouse1)
                 .consignmentReceipt(receipt)
+                .member(seller)
                 .build();
 
         product2 = Product.builder()
@@ -144,6 +164,7 @@ class OrderServiceImplTest {
                 .currentTerm((short) 1)
                 .warehouse(warehouse2)
                 .consignmentReceipt(receipt)
+                .member(seller)
                 .build();
     }
 
@@ -265,6 +286,24 @@ class OrderServiceImplTest {
         verify(orderRepository, never()).save(any());
     }
 
+    // Buy-now không đi qua giỏ nên phải chặn lại ở createOrders, không chỉ ở addItem
+    @Test
+    void createOrders_throwsConflict_whenBuyNowProductIsOwnedByBuyer() {
+        product1.setMember(member);
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"));
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
+        when(productRepository.findByIdForUpdate("Q7-AK-000845")).thenReturn(Optional.of(product1));
+
+        assertThatThrownBy(() -> orderService.createOrders(email, request))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Bạn không thể mua món do chính mình ký gửi.");
+
+        verify(orderRepository, never()).save(any());
+        verify(productRepository, never()).save(any());
+    }
+
     @Test
     void createOrders_createsSingleOrder_forBuyNowFlow_andReservesProduct() {
         CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"));
@@ -272,6 +311,7 @@ class OrderServiceImplTest {
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
         when(productRepository.findByIdForUpdate("Q7-AK-000845")).thenReturn(Optional.of(product1));
+        when(ghnShippingFeeCalculator.calculate(any(), any(), any())).thenReturn(new BigDecimal("25000"));
         stubOrderSaveAssignsId();
 
         List<OrderResponse> responses = orderService.createOrders(email, request);
@@ -314,6 +354,7 @@ class OrderServiceImplTest {
         when(productRepository.findByIdForUpdate("Q7-AK-000845")).thenReturn(Optional.of(product1));
         when(cartRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(cart));
         when(cartItemRepository.findAllByCartIdWithProduct(cart.getId())).thenReturn(List.of(item1, item2));
+        when(ghnShippingFeeCalculator.calculate(any(), any(), any())).thenReturn(new BigDecimal("25000"));
         stubOrderSaveAssignsId();
 
         orderService.createOrders(email, request);
@@ -334,6 +375,7 @@ class OrderServiceImplTest {
         when(productRepository.findByIdForUpdate("Q7-AK-000845")).thenReturn(Optional.of(product1));
         when(cartRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(cart));
         when(cartItemRepository.findAllByCartIdWithProduct(cart.getId())).thenReturn(List.of(item2));
+        when(ghnShippingFeeCalculator.calculate(any(), any(), any())).thenReturn(new BigDecimal("25000"));
         stubOrderSaveAssignsId();
 
         orderService.createOrders(email, request);
@@ -349,6 +391,7 @@ class OrderServiceImplTest {
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
         when(productRepository.findByIdForUpdate("Q7-AK-000845")).thenReturn(Optional.of(product1));
+        when(ghnShippingFeeCalculator.calculate(any(), any(), any())).thenReturn(new BigDecimal("25000"));
         stubOrderSaveAssignsId();
 
         orderService.createOrders(email, request);
@@ -372,6 +415,7 @@ class OrderServiceImplTest {
         when(cartItemRepository.findAllByCartIdWithProduct(cart.getId())).thenReturn(List.of(item1, item2));
         when(productRepository.findByIdForUpdate("Q7-AK-000845")).thenReturn(Optional.of(product1));
         when(productRepository.findByIdForUpdate("Q7-AK-000912")).thenReturn(Optional.of(product2));
+        when(ghnShippingFeeCalculator.calculate(any(), any(), any())).thenReturn(new BigDecimal("25000"));
         stubOrderSaveAssignsId();
 
         List<OrderResponse> responses = orderService.createOrders(email, request);
@@ -779,21 +823,33 @@ class OrderServiceImplTest {
         verify(walletRepository, never()).save(any());
     }
 
+    // P3.7: nút "Huỷ đơn" ở màn chờ thanh toán — đơn chưa trả tiền vẫn phải hủy được
     @Test
-    void cancelOrder_throwsConflictWithCode_whenOrderNotPaidYet() {
+    void cancelOrder_cancelsWithoutRefund_whenOrderStillPendingPayment() {
         UUID orderId = UUID.randomUUID();
-        Order order = Order.builder().id(orderId).buyer(member).status(OrderStatus.PENDING_PAYMENT).build();
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000001")
+                .buyer(member)
+                .totalAmount(new BigDecimal("150000"))
+                .status(OrderStatus.PENDING_PAYMENT)
+                .build();
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> orderService.cancelOrder(email, orderId))
-                .isInstanceOf(ConflictException.class)
-                .hasMessage("Đơn chưa thanh toán, không thể hủy theo cách này.")
-                .satisfies(ex -> assertThat(((ConflictException) ex).getCode())
-                        .isEqualTo("ORDER_NOT_PAID_YET"));
+        OrderCancelResponse response = orderService.cancelOrder(email, orderId);
 
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.CANCELLED.name());
+        assertThat(order.getCancelReason()).isEqualTo(CancelReason.BUYER_CANCELLED);
+        assertThat(order.getCancelledAt()).isNotNull();
+
+        // Chưa thu tiền thì không được hoàn: cộng khống vào ví là tạo tiền từ không khí
+        assertThat(response.getRefundAmount()).isNull();
+        assertThat(order.getRefundAmount()).isNull();
         verify(walletRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
     }
 
     @Test
@@ -1257,5 +1313,770 @@ class OrderServiceImplTest {
         assertThat(response.getServiceRating()).isEqualTo((short) 5);
         assertThat(response.getComment()).isEqualTo("Sửa lại, giao ổn");
         assertThat(order.getRatedAt()).isNotEqualTo(firstRatedAt);
+    }
+
+    // ---------------------------------------------------------------- F-062: tự hủy đơn khi GHN lỗi
+
+    private Order carrierFailureOrder(UUID orderId, OrderStatus status) {
+        return Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000777")
+                .buyer(member)
+                .status(status)
+                .totalAmount(new BigDecimal("245000"))
+                .build();
+    }
+
+    @Test
+    void cancelOrderForCarrierFailure_doesNothing_whenOrderNoLongerExists() {
+        UUID orderId = UUID.randomUUID();
+        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
+
+        orderService.cancelOrderForCarrierFailure(orderId, "lost");
+
+        verify(orderItemRepository, never()).findAllByOrder_Id(any());
+        verify(orderRepository, never()).save(any());
+        verify(walletRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
+    }
+
+    // Webhook GHN có thể bắn trùng hoặc đến muộn: chỉ đơn đang PACKING/SHIPPING mới được hủy + hoàn tiền,
+    // nếu không đơn đã giao/đã hoàn tất/đã hủy sẽ bị hoàn tiền lần hai.
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = {"PACKING", "SHIPPING"}, mode = EnumSource.Mode.EXCLUDE)
+    void cancelOrderForCarrierFailure_doesNothing_whenOrderIsNotInTransit(OrderStatus status) {
+        UUID orderId = UUID.randomUUID();
+        Order order = carrierFailureOrder(orderId, status);
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        orderService.cancelOrderForCarrierFailure(orderId, "lost");
+
+        assertThat(order.getStatus()).isEqualTo(status);
+        assertThat(order.getRefundAmount()).isNull();
+        verify(orderItemRepository, never()).findAllByOrder_Id(any());
+        verify(orderRepository, never()).save(any());
+        verify(walletRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
+    }
+
+    @Test
+    void cancelOrderForCarrierFailure_releasesProductsAndRefundsBuyer_whenOrderIsShipping() {
+        UUID orderId = UUID.randomUUID();
+        product1.setStatus(ProductStatus.RESERVED);
+        Order order = carrierFailureOrder(orderId, OrderStatus.SHIPPING);
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).build();
+        Wallet existingWallet = Wallet.builder().id(UUID.randomUUID()).member(member)
+                .balance(new BigDecimal("50000")).build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+        when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(existingWallet));
+        when(platformFundRepository.save(any())).thenAnswer(invocation -> {
+            PlatformFund saved = invocation.getArgument(0);
+            if (saved.getId() == null) {
+                saved.setId(UUID.randomUUID());
+            }
+            return saved;
+        });
+
+        orderService.cancelOrderForCarrierFailure(orderId, "Thất lạc trong quá trình vận chuyển");
+
+        // Hàng chưa giao được thì nhả lại lên sàn
+        assertThat(product1.getStatus()).isEqualTo(ProductStatus.ON_SALE);
+        verify(productRepository).save(product1);
+
+        // Hoàn 100% tổng tiền đơn vào ví người mua
+        assertThat(existingWallet.getBalance()).isEqualTo(new BigDecimal("295000"));
+        verify(walletRepository).save(existingWallet);
+
+        ArgumentCaptor<WalletTransaction> txCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository, times(2)).save(txCaptor.capture());
+        WalletTransaction memberTx = txCaptor.getAllValues().stream()
+                .filter(tx -> tx.getWalletType() == WalletType.MEMBER).findFirst().orElseThrow();
+        WalletTransaction platformTx = txCaptor.getAllValues().stream()
+                .filter(tx -> tx.getWalletType() == WalletType.PLATFORM).findFirst().orElseThrow();
+
+        assertThat(memberTx.getWalletId()).isEqualTo(existingWallet.getId());
+        assertThat(memberTx.getType()).isEqualTo(WalletTransactionType.REFUND);
+        assertThat(memberTx.getAmount()).isEqualByComparingTo(new BigDecimal("245000"));
+        assertThat(memberTx.getBalanceAfter()).isEqualByComparingTo(new BigDecimal("295000"));
+        assertThat(memberTx.getRelatedOrder()).isEqualTo(order);
+        assertThat(memberTx.getTransactionNo()).startsWith("WT-" + Year.now(ZoneOffset.UTC).getValue() + "-");
+        assertThat(memberTx.getNote()).isEqualTo(
+                "Hoàn tiền do vận chuyển GHN lỗi - đơn OD-2026-000777 (Thất lạc trong quá trình vận chuyển)");
+
+        // Bút toán đối ứng của quỹ nền tảng, ngược dấu (F-039)
+        assertThat(platformTx.getType()).isEqualTo(WalletTransactionType.REFUND);
+        assertThat(platformTx.getAmount()).isEqualByComparingTo(new BigDecimal("-245000"));
+        assertThat(platformTx.getCounterpartTransaction()).isEqualTo(memberTx);
+        assertThat(platformTx.getRelatedOrder()).isEqualTo(order);
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(order.getCancelReason()).isEqualTo(CancelReason.CARRIER_FAILED);
+        assertThat(order.getCancelledAt()).isNotNull();
+        assertThat(order.getRefundAmount()).isEqualByComparingTo(new BigDecimal("245000"));
+        verify(orderRepository).save(order);
+    }
+
+    @Test
+    void cancelOrderForCarrierFailure_alsoCancels_whenOrderIsStillPacking() {
+        UUID orderId = UUID.randomUUID();
+        Order order = carrierFailureOrder(orderId, OrderStatus.PACKING);
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of());
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.empty());
+
+        orderService.cancelOrderForCarrierFailure(orderId, "Hủy vận đơn");
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(order.getCancelReason()).isEqualTo(CancelReason.CARRIER_FAILED);
+        assertThat(order.getRefundAmount()).isEqualByComparingTo(new BigDecimal("245000"));
+        verify(orderRepository).save(order);
+    }
+
+    @Test
+    void cancelOrderForCarrierFailure_omitsReasonFromNote_whenReasonIsBlank() {
+        UUID orderId = UUID.randomUUID();
+        Order order = carrierFailureOrder(orderId, OrderStatus.SHIPPING);
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of());
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.empty());
+
+        orderService.cancelOrderForCarrierFailure(orderId, null);
+
+        ArgumentCaptor<WalletTransaction> txCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository, times(2)).save(txCaptor.capture());
+        WalletTransaction memberTx = txCaptor.getAllValues().stream()
+                .filter(tx -> tx.getWalletType() == WalletType.MEMBER).findFirst().orElseThrow();
+
+        assertThat(memberTx.getNote()).isEqualTo("Hoàn tiền do vận chuyển GHN lỗi - đơn OD-2026-000777");
+    }
+
+    @Test
+    void cancelOrderForCarrierFailure_createsNewWallet_whenBuyerHasNoWalletYet() {
+        UUID orderId = UUID.randomUUID();
+        Order order = carrierFailureOrder(orderId, OrderStatus.SHIPPING);
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of());
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.empty());
+
+        orderService.cancelOrderForCarrierFailure(orderId, "lost");
+
+        ArgumentCaptor<Wallet> walletCaptor = ArgumentCaptor.forClass(Wallet.class);
+        verify(walletRepository).save(walletCaptor.capture());
+        assertThat(walletCaptor.getValue().getMember()).isEqualTo(member);
+        assertThat(walletCaptor.getValue().getBalance()).isEqualByComparingTo(new BigDecimal("245000"));
+    }
+
+    @Test
+    void cancelOrderForCarrierFailure_skipsProductsNotCurrentlyReserved() {
+        UUID orderId = UUID.randomUUID();
+        product1.setStatus(ProductStatus.SOLD);
+        Order order = carrierFailureOrder(orderId, OrderStatus.SHIPPING);
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+        when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.empty());
+
+        orderService.cancelOrderForCarrierFailure(orderId, "lost");
+
+        verify(productRepository, never()).save(any());
+        assertThat(product1.getStatus()).isEqualTo(ProductStatus.SOLD);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+    }
+
+    // ==================== loadPayableOrders (P3.5) ====================
+
+    private Order pendingOrder(UUID orderId, String orderNo, String totalAmount) {
+        return Order.builder()
+                .id(orderId)
+                .orderNo(orderNo)
+                .buyer(member)
+                .totalAmount(new BigDecimal(totalAmount))
+                .status(OrderStatus.PENDING_PAYMENT)
+                .build();
+    }
+
+    @Test
+    void loadPayableOrders_throwsOrderAlreadyPaid_whenOrderIsPaid() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+        order.setStatus(OrderStatus.PAID);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.loadPayableOrders(email, List.of(orderId)))
+                .isInstanceOf(ConflictException.class)
+                .satisfies(ex -> assertThat(((ConflictException) ex).getCode()).isEqualTo("ORDER_ALREADY_PAID"));
+    }
+
+    @Test
+    void loadPayableOrders_throwsOrderNotPending_whenOrderAlreadyCancelled() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+        order.setStatus(OrderStatus.CANCELLED);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.loadPayableOrders(email, List.of(orderId)))
+                .isInstanceOf(ConflictException.class)
+                .satisfies(ex -> assertThat(((ConflictException) ex).getCode()).isEqualTo("ORDER_NOT_PENDING"));
+    }
+
+    @Test
+    void loadPayableOrders_throwsForbidden_whenOrderBelongsToSomeoneElse() {
+        UUID orderId = UUID.randomUUID();
+        Account otherBuyer = Account.builder().id(UUID.randomUUID()).email("other@example.com").build();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+        order.setBuyer(otherBuyer);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.loadPayableOrders(email, List.of(orderId)))
+                .isInstanceOf(ForbiddenException.class);
+    }
+
+    // ==================== payOrders (P3.3) ====================
+
+    @Test
+    void payOrders_rejectsMethodOtherThanWallet() {
+        PayOrdersRequest request = new PayOrdersRequest(List.of(UUID.randomUUID().toString()), "MOMO");
+
+        assertThatThrownBy(() -> orderService.payOrders(email, request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("WALLET");
+
+        verify(walletRepository, never()).save(any());
+    }
+
+    @Test
+    void payOrders_throwsInsufficientBalance_whenAvailableBalanceTooLow() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+
+        // Số dư 200k nhưng đang khóa 100k cho yêu cầu rút -> khả dụng chỉ 100k
+        Wallet wallet = Wallet.builder().id(UUID.randomUUID()).member(member)
+                .balance(new BigDecimal("200000"))
+                .lockedBalance(new BigDecimal("100000"))
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(walletRepository.findByMemberIdForUpdate(member.getId())).thenReturn(Optional.of(wallet));
+
+        PayOrdersRequest request = new PayOrdersRequest(List.of(orderId.toString()), "WALLET");
+
+        assertThatThrownBy(() -> orderService.payOrders(email, request))
+                .isInstanceOf(ConflictException.class)
+                .satisfies(ex -> assertThat(((ConflictException) ex).getCode()).isEqualTo("INSUFFICIENT_BALANCE"));
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+        verify(walletRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
+    }
+
+    @Test
+    void payOrders_debitsWalletAndMarksOrdersPaid() {
+        UUID firstOrderId = UUID.randomUUID();
+        UUID secondOrderId = UUID.randomUUID();
+        Order firstOrder = pendingOrder(firstOrderId, "OD-2026-000001", "150000");
+        Order secondOrder = pendingOrder(secondOrderId, "OD-2026-000002", "50000");
+
+        Wallet wallet = Wallet.builder().id(UUID.randomUUID()).member(member)
+                .balance(new BigDecimal("500000"))
+                .lockedBalance(BigDecimal.ZERO)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(firstOrderId)).thenReturn(Optional.of(firstOrder));
+        when(orderRepository.findById(secondOrderId)).thenReturn(Optional.of(secondOrder));
+        when(walletRepository.findByMemberIdForUpdate(member.getId())).thenReturn(Optional.of(wallet));
+        when(platformFundRepository.findTopByOrderByIdAsc())
+                .thenReturn(Optional.of(PlatformFund.builder().id(UUID.randomUUID())
+                        .balance(BigDecimal.ZERO).build()));
+
+        PayOrdersRequest request = new PayOrdersRequest(
+                List.of(firstOrderId.toString(), secondOrderId.toString()), "WALLET");
+
+        PayOrdersResponse response = orderService.payOrders(email, request);
+
+        assertThat(response.getTotalAmount()).isEqualByComparingTo("200000");
+        assertThat(response.getWalletBalance()).isEqualByComparingTo("300000");
+        assertThat(response.getOrders()).hasSize(2);
+
+        assertThat(firstOrder.getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(secondOrder.getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(firstOrder.getPaymentMethod()).isEqualTo(OrderPaymentMethod.WALLET);
+        assertThat(wallet.getBalance()).isEqualByComparingTo("300000");
+
+        // Mỗi đơn một bút toán ví Member + một bút toán đối ứng quỹ nền tảng (ghi sổ kép F-039)
+        ArgumentCaptor<WalletTransaction> captor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository, times(4)).save(captor.capture());
+        List<WalletTransaction> memberTransactions = captor.getAllValues().stream()
+                .filter(tx -> tx.getWalletType() == WalletType.MEMBER)
+                .toList();
+        assertThat(memberTransactions).hasSize(2);
+        assertThat(memberTransactions).allSatisfy(tx ->
+                assertThat(tx.getType()).isEqualTo(WalletTransactionType.ORDER_PAYMENT));
+        // Tiền ra khỏi ví nên bút toán phải âm
+        assertThat(memberTransactions).extracting(WalletTransaction::getAmount)
+                .containsExactly(new BigDecimal("-150000"), new BigDecimal("-50000"));
+    }
+
+    @Test
+    void payOrders_doesNotChargeTwice_whenSameOrderIdRepeated() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+
+        Wallet wallet = Wallet.builder().id(UUID.randomUUID()).member(member)
+                .balance(new BigDecimal("500000"))
+                .lockedBalance(BigDecimal.ZERO)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(walletRepository.findByMemberIdForUpdate(member.getId())).thenReturn(Optional.of(wallet));
+        when(platformFundRepository.findTopByOrderByIdAsc())
+                .thenReturn(Optional.of(PlatformFund.builder().id(UUID.randomUUID())
+                        .balance(BigDecimal.ZERO).build()));
+
+        PayOrdersRequest request = new PayOrdersRequest(
+                List.of(orderId.toString(), orderId.toString()), "WALLET");
+
+        PayOrdersResponse response = orderService.payOrders(email, request);
+
+        assertThat(response.getTotalAmount()).isEqualByComparingTo("150000");
+        assertThat(wallet.getBalance()).isEqualByComparingTo("350000");
+    }
+
+    // ==================== applyGatewayPaymentSuccess (P3.2) ====================
+
+    @Test
+    void applyGatewayPaymentSuccess_marksPaid_whenOrderStillPendingPayment() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.MOMO, "note");
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(order.getPaymentMethod()).isEqualTo(OrderPaymentMethod.MOMO);
+        verify(walletRepository, never()).save(any());
+    }
+
+    // Đây là bug P3.2: IPN về muộn sau khi đơn tự hủy vì quá hạn thanh toán. Hàng đã nhả về sàn
+    // nên tuyệt đối không được chốt lại đơn, tiền phải vào ví người mua.
+    @Test
+    void applyGatewayPaymentSuccess_refundsToWallet_whenOrderAlreadyCancelled() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+        order.setStatus(OrderStatus.CANCELLED);
+        order.setCancelReason(CancelReason.PAYMENT_EXPIRED);
+
+        Wallet wallet = Wallet.builder().id(UUID.randomUUID()).member(member)
+                .balance(BigDecimal.ZERO).lockedBalance(BigDecimal.ZERO).build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(wallet));
+        when(platformFundRepository.findTopByOrderByIdAsc())
+                .thenReturn(Optional.of(PlatformFund.builder().id(UUID.randomUUID())
+                        .balance(BigDecimal.ZERO).build()));
+
+        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.MOMO, "Hoàn tiền MoMo về muộn");
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(order.getRefundAmount()).isEqualByComparingTo("150000");
+        assertThat(wallet.getBalance()).isEqualByComparingTo("150000");
+
+        ArgumentCaptor<WalletTransaction> captor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository, times(2)).save(captor.capture());
+        assertThat(captor.getAllValues().get(0).getType()).isEqualTo(WalletTransactionType.REFUND);
+    }
+
+    @Test
+    void applyGatewayPaymentSuccess_doesNothing_whenSameGatewayAlreadySettledOrder() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+        order.setStatus(OrderStatus.PAID);
+        order.setPaymentMethod(OrderPaymentMethod.MOMO);
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.MOMO, "note");
+
+        assertThat(order.getRefundAmount()).isNull();
+        verify(walletRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
+    }
+
+    // Người mua bấm trả MoMo rồi đổi ý trả bằng ví trước khi IPN về: tiền MoMo vẫn về thật
+    @Test
+    void applyGatewayPaymentSuccess_refundsToWallet_whenOrderAlreadyPaidByAnotherMethod() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+        order.setStatus(OrderStatus.PAID);
+        order.setPaymentMethod(OrderPaymentMethod.WALLET);
+
+        Wallet wallet = Wallet.builder().id(UUID.randomUUID()).member(member)
+                .balance(BigDecimal.ZERO).lockedBalance(BigDecimal.ZERO).build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(wallet));
+        when(platformFundRepository.findTopByOrderByIdAsc())
+                .thenReturn(Optional.of(PlatformFund.builder().id(UUID.randomUUID())
+                        .balance(BigDecimal.ZERO).build()));
+
+        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.MOMO, "Hoàn tiền MoMo trùng");
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(wallet.getBalance()).isEqualByComparingTo("150000");
+    }
+
+    // ==================== getOrderDetail: field cho màn chi tiết đơn (P4.1) ====================
+
+    @Test
+    void getOrderDetail_exposesPaymentDeadlineWarehouseIdAndReturnInfo() {
+        UUID orderId = UUID.randomUUID();
+        UUID returnRequestId = UUID.randomUUID();
+        Instant paymentDeadline = Instant.parse("2026-01-01T00:15:00Z");
+        Instant deliveredAt = Instant.parse("2026-01-05T00:00:00Z");
+
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000001")
+                .buyer(member)
+                .warehouse(warehouse1)
+                .status(OrderStatus.DELIVERED)
+                .createdAt(Instant.parse("2026-01-01T00:00:00Z"))
+                .paymentMethod(OrderPaymentMethod.MOMO)
+                .subtotal(new BigDecimal("600000"))
+                .shippingFee(new BigDecimal("25000"))
+                .totalAmount(new BigDecimal("625000"))
+                .paymentDeadline(paymentDeadline)
+                .deliveredAt(deliveredAt)
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId)).thenReturn(List.of());
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(any())).thenReturn(List.of());
+        when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.empty());
+        when(returnRequestRepository.findFirstByOrder_IdOrderByCreatedAtDesc(orderId))
+                .thenReturn(Optional.of(ReturnRequest.builder().id(returnRequestId).order(order).build()));
+
+        OrderDetailResponse result = orderService.getOrderDetail(email, orderId);
+
+        assertThat(result.getPaymentDeadline()).isEqualTo(paymentDeadline);
+        assertThat(result.getWarehouseId()).isEqualTo(warehouse1.getId().toString());
+        assertThat(result.getReturnRequestId()).isEqualTo(returnRequestId.toString());
+        // 3 ngày kể từ lúc GHN báo đã giao, khớp app.return.request-window-days
+        assertThat(result.getReturnDeadline()).isEqualTo(deliveredAt.plus(3, ChronoUnit.DAYS));
+    }
+
+    @Test
+    void getOrderDetail_returnFieldsAreNull_whenOrderNotDeliveredYet() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000001")
+                .buyer(member)
+                .warehouse(warehouse1)
+                .status(OrderStatus.PENDING_PAYMENT)
+                .createdAt(Instant.parse("2026-01-01T00:00:00Z"))
+                .paymentMethod(OrderPaymentMethod.MOMO)
+                .subtotal(new BigDecimal("600000"))
+                .shippingFee(new BigDecimal("25000"))
+                .totalAmount(new BigDecimal("625000"))
+                .paymentDeadline(Instant.parse("2026-01-01T00:15:00Z"))
+                .build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId)).thenReturn(List.of());
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(any())).thenReturn(List.of());
+        when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.empty());
+        when(returnRequestRepository.findFirstByOrder_IdOrderByCreatedAtDesc(orderId))
+                .thenReturn(Optional.empty());
+
+        OrderDetailResponse result = orderService.getOrderDetail(email, orderId);
+
+        assertThat(result.getReturnRequestId()).isNull();
+        // Chưa giao thì chưa có mốc nào để tính hạn trả hàng
+        assertThat(result.getReturnDeadline()).isNull();
+    }
+
+    // ==================== getTracking: màn theo dõi vận chuyển (P4.2) ====================
+
+    private Order shippingOrder(UUID orderId, Instant expectedDeliveryDate) {
+        return Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000001")
+                .buyer(member)
+                .warehouse(warehouse1)
+                .status(OrderStatus.SHIPPING)
+                .ghnTrackingCode("GHN123456789")
+                .expectedDeliveryDate(expectedDeliveryDate)
+                .build();
+    }
+
+    private OrderTrackingEvent trackingEvent(Order order, String status, String description,
+                                              String location, Instant occurredAt) {
+        return OrderTrackingEvent.builder()
+                .id(UUID.randomUUID())
+                .order(order)
+                .ghnStatus(status)
+                .description(description)
+                .location(location)
+                .occurredAt(occurredAt)
+                .build();
+    }
+
+    @Test
+    void getTracking_mapsExpectedDeliveryDateAndEventLocation() {
+        UUID orderId = UUID.randomUUID();
+        Instant expected = Instant.parse("2026-01-07T10:00:00Z");
+        Instant firstAt = Instant.parse("2026-01-05T08:00:00Z");
+        Instant secondAt = Instant.parse("2026-01-06T09:00:00Z");
+
+        Order order = shippingOrder(orderId, expected);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderTrackingEventRepository.findAllByOrder_IdOrderByOccurredAtAsc(orderId))
+                .thenReturn(List.of(
+                        trackingEvent(order, "picked", "Đã lấy hàng", "Kho Quận 7", firstAt),
+                        trackingEvent(order, "delivering", "Đang giao", "Kho Bình Thạnh", secondAt)));
+
+        OrderTrackingResponse result = orderService.getTracking(email, orderId);
+
+        assertThat(result.getGhnTrackingCode()).isEqualTo("GHN123456789");
+        assertThat(result.getExpectedDeliveryDate()).isEqualTo(expected);
+        assertThat(result.getHasIssue()).isFalse();
+        assertThat(result.getIssueNote()).isNull();
+
+        assertThat(result.getEvents()).hasSize(2);
+        assertThat(result.getEvents().get(0).getStatus()).isEqualTo("picked");
+        assertThat(result.getEvents().get(0).getLocation()).isEqualTo("Kho Quận 7");
+        assertThat(result.getEvents().get(0).getTimestamp()).isEqualTo(firstAt);
+        assertThat(result.getEvents().get(1).getTimestamp()).isEqualTo(secondAt);
+    }
+
+    @Test
+    void getTracking_flagsIssue_whenLatestEventIsDeliveryFail() {
+        UUID orderId = UUID.randomUUID();
+        Order order = shippingOrder(orderId, null);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderTrackingEventRepository.findAllByOrder_IdOrderByOccurredAtAsc(orderId))
+                .thenReturn(List.of(
+                        trackingEvent(order, "delivering", "Đang giao", null,
+                                Instant.parse("2026-01-05T08:00:00Z")),
+                        trackingEvent(order, "delivery_fail", "Khách không nghe máy", null,
+                                Instant.parse("2026-01-06T09:00:00Z"))));
+
+        OrderTrackingResponse result = orderService.getTracking(email, orderId);
+
+        assertThat(result.getHasIssue()).isTrue();
+        assertThat(result.getIssueNote()).isEqualTo("Khách không nghe máy");
+    }
+
+    // Giao hụt rồi giao lại thành công thì không còn là sự cố nữa - chỉ xét sự kiện mới nhất
+    @Test
+    void getTracking_clearsIssue_whenRedeliverySucceededAfterFailure() {
+        UUID orderId = UUID.randomUUID();
+        Order order = shippingOrder(orderId, null);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderTrackingEventRepository.findAllByOrder_IdOrderByOccurredAtAsc(orderId))
+                .thenReturn(List.of(
+                        trackingEvent(order, "delivery_fail", "Khách không nghe máy", null,
+                                Instant.parse("2026-01-05T08:00:00Z")),
+                        trackingEvent(order, "delivered", "Giao thành công", null,
+                                Instant.parse("2026-01-06T09:00:00Z"))));
+
+        OrderTrackingResponse result = orderService.getTracking(email, orderId);
+
+        assertThat(result.getHasIssue()).isFalse();
+        assertThat(result.getIssueNote()).isNull();
+    }
+
+    @Test
+    void getTracking_hasIssueIsFalse_whenNoEventYet() {
+        UUID orderId = UUID.randomUUID();
+        Order order = shippingOrder(orderId, null);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderTrackingEventRepository.findAllByOrder_IdOrderByOccurredAtAsc(orderId))
+                .thenReturn(List.of());
+
+        OrderTrackingResponse result = orderService.getTracking(email, orderId);
+
+        assertThat(result.getHasIssue()).isFalse();
+        assertThat(result.getEvents()).isEmpty();
+    }
+
+    // ==================== getSoldOrders ====================
+
+    /** Đơn của người mua khác, chứa hàng do `seller` ký gửi. */
+    private Order soldOrder(UUID orderId, OrderStatus status) {
+        return Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000777")
+                .buyer(Account.builder().id(UUID.randomUUID()).email("buyer@example.com").build())
+                .warehouse(warehouse1)
+                .status(status)
+                .totalAmount(new BigDecimal("250000"))
+                .createdAt(Instant.parse("2026-10-01T00:00:00Z"))
+                .build();
+    }
+
+    private OrderItem soldItem(Order order, Product product, String price, String commissionRate) {
+        return OrderItem.builder()
+                .id(UUID.randomUUID())
+                .order(order)
+                .product(product)
+                .priceAtOrder(new BigDecimal(price))
+                .commissionRateApplied(new BigDecimal(commissionRate))
+                .taxRateApplied(BigDecimal.ZERO)
+                .termApplied((short) 1)
+                .build();
+    }
+
+    @Test
+    void getSoldOrders_defaultStatuses_excludePendingPaymentAndCancelled() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findOrdersContainingSellerItems(eq(member.getId()), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        orderService.getSoldOrders(email, null, 0, 20);
+
+        ArgumentCaptor<List<OrderStatus>> statuses = ArgumentCaptor.forClass(List.class);
+        verify(orderRepository).findOrdersContainingSellerItems(
+                eq(member.getId()), statuses.capture(), any(Pageable.class));
+
+        assertThat(statuses.getValue())
+                .containsExactly(OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.SHIPPING,
+                        OrderStatus.DELIVERED, OrderStatus.COMPLETED, OrderStatus.RETURNED)
+                .doesNotContain(OrderStatus.PENDING_PAYMENT, OrderStatus.CANCELLED);
+    }
+
+    @Test
+    void getSoldOrders_explicitStatusIsHonoured() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findOrdersContainingSellerItems(eq(member.getId()), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        orderService.getSoldOrders(email, "CANCELLED", 0, 20);
+
+        ArgumentCaptor<List<OrderStatus>> statuses = ArgumentCaptor.forClass(List.class);
+        verify(orderRepository).findOrdersContainingSellerItems(
+                eq(member.getId()), statuses.capture(), any(Pageable.class));
+
+        assertThat(statuses.getValue()).containsExactly(OrderStatus.CANCELLED);
+    }
+
+    @Test
+    void getSoldOrders_throwsBadRequest_whenStatusIsNotAValidOrderStatus() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+
+        assertThatThrownBy(() -> orderService.getSoldOrders(email, "NOPE", 0, 20))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("status không hợp lệ: NOPE");
+
+        verify(orderRepository, never()).findOrdersContainingSellerItems(any(), any(), any());
+    }
+
+    @Test
+    void getSoldOrders_skipsItemQuery_whenNoOrdersFound() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findOrdersContainingSellerItems(eq(member.getId()), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        SoldOrderListResponse result = orderService.getSoldOrders(email, null, 0, 20);
+
+        assertThat(result.getOrders().getContent()).isEmpty();
+        verify(orderItemRepository, never()).findSellerItemsByOrderIds(any(), any());
+    }
+
+    // Tiền hiển thị phải khớp công thức payout của confirmReceipt: giá - hoa hồng
+    @Test
+    void getSoldOrders_sumsOnlySellerItems_andComputesNetAmount() {
+        UUID orderId = UUID.randomUUID();
+        Order order = soldOrder(orderId, OrderStatus.SHIPPING);
+        OrderItem mine = soldItem(order, product1, "220000", "0.10");
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findOrdersContainingSellerItems(eq(member.getId()), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(order)));
+        when(orderItemRepository.findSellerItemsByOrderIds(List.of(orderId), member.getId()))
+                .thenReturn(List.of(mine));
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(List.of("Q7-AK-000845")))
+                .thenReturn(List.of());
+
+        SoldOrderListResponse result = orderService.getSoldOrders(email, null, 0, 20);
+
+        assertThat(result.getOrders().getContent()).hasSize(1);
+        SoldOrderResponse sold = result.getOrders().getContent().get(0);
+
+        assertThat(sold.getOrderId()).isEqualTo(orderId.toString());
+        assertThat(sold.getStatus()).isEqualTo("SHIPPING");
+        assertThat(sold.getWarehouseName()).isEqualTo("Kho Quận 7");
+        assertThat(sold.getItemCount()).isEqualTo(1);
+        // Đơn 250000 nhưng món của người bán chỉ 220000 - subtotal là của người bán, không của đơn
+        assertThat(sold.getSubtotal()).isEqualByComparingTo("220000");
+        assertThat(sold.getNetAmount()).isEqualByComparingTo("198000");
+        assertThat(sold.getPaidOut()).isFalse();
+        assertThat(sold.getItems()).hasSize(1);
+        assertThat(sold.getItems().get(0).getCommission()).isEqualByComparingTo("22000");
+        assertThat(sold.getItems().get(0).getNetAmount()).isEqualByComparingTo("198000");
+    }
+
+    @Test
+    void getSoldOrders_marksPaidOut_whenOrderIsCompleted() {
+        UUID orderId = UUID.randomUUID();
+        Order order = soldOrder(orderId, OrderStatus.COMPLETED);
+        order.setCompletedAt(Instant.parse("2026-10-05T00:00:00Z"));
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findOrdersContainingSellerItems(eq(member.getId()), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(order)));
+        when(orderItemRepository.findSellerItemsByOrderIds(List.of(orderId), member.getId()))
+                .thenReturn(List.of(soldItem(order, product1, "220000", "0.10")));
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(List.of("Q7-AK-000845")))
+                .thenReturn(List.of());
+
+        SoldOrderListResponse result = orderService.getSoldOrders(email, null, 0, 20);
+
+        SoldOrderResponse sold = result.getOrders().getContent().get(0);
+        assertThat(sold.getPaidOut()).isTrue();
+        assertThat(sold.getCompletedAt()).isEqualTo(Instant.parse("2026-10-05T00:00:00Z"));
+    }
+
+    @Test
+    void applyGatewayPaymentSuccess_doesNotRefundTwice_whenOrderAlreadyRefunded() {
+        UUID orderId = UUID.randomUUID();
+        Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
+        order.setStatus(OrderStatus.CANCELLED);
+        order.setRefundAmount(new BigDecimal("150000"));
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.MOMO, "note");
+
+        verify(walletRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
     }
 }

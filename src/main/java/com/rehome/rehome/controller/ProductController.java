@@ -17,7 +17,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -43,17 +46,22 @@ public class ProductController {
             @RequestParam(required = false) BigDecimal priceMax,
             @RequestParam(required = false) UUID warehouseId,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal Account account) {
 
         PageResponse<ProductSummaryResponse> result = productService.getProducts(
-                search, categoryId, brandId, priceMin, priceMax, warehouseId, page, size);
+                search, categoryId, brandId, priceMin, priceMax, warehouseId, page, size,
+                account != null ? account.getId() : null);
 
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
     @GetMapping("/detail/{id}")
-    public ResponseEntity<ApiResponse<ProductDetailResponse>> getProductDetail(@PathVariable String id) {
-        ProductDetailResponse result = productService.getProductDetail(id);
+    public ResponseEntity<ApiResponse<ProductDetailResponse>> getProductDetail(
+            @PathVariable String id,
+            @AuthenticationPrincipal Account account) {
+        ProductDetailResponse result = productService.getProductDetail(
+                id, account != null ? account.getId() : null);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
@@ -123,13 +131,35 @@ public class ProductController {
         if (account != null && account.getRole() == Role.MODERATOR) {
             return ResponseEntity.ok(ApiResponse.<Object>success(productService.getBySku(account, id)));
         }
-        return ResponseEntity.ok(ApiResponse.<Object>success(productService.getProductDetail(id)));
+        return ResponseEntity.ok(ApiResponse.<Object>success(
+                productService.getProductDetail(id, account != null ? account.getId() : null)));
     }
+    // Trả thẳng file PDF để Moderator in tem, không qua URL trung gian
     @GetMapping("/{id}/sku-label")
     @PreAuthorize("hasRole('MODERATOR')")
-    public ResponseEntity<ApiResponse<SkuLabelResponse>> getSkuLabel(
+    public ResponseEntity<byte[]> getSkuLabel(
             @AuthenticationPrincipal Account account,
             @PathVariable String id) {
-        return ResponseEntity.ok(ApiResponse.success(productService.getSkuLabel(account, id), 200, ""));
+
+        PdfDownload pdf = productService.getSkuLabel(account, id);
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.inline().filename(pdf.fileName()).build().toString())
+                .contentLength(pdf.content().length)
+                .body(pdf.content());
+    }
+
+    // Xem trước phí ship GHN thật cho 1 sản phẩm - chỉ cần nhập địa chỉ, không cần giỏ hàng/đơn hàng
+    @GetMapping("/{id}/shipping-fee-preview")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<ShippingFeePreviewResponse>> getShippingFeePreview(
+            @PathVariable String id,
+            @RequestParam String wardName,
+            @RequestParam String provinceName) {
+
+        ShippingFeePreviewResponse result = productService.getShippingFeePreview(id, wardName, provinceName);
+        return ResponseEntity.ok(ApiResponse.success(result));
     }
 }

@@ -104,9 +104,8 @@
         @Column(name = "confirmed_at")
         private Instant confirmedAt;
 
-        // Tệp PDF hệ thống sinh ra — F-022
-        @Column(name = "pdf_url", nullable = true, length = 2048)
-        private String pdfUrl;
+        // PDF F-022 nằm ở bảng riêng consignment_receipt_pdfs (xem ConsignmentReceiptPdf),
+        // tải qua GET /consignment-receipts/{id}/pdf chứ không có URL công khai.
 
         // Thời điểm tạo bản ghi
         @Column(name = "created_at", nullable = false, updatable = false)

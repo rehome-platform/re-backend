@@ -42,4 +42,8 @@ public class EndOfTermDecision {
     // Hạn 30 ngày phải chọn; quá hạn thành hàng vô thừa nhận
     @Column(name = "deadline", nullable = false)
     private Instant deadline;
+
+    // Thời điểm Moderator bàn giao hàng tại quầy cho Member chọn TAKE_BACK — API 72
+    @Column(name = "taken_back_at", nullable = true)
+    private Instant takenBackAt;
 }

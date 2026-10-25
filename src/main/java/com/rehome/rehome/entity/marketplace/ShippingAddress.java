@@ -41,9 +41,19 @@ public class ShippingAddress {
     @Column(name = "ward_name", nullable = true, length = 255)
     private String wardName;
 
+    // Mã phường/xã trong danh mục GHN hệ 2 cấp, lấy từ lúc đối chiếu tên với GHN.
+    // Tạo vận đơn vẫn gửi theo tên, mã này để FE hiển thị lại đúng mục đã chọn và để
+    // dò lại được địa chỉ khi GHN đổi tên đơn vị hành chính.
+    @Column(name = "ward_code", nullable = true, length = 64)
+    private String wardCode;
+
     // Tỉnh/thành người nhận - bắt buộc với GHN (to_province_name)
     @Column(name = "province_name", nullable = true, length = 255)
     private String provinceName;
+
+    // ProvinceID trong danh mục GHN, cần để gọi GET /address-units/wards?provinceId= khi sửa địa chỉ
+    @Column(name = "province_id", nullable = true)
+    private Integer provinceId;
 
     // Địa chỉ được chọn sẵn khi đặt hàng
     @Column(name = "is_default", nullable = false)

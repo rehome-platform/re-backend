@@ -227,7 +227,6 @@ class EndOfTermDecisionServiceImplTest {
         assertThat(built.getReceiptNo()).isEqualTo(expectedNo);
         assertThat(built.getMember()).isSameAs(member);
         assertThat(built.getConfirmedAt()).isNull();
-        assertThat(built.getPdfUrl()).isNull();
 
         // Product không bị đổi trạng thái
         verify(product, never()).setStatus(any());

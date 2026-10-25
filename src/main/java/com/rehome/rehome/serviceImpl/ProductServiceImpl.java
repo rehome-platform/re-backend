@@ -1,5 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.dto.request.CreateProductRequest;
 import com.rehome.rehome.dto.request.PriceReductionRequest;
 import com.rehome.rehome.dto.request.UpdateShelfLocationRequest;
@@ -24,6 +25,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -50,6 +52,7 @@ public class ProductServiceImpl implements ProductService {
     private final ConsignmentReceiptRepository receiptRepository;
     private final StockMovementLogRepository stockMovementLogRepository;
     private final SkuLabelPdfService skuLabelPdfService;
+    private final GhnShippingFeeCalculator ghnShippingFeeCalculator;
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
@@ -58,7 +61,8 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public PageResponse<ProductSummaryResponse> getProducts(String search, UUID categoryId, UUID brandId,
                                                               BigDecimal priceMin, BigDecimal priceMax,
-                                                              UUID warehouseId, int page, int size) {
+                                                              UUID warehouseId, int page, int size,
+                                                              UUID viewerId) {
 
         if (priceMin != null && priceMax != null && priceMin.compareTo(priceMax) > 0) {
             throw new BadRequestException("priceMin không được lớn hơn priceMax.");
@@ -91,13 +95,14 @@ public class ProductServiceImpl implements ProductService {
                 .condition(product.getConditionNote())
                 .originalPrice(product.getConsignmentReceipt().getAgreedPrice())
                 .currentPrice(product.getCurrentPrice())
+                .isMine(isOwnedBy(product, viewerId))
                 .build());
 
         return PageResponse.from(mapped);
     }
 
     @Override
-    public ProductDetailResponse getProductDetail(String id) {
+    public ProductDetailResponse getProductDetail(String id, UUID viewerId) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
@@ -121,7 +126,14 @@ public class ProductServiceImpl implements ProductService {
                 .warehouseId(product.getWarehouse().getId())
                 .warehouseName(product.getWarehouse().getName())
                 .photos(photos)
+                .isMine(isOwnedBy(product, viewerId))
                 .build();
+    }
+
+    // Người ký gửi không được mua lại món của chính mình (chặn thật ở CartService/OrderService),
+    // cờ này chỉ để FE ẩn nút trước. Null-safe hai đầu: khách chưa đăng nhập -> false.
+    private static boolean isOwnedBy(Product product, UUID viewerId) {
+        return viewerId != null && viewerId.equals(product.getMember().getId());
     }
 
     @Override
@@ -248,6 +260,29 @@ public class ProductServiceImpl implements ProductService {
         return new PriceReductionResponse(product.getCurrentPrice());
     }
 
+    @Override
+    public ShippingFeePreviewResponse getShippingFeePreview(String productId, String wardName, String provinceName) {
+
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm."));
+
+        if (!StringUtils.hasText(wardName) || !StringUtils.hasText(provinceName)) {
+            throw new BadRequestException("wardName và provinceName là bắt buộc.");
+        }
+
+        Warehouse warehouse = product.getWarehouse();
+        BigDecimal shippingFee = ghnShippingFeeCalculator.calculate(warehouse, wardName, provinceName);
+
+        return ShippingFeePreviewResponse.builder()
+                .productId(product.getId())
+                .warehouseId(warehouse.getId().toString())
+                .warehouseName(warehouse.getName())
+                .wardName(wardName)
+                .provinceName(provinceName)
+                .shippingFee(shippingFee)
+                .build();
+    }
+
     // ProductServiceImpl
     @Override
     @Transactional(readOnly = true)
@@ -314,13 +349,13 @@ public class ProductServiceImpl implements ProductService {
     }
     @Override
     @Transactional(readOnly = true)
-    public SkuLabelResponse getSkuLabel(Account account, String productId) {
+    public PdfDownload getSkuLabel(Account account, String productId) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));    // 404
 
         assertSameWarehouse(account, product);                                        // 403
 
-        return new SkuLabelResponse(skuLabelPdfService.generate(product));
+        return new PdfDownload("sku-" + product.getId() + ".pdf", skuLabelPdfService.generate(product));
     }
 
     @Override

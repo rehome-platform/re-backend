@@ -60,6 +60,12 @@ public class WalletTransaction {
     @JoinColumn(name = "related_order_item_id", nullable = true)
     private OrderItem relatedOrderItem;
 
+    // Yêu cầu rút tiền sinh ra bút toán này — chỉ có với WITHDRAWAL, để Member bấm vào
+    // giao dịch rút tiền trong lịch sử ví là mở được chi tiết yêu cầu rút
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "related_payout_request_id", nullable = true)
+    private PayoutRequest relatedPayoutRequest;
+
     // Bút toán đối ứng bên kia — ghi sổ kép, hai dòng bằng nhau và ngược dấu
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "counterpart_transaction_id", nullable = true)

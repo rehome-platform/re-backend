@@ -176,7 +176,6 @@ class ConsignmentInspectionServiceImplTest {
             assertThat(r.getWithdrawalFee()).isEqualByComparingTo(BigDecimal.ZERO);
             assertThat(r.getDegradedCompensationRate()).isEqualByComparingTo(DEFAULT_DEGRADED_COMPENSATION_RATE);
             assertThat(r.getConditionNote()).isEqualTo("Áo còn mới 90%, không lỗi");
-            assertThat(r.getPdfUrl()).isNull();
             assertThat(r.getConfirmedAt()).isNull();
 
             verify(queueService).dequeue(QueueType.INSPECTION, formId.toString());

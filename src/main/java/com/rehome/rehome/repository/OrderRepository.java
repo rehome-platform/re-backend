@@ -26,4 +26,22 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     @Query("select o.status, count(o) from Order o where o.buyer.id = :buyerId group by o.status")
     List<Object[]> countGroupedByStatusForBuyer(@Param("buyerId") UUID buyerId);
+
+    // Đơn có chứa ít nhất một món do :sellerId ký gửi. distinct vì một đơn có thể gồm nhiều
+    // món của cùng người bán. ORDER BY nằm trong câu query chứ không qua Pageable: root của
+    // query là OrderItem nên Sort.by("createdAt") sẽ trỏ sai bảng.
+    @Query(value = "select distinct o from OrderItem oi join oi.order o "
+            + "where oi.product.member.id = :sellerId and o.status in :statuses "
+            + "order by o.createdAt desc",
+            countQuery = "select count(distinct o) from OrderItem oi join oi.order o "
+            + "where oi.product.member.id = :sellerId and o.status in :statuses")
+    Page<Order> findOrdersContainingSellerItems(@Param("sellerId") UUID sellerId,
+                                                @Param("statuses") List<OrderStatus> statuses,
+                                                Pageable pageable);
+
+    // Đếm theo trạng thái cho thanh tab màn "Đơn đã bán". count(distinct o) vì một đơn
+    // nhiều món của cùng người bán vẫn chỉ là một đơn.
+    @Query("select o.status, count(distinct o) from OrderItem oi join oi.order o "
+            + "where oi.product.member.id = :sellerId group by o.status")
+    List<Object[]> countGroupedByStatusForSeller(@Param("sellerId") UUID sellerId);
 }

@@ -27,7 +27,7 @@ public final class ConsignmentReceiptMapper {
         dto.setWithdrawalFee(r.getWithdrawalFee());
         dto.setDegradedCompensationRate(r.getDegradedCompensationRate());
         dto.setConfirmedAt(r.getConfirmedAt());
-        dto.setPdfUrl(r.getPdfUrl());
+        dto.setPdfAvailable(r.getConfirmedAt() != null);
         return dto;
     }
 
@@ -35,7 +35,7 @@ public final class ConsignmentReceiptMapper {
         ConsignmentReceiptConfirmResponse dto = new ConsignmentReceiptConfirmResponse();
         dto.setId(r.getId());
         dto.setConfirmedAt(r.getConfirmedAt());
-        dto.setPdfUrl(r.getPdfUrl());
+        dto.setPdfAvailable(r.getConfirmedAt() != null);
         return dto;
     }
 }

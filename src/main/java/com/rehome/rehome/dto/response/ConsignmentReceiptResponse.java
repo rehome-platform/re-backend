@@ -24,6 +24,7 @@ public class ConsignmentReceiptResponse {
     private BigDecimal commissionRateTerm3;
     private BigDecimal withdrawalFee;
     private BigDecimal degradedCompensationRate;
-    private Instant confirmedAt; // null = chưa xác nhận
-    private String pdfUrl;       // null cho tới khi xác nhận
+    private Instant confirmedAt;  // null = chưa xác nhận
+    // Không còn URL: tải PDF qua GET /consignment-receipts/{id}/pdf (cần JWT)
+    private boolean pdfAvailable; // false cho tới khi xác nhận
 }

@@ -17,7 +17,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -125,12 +128,21 @@ public class ProductController {
         }
         return ResponseEntity.ok(ApiResponse.<Object>success(productService.getProductDetail(id)));
     }
+    // Trả thẳng file PDF để Moderator in tem, không qua URL trung gian
     @GetMapping("/{id}/sku-label")
     @PreAuthorize("hasRole('MODERATOR')")
-    public ResponseEntity<ApiResponse<SkuLabelResponse>> getSkuLabel(
+    public ResponseEntity<byte[]> getSkuLabel(
             @AuthenticationPrincipal Account account,
             @PathVariable String id) {
-        return ResponseEntity.ok(ApiResponse.success(productService.getSkuLabel(account, id), 200, ""));
+
+        PdfDownload pdf = productService.getSkuLabel(account, id);
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.inline().filename(pdf.fileName()).build().toString())
+                .contentLength(pdf.content().length)
+                .body(pdf.content());
     }
 
     // Xem trước phí ship GHN thật cho 1 sản phẩm - chỉ cần nhập địa chỉ, không cần giỏ hàng/đơn hàng

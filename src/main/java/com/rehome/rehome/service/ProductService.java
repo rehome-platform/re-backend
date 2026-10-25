@@ -27,7 +27,8 @@ public interface ProductService {
 
     PageResponse<InventoryItemResponse> getInventory(Account account, ProductStatus status,
                                                      String shelfLocation, int page, int size);
-    SkuLabelResponse getSkuLabel(Account account, String productId);
+    // Tem SKU trả binary PDF, không lưu file (render lại được từ Product bất cứ lúc nào)
+    PdfDownload getSkuLabel(Account account, String productId);
     ProductSkuLookupResponse getBySku(Account account, String sku);
     ShelfLocationResponse updateShelfLocation(Account account, String productId, UpdateShelfLocationRequest request);
     PriceReductionResponse reducePrice(Account account, String productId, PriceReductionRequest request);

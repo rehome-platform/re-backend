@@ -97,7 +97,6 @@ public class ProductInitializer implements CommandLineRunner {
                     .floorPrice(agreed.multiply(new BigDecimal("0.5")))
                     .withdrawalFee(new BigDecimal("20000"))
                     .confirmedAt(termStartedAt)
-                    .pdfUrl("https://example.com/receipts/KG-2026-" + no + ".pdf")
                     .build());
 
             Product product = productRepository.save(Product.builder()

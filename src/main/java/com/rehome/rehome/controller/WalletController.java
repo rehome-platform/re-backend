@@ -6,6 +6,7 @@ import com.rehome.rehome.dto.response.OrderRevenueResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.PayoutRequestResponse;
 import com.rehome.rehome.dto.response.WalletBalanceResponse;
+import com.rehome.rehome.dto.response.WalletConfigResponse;
 import com.rehome.rehome.dto.response.WalletTransactionResponse;
 import com.rehome.rehome.service.WalletService;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +36,16 @@ public class WalletController {
 
         String email = authentication.getName();
         WalletBalanceResponse result = walletService.getBalance(email);
+
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    @GetMapping("/config")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<WalletConfigResponse>> getWalletConfig(Authentication authentication) {
+
+        String email = authentication.getName();
+        WalletConfigResponse result = walletService.getWalletConfig(email);
 
         return ResponseEntity.ok(ApiResponse.success(result));
     }

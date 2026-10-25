@@ -30,6 +30,11 @@ public class OrderTrackingEvent {
     @Column(name = "description", nullable = true, columnDefinition = "text")
     private String description;
 
+    // Nơi kiện hàng đang ở khi GHN bắn sự kiện - field Warehouse trong webhook.
+    // GHN không phải lúc nào cũng gửi, nên có thể null.
+    @Column(name = "location", nullable = true, length = 255)
+    private String location;
+
     // Thời điểm GHN ghi nhận sự kiện - field Time trong webhook
     @Column(name = "occurred_at", nullable = false)
     private Instant occurredAt;

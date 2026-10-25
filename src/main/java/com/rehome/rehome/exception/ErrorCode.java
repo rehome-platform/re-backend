@@ -73,6 +73,7 @@ public enum ErrorCode {
 
     // API 25, 27 - quầy
     LOOKUP_INVALID_INPUT(HttpStatus.BAD_REQUEST, "Phải cung cấp memberCode, phone hoặc qrPayload."),
+    QR_PAYLOAD_INVALID(HttpStatus.BAD_REQUEST, "Mã QR không hợp lệ."),
     MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy Member."),
     // API 28, 29, 30 - hàng đợi
     INVALID_QUEUE_TYPE(HttpStatus.BAD_REQUEST, "type không hợp lệ."),

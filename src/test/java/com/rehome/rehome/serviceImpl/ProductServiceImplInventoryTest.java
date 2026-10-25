@@ -127,14 +127,16 @@ class ProductServiceImplInventoryTest {
     // ==================== API 39: getSkuLabel ====================
 
     @Test
-    @DisplayName("getSkuLabel: thành công -> trả URL do SkuLabelPdfService sinh")
+    @DisplayName("getSkuLabel: thành công -> trả byte PDF kèm tên file theo SKU")
     void getSkuLabel_success() {
+        byte[] pdf = "%PDF-fake-label".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
         when(productRepository.findById(SKU)).thenReturn(Optional.of(product));
-        when(skuLabelPdfService.generate(product)).thenReturn("https://cdn.rehome.vn/labels/" + SKU + ".pdf");
+        when(skuLabelPdfService.generate(product)).thenReturn(pdf);
 
-        SkuLabelResponse res = productService.getSkuLabel(moderator, SKU);
+        PdfDownload res = productService.getSkuLabel(moderator, SKU);
 
-        assertEquals("https://cdn.rehome.vn/labels/" + SKU + ".pdf", res.getLabelPdfUrl());
+        assertEquals("sku-" + SKU + ".pdf", res.fileName());
+        assertArrayEquals(pdf, res.content());
     }
 
     @Test

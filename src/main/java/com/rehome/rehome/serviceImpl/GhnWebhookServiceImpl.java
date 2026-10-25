@@ -4,7 +4,8 @@ import com.rehome.rehome.dto.request.GhnWebhookPayload;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderTrackingEvent;
-import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.exception.AppException;
+import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.OrderTrackingEventRepository;
 import com.rehome.rehome.service.GhnWebhookService;
@@ -47,7 +48,7 @@ public class GhnWebhookServiceImpl implements GhnWebhookService {
     public void handleWebhook(GhnWebhookPayload payload) {
 
         if (!StringUtils.hasText(payload.getOrderCode())) {
-            throw new BadRequestException("Thiếu OrderCode trong webhook.");
+            throw new AppException(ErrorCode.GHN_ORDER_CODE_REQUIRED);
         }
 
         Order order = orderRepository.findByGhnTrackingCode(payload.getOrderCode()).orElse(null);
@@ -58,7 +59,7 @@ public class GhnWebhookServiceImpl implements GhnWebhookService {
                     payload.getOrderCode(), payload.getStatus(), payload.getReason());
 
             if (!handledAsReturn) {
-                throw new IllegalArgumentException("Không tìm thấy vận đơn.");
+                throw new AppException(ErrorCode.GHN_SHIPMENT_NOT_FOUND);
             }
             return;
         }

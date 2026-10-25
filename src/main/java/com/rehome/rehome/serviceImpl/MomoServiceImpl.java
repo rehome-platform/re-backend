@@ -354,8 +354,8 @@ public class MomoServiceImpl implements MomoService {
     }
 
     private String buildResultSignature(long amount, String extraData, String message, String orderId,
-                                         String orderInfo, String orderType, String payType, String requestId,
-                                         long responseTime, int resultCode, long transId) {
+                                        String orderInfo, String orderType, String payType, String requestId,
+                                        long responseTime, int resultCode, long transId) {
         return String.format(
                 "accessKey=%s&amount=%s&extraData=%s&message=%s&orderId=%s&orderInfo=%s&orderType=%s&partnerCode=%s&payType=%s&requestId=%s&responseTime=%s&resultCode=%s&transId=%s",
                 accessKey, amount, extraData, message, orderId, orderInfo, orderType, partnerCode,

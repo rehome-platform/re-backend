@@ -66,6 +66,7 @@ public class SecurityConfig {
                                 "/api/auth/password/change",
                                 "/api/auth/logout").authenticated()
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/warehouses").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
                         // File tĩnh ở local: thẻ <img>/<a> của FE không gửi được header JWT.
                         // Chỉ GET, còn upload đi qua /uploads (phải đăng nhập).

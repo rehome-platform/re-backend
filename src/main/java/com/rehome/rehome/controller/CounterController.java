@@ -1,7 +1,10 @@
 package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.CounterHandoverRequest;
+import com.rehome.rehome.dto.request.CounterLookupRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
+import com.rehome.rehome.dto.response.MemberLookupItemResponse;
+import com.rehome.rehome.dto.response.MemberTasksResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.CounterService;
 import jakarta.validation.Valid;
@@ -11,6 +14,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -40,5 +44,16 @@ public class CounterController {
 
         counterService.handover(moderator, request);
         return ResponseEntity.ok(ApiResponse.success(null, 200, "Đã bàn giao"));
+    }
+    // API 25
+    @PostMapping("/lookup")
+    public ApiResponse<List<MemberLookupItemResponse>> lookup(@RequestBody CounterLookupRequest request) {
+        return ApiResponse.success(counterService.lookup(request));
+    }
+
+    // API 27
+    @GetMapping("/members/{accountId}/tasks")
+    public ApiResponse<MemberTasksResponse> tasks(@PathVariable UUID accountId) {
+        return ApiResponse.success(counterService.getTasks(accountId));
     }
 }

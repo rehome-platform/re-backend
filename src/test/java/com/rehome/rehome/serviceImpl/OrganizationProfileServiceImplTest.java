@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
+import com.rehome.rehome.dto.response.OrganizationProfileResponse;
 import com.rehome.rehome.dto.response.OrganizationResubmitResponse;
 import com.rehome.rehome.dto.response.RegisterOrganizationResponse;
 import com.rehome.rehome.entity.auth.Account;
@@ -21,6 +22,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -30,6 +33,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -245,5 +249,142 @@ class OrganizationProfileServiceImplTest {
         assertThat(profile.getVerificationStatus()).isEqualTo(VerificationStatus.REJECTED);
         verifyNoInteractions(organizationProfileMapper);
         verify(organizationProfileRepository, never()).save(any());
+    }
+
+    // =====================================================================
+    // getMyProfile  (MỚI)
+    // =====================================================================
+
+    private OrganizationProfile.OrganizationProfileBuilder baseProfile(UUID id) {
+        return OrganizationProfile.builder()
+                .accountId(id)
+                .legalName("Hội Chia Sẻ")
+                .displayName("Chia Sẻ")
+                .orgType("NGO")
+                .taxCode(TAX_CODE)
+                .operationScope("PROVINCE")
+                .address("1 Lê Lợi, Q1, TP.HCM")
+                .contactPhone("0900000000")
+                .contactEmail(NORMALIZED_EMAIL)
+                .website("https://chiase.org")
+                .description("Tổ chức thiện nguyện")
+                .logoUrl("https://cdn/logo.png")
+                .donationPointName("Điểm nhận Q1")
+                .donationPointAddress("2 Nguyễn Huệ, Q1, TP.HCM")
+                .donationPointLatitude(new BigDecimal("10.7769000"))
+                .donationPointLongitude(new BigDecimal("106.7009000"))
+                .donationPointReceivingHours("8:00-17:00 T2-T6")
+                .donationPointContactPhone("0911111111");
+    }
+
+    @Test
+    void getMyProfile_notSubmitted_returnsAllNull() {
+        UUID id = UUID.randomUUID();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.empty());
+
+        OrganizationProfileResponse res = service.getMyProfile(id);
+
+        assertThat(res).isNotNull();
+        assertThat(res.getVerificationStatus()).isNull();
+        assertThat(res).hasAllNullFieldsOrProperties();
+    }
+
+    @Test
+    void getMyProfile_pending_returnsSubmittedProfile() {
+        UUID id = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id)
+                .verificationStatus(VerificationStatus.PENDING)
+                .build();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+
+        OrganizationProfileResponse res = service.getMyProfile(id);
+
+        assertThat(res.getVerificationStatus()).isEqualTo(VerificationStatus.PENDING);
+        assertThat(res.getRejectionReason()).isNull();
+        assertThat(res.getVerifiedAt()).isNull();
+        assertThat(res).extracting("displayName", "logoUrl", "legalName", "orgType", "taxCode",
+                        "operationScope", "address", "contactPhone", "contactEmail", "website", "description")
+                .containsExactly("Chia Sẻ", "https://cdn/logo.png", "Hội Chia Sẻ", "NGO", TAX_CODE,
+                        "PROVINCE", "1 Lê Lợi, Q1, TP.HCM", "0900000000", NORMALIZED_EMAIL,
+                        "https://chiase.org", "Tổ chức thiện nguyện");
+    }
+
+    @Test
+    void getMyProfile_returnsDonationPointInfo() {
+        UUID id = UUID.randomUUID();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(baseProfile(id).build()));
+
+        OrganizationProfileResponse res = service.getMyProfile(id);
+
+        assertThat(res.getDonationPointName()).isEqualTo("Điểm nhận Q1");
+        assertThat(res.getDonationPointAddress()).isEqualTo("2 Nguyễn Huệ, Q1, TP.HCM");
+        assertThat(res.getDonationPointLatitude()).isEqualByComparingTo("10.7769000");
+        assertThat(res.getDonationPointLongitude()).isEqualByComparingTo("106.7009000");
+        assertThat(res.getDonationPointReceivingHours()).isEqualTo("8:00-17:00 T2-T6");
+        assertThat(res.getDonationPointContactPhone()).isEqualTo("0911111111");
+    }
+
+    @Test
+    void getMyProfile_rejected_returnsRejectionReason() {
+        UUID id = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id)
+                .verificationStatus(VerificationStatus.REJECTED)
+                .rejectionReason("Ảnh giấy tờ bị mờ")
+                .build();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+
+        OrganizationProfileResponse res = service.getMyProfile(id);
+
+        assertThat(res.getVerificationStatus()).isEqualTo(VerificationStatus.REJECTED);
+        assertThat(res.getRejectionReason()).isEqualTo("Ảnh giấy tờ bị mờ");
+    }
+
+    @Test
+    void getMyProfile_verified_returnsVerifiedAt() {
+        UUID id = UUID.randomUUID();
+        Instant verifiedAt = Instant.parse("2026-10-01T00:00:00Z");
+        OrganizationProfile profile = baseProfile(id)
+                .verificationStatus(VerificationStatus.VERIFIED)
+                .verifiedAt(verifiedAt)
+                .build();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+
+        OrganizationProfileResponse res = service.getMyProfile(id);
+
+        assertThat(res.getVerificationStatus()).isEqualTo(VerificationStatus.VERIFIED);
+        assertThat(res.getVerifiedAt()).isEqualTo(verifiedAt);
+        assertThat(res.getRejectionReason()).isNull();
+    }
+
+    @Test
+    void getMyProfile_optionalFieldsNull_stillMaps() {
+        UUID id = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id)
+                .taxCode(null)
+                .website(null)
+                .logoUrl(null)
+                .donationPointContactPhone(null)
+                .build();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+
+        OrganizationProfileResponse res = service.getMyProfile(id);
+
+        assertThat(res.getTaxCode()).isNull();
+        assertThat(res.getWebsite()).isNull();
+        assertThat(res.getLogoUrl()).isNull();
+        assertThat(res.getDonationPointContactPhone()).isNull();
+        assertThat(res.getDisplayName()).isEqualTo("Chia Sẻ");
+    }
+
+    @Test
+    void getMyProfile_onlyQueriesByGivenAccountId() {
+        UUID id = UUID.randomUUID();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.empty());
+
+        service.getMyProfile(id);
+
+        verify(organizationProfileRepository).findById(id);
+        verifyNoMoreInteractions(organizationProfileRepository);
+        verifyNoInteractions(accountRepository, organizationProfileMapper);
     }
 }

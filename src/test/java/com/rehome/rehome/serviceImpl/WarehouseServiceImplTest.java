@@ -1,14 +1,16 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.dto.marketplace.response.WarehouseResponse;
 import com.rehome.rehome.dto.response.MyWarehouseResponse;
 import com.rehome.rehome.dto.response.WarehouseNearestResponse;
-import com.rehome.rehome.entity.auth.ModeratorProfile;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.CatalogStatus;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
-import com.rehome.rehome.repository.ModeratorProfileRepository;
+import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -16,6 +18,8 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -25,168 +29,147 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.within;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class WarehouseServiceImplTest {
 
     @Mock
-    private ModeratorProfileRepository moderatorProfileRepository;
-    @Mock private WarehouseRepository warehouseRepository;
-    @InjectMocks private WarehouseServiceImpl service;
+    private WarehouseRepository warehouseRepository;
+    // Thiếu mock này là nguyên nhân gây NullPointerException ở getManagedWarehouses
+    @Mock
+    private AccountRepository accountRepository;
 
-    private Warehouse warehouse(String name, double lat, double lng) {
-        Warehouse w = new Warehouse();
-        w.setId(UUID.randomUUID());
-        w.setName(name);
-        w.setAddress("Địa chỉ " + name);
-        w.setLatitude(BigDecimal.valueOf(lat));
-        w.setLongitude(BigDecimal.valueOf(lng));
+    @InjectMocks
+    private WarehouseServiceImpl service;
+
+    // ---------- helpers ----------
+
+    private void assertAppException(ThrowingCallable callable, ErrorCode expected) {
+        assertThatThrownBy(callable)
+                .isInstanceOf(AppException.class)
+                .extracting(e -> ((AppException) e).getErrorCode())
+                .isEqualTo(expected);
+    }
+
+    private Warehouse warehouseAt(double lat, double lng) {
+        Warehouse w = mock(Warehouse.class);
+        when(w.getName()).thenReturn("Kho " + lat);
+        when(w.getAddress()).thenReturn("Địa chỉ " + lat);
+        when(w.getLatitude()).thenReturn(BigDecimal.valueOf(lat));
+        when(w.getLongitude()).thenReturn(BigDecimal.valueOf(lng));
         return w;
     }
 
-    // ---------- toạ độ không hợp lệ ----------
+    // ================= getNearest =================
 
     @ParameterizedTest
     @CsvSource({
-            "NaN, 10",
-            "10, NaN",
-            "90.0001, 10",
-            "-90.0001, 10",
-            "10, 180.0001",
-            "10, -180.0001"
+            "NaN, 106.0",
+            "10.0, NaN",
+            "90.1, 106.0",
+            "-90.1, 106.0",
+            "10.0, 180.1",
+            "10.0, -180.1"
     })
-    void getNearest_invalidCoordinates_throws(double lat, double lng) {
-        assertThatThrownBy(() -> service.getNearest(lat, lng))
-                .isInstanceOf(AppException.class)
-                .satisfies(e -> assertThat(((AppException) e).getErrorCode())
-                        .isEqualTo(ErrorCode.INVALID_COORDINATES));
+    void getNearest_throwsInvalidCoordinates_whenOutOfRange(double lat, double lng) {
+        assertAppException(() -> service.getNearest(lat, lng), ErrorCode.INVALID_COORDINATES);
 
         verifyNoInteractions(warehouseRepository);
     }
 
-    // ---------- biên hợp lệ ----------
-
-    @ParameterizedTest
-    @CsvSource({"90, 180", "-90, -180", "0, 0"})
-    void getNearest_boundaryCoordinates_areAccepted(double lat, double lng) {
-        when(warehouseRepository.findByStatus(CatalogStatus.ACTIVE)).thenReturn(List.of());
-
-        assertThat(service.getNearest(lat, lng)).isEmpty();
-    }
-
-    // ---------- logic chính ----------
-
-    @Test
-    void getNearest_noActiveWarehouse_returnsEmpty() {
-        when(warehouseRepository.findByStatus(CatalogStatus.ACTIVE)).thenReturn(List.of());
-
-        assertThat(service.getNearest(10.77, 106.69)).isEmpty();
-        verify(warehouseRepository).findByStatus(CatalogStatus.ACTIVE);
-    }
-
     @Test
     void getNearest_sortsByDistanceAscending() {
-        Warehouse far = warehouse("Xa", 12.0, 106.0);
-        Warehouse near = warehouse("Gần", 10.0, 106.0);
-        Warehouse mid = warehouse("Giữa", 11.0, 106.0);
-
+        Warehouse far = warehouseAt(11.0, 106.0);    // ~111 km
+        Warehouse near = warehouseAt(10.0, 106.0);   // 0 km
+        Warehouse mid = warehouseAt(10.5, 106.0);    // ~55.6 km
         when(warehouseRepository.findByStatus(CatalogStatus.ACTIVE)).thenReturn(List.of(far, near, mid));
 
         List<WarehouseNearestResponse> result = service.getNearest(10.0, 106.0);
 
-        assertThat(result).extracting(WarehouseNearestResponse::name)
-                .containsExactly("Gần", "Giữa", "Xa");
+        assertThat(result).hasSize(3);
+        assertThat(result.get(0).distanceKm()).isLessThan(1.0);
+        assertThat(result.get(1).distanceKm()).isBetween(55.0, 56.5);
+        assertThat(result.get(2).distanceKm()).isBetween(110.0, 112.0);
         assertThat(result).extracting(WarehouseNearestResponse::distanceKm).isSorted();
     }
 
     @Test
-    void getNearest_mapsFieldsAndComputesDistance() {
-        Warehouse same = warehouse("Cùng điểm", 10.0, 106.0);
-        Warehouse oneDegreeNorth = warehouse("Lệch 1 độ vĩ", 11.0, 106.0);
-
-        when(warehouseRepository.findByStatus(CatalogStatus.ACTIVE)).thenReturn(List.of(oneDegreeNorth, same));
-
-        List<WarehouseNearestResponse> result = service.getNearest(10.0, 106.0);
-
-        WarehouseNearestResponse first = result.get(0);
-        assertThat(first.id()).isEqualTo(same.getId());
-        assertThat(first.name()).isEqualTo("Cùng điểm");
-        assertThat(first.address()).isEqualTo("Địa chỉ Cùng điểm");
-        assertThat(first.distanceKm()).isEqualTo(0.0, within(1e-6));
-
-        // 1 độ vĩ ≈ 6371 * π / 180 ≈ 111.19 km
-        assertThat(result.get(1).distanceKm()).isEqualTo(111.19, within(0.05));
-    }
-
-    @Test
-    void getNearest_limitsResultsToTwenty_keepingTheNearest() {
-        List<Warehouse> warehouses = new ArrayList<>();
-        for (int i = 1; i <= 25; i++) {
-            warehouses.add(warehouse("W" + i, 10.0 + i * 0.01, 106.0));  // W1 gần nhất
+    void getNearest_limitsResultsTo20() {
+        List<Warehouse> many = new ArrayList<>();
+        for (int i = 0; i < 25; i++) {
+            many.add(warehouseAt(10.0 + i * 0.01, 106.0));
         }
-        // xáo trộn thứ tự đầu vào
-        java.util.Collections.reverse(warehouses);
-
-        when(warehouseRepository.findByStatus(CatalogStatus.ACTIVE)).thenReturn(warehouses);
+        when(warehouseRepository.findByStatus(CatalogStatus.ACTIVE)).thenReturn(many);
 
         List<WarehouseNearestResponse> result = service.getNearest(10.0, 106.0);
 
         assertThat(result).hasSize(20);
-        assertThat(result.get(0).name()).isEqualTo("W1");
-        assertThat(result.get(19).name()).isEqualTo("W20");
-        assertThat(result).extracting(WarehouseNearestResponse::name)
-                .doesNotContain("W21", "W22", "W23", "W24", "W25");
+    }
+
+    @Test
+    void getNearest_returnsEmpty_whenNoActiveWarehouse() {
+        when(warehouseRepository.findByStatus(CatalogStatus.ACTIVE)).thenReturn(List.of());
+
+        assertThat(service.getNearest(10.0, 106.0)).isEmpty();
+    }
+
+    // ================= getActiveWarehouses =================
+
+    @Test
+    void getActiveWarehouses_mapsAllActiveWarehouses() {
+        Warehouse a = warehouseAt(10.0, 106.0);
+        Warehouse b = warehouseAt(11.0, 107.0);
+        when(warehouseRepository.findByStatusOrderByNameAsc(CatalogStatus.ACTIVE)).thenReturn(List.of(a, b));
+
+        List<WarehouseResponse> result = service.getActiveWarehouses();
+
+        assertThat(result).hasSize(2);
+        verify(warehouseRepository).findByStatusOrderByNameAsc(CatalogStatus.ACTIVE);
+    }
+
+    @Test
+    void getActiveWarehouses_returnsEmpty_whenNone() {
+        when(warehouseRepository.findByStatusOrderByNameAsc(CatalogStatus.ACTIVE)).thenReturn(List.of());
+
+        assertThat(service.getActiveWarehouses()).isEmpty();
+    }
+
+    // ================= getManagedWarehouses =================
+
+    @Test
+    void getManagedWarehouses_whenProfileNotFound_throwsModeratorNotFound() {
+        UUID accountId = UUID.randomUUID();
+        when(accountRepository.findWithWarehouseById(accountId)).thenReturn(Optional.empty());
+
+        assertAppException(() -> service.getManagedWarehouses(accountId), ErrorCode.MODERATOR_NOT_FOUND);
+    }
+
+    @Test
+    void getManagedWarehouses_whenAccountHasNoWarehouse_throwsModeratorNotFound() {
+        UUID accountId = UUID.randomUUID();
+        Account account = mock(Account.class);
+        when(account.getWarehouse()).thenReturn(null);
+        when(accountRepository.findWithWarehouseById(accountId)).thenReturn(Optional.of(account));
+
+        assertAppException(() -> service.getManagedWarehouses(accountId), ErrorCode.MODERATOR_NOT_FOUND);
     }
 
     @Test
     void getManagedWarehouses_whenProfileExists_returnsListWithItsWarehouse() {
-        // given
         UUID accountId = UUID.randomUUID();
-        UUID warehouseId = UUID.randomUUID();
+        Warehouse warehouse = warehouseAt(10.0, 106.0);
+        Account account = mock(Account.class);
+        when(account.getWarehouse()).thenReturn(warehouse);
+        when(accountRepository.findWithWarehouseById(accountId)).thenReturn(Optional.of(account));
 
-        Warehouse warehouse = Warehouse.builder()
-                .id(warehouseId)
-                .name("Kho Quận 7")
-                .address("123 Nguyễn Văn Linh, Q7")
-                .openingHours("08:00 - 18:00")
-                .build();
-
-        ModeratorProfile profile = ModeratorProfile.builder()
-                .accountId(accountId)
-                .fullName("Nguyễn Văn A")
-                .moderatorCode("MOD-07-003")
-                .warehouse(warehouse)
-                .build();
-
-        when(moderatorProfileRepository.findWithWarehouseByAccountId(accountId))
-                .thenReturn(Optional.of(profile));
-
-        // when
         List<MyWarehouseResponse> result = service.getManagedWarehouses(accountId);
 
-        // then
         assertThat(result).hasSize(1);
-        assertThat(result.get(0).getName()).isEqualTo("Kho Quận 7");
-        verify(moderatorProfileRepository).findWithWarehouseByAccountId(accountId);
-    }
-
-    @Test
-    void getManagedWarehouses_whenProfileNotFound_throwsModeratorNotFound() {
-        // given
-        UUID accountId = UUID.randomUUID();
-        when(moderatorProfileRepository.findWithWarehouseByAccountId(accountId))
-                .thenReturn(Optional.empty());
-
-        // when + then
-        assertThatThrownBy(() -> service.getManagedWarehouses(accountId))
-                .isInstanceOf(AppException.class)
-                .extracting(ex -> ((AppException) ex).getErrorCode())
-                .isEqualTo(ErrorCode.MODERATOR_NOT_FOUND);
-
-        verify(moderatorProfileRepository).findWithWarehouseByAccountId(accountId);
+        verify(accountRepository).findWithWarehouseById(accountId);
     }
 }

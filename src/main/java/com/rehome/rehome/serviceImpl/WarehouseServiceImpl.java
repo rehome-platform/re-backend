@@ -2,11 +2,13 @@ package com.rehome.rehome.serviceImpl;
 import com.rehome.rehome.dto.marketplace.response.WarehouseResponse;
 import com.rehome.rehome.dto.response.MyWarehouseResponse;
 import com.rehome.rehome.dto.response.WarehouseNearestResponse;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.ModeratorProfile;
 import com.rehome.rehome.entity.enums.CatalogStatus;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.ModeratorProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.WarehouseService;
@@ -23,7 +25,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class WarehouseServiceImpl implements WarehouseService {
     private final WarehouseRepository warehouseRepository;
-    private final ModeratorProfileRepository moderatorProfileRepository;
+    private final AccountRepository accountRepository;
 
     private static final double EARTH_RADIUS_KM = 6371.0;
 
@@ -75,11 +77,16 @@ public class WarehouseServiceImpl implements WarehouseService {
 
     @Transactional
     public List<MyWarehouseResponse> getManagedWarehouses(UUID accountId) {
-        ModeratorProfile profile = moderatorProfileRepository
-                .findWithWarehouseByAccountId(accountId)
+        Account account = accountRepository.findWithWarehouseById(accountId)
                 .orElseThrow(() -> new AppException(ErrorCode.MODERATOR_NOT_FOUND));
 
-        return List.of(MyWarehouseResponse.from(profile.getWarehouse()));
+        Warehouse warehouse = account.getWarehouse();
+        if (warehouse == null) {
+            // account không phải moderator, hoặc chưa được gán kho
+            throw new AppException(ErrorCode.MODERATOR_NOT_FOUND);
+        }
+
+        return List.of(MyWarehouseResponse.from(warehouse));
     }
 
 //    Code này dùng khi tạo warehouse thủ công

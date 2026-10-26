@@ -41,6 +41,7 @@ public class WarehouseController {
 
 
     @GetMapping("/moderator")
+    @PreAuthorize("hasRole('MODERATOR')")
     public List<MyWarehouseResponse> getMyWarehouses(@AuthenticationPrincipal Account account) {
         return warehouseService.getManagedWarehouses(account.getId());
     }

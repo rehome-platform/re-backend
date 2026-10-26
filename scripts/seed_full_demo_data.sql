@@ -3,6 +3,9 @@
 -- cộng với CRUD cơ bản (giỏ hàng, địa chỉ, ký gửi, ví).
 --
 -- Điều kiện chạy: app đã chạy ít nhất 1 lần (ddl-auto=update đã tạo xong schema).
+-- Script cũng tự tạo sequence member_code_seq (bước 0) — Hibernate KHÔNG tạo nó vì
+-- MemberCodeGenerator gọi nextval() bằng SQL thô chứ không khai báo @SequenceGenerator,
+-- nên DB mới dựng mà thiếu sequence này thì POST /api/auth/register sẽ lỗi.
 -- Không phụ thuộc UserInitializer — toàn bộ account (admin/moderator/member) do
 -- chính script này tạo, dùng domain @rehome.test để không bao giờ đụng với
 -- admin@rehome.com / moderator1-3@rehome.com mà UserInitializer tự seed lúc khởi động.
@@ -98,6 +101,12 @@ DECLARE
     v_oi_c_id        uuid;
 BEGIN
     ------------------------------------------------------------------
+    -- 0. Sequence sinh member_code — MemberCodeGenerator chạy 'SELECT nextval(...)'
+    --    ở mỗi INSERT member_profiles, định dạng MB + 6 chữ số (MB000001).
+    ------------------------------------------------------------------
+    CREATE SEQUENCE IF NOT EXISTS member_code_seq START 1;
+
+    ------------------------------------------------------------------
     -- 1. Kho — đủ ward_name/province_name/is_new_address để GHN tạo vận đơn chạy được
     ------------------------------------------------------------------
     -- Phường Tân Phú (Q.7 cũ) đã sáp nhập thành Phường Tân Mỹ theo NQ 1685/NQ-UBTVQH15 (hiệu lực 01/07/2025)
@@ -166,12 +175,22 @@ BEGIN
         (v_mod2_id, 'Ngô Văn Moderator 2',  'MOD-SEED-0002', v_wh1_id),
         (v_mod3_id, 'Bùi Thị Moderator 3',  'MOD-SEED-0003', v_wh2_id);
 
+    -- member_code dùng đúng định dạng MemberCodeGenerator sinh ra (MB + 6 chữ số), lấy
+    -- dải 0009xx để QR tra cứu tại quầy (API 25) test được với dữ liệu giống thật.
     INSERT INTO member_profiles (account_id, full_name, avatar_url, member_code) VALUES
-        (v_buyer1_id,  'Nguyễn Văn Buyer 1', NULL, 'MEM-SEED-0001'),
-        (v_buyer2_id,  'Đặng Thị Buyer 2',   NULL, 'MEM-SEED-0002'),
-        (v_seller1_id, 'Trần Thị Seller 1',  NULL, 'MEM-SEED-0003'),
-        (v_seller2_id, 'Lê Văn Seller 2',    NULL, 'MEM-SEED-0004'),
-        (v_seller3_id, 'Phạm Thị Seller 3',  NULL, 'MEM-SEED-0005');
+        (v_buyer1_id,  'Nguyễn Văn Buyer 1', NULL, 'MB000901'),
+        (v_buyer2_id,  'Đặng Thị Buyer 2',   NULL, 'MB000902'),
+        (v_seller1_id, 'Trần Thị Seller 1',  NULL, 'MB000903'),
+        (v_seller2_id, 'Lê Văn Seller 2',    NULL, 'MB000904'),
+        (v_seller3_id, 'Phạm Thị Seller 3',  NULL, 'MB000905');
+
+    -- Đẩy sequence lên trên mã lớn nhất đang có, nếu không thì member đăng ký thật
+    -- sẽ bò dần tới MB000901 và chết ở unique constraint member_code.
+    PERFORM setval('member_code_seq',
+        (SELECT COALESCE(MAX(SUBSTRING(member_code FROM 3)::bigint), 0) + 1
+         FROM member_profiles
+         WHERE member_code ~ '^MB[0-9]+$'),
+        false);
 
     INSERT INTO organization_profiles (
         account_id, legal_name, display_name, org_type, tax_code, operation_scope,
@@ -483,11 +502,11 @@ END $$;
 --   moderator1@rehome.test  MODERATOR  — phụ trách "Kho Quận 7 - TP.HCM"
 --   moderator2@rehome.test  MODERATOR  — phụ trách "Kho Quận 7 - TP.HCM"
 --   moderator3@rehome.test  MODERATOR  — phụ trách "Kho Cầu Giấy - Hà Nội"
---   buyer1@rehome.test      MEMBER     — ví 5.000.000đ, 2 địa chỉ (TP.HCM), giỏ có 2 món (2 kho khác nhau)
---   buyer2@rehome.test      MEMBER     — ví 3.000.000đ, 1 địa chỉ (Hà Nội), có đơn OD-2026-SEED05 chờ thanh toán
---   seller1@rehome.test     MEMBER     — ví 405.000đ (đã nhận payout từ OD-2026-SEED01)
---   seller2@rehome.test     MEMBER     — ví 0đ
---   seller3@rehome.test     MEMBER     — ví 0đ
+--   buyer1@rehome.test      MEMBER  MB000901  — ví 5.000.000đ, 2 địa chỉ (TP.HCM), giỏ có 2 món (2 kho khác nhau)
+--   buyer2@rehome.test      MEMBER  MB000902  — ví 3.000.000đ, 1 địa chỉ (Hà Nội), có đơn OD-2026-SEED05 chờ thanh toán
+--   seller1@rehome.test     MEMBER  MB000903  — ví 405.000đ (đã nhận payout từ OD-2026-SEED01)
+--   seller2@rehome.test     MEMBER  MB000904  — ví 0đ
+--   seller3@rehome.test     MEMBER  MB000905  — ví 0đ
 --   org1@rehome.test        ORGANIZATION — hồ sơ VERIFIED
 --
 -- Kho:
@@ -503,6 +522,13 @@ END $$;
 --   OD-2026-SEED05  PENDING_PAYMENT     — test POST /api/vnpay/create | /api/momo/create với
 --                                          body {"orderIds":[...]}, hoặc POST /orders/pay bằng ví,
 --                                          hoặc POST /orders/{id}/cancel (huỷ đơn chưa thanh toán)
+--
+-- Tra cứu Member tại quầy (API 25, POST /counter/lookup, role MODERATOR) — gửi đúng 1 field:
+--   {"memberCode": "MB000901"}                       -> 1 kết quả
+--   {"phone": "0911111101"}                          -> 1 kết quả (buyer1)
+--   {"qrPayload": "REHOME:MEMBER:v1:MB000901"}       -> 1 kết quả, giống hệt quét QR thật
+--   {"qrPayload": "REHOME:PRODUCT:v1:Q7-AK-000001"}  -> 400 QR_PAYLOAD_INVALID (sai tiền tố)
+-- Chuỗi QR không nằm trong DB: GET /members/me/code tính ra từ member_code mỗi lần gọi.
 --
 -- Sản phẩm ON_SALE còn trống để test thêm giỏ hàng / đặt đơn mới: tất cả trừ
 -- Q7-AK-000001 (SOLD), Q7-AT-000002 (RESERVED), Q7-QJ-000003 (RESERVED), CG-AK-000011 (RESERVED).

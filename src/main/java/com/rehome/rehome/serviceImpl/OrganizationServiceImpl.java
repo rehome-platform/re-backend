@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
+import com.rehome.rehome.dto.response.OrganizationProfileResponse;
 import com.rehome.rehome.dto.response.OrganizationResubmitResponse;
 import com.rehome.rehome.dto.response.RegisterOrganizationResponse;
 import com.rehome.rehome.entity.auth.Account;
@@ -88,6 +89,15 @@ public class OrganizationServiceImpl implements OrganizationService {
         organizationProfileRepository.save(profile);
 
         return new OrganizationResubmitResponse(profile.getVerificationStatus());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public OrganizationProfileResponse getMyProfile(UUID accountId) {
+        // OrganizationProfile dùng @MapsId nên accountId chính là khóa chính
+        return organizationProfileRepository.findById(accountId)
+                .map(OrganizationProfileResponse::from)
+                .orElseGet(OrganizationProfileResponse::notSubmitted);
     }
 
 }

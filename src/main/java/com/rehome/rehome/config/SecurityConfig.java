@@ -76,6 +76,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/categories", "/brands").permitAll()
                         // API kho gần nhất (F-015) chỉ dành cho Member
                         // MỚI: API kho gần nhất (F-015) chỉ dành cho Member
+                        .requestMatchers("/warehouses/moderator").hasRole("MODERATOR")
                         .requestMatchers("/warehouses/**").hasRole("MEMBER")
                         .anyRequest().authenticated()
                 )

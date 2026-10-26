@@ -9,7 +9,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Repository
-public interface OrganizationProfileRepository extends JpaRepository<OrganizationProfile, Long> {
+public interface OrganizationProfileRepository extends JpaRepository<OrganizationProfile, UUID> {
 
     boolean existsByAccountId(UUID accountId);
     boolean existsByContactEmailIgnoreCase(String contactEmail);

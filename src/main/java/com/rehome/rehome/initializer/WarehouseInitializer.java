@@ -13,7 +13,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
-
+import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.Role;
+import com.rehome.rehome.repository.AccountRepository;
 /**
  * Seed dữ liệu mẫu cho bảng warehouses (phục vụ test API F-015 - kho gần nhất).
  * Chỉ seed khi bảng đang trống, nên khởi động lại app không bị trùng dữ liệu. Nếu bảng đã có dữ liệu
@@ -31,6 +33,17 @@ public class WarehouseInitializer implements CommandLineRunner {
 
     private final WarehouseRepository warehouseRepository;
 
+    private static final String DEFAULT_MODERATOR_WAREHOUSE = "Kho Quận 7";
+
+    // email moderator -> tên kho phụ trách
+    private static final Map<String, String> MODERATOR_WAREHOUSES = Map.of(
+            "moderator1@rehome.com", "Kho Quận 7",
+            "moderator2@rehome.com", "Kho Quận 1",
+            "moderator3@rehome.com", "Kho Quận 3"
+    );
+
+    private final AccountRepository accountRepository;
+
     @Override
     public void run(String... args) {
         List<Warehouse> seeds = seedDefinitions();
@@ -38,10 +51,41 @@ public class WarehouseInitializer implements CommandLineRunner {
         if (warehouseRepository.count() == 0) {
             warehouseRepository.saveAll(seeds);
             log.info("Đã seed {} kho mẫu", seeds.size());
-            return;
+        } else {
+            syncAddressUnits(seeds);
         }
 
-        syncAddressUnits(seeds);
+        assignWarehousesToModerators();
+    }
+
+    // Gán kho cho moderator chưa có kho (warehouse_id đang null). Chạy lặp lại không ghi đè
+// những moderator đã được gán kho.
+    private void assignWarehousesToModerators() {
+        Map<String, Warehouse> warehouseByName = warehouseRepository.findAll().stream()
+                .collect(Collectors.toMap(Warehouse::getName, w -> w, (a, b) -> a));
+
+        int assigned = 0;
+        for (Account moderator : accountRepository.findByRole(Role.MODERATOR)) {
+            if (moderator.getWarehouse() != null) {
+                continue;
+            }
+
+            String warehouseName = MODERATOR_WAREHOUSES
+                    .getOrDefault(moderator.getEmail(), DEFAULT_MODERATOR_WAREHOUSE);
+            Warehouse warehouse = warehouseByName.get(warehouseName);
+            if (warehouse == null) {
+                log.warn("Không tìm thấy kho '{}' để gán cho {}", warehouseName, moderator.getEmail());
+                continue;
+            }
+
+            moderator.setWarehouse(warehouse);
+            accountRepository.save(moderator);
+            assigned++;
+        }
+
+        if (assigned > 0) {
+            log.info("Đã gán kho cho {} moderator", assigned);
+        }
     }
 
     // Ghi lại khối địa chỉ cho những kho đã tồn tại nhưng khai sai so với seed (vd tên tỉnh/thành

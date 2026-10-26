@@ -3,6 +3,8 @@ package com.rehome.rehome.controller;
 import com.rehome.rehome.dto.request.CounterHandoverRequest;
 import com.rehome.rehome.dto.request.CounterLookupRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
+import com.rehome.rehome.dto.response.MemberLookupItemResponse;
+import com.rehome.rehome.dto.response.MemberTasksResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.CounterService;
 import jakarta.validation.Valid;
@@ -21,15 +23,6 @@ import java.util.UUID;
 public class CounterController {
 
     private final CounterService counterService;
-
-    // API 25
-    @PostMapping("/lookup")
-    @PreAuthorize("hasRole('MODERATOR')")
-    public ResponseEntity<ApiResponse<List<MemberLookupItemResponse>>> lookup(
-            @RequestBody CounterLookupRequest request) {
-
-        return ResponseEntity.ok(ApiResponse.success(counterService.lookup(request)));
-    }
 
     // API 26
     @PostMapping("/members/{accountId}/confirm-identity")

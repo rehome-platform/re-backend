@@ -2,15 +2,13 @@ package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.RegisterRequest;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
-import com.rehome.rehome.dto.response.ApiResponse;
-import com.rehome.rehome.dto.response.OrganizationResubmitResponse;
-import com.rehome.rehome.dto.response.OtpResponse;
+import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.OrganizationService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.RequestMapping;
-import com.rehome.rehome.dto.response.RegisterOrganizationResponse;
 import com.rehome.rehome.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
@@ -46,5 +44,13 @@ public class OrganizationProfileController {
     @Operation(summary = "Đăng ký tài khoản organization")
     public ResponseEntity<ApiResponse<OtpResponse>> register(@Valid @RequestBody RegisterRequest request) {
         return ResponseEntity.status(201).body(ApiResponse.success(authService.registerOrganization(request), 201));
+    }
+
+    @GetMapping("/me")
+    @PreAuthorize("hasRole('ORGANIZATION')")
+    public ResponseEntity<OrganizationProfileResponse> getMyProfile(
+            @AuthenticationPrincipal Account account
+    ) {
+        return ResponseEntity.ok(organizationService.getMyProfile(account.getId()));
     }
 }

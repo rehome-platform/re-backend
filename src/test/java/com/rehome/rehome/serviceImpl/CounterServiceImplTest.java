@@ -1,12 +1,18 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.dto.request.CounterHandoverRequest;
+import com.rehome.rehome.dto.request.CounterLookupRequest;
+import com.rehome.rehome.dto.response.MemberLookupItemResponse;
+import com.rehome.rehome.dto.response.MemberTasksResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.counter.CounterIdentityConfirmation;
+import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
 import com.rehome.rehome.entity.enums.EndOfTermChoice;
 import com.rehome.rehome.entity.enums.InvalidReturnChoice;
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
+import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
 import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.marketplace.Order;
@@ -15,9 +21,11 @@ import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.repository.ConsignmentFormRepository;
 import com.rehome.rehome.repository.CounterIdentityConfirmationRepository;
 import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.ItemWithdrawalRequestRepository;
+import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -28,14 +36,17 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -45,6 +56,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class CounterServiceImplTest {
 
+    @Mock private MemberProfileRepository memberProfileRepository;
+    @Mock private ConsignmentFormRepository consignmentFormRepository;
     @Mock private AccountRepository accountRepository;
     @Mock private CounterIdentityConfirmationRepository identityConfirmationRepository;
     @Mock private ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
@@ -85,6 +98,23 @@ class CounterServiceImplTest {
         return r;
     }
 
+    private CounterLookupRequest lookupRequest(String memberCode, String phone, String qrPayload) {
+        CounterLookupRequest r = new CounterLookupRequest();
+        r.setMemberCode(memberCode);
+        r.setPhone(phone);
+        r.setQrPayload(qrPayload);
+        return r;
+    }
+
+    private MemberProfile profile(UUID accountId, String memberCode) {
+        return MemberProfile.builder()
+                .accountId(accountId)
+                .fullName("Tạ Thị Ngọc Anh")
+                .avatarUrl("https://cdn.rehome.vn/uploads/avatar.jpg")
+                .memberCode(memberCode)
+                .build();
+    }
+
     private void assertErrorCode(Runnable call, ErrorCode expected) {
         assertThatThrownBy(call::run)
                 .isInstanceOf(AppException.class)
@@ -96,6 +126,199 @@ class CounterServiceImplTest {
         verifyNoInteractions(itemWithdrawalRequestRepository);
         verifyNoInteractions(endOfTermDecisionRepository);
         verifyNoInteractions(returnRequestRepository);
+    }
+
+    // ---------------------------------------------------------------- lookup (API 25)
+
+    @Test
+    @DisplayName("lookup: tra theo phone -> trả về danh sách có Member")
+    void lookup_byPhone_found() {
+        when(memberProfileRepository.findByAccount_Phone("0912345678"))
+                .thenReturn(List.of(profile(memberId, "MB-000123")));
+
+        List<MemberLookupItemResponse> result = service.lookup(lookupRequest(null, "0912345678", null));
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getAccountId()).isEqualTo(memberId);
+        assertThat(result.get(0).getFullName()).isEqualTo("Tạ Thị Ngọc Anh");
+        assertThat(result.get(0).getAvatarUrl()).isEqualTo("https://cdn.rehome.vn/uploads/avatar.jpg");
+        assertThat(result.get(0).getMemberCode()).isEqualTo("MB-000123");
+    }
+
+    @Test
+    @DisplayName("lookup: tra theo memberCode -> đúng 1 phần tử")
+    void lookup_byMemberCode_found() {
+        when(memberProfileRepository.findByMemberCode("MB-000123"))
+                .thenReturn(Optional.of(profile(memberId, "MB-000123")));
+
+        List<MemberLookupItemResponse> result = service.lookup(lookupRequest("MB-000123", null, null));
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getMemberCode()).isEqualTo("MB-000123");
+    }
+
+    @Test
+    @DisplayName("lookup: tra theo qrPayload -> coi payload là memberCode")
+    void lookup_byQrPayload_usesMemberCodeLookup() {
+        when(memberProfileRepository.findByMemberCode("MB-000123"))
+                .thenReturn(Optional.of(profile(memberId, "MB-000123")));
+
+        List<MemberLookupItemResponse> result = service.lookup(lookupRequest(null, null, "MB-000123"));
+
+        assertThat(result).hasSize(1);
+        verify(memberProfileRepository).findByMemberCode("MB-000123");
+    }
+
+    @Test
+    @DisplayName("lookup: input được trim trước khi tra")
+    void lookup_inputIsTrimmed() {
+        when(memberProfileRepository.findByAccount_Phone("0912345678"))
+                .thenReturn(List.of(profile(memberId, "MB-000123")));
+
+        service.lookup(lookupRequest(null, "  0912345678  ", null));
+
+        verify(memberProfileRepository).findByAccount_Phone("0912345678");
+    }
+
+    @Test
+    @DisplayName("lookup: không gửi field nào -> LOOKUP_INVALID_INPUT")
+    void lookup_noneProvided_throws() {
+        assertErrorCode(() -> service.lookup(lookupRequest(null, null, null)), ErrorCode.LOOKUP_INVALID_INPUT);
+
+        verifyNoInteractions(memberProfileRepository);
+    }
+
+    @Test
+    @DisplayName("lookup: field rỗng hoặc toàn khoảng trắng coi như không gửi -> LOOKUP_INVALID_INPUT")
+    void lookup_blankFields_throws() {
+        assertErrorCode(() -> service.lookup(lookupRequest("", "   ", null)), ErrorCode.LOOKUP_INVALID_INPUT);
+
+        verifyNoInteractions(memberProfileRepository);
+    }
+
+    @Test
+    @DisplayName("lookup: gửi 2 field -> LOOKUP_INVALID_INPUT")
+    void lookup_twoProvided_throws() {
+        assertErrorCode(() -> service.lookup(lookupRequest("MB-000123", "0912345678", null)),
+                ErrorCode.LOOKUP_INVALID_INPUT);
+
+        verifyNoInteractions(memberProfileRepository);
+    }
+
+    @Test
+    @DisplayName("lookup: gửi đủ 3 field -> LOOKUP_INVALID_INPUT")
+    void lookup_threeProvided_throws() {
+        assertErrorCode(() -> service.lookup(lookupRequest("MB-000123", "0912345678", "MB-000123")),
+                ErrorCode.LOOKUP_INVALID_INPUT);
+
+        verifyNoInteractions(memberProfileRepository);
+    }
+
+    @Test
+    @DisplayName("lookup: phone không có Member -> MEMBER_NOT_FOUND")
+    void lookup_phoneNotFound_throws() {
+        when(memberProfileRepository.findByAccount_Phone("0900000000")).thenReturn(List.of());
+
+        assertErrorCode(() -> service.lookup(lookupRequest(null, "0900000000", null)), ErrorCode.MEMBER_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("lookup: memberCode không tồn tại -> MEMBER_NOT_FOUND")
+    void lookup_memberCodeNotFound_throws() {
+        when(memberProfileRepository.findByMemberCode("MB-999999")).thenReturn(Optional.empty());
+
+        assertErrorCode(() -> service.lookup(lookupRequest("MB-999999", null, null)), ErrorCode.MEMBER_NOT_FOUND);
+    }
+
+    // ---------------------------------------------------------------- getTasks (API 27)
+
+    @Test
+    @DisplayName("getTasks: Member không tồn tại -> MEMBER_NOT_FOUND, không query các bảng việc")
+    void getTasks_memberNotFound_throws() {
+        when(memberProfileRepository.existsById(memberId)).thenReturn(false);
+
+        assertErrorCode(() -> service.getTasks(memberId), ErrorCode.MEMBER_NOT_FOUND);
+
+        verifyNoInteractions(consignmentFormRepository);
+        verifyNoRecordRepoTouched();
+    }
+
+    @Test
+    @DisplayName("getTasks: chưa có việc nào -> 3 mảng rỗng, form được lấy với PENDING và APPROVED")
+    void getTasks_noTasks_returnsEmptyLists() {
+        List<ConsignmentFormStatus> openStatuses =
+                List.of(ConsignmentFormStatus.PENDING, ConsignmentFormStatus.APPROVED);
+        when(memberProfileRepository.existsById(memberId)).thenReturn(true);
+        when(consignmentFormRepository.findByMember_IdAndStatusInOrderByCreatedAtAsc(eq(memberId), eq(openStatuses)))
+                .thenReturn(List.of());
+        when(itemWithdrawalRequestRepository.findByMember_IdAndStatusOrderByCreatedAtAsc(
+                memberId, ItemWithdrawalStatus.PENDING_PICKUP)).thenReturn(List.of());
+        when(endOfTermDecisionRepository.findUndecidedByMemberId(memberId)).thenReturn(List.of());
+
+        MemberTasksResponse result = service.getTasks(memberId);
+
+        assertThat(result.getPendingForms()).isEmpty();
+        assertThat(result.getPendingWithdrawals()).isEmpty();
+        assertThat(result.getPendingEndOfTerm()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getTasks: map đúng dữ liệu của cả 3 nhóm việc")
+    void getTasks_mapsAllThreeGroups() {
+        Instant now = Instant.parse("2026-10-13T08:00:00Z");
+        Product product = Product.builder().id("Q7-AK-000845").name("Áo khoác denim").member(member).build();
+
+        ConsignmentForm form = ConsignmentForm.builder()
+                .id(UUID.randomUUID())
+                .productName("Váy hoa")
+                .desiredPrice(new BigDecimal("250000"))
+                .status(ConsignmentFormStatus.APPROVED)
+                .createdAt(now)
+                .build();
+        ItemWithdrawalRequest withdrawal = ItemWithdrawalRequest.builder()
+                .id(UUID.randomUUID())
+                .product(product)
+                .member(member)
+                .feeCharged(new BigDecimal("30000"))
+                .pickupDeadline(now.plusSeconds(3600))
+                .build();
+        EndOfTermDecision decision = EndOfTermDecision.builder()
+                .id(UUID.randomUUID())
+                .product(product)
+                .deadline(now.plusSeconds(7200))
+                .build();
+
+        when(memberProfileRepository.existsById(memberId)).thenReturn(true);
+        when(consignmentFormRepository.findByMember_IdAndStatusInOrderByCreatedAtAsc(eq(memberId), any()))
+                .thenReturn(List.of(form));
+        when(itemWithdrawalRequestRepository.findByMember_IdAndStatusOrderByCreatedAtAsc(
+                memberId, ItemWithdrawalStatus.PENDING_PICKUP)).thenReturn(List.of(withdrawal));
+        when(endOfTermDecisionRepository.findUndecidedByMemberId(memberId)).thenReturn(List.of(decision));
+
+        MemberTasksResponse result = service.getTasks(memberId);
+
+        assertThat(result.getPendingForms()).hasSize(1);
+        MemberTasksResponse.PendingFormItem f = result.getPendingForms().get(0);
+        assertThat(f.getId()).isEqualTo(form.getId());
+        assertThat(f.getProductName()).isEqualTo("Váy hoa");
+        assertThat(f.getDesiredPrice()).isEqualByComparingTo("250000");
+        assertThat(f.getStatus()).isEqualTo(ConsignmentFormStatus.APPROVED);
+        assertThat(f.getCreatedAt()).isEqualTo(now);
+
+        assertThat(result.getPendingWithdrawals()).hasSize(1);
+        MemberTasksResponse.PendingWithdrawalItem w = result.getPendingWithdrawals().get(0);
+        assertThat(w.getId()).isEqualTo(withdrawal.getId());
+        assertThat(w.getProductId()).isEqualTo("Q7-AK-000845");
+        assertThat(w.getProductName()).isEqualTo("Áo khoác denim");
+        assertThat(w.getFeeCharged()).isEqualByComparingTo("30000");
+        assertThat(w.getPickupDeadline()).isEqualTo(now.plusSeconds(3600));
+
+        assertThat(result.getPendingEndOfTerm()).hasSize(1);
+        MemberTasksResponse.PendingEndOfTermItem e = result.getPendingEndOfTerm().get(0);
+        assertThat(e.getId()).isEqualTo(decision.getId());
+        assertThat(e.getProductId()).isEqualTo("Q7-AK-000845");
+        assertThat(e.getProductName()).isEqualTo("Áo khoác denim");
+        assertThat(e.getDeadline()).isEqualTo(now.plusSeconds(7200));
     }
 
     // ---------------------------------------------------------------- confirmIdentity
@@ -333,7 +556,7 @@ class CounterServiceImplTest {
     // ---------------------------------------------------------------- handover - INVALID_RETURN_PICKUP
 
     private ReturnRequest returnRequest(Account buyer, ReturnRequestStatus status,
-                                         InvalidReturnChoice choice, Instant pickedUpAt) {
+                                        InvalidReturnChoice choice, Instant pickedUpAt) {
         Order order = Order.builder().id(UUID.randomUUID()).buyer(buyer).build();
         return ReturnRequest.builder()
                 .id(refId)

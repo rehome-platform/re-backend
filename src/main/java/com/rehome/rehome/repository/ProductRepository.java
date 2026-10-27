@@ -42,11 +42,11 @@ public interface ProductRepository extends JpaRepository<Product, String>, JpaSp
 
     @Query("""
     SELECT p FROM Product p
-    WHERE p.warehouse.id = :warehouseId
-      AND (:status IS NULL OR p.status = :status)
-      AND (:shelfLocation IS NULL
-           OR LOWER(p.shelfLocation) LIKE LOWER(CONCAT('%', :shelfLocation, '%')))
-    """)
+WHERE p.warehouse.id = :warehouseId
+  AND (:status IS NULL OR p.status = :status)
+  AND (CAST(:shelfLocation AS string) IS NULL
+       OR LOWER(p.shelfLocation) LIKE LOWER(CONCAT('%', CAST(:shelfLocation AS string), '%')))
+""")
     Page<Product> findInventory(@Param("warehouseId") UUID warehouseId,
                                 @Param("status") ProductStatus status,
                                 @Param("shelfLocation") String shelfLocation,

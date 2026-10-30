@@ -452,7 +452,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .toList();
 
         return GhnCreateOrderRequest.builder()
-                .clientOrderCode("RT-" + order.getOrderNo())
+                // UUID của return request, không phải orderNo: cùng lý do với OrderServiceImpl
+                // (orderNo đếm theo DB local, có thể trùng lại số cũ sau reset/seed còn lịch sử
+                // client_order_code bên GHN sandbox thì không bao giờ mất).
+                .clientOrderCode("RT-" + returnRequest.getId())
                 .fromName(order.getShippingRecipientName())
                 .fromPhone(order.getShippingPhone())
                 .fromAddress(order.getShippingAddressDetail())

@@ -2,6 +2,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.dto.request.*;
+import com.rehome.rehome.dto.response.AccountBannedResult;
 import com.rehome.rehome.dto.response.AuthResponse;
 import com.rehome.rehome.dto.response.OtpResponse;
 
@@ -36,6 +37,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.Instant;
 
@@ -64,7 +66,8 @@ public class AuthServiceImpl implements AuthService {
             throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
 
-        if(accountRepository.existsByPhone(request.getPhone())){
+        String phone = normalizePhone(request.getPhone());
+        if (phone != null && accountRepository.existsByPhone(phone)) {
             throw new AppException(ErrorCode.PHONE_TAKEN);
         }
 
@@ -74,7 +77,7 @@ public class AuthServiceImpl implements AuthService {
                 .role(Role.MEMBER)
                 .status(AccountStatus.ACTIVE)
                 .emailVerified(false)
-                .phone(request.getPhone())
+                .phone(phone)
                 .createdAt(Instant.now())
                 .build();
 
@@ -101,7 +104,8 @@ public class AuthServiceImpl implements AuthService {
             throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
 
-        if(accountRepository.existsByPhone(request.getPhone())){
+        String phone = normalizePhone(request.getPhone());
+        if (phone != null && accountRepository.existsByPhone(phone)) {
             throw new AppException(ErrorCode.PHONE_TAKEN);
         }
 
@@ -111,7 +115,7 @@ public class AuthServiceImpl implements AuthService {
                 .role(Role.ORGANIZATION)
                 .status(AccountStatus.ACTIVE)
                 .emailVerified(false)
-                .phone(request.getPhone())
+                .phone(phone)
                 .createdAt(Instant.now())
                 .build();
 
@@ -122,6 +126,17 @@ public class AuthServiceImpl implements AuthService {
         return new OtpResponse(
                 "Đăng ký thành công. Vui lòng kiểm tra email để xác minh OTP."
         );
+    }
+
+    // Rỗng/chỉ khoảng trắng -> null. Nếu không, hai tài khoản cùng để trống sẽ đụng ràng buộc unique của phone,
+    // và existsByPhone(null) của Spring Data thành "phone is null" nên báo trùng sai.
+    private String normalizePhone(String phone) {
+        return StringUtils.hasText(phone) ? phone.trim() : null;
+    }
+
+    // 403 ACCOUNT_BANNED kèm lý do khoá trong result
+    private AppException bannedException(Account account) {
+        return new AppException(ErrorCode.ACCOUNT_BANNED, new AccountBannedResult(account.getBanReason()));
     }
 
     // ==================== LOGIN ====================
@@ -137,7 +152,9 @@ public class AuthServiceImpl implements AuthService {
                     )
             );
         } catch (DisabledException e) {              // phải catch trước AuthenticationException
-            throw new AppException(ErrorCode.ACCOUNT_BANNED);
+            throw accountRepository.findByEmail(request.getEmail())
+                    .map(this::bannedException)
+                    .orElseGet(() -> new AppException(ErrorCode.ACCOUNT_BANNED));
         } catch (AuthenticationException e) {
             throw new AppException(ErrorCode.INVALID_CREDENTIALS);
         }
@@ -147,7 +164,7 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() -> new AppException(ErrorCode.ACCOUNT_NOT_FOUND));
 
         if (account.getStatus() != AccountStatus.ACTIVE) {
-            throw new AppException(ErrorCode.ACCOUNT_BANNED);
+            throw bannedException(account);
         }
 
         if (!account.isEmailVerified()) {
@@ -184,7 +201,7 @@ public class AuthServiceImpl implements AuthService {
         } else {
             // Tài khoản đã tồn tại
             if (account.getStatus() != AccountStatus.ACTIVE) {
-                throw new AppException(ErrorCode.ACCOUNT_BANNED);
+                throw bannedException(account);
             }
 
             if (account.getGoogleId() == null) {
@@ -221,7 +238,7 @@ public class AuthServiceImpl implements AuthService {
         Account account = refreshToken.getAccount();
 
         if (account.getStatus() != AccountStatus.ACTIVE) {
-            throw new AppException(ErrorCode.ACCOUNT_BANNED);
+            throw bannedException(account);
         }
 
         String newAccessToken =

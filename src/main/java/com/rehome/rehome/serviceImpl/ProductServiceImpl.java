@@ -18,6 +18,7 @@ import com.rehome.rehome.repository.*;
 import com.rehome.rehome.repository.spec.ProductSpecifications;
 import com.rehome.rehome.service.ProductService;
 import com.rehome.rehome.service.SkuLabelPdfService;
+import com.rehome.rehome.util.ConsignmentCommission;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -47,22 +48,26 @@ public class ProductServiceImpl implements ProductService {
 
     private final ProductRepository productRepository;
     private final ProductPhotoRepository productPhotoRepository;
+    private final ProductPriceChangeRepository productPriceChangeRepository;
     private final ProductMapper productMapper;
     private final EndOfTermDecisionRepository endOfTermDecisionRepository;
     private final ConsignmentReceiptRepository receiptRepository;
+    private final OrderItemRepository orderItemRepository;
     private final StockMovementLogRepository stockMovementLogRepository;
     private final SkuLabelPdfService skuLabelPdfService;
     private final GhnShippingFeeCalculator ghnShippingFeeCalculator;
+
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
+    // ================================================================ Sàn (public)
 
     @Override
     public PageResponse<ProductSummaryResponse> getProducts(String search, UUID categoryId, UUID brandId,
-                                                              BigDecimal priceMin, BigDecimal priceMax,
-                                                              UUID warehouseId, int page, int size,
-                                                              UUID viewerId) {
+                                                            BigDecimal priceMin, BigDecimal priceMax,
+                                                            UUID warehouseId, int page, int size,
+                                                            UUID viewerId) {
 
         if (priceMin != null && priceMax != null && priceMin.compareTo(priceMax) > 0) {
             throw new BadRequestException("priceMin không được lớn hơn priceMax.");
@@ -78,7 +83,7 @@ public class ProductServiceImpl implements ProductService {
 
         List<String> productIds = result.getContent().stream().map(Product::getId).toList();
         Map<String, String> thumbnailByProductId = productPhotoRepository
-                .findByProduct_IdInOrderByIdAsc(productIds).stream()
+                .findByProduct_IdInOrderByDisplayOrderAscIdAsc(productIds).stream()
                 .collect(Collectors.toMap(
                         photo -> photo.getProduct().getId(),
                         ProductPhoto::getImageUrl,
@@ -106,7 +111,7 @@ public class ProductServiceImpl implements ProductService {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        List<String> photos = productPhotoRepository.findByProduct_IdOrderByIdAsc(id).stream()
+        List<String> photos = productPhotoRepository.findByProduct_IdOrderByDisplayOrderAscIdAsc(id).stream()
                 .map(ProductPhoto::getImageUrl)
                 .toList();
 
@@ -136,23 +141,182 @@ public class ProductServiceImpl implements ProductService {
         return viewerId != null && viewerId.equals(product.getMember().getId());
     }
 
+    // ================================================================ Hàng ký gửi của tôi
+
     @Override
-    @Transactional(readOnly = true)
-    public Page<MyProductResponse> getMyProducts(UUID memberId, ProductStatus status, Pageable pageable) {
-        return productRepository.findMine(memberId, status, pageable)
-                .map(productMapper::toMyProductResponse);
+    public Page<MyProductResponse> getMyProducts(UUID memberId, ProductStatus status,
+                                                 boolean pendingDecision, Pageable pageable) {
+
+        Page<Product> page = productRepository.findMine(memberId, status, pendingDecision, pageable);
+
+        List<String> ids = page.getContent().stream().map(Product::getId).toList();
+        if (ids.isEmpty()) {
+            return page.map(p -> null);
+        }
+
+        // Mỗi loại dữ liệu phụ lấy bằng một query cho cả trang, tránh N+1
+        Map<String, String> photos = productPhotoRepository
+                .findByProduct_IdInOrderByDisplayOrderAscIdAsc(ids).stream()
+                .collect(Collectors.toMap(
+                        ph -> ph.getProduct().getId(),
+                        ProductPhoto::getImageUrl,
+                        (first, second) -> first));
+
+        // findByProductIds sắp deadline giảm dần -> giữ dòng đầu = dòng mới nhất của sản phẩm
+        Map<String, EndOfTermDecision> decisions = endOfTermDecisionRepository.findByProductIds(ids).stream()
+                .collect(Collectors.toMap(
+                        d -> d.getProduct().getId(),
+                        d -> d,
+                        (first, second) -> first));
+
+        Map<String, Order> orders = orderItemRepository.findActiveByProductIds(ids).stream()
+                .collect(Collectors.toMap(
+                        oi -> oi.getProduct().getId(),
+                        OrderItem::getOrder,
+                        (first, second) -> first));
+
+        return page.map(p -> productMapper.toMyProduct(
+                p,
+                photos.get(p.getId()),
+                decisions.get(p.getId()),
+                p.getStatus() == ProductStatus.SOLD ? orders.get(p.getId()) : null));
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public ProductEndOfTermDetailResponse getProductById(String id) {
+    public MyProductResponse getMyProduct(UUID memberId, String id) {
         Product product = productRepository.findById(id)
-                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
-        EndOfTermDecision pending = endOfTermDecisionRepository
-                .findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc(id)
-                .orElse(null);
-        return productMapper.toEndOfTermDetailResponse(product, pending);
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));            // 404
+
+        // Chỉ chủ hàng được xem
+        if (!product.getMember().getId().equals(memberId)) {
+            throw new AppException(ErrorCode.PRODUCT_FORBIDDEN);                              // 403
+        }
+
+        List<ProductPriceChange> changes =
+                productPriceChangeRepository.findByProduct_IdOrderByChangedAtAsc(id);
+
+        String photo = productPhotoRepository
+                .findByProduct_IdInOrderByDisplayOrderAscIdAsc(List.of(id)).stream()
+                .map(ProductPhoto::getImageUrl)
+                .findFirst().orElse(null);
+
+        EndOfTermDecision decision = endOfTermDecisionRepository.findByProductIds(List.of(id)).stream()
+                .findFirst().orElse(null);
+
+        Order order = product.getStatus() == ProductStatus.SOLD
+                ? orderItemRepository.findActiveByProductIds(List.of(id)).stream()
+                .map(OrderItem::getOrder).findFirst().orElse(null)
+                : null;
+
+        return productMapper.toMyProductDetail(
+                product, photo, decision, order,
+                changes.stream()
+                        .map(c -> new MyProductResponse.PriceChange(
+                                c.getChangedAt(), c.getOldPrice(), c.getNewPrice()))
+                        .toList(),
+                buildTermHistory(product, changes));
     }
+
+    // price = giá có hiệu lực lúc kỳ đó bắt đầu. Mốc đầu các kỳ trước suy ra bằng cách
+    // lùi từ termStartedAt của kỳ hiện tại theo độ dài kỳ.
+    private List<MyProductResponse.TermInfo> buildTermHistory(Product p, List<ProductPriceChange> changesAsc) {
+        ConsignmentReceipt r = p.getConsignmentReceipt();
+        int current = p.getCurrentTerm();
+        List<MyProductResponse.TermInfo> out = new ArrayList<>();
+
+        for (int term = 1; term <= current; term++) {
+            Instant start = p.getTermStartedAt()
+                    .minus(Duration.ofDays((long) (current - term) * r.getTermLengthDays()));
+
+            BigDecimal price = r.getAgreedPrice();
+            for (ProductPriceChange c : changesAsc) {
+                if (!c.getChangedAt().isAfter(start)) {
+                    price = c.getNewPrice();
+                }
+            }
+            out.add(new MyProductResponse.TermInfo(
+                    term, price, ConsignmentCommission.rateForTerm(r, term)));
+        }
+        return out;
+    }
+
+    @Override
+    @Transactional
+    public PriceReductionResponse reducePrice(Account account, String productId, PriceReductionRequest request) {
+
+        if (account.getRole() != Role.MEMBER) {
+            throw new AppException(ErrorCode.NOT_MEMBER_ACCOUNT);
+        }
+
+        Product product = productRepository.findByIdForUpdate(productId)
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));               // 404
+
+        if (!product.getMember().getId().equals(account.getId())) {
+            throw new AppException(ErrorCode.PRODUCT_FORBIDDEN);                                 // 403
+        }
+        if (product.getStatus() != ProductStatus.ON_SALE) {
+            throw new AppException(ErrorCode.PRODUCT_NOT_ON_SALE);                               // 409
+        }
+
+        BigDecimal newPrice = request.getNewPrice().setScale(2, RoundingMode.HALF_UP);
+        BigDecimal floorPrice = product.getConsignmentReceipt().getFloorPrice();
+
+        if (newPrice.compareTo(product.getCurrentPrice()) >= 0) {
+            throw new AppException(ErrorCode.INVALID_NEW_PRICE);                                 // 400
+        }
+        if (newPrice.compareTo(floorPrice) < 0) {
+            throw new AppException(ErrorCode.BELOW_FLOOR_PRICE);                                 // 409
+        }
+
+        LocalDate today = LocalDate.now(VN_ZONE);
+        if (today.equals(product.getLastPriceReducedOn())) {
+            throw new AppException(ErrorCode.PRICE_CHANGE_LIMIT_REACHED);                        // 409
+        }
+
+        BigDecimal oldPrice = product.getCurrentPrice();
+        Instant now = Instant.now();
+
+        product.setCurrentPrice(newPrice);
+        product.setLastPriceReducedOn(today);
+        product.setLastPriceChangedAt(now);
+        productRepository.save(product);
+
+        productPriceChangeRepository.save(ProductPriceChange.builder()
+                .product(product)
+                .oldPrice(oldPrice)
+                .newPrice(newPrice)
+                .changedAt(now)
+                .build());
+
+        return new PriceReductionResponse(product.getCurrentPrice());
+    }
+
+    @Override
+    public ShippingFeePreviewResponse getShippingFeePreview(String productId, String wardName, String provinceName) {
+
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm."));
+
+        if (!StringUtils.hasText(wardName) || !StringUtils.hasText(provinceName)) {
+            throw new BadRequestException("wardName và provinceName là bắt buộc.");
+        }
+
+        Warehouse warehouse = product.getWarehouse();
+        BigDecimal shippingFee = ghnShippingFeeCalculator.calculate(warehouse, wardName, provinceName);
+
+        return ShippingFeePreviewResponse.builder()
+                .productId(product.getId())
+                .warehouseId(warehouse.getId().toString())
+                .warehouseName(warehouse.getName())
+                .wardName(wardName)
+                .provinceName(provinceName)
+                .shippingFee(shippingFee)
+                .build();
+    }
+
+    // ================================================================ Kho (Moderator)
+
+    @Override
     @Transactional
     public ProductResponse create(CreateProductRequest request, Account account) {
         ConsignmentReceipt receipt = receiptRepository.findById(request.getReceiptId())
@@ -168,6 +332,9 @@ public class ProductServiceImpl implements ProductService {
         ConsignmentForm form = receipt.getConsignmentForm();
         Instant now = Instant.now();
 
+        // Moderator không nhập size thì lấy size Member đã khai trong form
+        String size = StringUtils.hasText(request.getSize()) ? request.getSize() : form.getSize();
+
         Product product = Product.builder()
                 .id(generateSku(receipt.getWarehouse(), form.getCategory()))
                 .consignmentReceipt(receipt)
@@ -176,8 +343,8 @@ public class ProductServiceImpl implements ProductService {
                 .category(form.getCategory())
                 .brand(form.getBrand())
                 .name(request.getName().trim())
-                .size(request.getSize())
-                .conditionNote(receipt.getConditionNote())            // xem lưu ý 2
+                .size(size)
+                .conditionNote(receipt.getConditionNote())
                 .currentPrice(receipt.getAgreedPrice())
                 .status(ProductStatus.ON_SALE)
                 .currentTerm((short) 1)
@@ -221,71 +388,6 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
-    @Transactional
-    public PriceReductionResponse reducePrice(Account account, String productId, PriceReductionRequest request) {
-
-        if (account.getRole() != Role.MEMBER) {
-            throw new AppException(ErrorCode.NOT_MEMBER_ACCOUNT);
-        }
-
-        Product product = productRepository.findByIdForUpdate(productId)
-                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));               // 404
-
-        if (!product.getMember().getId().equals(account.getId())) {
-            throw new AppException(ErrorCode.PRODUCT_FORBIDDEN);                                 // 403
-        }
-        if (product.getStatus() != ProductStatus.ON_SALE) {
-            throw new AppException(ErrorCode.PRODUCT_NOT_ON_SALE);                               // 409
-        }
-
-        BigDecimal newPrice = request.getNewPrice().setScale(2, RoundingMode.HALF_UP);
-        BigDecimal floorPrice = product.getConsignmentReceipt().getFloorPrice();
-
-        if (newPrice.compareTo(product.getCurrentPrice()) >= 0) {
-            throw new AppException(ErrorCode.INVALID_NEW_PRICE);                                 // 400
-        }
-        if (newPrice.compareTo(floorPrice) < 0) {
-            throw new AppException(ErrorCode.BELOW_FLOOR_PRICE);                                 // 409
-        }
-
-        LocalDate today = LocalDate.now(VN_ZONE);
-        if (today.equals(product.getLastPriceReducedOn())) {
-            throw new AppException(ErrorCode.PRICE_CHANGE_LIMIT_REACHED);                        // 409
-        }
-
-        product.setCurrentPrice(newPrice);
-        product.setLastPriceReducedOn(today);
-        productRepository.save(product);
-
-        return new PriceReductionResponse(product.getCurrentPrice());
-    }
-
-    @Override
-    public ShippingFeePreviewResponse getShippingFeePreview(String productId, String wardName, String provinceName) {
-
-        Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm."));
-
-        if (!StringUtils.hasText(wardName) || !StringUtils.hasText(provinceName)) {
-            throw new BadRequestException("wardName và provinceName là bắt buộc.");
-        }
-
-        Warehouse warehouse = product.getWarehouse();
-        BigDecimal shippingFee = ghnShippingFeeCalculator.calculate(warehouse, wardName, provinceName);
-
-        return ShippingFeePreviewResponse.builder()
-                .productId(product.getId())
-                .warehouseId(warehouse.getId().toString())
-                .warehouseName(warehouse.getName())
-                .wardName(wardName)
-                .provinceName(provinceName)
-                .shippingFee(shippingFee)
-                .build();
-    }
-
-    // ProductServiceImpl
-    @Override
-    @Transactional(readOnly = true)
     public List<StockMovementResponse> getStockMovements(String productId) {
         if (!productRepository.existsById(productId)) {
             throw new AppException(ErrorCode.PRODUCT_NOT_FOUND);                  // 404
@@ -296,7 +398,6 @@ public class ProductServiceImpl implements ProductService {
                 .toList();
     }
 
-    // ProductServiceImpl
     @Override
     @Transactional
     public ShelfLocationResponse updateShelfLocation(Account account, String productId,
@@ -335,9 +436,8 @@ public class ProductServiceImpl implements ProductService {
             throw new AppException(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);   // 403
         }
     }
-    // ProductServiceImpl
+
     @Override
-    @Transactional(readOnly = true)
     public ProductSkuLookupResponse getBySku(Account account, String sku) {
         Product product = productRepository.findById(sku)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));    // 404
@@ -347,8 +447,8 @@ public class ProductServiceImpl implements ProductService {
         return new ProductSkuLookupResponse(product.getId(), product.getName(),
                 product.getShelfLocation(), product.getStatus());
     }
+
     @Override
-    @Transactional(readOnly = true)
     public PdfDownload getSkuLabel(Account account, String productId) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));    // 404
@@ -359,7 +459,6 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public PageResponse<InventoryItemResponse> getInventory(Account account, ProductStatus status,
                                                             String shelfLocation, int page, int size) {
 

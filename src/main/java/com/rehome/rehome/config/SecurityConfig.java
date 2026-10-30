@@ -74,6 +74,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/organizations/register/account").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/categories", "/brands").permitAll()
+                        .requestMatchers(HttpMethod.GET,
+                                "/products",
+                                "/products/{id}",
+                                "/products/detail/**").permitAll()
                         // API kho gần nhất (F-015) chỉ dành cho Member
                         // MỚI: API kho gần nhất (F-015) chỉ dành cho Member
                         .requestMatchers("/warehouses/moderator").hasRole("MODERATOR")

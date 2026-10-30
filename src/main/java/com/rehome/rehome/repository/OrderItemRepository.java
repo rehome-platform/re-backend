@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -23,6 +24,14 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
             "where oi.order.id = :orderId " +
             "order by oi.id asc")
     List<OrderItem> findAllByOrder_IdWithProductOrderByIdAsc(@Param("orderId") UUID orderId);
+
+    @Query("""
+    SELECT oi FROM OrderItem oi
+    JOIN FETCH oi.order o
+    WHERE oi.product.id IN :ids
+      AND o.status <> com.rehome.rehome.entity.enums.OrderStatus.CANCELLED
+    """)
+    List<OrderItem> findActiveByProductIds(@Param("ids") Collection<String> ids);
 
     // Chỉ các món của :sellerId trong các đơn đã cho. Lọc theo người bán ngay trong query
     // là điều giữ cho API "đơn đã bán" không lộ hàng của người ký gửi khác trong cùng đơn.

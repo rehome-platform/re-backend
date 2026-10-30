@@ -27,8 +27,7 @@ import java.util.UUID;
 public class OrderAutoCancelServiceImpl implements OrderAutoCancelService {
 
     private final OrderRepository orderRepository;
-    private final OrderItemRepository orderItemRepository;
-    private final ProductRepository productRepository;
+    private final OrderCancelExecutor orderCancelExecutor;
 
     @Override
     @Scheduled(fixedRateString = "${app.order.auto-cancel-check-interval-ms}")
@@ -37,35 +36,11 @@ public class OrderAutoCancelServiceImpl implements OrderAutoCancelService {
                 OrderStatus.PENDING_PAYMENT, Instant.now());
 
         for (Order order : expiredOrders) {
-            cancelOrder(order.getId());
-        }
-    }
-
-    @Transactional
-    void cancelOrder(UUID orderId) {
-        Order order = orderRepository.findById(orderId).orElse(null);
-
-        // Có thể đơn đã được thanh toán/xử lý ở nơi khác giữa lúc quét và lúc hủy
-        if (order == null
-                || order.getStatus() != OrderStatus.PENDING_PAYMENT
-                || order.getPaymentDeadline().isAfter(Instant.now())) {
-            return;
-        }
-
-        List<OrderItem> items = orderItemRepository.findAllByOrder_Id(orderId);
-        for (OrderItem item : items) {
-            Product product = productRepository.findByIdForUpdate(item.getProduct().getId()).orElse(null);
-            if (product != null && product.getStatus() == ProductStatus.RESERVED) {
-                product.setStatus(ProductStatus.ON_SALE);
-                productRepository.save(product);
+            try {
+                orderCancelExecutor.cancelOrder(order.getId());
+            } catch (Exception e) {
+                log.error(">>>> Loi khi tu huy don orderId={}", order.getId(), e);
             }
         }
-
-        order.setStatus(OrderStatus.CANCELLED);
-        order.setCancelReason(CancelReason.PAYMENT_EXPIRED);
-        order.setCancelledAt(Instant.now());
-        orderRepository.save(order);
-
-        log.info(">>>> Tu huy don hang qua han thanh toan: orderNo={}", order.getOrderNo());
     }
 }

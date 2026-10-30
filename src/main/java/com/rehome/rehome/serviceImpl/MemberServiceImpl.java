@@ -71,6 +71,10 @@ public class MemberServiceImpl implements MemberService {
             if (!PHONE_PATTERN.matcher(phone).matches()) {
                 throw new AppException(ErrorCode.INVALID_PHONE_FORMAT);
             }
+            if (!phone.equals(account.getPhone())
+                    && accountRepository.existsByPhoneAndIdNot(phone, account.getId())) {
+                throw new AppException(ErrorCode.PHONE_TAKEN);
+            }
             account.setPhone(phone);
         }
 

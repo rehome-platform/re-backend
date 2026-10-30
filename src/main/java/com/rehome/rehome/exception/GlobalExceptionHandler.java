@@ -87,10 +87,30 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(AppException.class)
-    public ResponseEntity<ApiResponse<Void>> handle(AppException ex) {
+    public ResponseEntity<ApiResponse<Object>> handle(AppException ex) {
         ErrorCode ec = ex.getErrorCode();
         return ResponseEntity.status(ec.getStatus())
-                .body(new ApiResponse<>(null, false, ec.getStatus().value(), ec.name(), ec.getDefaultMessage()));
+                .body(new ApiResponse<>(ex.getResult(), false, ec.getStatus().value(), ec.name(), ec.getDefaultMessage()));
+    }
+
+    // Lưới an toàn cho race condition: hai request cùng qua bước kiểm tra existsByPhone rồi cùng insert
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<Object> handleDataIntegrity(
+            org.springframework.dao.DataIntegrityViolationException ex, HttpServletRequest req) {
+        String detail = ex.getMostSpecificCause().getMessage();
+        if (detail != null && detail.toLowerCase().contains("phone")) {
+            ErrorCode ec = ErrorCode.PHONE_TAKEN;
+            return ResponseEntity.status(ec.getStatus()).body(ApiResponse.error(ec));
+        }
+        ex.printStackTrace(); // tạm thời để debug, giống handler Exception chung bên dưới
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                ApiError.builder()
+                        .timestamp(Instant.now())
+                        .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
+                        .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
+                        .message(ex.getMessage())
+                        .path(req.getRequestURI())
+                        .build());
     }
 
     @ExceptionHandler(BadCredentialsException.class)

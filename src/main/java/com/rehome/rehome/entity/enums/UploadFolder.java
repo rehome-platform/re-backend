@@ -29,6 +29,9 @@ public enum UploadFolder {
     /** Ảnh đại diện - MemberProfile.avatarUrl */
     AVATARS("avatars", false),
 
+    /** Logo tổ chức - OrganizationProfile.logoUrl */
+    ORGANIZATION_LOGOS("organization-logos", false),
+
     /** Giấy tờ pháp lý của tổ chức - OrganizationDocument.fileUrl (ảnh scan hoặc PDF) */
     ORGANIZATION_DOCUMENTS("organization-documents", true);
 

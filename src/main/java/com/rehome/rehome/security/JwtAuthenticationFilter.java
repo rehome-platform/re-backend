@@ -1,5 +1,8 @@
 package com.rehome.rehome.security;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rehome.rehome.dto.response.AccountBannedResult;
+import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.AccountStatus;
 import com.rehome.rehome.exception.AppException;
@@ -34,6 +37,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final AccountDetailsServiceImpl userDetailsService;
+    private final ObjectMapper objectMapper;
 
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request,
@@ -47,6 +51,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
         final String jwt = authHeader.substring(PREFIX.length());
         boolean banned = false;
+        String banReason = null;
 
         try {
             final String email = jwtService.extractEmail(jwt);
@@ -57,6 +62,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 if (jwtService.isTokenValid(jwt, account)) {
                     if (account.getStatus() != AccountStatus.ACTIVE) {
                         banned = true;
+                        banReason = account.getBanReason();
                     } else {
                         UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                                 account, null, account.getAuthorities());
@@ -76,11 +82,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         if (banned) {
-            writeError(response, ErrorCode.ACCOUNT_BANNED);
+            writeBanned(response, banReason);
             return; // dừng chain, không cho request đi tiếp
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    // 403 ACCOUNT_BANNED kèm lý do khoá trong result; dùng ObjectMapper để lý do được escape đúng JSON
+    private void writeBanned(HttpServletResponse response, String reason) throws IOException {
+        ErrorCode ec = ErrorCode.ACCOUNT_BANNED;
+        response.setStatus(ec.getStatus().value());
+        response.setContentType("application/json;charset=UTF-8");
+        ApiResponse<AccountBannedResult> body = new ApiResponse<>(
+                new AccountBannedResult(reason), false, ec.getStatus().value(), ec.name(), ec.getDefaultMessage());
+        objectMapper.writeValue(response.getWriter(), body);
     }
 
     private void writeError(HttpServletResponse response, ErrorCode ec) throws IOException {

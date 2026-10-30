@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
+import com.rehome.rehome.dto.response.OrganizationOptionsResponse;
 import com.rehome.rehome.dto.response.OrganizationProfileResponse;
 import com.rehome.rehome.dto.response.OrganizationResubmitResponse;
 import com.rehome.rehome.dto.response.RegisterOrganizationResponse;
@@ -18,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @Service
@@ -61,6 +63,7 @@ public class OrganizationServiceImpl implements OrganizationService {
         organization.setContactEmail(email);              // lưu bản đã chuẩn hóa
         organization.setAccount(account);                 // account giờ là managed
         organization.setVerificationStatus(VerificationStatus.PENDING);
+        organization.setSubmittedAt(Instant.now());
 
         organizationProfileRepository.save(organization);
         return organizationProfileMapper.toResponse(organization);
@@ -86,6 +89,7 @@ public class OrganizationServiceImpl implements OrganizationService {
 
         organizationProfileMapper.updateEntity(request, profile);
         profile.setVerificationStatus(VerificationStatus.PENDING);
+        profile.setSubmittedAt(Instant.now());
         organizationProfileRepository.save(profile);
 
         return new OrganizationResubmitResponse(profile.getVerificationStatus());
@@ -98,6 +102,11 @@ public class OrganizationServiceImpl implements OrganizationService {
         return organizationProfileRepository.findById(accountId)
                 .map(OrganizationProfileResponse::from)
                 .orElseGet(OrganizationProfileResponse::notSubmitted);
+    }
+
+    @Override
+    public OrganizationOptionsResponse getOptions() {
+        return OrganizationOptionsResponse.build();
     }
 
 }

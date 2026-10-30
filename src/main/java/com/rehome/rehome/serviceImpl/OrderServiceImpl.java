@@ -290,6 +290,8 @@ public class OrderServiceImpl implements OrderService {
                     .shippingRecipientName(order.getShippingRecipientName())
                     .shippingPhone(order.getShippingPhone())
                     .shippingAddressDetail(order.getShippingAddressDetail())
+                    .shippingWardName(order.getShippingWardName())
+                    .shippingProvinceName(order.getShippingProvinceName())
                     .subtotal(order.getSubtotal())
                     .shippingFee(order.getShippingFee())
                     .totalAmount(order.getTotalAmount())
@@ -338,6 +340,14 @@ public class OrderServiceImpl implements OrderService {
                         (first, second) -> first
                 ));
 
+        // Yêu cầu trả hàng gần nhất của từng đơn (query đã sắp mới nhất trước nên putIfAbsent giữ bản mới nhất)
+        Map<UUID, String> returnRequestIdByOrderId = new java.util.HashMap<>();
+        if (!orderIds.isEmpty()) {
+            for (Object[] row : returnRequestRepository.findOrderIdAndIdByOrderIds(orderIds)) {
+                returnRequestIdByOrderId.putIfAbsent((UUID) row[0], row[1].toString());
+            }
+        }
+
         Page<OrderSummaryResponse> mapped = result.map(order -> {
             List<OrderItem> items = itemsByOrderId.getOrDefault(order.getId(), List.of());
             OrderItem firstItem = items.isEmpty() ? null : items.get(0);
@@ -346,6 +356,10 @@ public class OrderServiceImpl implements OrderService {
                     .id(order.getId().toString())
                     .orderNo(order.getOrderNo())
                     .status(order.getStatus().name())
+                    .createdAt(order.getCreatedAt())
+                    .expectedDeliveryDate(order.getExpectedDeliveryDate())
+                    .refundAmount(order.getRefundAmount())
+                    .returnRequestId(returnRequestIdByOrderId.get(order.getId()))
                     .totalAmount(order.getTotalAmount())
                     .warehouseName(order.getWarehouse().getName())
                     .itemCount(items.size())
@@ -578,6 +592,8 @@ public class OrderServiceImpl implements OrderService {
                 .shippingRecipientName(order.getShippingRecipientName())
                 .shippingPhone(order.getShippingPhone())
                 .shippingAddressDetail(order.getShippingAddressDetail())
+                .shippingWardName(order.getShippingWardName())
+                .shippingProvinceName(order.getShippingProvinceName())
                 .items(items)
                 .ghnTrackingCode(order.getGhnTrackingCode())
                 .deliveredAt(order.getDeliveredAt())

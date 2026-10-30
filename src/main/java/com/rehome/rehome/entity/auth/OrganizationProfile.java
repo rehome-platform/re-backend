@@ -93,6 +93,10 @@ public class OrganizationProfile {
     @Column(name = "verified_at", nullable = true)
     private Instant verifiedAt;
 
+    // Thời điểm nộp hồ sơ (cập nhật lại mỗi lần nộp lại sau khi bị từ chối)
+    @Column(name = "submitted_at", nullable = true)
+    private Instant submittedAt;
+
     // Tên điểm nhận đồ (gộp từ OrganizationDonationPoint vì mỗi tổ chức chỉ có 1 điểm nhận)
     @Column(name = "donation_point_name", nullable = false, length = 255)
     private String donationPointName;

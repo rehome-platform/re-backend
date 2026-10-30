@@ -14,27 +14,37 @@ import java.util.List;
 import java.util.UUID;
 
 public interface ProductService {
-    // viewerId = người đang xem, chỉ để tính cờ isMine; null thì isMine = false
+
+    // ---- Sàn (khách xem được, viewerId = null nếu chưa đăng nhập)
     PageResponse<ProductSummaryResponse> getProducts(String search, UUID categoryId, UUID brandId,
-                                                       BigDecimal priceMin, BigDecimal priceMax,
-                                                       UUID warehouseId, int page, int size,
-                                                       UUID viewerId);
+                                                     BigDecimal priceMin, BigDecimal priceMax,
+                                                     UUID warehouseId, int page, int size,
+                                                     UUID viewerId);
 
     ProductDetailResponse getProductDetail(String id, UUID viewerId);
-    ProductEndOfTermDetailResponse getProductById(String id);
-    Page<MyProductResponse> getMyProducts(UUID memberId, ProductStatus status, Pageable pageable);
+
+    // ---- Hàng ký gửi của tôi (Member)
+    Page<MyProductResponse> getMyProducts(UUID memberId, ProductStatus status,
+                                          boolean pendingDecision, Pageable pageable);
+
+    MyProductResponse getMyProduct(UUID memberId, String id);
+
+    PriceReductionResponse reducePrice(Account account, String productId, PriceReductionRequest request);
+
+    ShippingFeePreviewResponse getShippingFeePreview(String productId, String wardName, String provinceName);
+
+    // ---- Kho (Moderator)
     ProductResponse create(CreateProductRequest request, Account account);
 
     List<StockMovementResponse> getStockMovements(String productId);
 
+    ShelfLocationResponse updateShelfLocation(Account account, String productId,
+                                              UpdateShelfLocationRequest request);
+
+    ProductSkuLookupResponse getBySku(Account account, String sku);
+
+    PdfDownload getSkuLabel(Account account, String productId);
+
     PageResponse<InventoryItemResponse> getInventory(Account account, ProductStatus status,
                                                      String shelfLocation, int page, int size);
-    // Tem SKU trả binary PDF, không lưu file (render lại được từ Product bất cứ lúc nào)
-    PdfDownload getSkuLabel(Account account, String productId);
-    ProductSkuLookupResponse getBySku(Account account, String sku);
-    ShelfLocationResponse updateShelfLocation(Account account, String productId, UpdateShelfLocationRequest request);
-    PriceReductionResponse reducePrice(Account account, String productId, PriceReductionRequest request);
-
-    // Xem trước phí ship GHN thật cho 1 sản phẩm, chỉ cần nhập địa chỉ - không cần giỏ hàng/đơn hàng
-    ShippingFeePreviewResponse getShippingFeePreview(String productId, String wardName, String provinceName);
 }

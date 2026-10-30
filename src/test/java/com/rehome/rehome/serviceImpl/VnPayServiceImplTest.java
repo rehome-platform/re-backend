@@ -617,17 +617,30 @@ class VnPayServiceImplTest {
     @DisplayName("checkPaymentStatus: PENDING, VNPay báo thành công -> cập nhật SUCCESS và xác nhận đơn")
     void check_pending_vnPayReportsSuccess() {
         Payment payment = pendingPayment(order1, "ref-1", "150000");
-        when(paymentRepository.findByOrder_Id(orderId1)).thenReturn(Optional.of(payment));
-        when(paymentRepository.findAllByVnpTxnRef("ref-1")).thenReturn(List.of(payment));
-        when(vnPayApi.queryTransaction(any(QueryVnPayRequest.class)))
-                .thenReturn(queryResponse("00", "00", "888"));
 
-        PaymentStatusResponse response = vnPayService.checkPaymentStatus(email, orderId1);
+        when(paymentRepository.findByOrder_Id(orderId1))
+                .thenReturn(Optional.of(payment));
+        when(paymentRepository.findAllByVnpTxnRef("ref-1"))
+                .thenReturn(List.of(payment));
+
+        QueryVnPayResponse responseFromVnPay =
+                queryResponse("00", "00", "888");
+
+        when(vnPayApi.queryTransaction(any(QueryVnPayRequest.class)))
+                .thenReturn(responseFromVnPay);
+
+        PaymentStatusResponse response =
+                vnPayService.checkPaymentStatus(email, orderId1);
 
         assertThat(response.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
         assertThat(response.getVnpTransactionNo()).isEqualTo("888");
         assertThat(response.getPaidAt()).isNotNull();
-        verify(orderService).applyGatewayPaymentSuccess(eq(orderId1), eq(OrderPaymentMethod.VNPAY), anyString());
+
+        verify(orderService).applyGatewayPaymentSuccess(
+                eq(orderId1),
+                eq(OrderPaymentMethod.VNPAY),
+                anyString()
+        );
     }
 
     @Test
@@ -662,12 +675,20 @@ class VnPayServiceImplTest {
     @DisplayName("checkPaymentStatus: PENDING, VNPay báo thất bại (status khác 00/01) -> FAILED, không xác nhận đơn")
     void check_pending_vnPayReportsFailure() {
         Payment payment = pendingPayment(order1, "ref-1", "150000");
-        when(paymentRepository.findByOrder_Id(orderId1)).thenReturn(Optional.of(payment));
-        when(paymentRepository.findAllByVnpTxnRef("ref-1")).thenReturn(List.of(payment));
-        when(vnPayApi.queryTransaction(any(QueryVnPayRequest.class)))
-                .thenReturn(queryResponse("00", "02", null));
 
-        PaymentStatusResponse response = vnPayService.checkPaymentStatus(email, orderId1);
+        when(paymentRepository.findByOrder_Id(orderId1))
+                .thenReturn(Optional.of(payment));
+        when(paymentRepository.findAllByVnpTxnRef("ref-1"))
+                .thenReturn(List.of(payment));
+
+        QueryVnPayResponse responseFromVnPay =
+                queryResponse("00", "02", null);
+
+        when(vnPayApi.queryTransaction(any(QueryVnPayRequest.class)))
+                .thenReturn(responseFromVnPay);
+
+        PaymentStatusResponse response =
+                vnPayService.checkPaymentStatus(email, orderId1);
 
         assertThat(response.getStatus()).isEqualTo(PaymentStatus.FAILED);
         verifyNoInteractions(orderService);
@@ -677,12 +698,20 @@ class VnPayServiceImplTest {
     @DisplayName("checkPaymentStatus: VNPay báo giao dịch còn đang xử lý (01) -> giữ PENDING")
     void check_pending_vnPayStillProcessing_staysPending() {
         Payment payment = pendingPayment(order1, "ref-1", "150000");
-        when(paymentRepository.findByOrder_Id(orderId1)).thenReturn(Optional.of(payment));
-        when(paymentRepository.findAllByVnpTxnRef("ref-1")).thenReturn(List.of(payment));
-        when(vnPayApi.queryTransaction(any(QueryVnPayRequest.class)))
-                .thenReturn(queryResponse("00", "01", null));
 
-        PaymentStatusResponse response = vnPayService.checkPaymentStatus(email, orderId1);
+        when(paymentRepository.findByOrder_Id(orderId1))
+                .thenReturn(Optional.of(payment));
+        when(paymentRepository.findAllByVnpTxnRef("ref-1"))
+                .thenReturn(List.of(payment));
+
+        QueryVnPayResponse responseFromVnPay =
+                queryResponse("00", "01", null);
+
+        when(vnPayApi.queryTransaction(any(QueryVnPayRequest.class)))
+                .thenReturn(responseFromVnPay);
+
+        PaymentStatusResponse response =
+                vnPayService.checkPaymentStatus(email, orderId1);
 
         assertThat(response.getStatus()).isEqualTo(PaymentStatus.PENDING);
         verify(paymentRepository, never()).save(any());
@@ -693,12 +722,20 @@ class VnPayServiceImplTest {
     @DisplayName("checkPaymentStatus: bản thân truy vấn lỗi (responseCode khác 00) -> giữ PENDING")
     void check_pending_queryItselfFailed_staysPending() {
         Payment payment = pendingPayment(order1, "ref-1", "150000");
-        when(paymentRepository.findByOrder_Id(orderId1)).thenReturn(Optional.of(payment));
-        when(paymentRepository.findAllByVnpTxnRef("ref-1")).thenReturn(List.of(payment));
-        when(vnPayApi.queryTransaction(any(QueryVnPayRequest.class)))
-                .thenReturn(queryResponse("91", "00", "888"));
 
-        PaymentStatusResponse response = vnPayService.checkPaymentStatus(email, orderId1);
+        when(paymentRepository.findByOrder_Id(orderId1))
+                .thenReturn(Optional.of(payment));
+        when(paymentRepository.findAllByVnpTxnRef("ref-1"))
+                .thenReturn(List.of(payment));
+
+        QueryVnPayResponse responseFromVnPay =
+                queryResponse("91", "00", "888");
+
+        when(vnPayApi.queryTransaction(any(QueryVnPayRequest.class)))
+                .thenReturn(responseFromVnPay);
+
+        PaymentStatusResponse response =
+                vnPayService.checkPaymentStatus(email, orderId1);
 
         assertThat(response.getStatus()).isEqualTo(PaymentStatus.PENDING);
         verify(paymentRepository, never()).save(any());
@@ -737,18 +774,36 @@ class VnPayServiceImplTest {
     void check_pending_batchSiblingsAreUpdatedToo() {
         Payment p1 = pendingPayment(order1, "ref-batch", "150000");
         Payment p2 = pendingPayment(order2, "ref-batch", "250000");
-        when(paymentRepository.findByOrder_Id(orderId1)).thenReturn(Optional.of(p1));
-        when(paymentRepository.findAllByVnpTxnRef("ref-batch")).thenReturn(List.of(p1, p2));
-        when(vnPayApi.queryTransaction(any(QueryVnPayRequest.class)))
-                .thenReturn(queryResponse("00", "00", "999"));
 
-        PaymentStatusResponse response = vnPayService.checkPaymentStatus(email, orderId1);
+        when(paymentRepository.findByOrder_Id(orderId1))
+                .thenReturn(Optional.of(p1));
+        when(paymentRepository.findAllByVnpTxnRef("ref-batch"))
+                .thenReturn(List.of(p1, p2));
+
+        QueryVnPayResponse responseFromVnPay =
+                queryResponse("00", "00", "999");
+
+        when(vnPayApi.queryTransaction(any(QueryVnPayRequest.class)))
+                .thenReturn(responseFromVnPay);
+
+        PaymentStatusResponse response =
+                vnPayService.checkPaymentStatus(email, orderId1);
 
         assertThat(response.getOrderIds()).containsExactly(orderId1);
         assertThat(p1.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
         assertThat(p2.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
-        verify(orderService).applyGatewayPaymentSuccess(eq(orderId1), eq(OrderPaymentMethod.VNPAY), anyString());
-        verify(orderService).applyGatewayPaymentSuccess(eq(orderId2), eq(OrderPaymentMethod.VNPAY), anyString());
+
+        verify(orderService).applyGatewayPaymentSuccess(
+                eq(orderId1),
+                eq(OrderPaymentMethod.VNPAY),
+                anyString()
+        );
+
+        verify(orderService).applyGatewayPaymentSuccess(
+                eq(orderId2),
+                eq(OrderPaymentMethod.VNPAY),
+                anyString()
+        );
     }
 
     // ==================== getReturnInfo ====================
@@ -825,30 +880,55 @@ class VnPayServiceImplTest {
     @Test
     @DisplayName("getReturnInfo: còn payment PENDING (IPN chưa tới) -> hỏi VNPay một lần rồi trả trạng thái mới")
     void returnInfo_pending_syncsWithVnPay() throws Exception {
-        Map<String, String> params = signedParams("ref-1", 15000000, "00", "123");
+        Map<String, String> params =
+                signedParams("ref-1", 15000000, "00", "123");
+
         Payment payment = pendingPayment(order1, "ref-1", "150000");
-        when(paymentRepository.findAllByVnpTxnRef("ref-1")).thenReturn(List.of(payment));
+
+        when(paymentRepository.findAllByVnpTxnRef("ref-1"))
+                .thenReturn(List.of(payment));
+
+        QueryVnPayResponse responseFromVnPay =
+                queryResponse("00", "00", "321");
+
         when(vnPayApi.queryTransaction(any(QueryVnPayRequest.class)))
-                .thenReturn(queryResponse("00", "00", "321"));
+                .thenReturn(responseFromVnPay);
 
-        PaymentStatusResponse response = vnPayService.getReturnInfo(params);
+        PaymentStatusResponse response =
+                vnPayService.getReturnInfo(params);
 
-        verify(vnPayApi, times(1)).queryTransaction(any(QueryVnPayRequest.class));
+        verify(vnPayApi, times(1))
+                .queryTransaction(any(QueryVnPayRequest.class));
+
         assertThat(response.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
         assertThat(response.getVnpTransactionNo()).isEqualTo("321");
-        verify(orderService).applyGatewayPaymentSuccess(eq(orderId1), eq(OrderPaymentMethod.VNPAY), anyString());
+
+        verify(orderService).applyGatewayPaymentSuccess(
+                eq(orderId1),
+                eq(OrderPaymentMethod.VNPAY),
+                anyString()
+        );
     }
 
     @Test
     @DisplayName("getReturnInfo: còn PENDING nhưng VNPay báo đang xử lý -> giữ PENDING")
     void returnInfo_pending_vnPayStillProcessing_staysPending() throws Exception {
-        Map<String, String> params = signedParams("ref-1", 15000000, "00", "123");
-        Payment payment = pendingPayment(order1, "ref-1", "150000");
-        when(paymentRepository.findAllByVnpTxnRef("ref-1")).thenReturn(List.of(payment));
-        when(vnPayApi.queryTransaction(any(QueryVnPayRequest.class)))
-                .thenReturn(queryResponse("00", "01", null));
+        Map<String, String> params =
+                signedParams("ref-1", 15000000, "00", "123");
 
-        PaymentStatusResponse response = vnPayService.getReturnInfo(params);
+        Payment payment = pendingPayment(order1, "ref-1", "150000");
+
+        when(paymentRepository.findAllByVnpTxnRef("ref-1"))
+                .thenReturn(List.of(payment));
+
+        QueryVnPayResponse responseFromVnPay =
+                queryResponse("00", "01", null);
+
+        when(vnPayApi.queryTransaction(any(QueryVnPayRequest.class)))
+                .thenReturn(responseFromVnPay);
+
+        PaymentStatusResponse response =
+                vnPayService.getReturnInfo(params);
 
         assertThat(response.getStatus()).isEqualTo(PaymentStatus.PENDING);
         verifyNoInteractions(orderService);

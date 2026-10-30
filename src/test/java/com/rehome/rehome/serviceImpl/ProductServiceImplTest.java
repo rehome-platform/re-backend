@@ -331,7 +331,7 @@ class ProductServiceImplTest {
         stubRepositoryPage(new PageImpl<>(List.of(p1, p2)));
         ProductPhoto first = photo("p1", "first.jpg");
         ProductPhoto second = photo("p1", "second.jpg");
-        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(List.of("p1", "p2")))
+        when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(List.of("p1", "p2")))
                 .thenReturn(List.of(first, second));
 
         Page mapped = callAndCapture(new BigDecimal("1"), new BigDecimal("2"), 2, 10);
@@ -404,7 +404,7 @@ class ProductServiceImplTest {
         when(productRepository.findById("p1")).thenReturn(Optional.of(p));
         ProductPhoto photoA = photo("p1", "a.jpg");
         ProductPhoto photoB = photo("p1", "b.jpg");
-        when(productPhotoRepository.findByProduct_IdOrderByIdAsc("p1"))
+        when(productPhotoRepository.findByProduct_IdOrderByDisplayOrderAscIdAsc("p1"))
                 .thenReturn(List.of(photoA, photoB));
 
         ProductDetailResponse result = service.getProductDetail("p1", null);
@@ -479,11 +479,21 @@ class ProductServiceImplTest {
 
         when(productRepository.findMine(memberId, ProductStatus.ON_SALE, false, pageable))
                 .thenReturn(repoPage);
+
+        // Tạo mock ảnh trước khi stub repository
+        ProductPhoto photo = photoOf(product, "https://img/a.jpg");
+
         when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(List.of("Q7-AK-000845")))
-                .thenReturn(List.of(photoOf(product, "https://img/a.jpg")));
-        when(endOfTermDecisionRepository.findByProductIds(List.of("Q7-AK-000845"))).thenReturn(List.of());
-        when(orderItemRepository.findActiveByProductIds(List.of("Q7-AK-000845"))).thenReturn(List.of());
-        when(productMapper.toMyProduct(product, "https://img/a.jpg", null, null)).thenReturn(dto);
+                .thenReturn(List.of(photo));
+
+        when(endOfTermDecisionRepository.findByProductIds(List.of("Q7-AK-000845")))
+                .thenReturn(List.of());
+
+        when(orderItemRepository.findActiveByProductIds(List.of("Q7-AK-000845")))
+                .thenReturn(List.of());
+
+        when(productMapper.toMyProduct(product, "https://img/a.jpg", null, null))
+                .thenReturn(dto);
 
         Page<MyProductResponse> result =
                 service.getMyProducts(memberId, ProductStatus.ON_SALE, false, pageable);
@@ -496,8 +506,11 @@ class ProductServiceImplTest {
         assertEquals("Q7-AK-000845", result.getContent().get(0).getId());
         assertEquals(ProductStatus.ON_SALE, result.getContent().get(0).getStatus());
 
-        verify(productRepository, times(1)).findMine(memberId, ProductStatus.ON_SALE, false, pageable);
-        verify(productMapper, times(1)).toMyProduct(product, "https://img/a.jpg", null, null);
+        verify(productRepository, times(1))
+                .findMine(memberId, ProductStatus.ON_SALE, false, pageable);
+
+        verify(productMapper, times(1))
+                .toMyProduct(product, "https://img/a.jpg", null, null);
     }
 
     @Test
@@ -573,10 +586,16 @@ class ProductServiceImplTest {
     @DisplayName("getMyProducts: sản phẩm có nhiều ảnh -> lấy ảnh đầu tiên (đã sắp theo displayOrder)")
     void getMyProducts_multiplePhotos_usesFirst() {
         Product product = buildProduct("Q7-AK-000845", ProductStatus.ON_SALE);
+
         when(productRepository.findMine(memberId, null, false, pageable))
                 .thenReturn(new PageImpl<>(List.of(product), pageable, 1));
+
+        // Tạo hai ảnh trước khi stub repository
+        ProductPhoto firstPhoto = photoOf(product, "first.jpg");
+        ProductPhoto secondPhoto = photoOf(product, "second.jpg");
+
         when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(List.of("Q7-AK-000845")))
-                .thenReturn(List.of(photoOf(product, "first.jpg"), photoOf(product, "second.jpg")));
+                .thenReturn(List.of(firstPhoto, secondPhoto));
 
         service.getMyProducts(memberId, null, false, pageable);
 
@@ -671,25 +690,45 @@ class ProductServiceImplTest {
     @DisplayName("getMyProduct: chủ hàng -> ghép ảnh, quyết định cuối kỳ, lịch sử đổi giá và lịch sử kỳ vào mapper")
     void getMyProduct_success_passesAllPiecesToMapper() {
         Instant termStart = Instant.parse("2026-10-20T00:00:00Z");
+
         Product p = ownedProduct(ProductStatus.ON_SALE, (short) 1, termStart);
+
         ProductPriceChange change = ProductPriceChange.builder()
                 .changedAt(Instant.parse("2026-10-25T09:00:00Z"))
                 .oldPrice(new BigDecimal("450000"))
                 .newPrice(new BigDecimal("400000"))
                 .build();
+
         EndOfTermDecision decision = EndOfTermDecision.builder()
-                .product(p).deadline(Instant.parse("2026-12-19T00:00:00Z")).build();
+                .product(p)
+                .deadline(Instant.parse("2026-12-19T00:00:00Z"))
+                .build();
+
         MyProductResponse dto = buildResponse("Q7-AK-000845", ProductStatus.ON_SALE);
 
-        when(productRepository.findById("Q7-AK-000845")).thenReturn(Optional.of(p));
+        when(productRepository.findById("Q7-AK-000845"))
+                .thenReturn(Optional.of(p));
+
         when(productPriceChangeRepository.findByProduct_IdOrderByChangedAtAsc("Q7-AK-000845"))
                 .thenReturn(List.of(change));
+
+        // Tạo ảnh trước khi stub repository
+        ProductPhoto photo = photoOf(p, "https://img/a.jpg");
+
         when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(List.of("Q7-AK-000845")))
-                .thenReturn(List.of(photoOf(p, "https://img/a.jpg")));
+                .thenReturn(List.of(photo));
+
         when(endOfTermDecisionRepository.findByProductIds(List.of("Q7-AK-000845")))
                 .thenReturn(List.of(decision));
-        when(productMapper.toMyProductDetail(eq(p), eq("https://img/a.jpg"), eq(decision), isNull(), anyList(), anyList()))
-                .thenReturn(dto);
+
+        when(productMapper.toMyProductDetail(
+                eq(p),
+                eq("https://img/a.jpg"),
+                eq(decision),
+                isNull(),
+                anyList(),
+                anyList()
+        )).thenReturn(dto);
 
         MyProductResponse result = service.getMyProduct(owner.getId(), "Q7-AK-000845");
 
@@ -697,8 +736,16 @@ class ProductServiceImplTest {
 
         ArgumentCaptor<List> changes = ArgumentCaptor.forClass(List.class);
         ArgumentCaptor<List> terms = ArgumentCaptor.forClass(List.class);
-        verify(productMapper).toMyProductDetail(eq(p), eq("https://img/a.jpg"), eq(decision), isNull(),
-                changes.capture(), terms.capture());
+
+        verify(productMapper).toMyProductDetail(
+                eq(p),
+                eq("https://img/a.jpg"),
+                eq(decision),
+                isNull(),
+                changes.capture(),
+                terms.capture()
+        );
+
         assertEquals(1, changes.getValue().size());
         assertEquals(1, terms.getValue().size());
     }

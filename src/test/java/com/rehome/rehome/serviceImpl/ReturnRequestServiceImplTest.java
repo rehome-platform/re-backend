@@ -674,10 +674,17 @@ class ReturnRequestServiceImplTest {
         returnRequest(ReturnRequestStatus.PENDING);
         attachShippingData();
         stubItems();
-        when(ghnApi.createOrder(anyString(), anyString(), any(GhnCreateOrderRequest.class)))
-                .thenReturn(ghnResponse(blank));
 
-        assertThatThrownBy(() -> service.approve(returnId)).isInstanceOf(GhnException.class);
+        GhnCreateOrderResponse response = ghnResponse(blank);
+
+        when(ghnApi.createOrder(
+                anyString(),
+                anyString(),
+                any(GhnCreateOrderRequest.class)
+        )).thenReturn(response);
+
+        assertThatThrownBy(() -> service.approve(returnId))
+                .isInstanceOf(GhnException.class);
 
         verify(returnRequestRepository, never()).save(any());
     }
@@ -687,22 +694,32 @@ class ReturnRequestServiceImplTest {
     void approve_success_updatesRequest() {
         ReturnRequest r = returnRequest(ReturnRequestStatus.PENDING);
         r.setHandoverDeadline(Instant.now().plus(10, ChronoUnit.MINUTES));
+
         attachShippingData();
         stubItems();
-        when(ghnApi.createOrder(eq(GHN_TOKEN), eq(GHN_SHOP_ID), any(GhnCreateOrderRequest.class)))
-                .thenReturn(ghnResponse("GHNRT001"));
+
+        GhnCreateOrderResponse response = ghnResponse("GHNRT001");
+
+        when(ghnApi.createOrder(
+                eq(GHN_TOKEN),
+                eq(GHN_SHOP_ID),
+                any(GhnCreateOrderRequest.class)
+        )).thenReturn(response);
 
         Instant before = Instant.now();
-        ReturnRequestResponse response = service.approve(returnId);
+
+        ReturnRequestResponse responseResult = service.approve(returnId);
 
         assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.APPROVED);
         assertThat(r.getGhnReturnTrackingCode()).isEqualTo("GHNRT001");
+
         assertThat(r.getHandoverDeadline())
                 .isAfter(before.plus(HANDOVER_DEADLINE_DAYS, ChronoUnit.DAYS).minusSeconds(5));
+
         verify(returnRequestRepository).save(r);
 
-        assertThat(response.getStatus()).isEqualTo("APPROVED");
-        assertThat(response.getGhnReturnTrackingCode()).isEqualTo("GHNRT001");
+        assertThat(responseResult.getStatus()).isEqualTo("APPROVED");
+        assertThat(responseResult.getGhnReturnTrackingCode()).isEqualTo("GHNRT001");
     }
 
     @Test
@@ -711,16 +728,30 @@ class ReturnRequestServiceImplTest {
         returnRequest(ReturnRequestStatus.PENDING);
         attachShippingData();
         stubItems();
-        when(ghnApi.createOrder(anyString(), anyString(), any(GhnCreateOrderRequest.class)))
-                .thenReturn(ghnResponse("GHNRT001"));
+
+        GhnCreateOrderResponse response = ghnResponse("GHNRT001");
+
+        when(ghnApi.createOrder(
+                anyString(),
+                anyString(),
+                any(GhnCreateOrderRequest.class)
+        )).thenReturn(response);
 
         service.approve(returnId);
 
-        ArgumentCaptor<GhnCreateOrderRequest> captor = ArgumentCaptor.forClass(GhnCreateOrderRequest.class);
-        verify(ghnApi).createOrder(eq(GHN_TOKEN), eq(GHN_SHOP_ID), captor.capture());
+        ArgumentCaptor<GhnCreateOrderRequest> captor =
+                ArgumentCaptor.forClass(GhnCreateOrderRequest.class);
+
+        verify(ghnApi).createOrder(
+                eq(GHN_TOKEN),
+                eq(GHN_SHOP_ID),
+                captor.capture()
+        );
+
         GhnCreateOrderRequest ghn = captor.getValue();
 
         assertThat(ghn.getClientOrderCode()).isEqualTo("RT-OD-2026-000008");
+
         // from = người mua
         assertThat(ghn.getFromName()).isEqualTo("Tạ Thị Ngọc Anh");
         assertThat(ghn.getFromPhone()).isEqualTo("0912345678");
@@ -728,6 +759,7 @@ class ReturnRequestServiceImplTest {
         assertThat(ghn.getFromWardName()).isEqualTo("Bến Thành");
         assertThat(ghn.getFromDistrictName()).isEqualTo("Quận 1");
         assertThat(ghn.getFromProvinceName()).isEqualTo("TP.HCM");
+
         // to = kho
         assertThat(ghn.getToName()).isEqualTo("Kho Quận 7");
         assertThat(ghn.getToPhone()).isEqualTo("02812345678");
@@ -735,6 +767,7 @@ class ReturnRequestServiceImplTest {
         assertThat(ghn.getToWardName()).isEqualTo("Tân Phú");
         assertThat(ghn.getToDistrictName()).isEqualTo("Quận 7");
         assertThat(ghn.getToProvinceName()).isEqualTo("TP.HCM");
+
         // gói hàng và thanh toán
         assertThat(ghn.getWeight()).isEqualTo(500);
         assertThat(ghn.getLength()).isEqualTo(30);
@@ -742,6 +775,7 @@ class ReturnRequestServiceImplTest {
         assertThat(ghn.getHeight()).isEqualTo(10);
         assertThat(ghn.getCodAmount()).isZero();
         assertThat(ghn.getOrderValue()).isEqualTo(600000);
+
         // items
         assertThat(ghn.getItems()).hasSize(2);
         assertThat(ghn.getItems().get(0).getName()).isEqualTo("Áo khoác Uniqlo");
@@ -755,16 +789,31 @@ class ReturnRequestServiceImplTest {
     void approve_newAddressFormat_dropsDistrict() {
         returnRequest(ReturnRequestStatus.PENDING);
         attachShippingData();
+
         order.setShippingIsNewAddress(true);
         order.getWarehouse().setIsNewAddress(true);
+
         stubItems();
-        when(ghnApi.createOrder(anyString(), anyString(), any(GhnCreateOrderRequest.class)))
-                .thenReturn(ghnResponse("GHNRT001"));
+
+        GhnCreateOrderResponse response = ghnResponse("GHNRT001");
+
+        when(ghnApi.createOrder(
+                anyString(),
+                anyString(),
+                any(GhnCreateOrderRequest.class)
+        )).thenReturn(response);
 
         service.approve(returnId);
 
-        ArgumentCaptor<GhnCreateOrderRequest> captor = ArgumentCaptor.forClass(GhnCreateOrderRequest.class);
-        verify(ghnApi).createOrder(anyString(), anyString(), captor.capture());
+        ArgumentCaptor<GhnCreateOrderRequest> captor =
+                ArgumentCaptor.forClass(GhnCreateOrderRequest.class);
+
+        verify(ghnApi).createOrder(
+                anyString(),
+                anyString(),
+                captor.capture()
+        );
+
         assertThat(captor.getValue().getFromDistrictName()).isEmpty();
         assertThat(captor.getValue().getToDistrictName()).isEmpty();
     }

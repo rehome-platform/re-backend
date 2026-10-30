@@ -168,7 +168,7 @@ class CartServiceImplTest {
         when(cartItemRepository.save(any())).thenAnswer(invocation -> {
             CartItem saved = invocation.getArgument(0);
             saved.setId(UUID.randomUUID());
-            saved.setAddedAt(java.time.Instant.now());
+            saved.setAddedAt(Instant.now());
             return saved;
         });
 

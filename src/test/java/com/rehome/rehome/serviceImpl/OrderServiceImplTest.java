@@ -328,7 +328,7 @@ class OrderServiceImplTest {
         assertThat(response.getTotalAmount()).isEqualTo(new BigDecimal("245000"));
         assertThat(response.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT.name());
         assertThat(response.getOrderNo()).startsWith("OD-" + Year.now(ZoneOffset.UTC).getValue() + "-");
-        assertThat(response.getPaymentDeadline()).isAfter(java.time.Instant.now());
+        assertThat(response.getPaymentDeadline()).isAfter(Instant.now());
 
         assertThat(product1.getStatus()).isEqualTo(ProductStatus.RESERVED);
         verify(productRepository).save(product1);
@@ -653,7 +653,7 @@ class OrderServiceImplTest {
                 .warehouse(warehouse1)
                 .status(OrderStatus.DELIVERED)
                 .createdAt(createdAt)
-                .paymentMethod(com.rehome.rehome.entity.enums.OrderPaymentMethod.MOMO)
+                .paymentMethod(OrderPaymentMethod.MOMO)
                 .subtotal(new BigDecimal("600000"))
                 .shippingFee(new BigDecimal("25000"))
                 .totalAmount(new BigDecimal("625000"))
@@ -725,7 +725,7 @@ class OrderServiceImplTest {
                 .buyer(member)
                 .warehouse(warehouse1)
                 .status(OrderStatus.PENDING_PAYMENT)
-                .paymentMethod(com.rehome.rehome.entity.enums.OrderPaymentMethod.WALLET)
+                .paymentMethod(OrderPaymentMethod.WALLET)
                 .build();
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
@@ -749,7 +749,7 @@ class OrderServiceImplTest {
                 .buyer(member)
                 .warehouse(warehouse1)
                 .status(OrderStatus.CANCELLED)
-                .paymentMethod(com.rehome.rehome.entity.enums.OrderPaymentMethod.WALLET)
+                .paymentMethod(OrderPaymentMethod.WALLET)
                 .cancelReason(CancelReason.PAYMENT_EXPIRED)
                 .cancelledAt(cancelledAt)
                 .build();

@@ -219,16 +219,37 @@ class AuthServiceImplTest {
                 .containsExactly("access", "refresh", Role.MEMBER, accountId, true);
     }
 
+    // DisabledException (tài khoản bị khoá): service tra lại account theo email để lấy lý do khoá
+    // đưa vào AccountBannedResult, nên accountRepository.findByEmail PHẢI được gọi.
     @Test
-    void login_authDisabled_throwsBanned() {
+    void login_authDisabled_throwsBanned_withBanReasonFromAccount() {
         LoginRequest req = mock(LoginRequest.class);
         when(req.getEmail()).thenReturn("a@x.com");
         when(req.getPassword()).thenReturn("pw");
+        Account account = mock(Account.class);
+        when(account.getBanReason()).thenReturn("Spam nhiều lần");
+        when(accountRepository.findByEmail("a@x.com")).thenReturn(Optional.of(account));
         when(authenticationManager.authenticate(any())).thenThrow(new DisabledException("disabled"));
 
         assertAppError(() -> service.login(req), ErrorCode.ACCOUNT_BANNED);
 
-        verifyNoInteractions(accountRepository, jwtService, refreshTokenService);
+        verify(accountRepository).findByEmail("a@x.com");
+        verify(account).getBanReason();
+        verifyNoInteractions(jwtService, refreshTokenService);
+    }
+
+    @Test
+    void login_authDisabled_accountMissing_stillThrowsBanned() {
+        LoginRequest req = mock(LoginRequest.class);
+        when(req.getEmail()).thenReturn("a@x.com");
+        when(req.getPassword()).thenReturn("pw");
+        when(accountRepository.findByEmail("a@x.com")).thenReturn(Optional.empty());
+        when(authenticationManager.authenticate(any())).thenThrow(new DisabledException("disabled"));
+
+        assertAppError(() -> service.login(req), ErrorCode.ACCOUNT_BANNED);
+
+        verify(accountRepository).findByEmail("a@x.com");
+        verifyNoInteractions(jwtService, refreshTokenService);
     }
 
     @Test

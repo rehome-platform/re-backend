@@ -750,7 +750,7 @@ class ReturnRequestServiceImplTest {
 
         GhnCreateOrderRequest ghn = captor.getValue();
 
-        assertThat(ghn.getClientOrderCode()).isEqualTo("RT-OD-2026-000008");
+        assertThat(ghn.getClientOrderCode()).isEqualTo("RT-" + returnId);
 
         // from = người mua
         assertThat(ghn.getFromName()).isEqualTo("Tạ Thị Ngọc Anh");

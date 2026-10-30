@@ -596,6 +596,7 @@ public class OrderServiceImpl implements OrderService {
                 .shippingProvinceName(order.getShippingProvinceName())
                 .items(items)
                 .ghnTrackingCode(order.getGhnTrackingCode())
+                .expectedDeliveryDate(order.getExpectedDeliveryDate())
                 .deliveredAt(order.getDeliveredAt())
                 .autoCompleteDeadline(order.getAutoCompleteDeadline())
                 .serviceRating(order.getServiceRating())
@@ -1121,7 +1122,11 @@ public class OrderServiceImpl implements OrderService {
                 .toList();
 
         return GhnCreateOrderRequest.builder()
-                .clientOrderCode(order.getOrderNo())
+                // UUID, không phải orderNo: orderNo đếm theo số dòng orders trong DB local nên có thể
+                // trùng lại số cũ sau khi reset/seed DB, còn lịch sử client_order_code bên GHN sandbox
+                // thì không bao giờ mất -> trùng số sẽ khiến GHN trả lại y nguyên vận đơn cũ (đã giao/khác
+                // người nhận) thay vì tạo vận đơn mới, gây TO_ADDRESS_CONFLICT hoặc lẫn lịch sử tracking.
+                .clientOrderCode(order.getId().toString())
                 .toName(order.getShippingRecipientName())
                 .toPhone(order.getShippingPhone())
                 .toAddress(order.getShippingAddressDetail())

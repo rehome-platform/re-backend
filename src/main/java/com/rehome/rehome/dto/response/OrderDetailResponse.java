@@ -42,6 +42,8 @@ public class OrderDetailResponse {
     private List<OrderDetailItemResponse> items;
 
     private String ghnTrackingCode;
+    // Ngày giao dự kiến do GHN trả về lúc tạo vận đơn, null nếu chưa có vận đơn
+    private Instant expectedDeliveryDate;
     private Instant deliveredAt;
     private Instant autoCompleteDeadline;
     private Instant completedAt;

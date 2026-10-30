@@ -129,6 +129,13 @@ public enum ErrorCode {
     // API 39 - tem SKU
     SKU_LABEL_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo file PDF tem SKU."),
     PHONE_TAKEN(HttpStatus.CONFLICT, "Số điện thoại này đã được sử dụng."),
+    // Admin khoá / mở khoá tài khoản
+    CANNOT_BAN_ADMIN_OR_SELF(HttpStatus.FORBIDDEN, "Không thể khoá tài khoản Admin hoặc chính bạn."),
+    ACCOUNT_NOT_BANNED(HttpStatus.CONFLICT, "Tài khoản này đang không bị khoá."),
+    ACCOUNT_ALREADY_BANNED(HttpStatus.CONFLICT, "Tài khoản này đã bị khoá."),
+    // Nháp ký gửi ("Tủ đồ") và giới hạn yêu cầu chờ duyệt
+    CONSIGNMENT_FORM_NOT_DRAFT(HttpStatus.CONFLICT, "Form này không phải bản nháp."),
+    TOO_MANY_PENDING_FORMS(HttpStatus.CONFLICT, "Bạn đã đạt giới hạn yêu cầu ký gửi đang chờ duyệt. Vui lòng chờ duyệt xong rồi gửi tiếp."),
     // API 40 - danh sách hàng trong kho
     ACCESS_TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "Access token đã hết hạn."),
     ACCESS_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "Access token không hợp lệ."),

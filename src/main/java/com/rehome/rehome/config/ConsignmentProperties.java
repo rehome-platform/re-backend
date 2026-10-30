@@ -13,6 +13,8 @@ import java.math.BigDecimal;
 @Setter
 public class ConsignmentProperties {
     private int bringInDeadlineDays = 7;
+    // Số yêu cầu PENDING tối đa mỗi Member được có cùng lúc (không tính DRAFT)
+    private int maxPendingForms = 5;
     private int termLengthDays = 30;
     private int maxRenewals = 2;
     private int freeWithdrawalWindowDays = 7;

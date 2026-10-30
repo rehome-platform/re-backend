@@ -12,7 +12,6 @@ import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.service.ProductService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.apache.tomcat.util.net.openssl.ciphers.Authentication;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -35,7 +34,11 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ProductController {
 
+    private static final int MAX_PAGE_SIZE = 50;
+
     private final ProductService productService;
+
+    // ---------------------------------------------------------------- Sàn (public)
 
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<ProductSummaryResponse>>> getProducts(
@@ -65,35 +68,41 @@ public class ProductController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
+    // ---------------------------------------------------------------- Hàng ký gửi của tôi
+
     @GetMapping("/mine")
     @PreAuthorize("hasRole('MEMBER')")
     public ApiResponse<PageResponse<MyProductResponse>> getMyProducts(
             @RequestParam(required = false) ProductStatus status,
+            // true = chỉ lấy hàng đang chờ Member chọn cách xử lý cuối kỳ
+            @RequestParam(defaultValue = "false") boolean pendingDecision,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @AuthenticationPrincipal Account account) {
 
-        if(account == null){
+        if (account == null) {
             throw new AppException(ErrorCode.UNAUTHORIZED);
         }
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<MyProductResponse> result = productService.getMyProducts(account.getId(), status, pageable);
+        Pageable pageable = PageRequest.of(
+                Math.max(page, 0),
+                Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        Page<MyProductResponse> result =
+                productService.getMyProducts(account.getId(), status, pendingDecision, pageable);
         return ApiResponse.success(PageResponse.from(result));
     }
+
     @GetMapping("/mine/{id}")
     @PreAuthorize("hasRole('MEMBER')")
-    public ApiResponse<ProductEndOfTermDetailResponse> getProductById(@PathVariable String id) {
-        return ApiResponse.success(productService.getProductById(id));
-    }
+    public ApiResponse<MyProductResponse> getMyProduct(
+            @PathVariable String id,
+            @AuthenticationPrincipal Account account) {
 
-    @PostMapping
-    @PreAuthorize("hasRole('MODERATOR')")
-    public ResponseEntity<ApiResponse<ProductResponse>> create(
-            @AuthenticationPrincipal Account account,
-            @Valid @RequestBody CreateProductRequest request) {
-        ProductResponse result = productService.create(request, account);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(result, 201, "Đã nhập kho"));
+        if (account == null) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+        return ApiResponse.success(productService.getMyProduct(account.getId(), id));
     }
 
     @PostMapping("/{id}/price-reduction")
@@ -105,6 +114,30 @@ public class ProductController {
 
         PriceReductionResponse result = productService.reducePrice(account, id, request);
         return ResponseEntity.ok(ApiResponse.success(result, 200, "Đã giảm giá sản phẩm"));
+    }
+
+    // Xem trước phí ship GHN thật cho 1 sản phẩm - chỉ cần nhập địa chỉ, không cần giỏ hàng/đơn hàng
+    @GetMapping("/{id}/shipping-fee-preview")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<ShippingFeePreviewResponse>> getShippingFeePreview(
+            @PathVariable String id,
+            @RequestParam String wardName,
+            @RequestParam String provinceName) {
+
+        ShippingFeePreviewResponse result = productService.getShippingFeePreview(id, wardName, provinceName);
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    // ---------------------------------------------------------------- Kho (Moderator)
+
+    @PostMapping
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<ProductResponse>> create(
+            @AuthenticationPrincipal Account account,
+            @Valid @RequestBody CreateProductRequest request) {
+        ProductResponse result = productService.create(request, account);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(result, 201, "Đã nhập kho"));
     }
 
     @GetMapping("/{id}/stock-movements")
@@ -123,17 +156,6 @@ public class ProductController {
                 productService.updateShelfLocation(account, id, request), 200, "Đã cập nhật vị trí kệ"));
     }
 
-    @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<Object>> getProduct(
-            @PathVariable String id,
-            @AuthenticationPrincipal Account account) {
-
-        if (account != null && account.getRole() == Role.MODERATOR) {
-            return ResponseEntity.ok(ApiResponse.<Object>success(productService.getBySku(account, id)));
-        }
-        return ResponseEntity.ok(ApiResponse.<Object>success(
-                productService.getProductDetail(id, account != null ? account.getId() : null)));
-    }
     // Trả thẳng file PDF để Moderator in tem, không qua URL trung gian
     @GetMapping("/{id}/sku-label")
     @PreAuthorize("hasRole('MODERATOR')")
@@ -151,15 +173,18 @@ public class ProductController {
                 .body(pdf.content());
     }
 
-    // Xem trước phí ship GHN thật cho 1 sản phẩm - chỉ cần nhập địa chỉ, không cần giỏ hàng/đơn hàng
-    @GetMapping("/{id}/shipping-fee-preview")
-    @PreAuthorize("hasRole('MEMBER')")
-    public ResponseEntity<ApiResponse<ShippingFeePreviewResponse>> getShippingFeePreview(
-            @PathVariable String id,
-            @RequestParam String wardName,
-            @RequestParam String provinceName) {
+    // ---------------------------------------------------------------- Chi tiết theo id/SKU
 
-        ShippingFeePreviewResponse result = productService.getShippingFeePreview(id, wardName, provinceName);
-        return ResponseEntity.ok(ApiResponse.success(result));
+    // Moderator quét SKU -> thông tin kho; còn lại -> chi tiết công khai
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse<Object>> getProduct(
+            @PathVariable String id,
+            @AuthenticationPrincipal Account account) {
+
+        if (account != null && account.getRole() == Role.MODERATOR) {
+            return ResponseEntity.ok(ApiResponse.<Object>success(productService.getBySku(account, id)));
+        }
+        return ResponseEntity.ok(ApiResponse.<Object>success(
+                productService.getProductDetail(id, account != null ? account.getId() : null)));
     }
 }

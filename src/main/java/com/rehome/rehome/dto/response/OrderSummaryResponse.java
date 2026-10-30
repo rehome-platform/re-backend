@@ -16,6 +16,11 @@ public class OrderSummaryResponse {
     private String id;
     private String orderNo;
     private String status;
+    private Instant createdAt;
+    private Instant expectedDeliveryDate;
+    private BigDecimal refundAmount;
+    // Yêu cầu trả hàng gần nhất của đơn, null nếu chưa từng tạo
+    private String returnRequestId;
     private BigDecimal totalAmount;
     private String warehouseName;
     private int itemCount;

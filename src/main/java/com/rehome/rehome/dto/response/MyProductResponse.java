@@ -1,23 +1,50 @@
 package com.rehome.rehome.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.rehome.rehome.entity.enums.EndOfTermChoice;
 import com.rehome.rehome.entity.enums.ProductStatus;
+
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
+@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class MyProductResponse {
     private String id;
     private String productName;
     private ProductStatus status;
+    private String photoUrl;
+    private String brandName;
+    private String size;
+    private BigDecimal agreedPrice;
+    private BigDecimal floorPrice;
+    private BigDecimal currentPrice;
+    private UUID warehouseId;
+    private String warehouseName;
     private Short currentTerm;
     private Instant termStartedAt;
-    private Instant endOfTermDeadline;
+    private Instant currentTermEndsAt;       // hết kỳ hiện tại (xem câu hỏi bên dưới)
+    private Instant endOfTermDeadline;       // hết kỳ cuối (ngày 90)
+    private Instant lastPriceChangedAt;
+    private EndOfTermDecisionInfo endOfTermDecision;   // null khi chưa tới cuối kỳ
+    private OrderRef order;                            // null khi chưa bán
+    private BigDecimal expectedPayout;
+
+    // Chỉ có ở /mine/{id}, danh sách thì null và không xuất hiện trong JSON
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private List<PriceChange> priceChanges;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private List<TermInfo> termHistory;
+
+    public record EndOfTermDecisionInfo(UUID id, Instant deadline, EndOfTermChoice decision) {}
+    public record OrderRef(UUID id, String orderNo) {}
+    public record PriceChange(Instant changedAt, BigDecimal oldPrice, BigDecimal newPrice) {}
+    public record TermInfo(int term, BigDecimal price, BigDecimal commissionRate) {}
 }

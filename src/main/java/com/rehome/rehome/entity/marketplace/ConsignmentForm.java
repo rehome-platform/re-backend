@@ -2,6 +2,7 @@ package com.rehome.rehome.entity.marketplace;
 
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
+import com.rehome.rehome.entity.enums.ProductCondition;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -29,9 +30,9 @@ public class ConsignmentForm {
     @JoinColumn(name = "member_id", nullable = false)
     private Account member;
 
-    // Kho Member chọn mang đồ đến
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "warehouse_id", nullable = false)
+    // Kho Member chọn mang đồ đến; null khi còn là DRAFT, được gán lúc gửi (POST /consignment-forms/submit)
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "warehouse_id", nullable = true)
     private Warehouse warehouse;
 
     // Danh mục của món đồ
@@ -56,7 +57,7 @@ public class ConsignmentForm {
     @Column(name = "desired_price", nullable = false, precision = 19, scale = 2)
     private BigDecimal desiredPrice;
 
-    // PENDING / APPROVED / REJECTED / EXPIRED / CANCELLED
+    // DRAFT / PENDING / APPROVED / REJECTED / EXPIRED / CANCELLED / INSPECTING; DRAFT = nháp trong "Tủ đồ"
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     @ColumnDefault("'PENDING'")
@@ -78,6 +79,19 @@ public class ConsignmentForm {
     // Thời điểm sửa gần nhất
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    // Mã dễ đọc, ví dụ KG-000123
+    @Column(name = "form_no", unique = true, length = 30)
+    private String formNo;
+
+    // Size Member khai: XS..XXL, Free size, hoặc 35..45 với giày
+    @Column(name = "size", length = 50)
+    private String size;
+
+    // NEW_TAG / LIKE_NEW / GOOD / FLAW
+    @Enumerated(EnumType.STRING)
+    @Column(name = "item_condition", length = 30)
+    private ProductCondition condition;
 
     @PrePersist
     private void onCreate() {

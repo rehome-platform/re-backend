@@ -10,6 +10,8 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
 
 /**
  * Hồ sơ tổ chức của chính người đang đăng nhập.
@@ -47,6 +49,37 @@ public class OrganizationProfileResponse {
 
     private Instant verifiedAt;
 
+    // Dữ liệu để app điền sẵn form nộp lại khi hồ sơ bị từ chối
+    private Instant submittedAt;
+    private RepresentativeInfo representative;
+    private List<DocumentInfo> documents;
+
+    @Getter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.ALWAYS)
+    public static class RepresentativeInfo {
+        private String fullName;
+        private String position;
+        private String cccdNumber;
+        private String cccdFrontUrl;
+        private String cccdBackUrl;
+    }
+
+    @Getter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.ALWAYS)
+    public static class DocumentInfo {
+        private String docType;
+        private String docNumber;
+        private LocalDate issueDate;
+        private String issuingAuthority;
+        private String fileUrl;
+    }
+
     public static OrganizationProfileResponse from(OrganizationProfile p) {
         return OrganizationProfileResponse.builder()
                 .verificationStatus(p.getVerificationStatus())
@@ -69,6 +102,23 @@ public class OrganizationProfileResponse {
                 .donationPointReceivingHours(p.getDonationPointReceivingHours())
                 .donationPointContactPhone(p.getDonationPointContactPhone())
                 .verifiedAt(p.getVerifiedAt())
+                .submittedAt(p.getSubmittedAt())
+                .representative(p.getRepresentative() == null ? null : RepresentativeInfo.builder()
+                        .fullName(p.getRepresentative().getFullName())
+                        .position(p.getRepresentative().getPosition())
+                        .cccdNumber(p.getRepresentative().getCccdNumber())
+                        .cccdFrontUrl(p.getRepresentative().getCccdFrontUrl())
+                        .cccdBackUrl(p.getRepresentative().getCccdBackUrl())
+                        .build())
+                .documents(p.getDocuments() == null ? List.of() : p.getDocuments().stream()
+                        .map(d -> DocumentInfo.builder()
+                                .docType(d.getDocType())
+                                .docNumber(d.getDocNumber())
+                                .issueDate(d.getIssueDate())
+                                .issuingAuthority(d.getIssuingAuthority())
+                                .fileUrl(d.getFileUrl())
+                                .build())
+                        .toList())
                 .build();
     }
 

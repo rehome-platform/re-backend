@@ -13,7 +13,10 @@ import com.rehome.rehome.entity.marketplace.Category;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
+import com.rehome.rehome.entity.marketplace.Order;
+import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.Product;
+import com.rehome.rehome.entity.marketplace.ProductPriceChange;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.StockMovementLog;
 import com.rehome.rehome.entity.marketplace.Warehouse;
@@ -74,6 +77,10 @@ class ProductServiceImplTest {
 
     @Mock ConsignmentReceiptRepository receiptRepository;
     @Mock GhnShippingFeeCalculator ghnShippingFeeCalculator;
+
+    // getMyProducts / getMyProduct dùng thêm hai repository này
+    @Mock ProductPriceChangeRepository productPriceChangeRepository;
+    @Mock OrderItemRepository orderItemRepository;
 
     @InjectMocks ProductServiceImpl service;
 
@@ -324,7 +331,7 @@ class ProductServiceImplTest {
         stubRepositoryPage(new PageImpl<>(List.of(p1, p2)));
         ProductPhoto first = photo("p1", "first.jpg");
         ProductPhoto second = photo("p1", "second.jpg");
-        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(List.of("p1", "p2")))
+        when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(List.of("p1", "p2")))
                 .thenReturn(List.of(first, second));
 
         Page mapped = callAndCapture(new BigDecimal("1"), new BigDecimal("2"), 2, 10);
@@ -397,7 +404,7 @@ class ProductServiceImplTest {
         when(productRepository.findById("p1")).thenReturn(Optional.of(p));
         ProductPhoto photoA = photo("p1", "a.jpg");
         ProductPhoto photoB = photo("p1", "b.jpg");
-        when(productPhotoRepository.findByProduct_IdOrderByIdAsc("p1"))
+        when(productPhotoRepository.findByProduct_IdOrderByDisplayOrderAscIdAsc("p1"))
                 .thenReturn(List.of(photoA, photoB));
 
         ProductDetailResponse result = service.getProductDetail("p1", null);
@@ -456,19 +463,40 @@ class ProductServiceImplTest {
                 .build();
     }
 
+    private ProductPhoto photoOf(Product product, String url) {
+        ProductPhoto photo = mock(ProductPhoto.class);
+        when(photo.getProduct()).thenReturn(product);
+        when(photo.getImageUrl()).thenReturn(url);
+        return photo;
+    }
+
     @Test
-    @DisplayName("getMyProducts: có status -> lọc theo status và map đúng DTO")
+    @DisplayName("getMyProducts: có status -> lọc theo status, ghép ảnh đầu và map đúng DTO")
     void getMyProducts_withStatus_returnsMappedPage() {
         Product product = buildProduct("Q7-AK-000845", ProductStatus.ON_SALE);
         MyProductResponse dto = buildResponse("Q7-AK-000845", ProductStatus.ON_SALE);
         Page<Product> repoPage = new PageImpl<>(List.of(product), pageable, 1);
 
-        when(productRepository.findMine(memberId, ProductStatus.ON_SALE, pageable))
+        when(productRepository.findMine(memberId, ProductStatus.ON_SALE, false, pageable))
                 .thenReturn(repoPage);
-        when(productMapper.toMyProductResponse(product)).thenReturn(dto);
+
+        // Tạo mock ảnh trước khi stub repository
+        ProductPhoto photo = photoOf(product, "https://img/a.jpg");
+
+        when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(List.of("Q7-AK-000845")))
+                .thenReturn(List.of(photo));
+
+        when(endOfTermDecisionRepository.findByProductIds(List.of("Q7-AK-000845")))
+                .thenReturn(List.of());
+
+        when(orderItemRepository.findActiveByProductIds(List.of("Q7-AK-000845")))
+                .thenReturn(List.of());
+
+        when(productMapper.toMyProduct(product, "https://img/a.jpg", null, null))
+                .thenReturn(dto);
 
         Page<MyProductResponse> result =
-                service.getMyProducts(memberId, ProductStatus.ON_SALE, pageable);
+                service.getMyProducts(memberId, ProductStatus.ON_SALE, false, pageable);
 
         assertEquals(1, result.getTotalElements());
         assertEquals(1, result.getTotalPages());
@@ -478,46 +506,59 @@ class ProductServiceImplTest {
         assertEquals("Q7-AK-000845", result.getContent().get(0).getId());
         assertEquals(ProductStatus.ON_SALE, result.getContent().get(0).getStatus());
 
-        verify(productRepository, times(1)).findMine(memberId, ProductStatus.ON_SALE, pageable);
-        verify(productMapper, times(1)).toMyProductResponse(product);
+        verify(productRepository, times(1))
+                .findMine(memberId, ProductStatus.ON_SALE, false, pageable);
+
+        verify(productMapper, times(1))
+                .toMyProduct(product, "https://img/a.jpg", null, null);
     }
 
     @Test
     @DisplayName("getMyProducts: status = null -> truyền null xuống repository (lấy tất cả)")
     void getMyProducts_nullStatus_passesNullToRepository() {
         Product p1 = buildProduct("Q7-AK-000845", ProductStatus.ON_SALE);
-        Product p2 = buildProduct("Q7-AK-000846", ProductStatus.SOLD);
+        Product p2 = buildProduct("Q7-AK-000846", ProductStatus.WITHDRAWN);
         MyProductResponse d1 = buildResponse("Q7-AK-000845", ProductStatus.ON_SALE);
-        MyProductResponse d2 = buildResponse("Q7-AK-000846", ProductStatus.SOLD);
+        MyProductResponse d2 = buildResponse("Q7-AK-000846", ProductStatus.WITHDRAWN);
         Page<Product> repoPage = new PageImpl<>(List.of(p1, p2), pageable, 2);
 
-        when(productRepository.findMine(eq(memberId), eq(null), eq(pageable)))
+        when(productRepository.findMine(eq(memberId), isNull(), eq(false), eq(pageable)))
                 .thenReturn(repoPage);
-        when(productMapper.toMyProductResponse(p1)).thenReturn(d1);
-        when(productMapper.toMyProductResponse(p2)).thenReturn(d2);
+        when(productMapper.toMyProduct(eq(p1), any(), any(), any())).thenReturn(d1);
+        when(productMapper.toMyProduct(eq(p2), any(), any(), any())).thenReturn(d2);
 
-        Page<MyProductResponse> result = service.getMyProducts(memberId, null, pageable);
+        Page<MyProductResponse> result = service.getMyProducts(memberId, null, false, pageable);
 
         assertEquals(2, result.getContent().size());
         assertEquals(d1, result.getContent().get(0));
         assertEquals(d2, result.getContent().get(1));
-        verify(productRepository).findMine(memberId, null, pageable);
+        verify(productRepository).findMine(memberId, null, false, pageable);
     }
 
     @Test
-    @DisplayName("getMyProducts: không có sản phẩm -> trả page rỗng, không gọi mapper")
+    @DisplayName("getMyProducts: pendingDecision = true -> truyền cờ này xuống repository (lọc hàng chờ quyết định cuối kỳ)")
+    void getMyProducts_pendingDecision_passesFlagToRepository() {
+        when(productRepository.findMine(memberId, null, true, pageable)).thenReturn(Page.empty());
+
+        service.getMyProducts(memberId, null, true, pageable);
+
+        verify(productRepository).findMine(memberId, null, true, pageable);
+    }
+
+    @Test
+    @DisplayName("getMyProducts: không có sản phẩm -> trả page rỗng, không gọi mapper và không query dữ liệu phụ")
     void getMyProducts_noProducts_returnsEmptyPage() {
         Page<Product> emptyPage = new PageImpl<>(List.of(), pageable, 0);
 
-        when(productRepository.findMine(memberId, ProductStatus.WITHDRAWN, pageable))
+        when(productRepository.findMine(memberId, ProductStatus.WITHDRAWN, false, pageable))
                 .thenReturn(emptyPage);
 
         Page<MyProductResponse> result =
-                service.getMyProducts(memberId, ProductStatus.WITHDRAWN, pageable);
+                service.getMyProducts(memberId, ProductStatus.WITHDRAWN, false, pageable);
 
         assertTrue(result.isEmpty());
         assertEquals(0, result.getTotalElements());
-        verify(productMapper, never()).toMyProductResponse(any());
+        verifyNoInteractions(productMapper, productPhotoRepository, endOfTermDecisionRepository, orderItemRepository);
     }
 
     @Test
@@ -528,12 +569,12 @@ class ProductServiceImplTest {
         MyProductResponse dto = buildResponse("Q7-AK-000846", ProductStatus.RESERVED);
         Page<Product> repoPage = new PageImpl<>(List.of(product), page1, 3);
 
-        when(productRepository.findMine(memberId, ProductStatus.RESERVED, page1))
+        when(productRepository.findMine(memberId, ProductStatus.RESERVED, false, page1))
                 .thenReturn(repoPage);
-        when(productMapper.toMyProductResponse(product)).thenReturn(dto);
+        when(productMapper.toMyProduct(eq(product), any(), any(), any())).thenReturn(dto);
 
         Page<MyProductResponse> result =
-                service.getMyProducts(memberId, ProductStatus.RESERVED, page1);
+                service.getMyProducts(memberId, ProductStatus.RESERVED, false, page1);
 
         assertEquals(1, result.getNumber());
         assertEquals(1, result.getSize());
@@ -541,48 +582,217 @@ class ProductServiceImplTest {
         assertEquals(3, result.getTotalPages());
     }
 
-    // ==================== getProductById ====================
-
     @Test
-    void getProductById_pendingDecision_passesPendingToMapper() {
-        Product p = buildProduct("Q7-AK-000845", ProductStatus.ON_SALE);
-        EndOfTermDecision pending = EndOfTermDecision.builder()
-                .deadline(Instant.parse("2026-11-12T00:00:00Z")).build();
-        ProductEndOfTermDetailResponse dto = ProductEndOfTermDetailResponse.builder()
-                .id("Q7-AK-000845").build();
-        when(productRepository.findById("Q7-AK-000845")).thenReturn(Optional.of(p));
-        when(endOfTermDecisionRepository
-                .findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc("Q7-AK-000845"))
-                .thenReturn(Optional.of(pending));
-        when(productMapper.toEndOfTermDetailResponse(p, pending)).thenReturn(dto);
+    @DisplayName("getMyProducts: sản phẩm có nhiều ảnh -> lấy ảnh đầu tiên (đã sắp theo displayOrder)")
+    void getMyProducts_multiplePhotos_usesFirst() {
+        Product product = buildProduct("Q7-AK-000845", ProductStatus.ON_SALE);
 
-        assertThat(service.getProductById("Q7-AK-000845")).isSameAs(dto);
+        when(productRepository.findMine(memberId, null, false, pageable))
+                .thenReturn(new PageImpl<>(List.of(product), pageable, 1));
+
+        // Tạo hai ảnh trước khi stub repository
+        ProductPhoto firstPhoto = photoOf(product, "first.jpg");
+        ProductPhoto secondPhoto = photoOf(product, "second.jpg");
+
+        when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(List.of("Q7-AK-000845")))
+                .thenReturn(List.of(firstPhoto, secondPhoto));
+
+        service.getMyProducts(memberId, null, false, pageable);
+
+        verify(productMapper).toMyProduct(product, "first.jpg", null, null);
     }
 
     @Test
-    void getProductById_noPending_passesNullToMapper() {
-        Product p = buildProduct("Q7-AK-000845", ProductStatus.ON_SALE);
-        ProductEndOfTermDetailResponse dto = ProductEndOfTermDetailResponse.builder()
-                .id("Q7-AK-000845").build();
-        when(productRepository.findById("Q7-AK-000845")).thenReturn(Optional.of(p));
-        when(endOfTermDecisionRepository
-                .findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc("Q7-AK-000845"))
-                .thenReturn(Optional.empty());
-        when(productMapper.toEndOfTermDetailResponse(p, null)).thenReturn(dto);
+    @DisplayName("getMyProducts: có quyết định cuối kỳ -> lấy bản ghi đầu (mới nhất) của sản phẩm")
+    void getMyProducts_endOfTermDecision_usesFirstRow() {
+        Product product = buildProduct("Q7-AK-000845", ProductStatus.ON_SALE);
+        EndOfTermDecision newest = EndOfTermDecision.builder()
+                .product(product).deadline(Instant.parse("2026-12-19T00:00:00Z")).build();
+        EndOfTermDecision older = EndOfTermDecision.builder()
+                .product(product).deadline(Instant.parse("2026-11-19T00:00:00Z")).build();
+        when(productRepository.findMine(memberId, null, false, pageable))
+                .thenReturn(new PageImpl<>(List.of(product), pageable, 1));
+        when(endOfTermDecisionRepository.findByProductIds(List.of("Q7-AK-000845")))
+                .thenReturn(List.of(newest, older));
 
-        assertThat(service.getProductById("Q7-AK-000845")).isSameAs(dto);
-        verify(productMapper).toEndOfTermDetailResponse(p, null);
+        service.getMyProducts(memberId, null, false, pageable);
+
+        verify(productMapper).toMyProduct(product, null, newest, null);
     }
 
     @Test
-    void getProductById_notFound_throwsAppException() {
+    @DisplayName("getMyProducts: chỉ sản phẩm SOLD mới được gắn đơn hàng")
+    void getMyProducts_orderAttachedOnlyWhenSold() {
+        Product sold = buildProduct("Q7-AK-000845", ProductStatus.SOLD);
+        Product onSale = buildProduct("Q7-AK-000846", ProductStatus.ON_SALE);
+        Order order = Order.builder().id(UUID.randomUUID()).orderNo("OD-2026-000012").build();
+        OrderItem soldItem = OrderItem.builder().product(sold).order(order).build();
+        OrderItem onSaleItem = OrderItem.builder().product(onSale).order(order).build();
+
+        List<String> ids = List.of("Q7-AK-000845", "Q7-AK-000846");
+        when(productRepository.findMine(memberId, null, false, pageable))
+                .thenReturn(new PageImpl<>(List.of(sold, onSale), pageable, 2));
+        when(orderItemRepository.findActiveByProductIds(ids)).thenReturn(List.of(soldItem, onSaleItem));
+
+        service.getMyProducts(memberId, null, false, pageable);
+
+        verify(productMapper).toMyProduct(sold, null, null, order);
+        verify(productMapper).toMyProduct(onSale, null, null, null);
+    }
+
+    // ==================== getMyProduct ====================
+
+    private Product ownedProduct(ProductStatus status, short currentTerm, Instant termStartedAt) {
+        BigDecimal agreed = new BigDecimal("450000");
+        ConsignmentReceipt receipt = ConsignmentReceipt.builder()
+                .agreedPrice(agreed)
+                .commissionRateTerm1(new BigDecimal("0.15"))
+                .commissionRateTerm2(new BigDecimal("0.20"))
+                .commissionRateTerm3(new BigDecimal("0.25"))
+                .termLengthDays(30)
+                .build();
+        return Product.builder()
+                .id("Q7-AK-000845")
+                .name("Áo khoác Uniqlo")
+                .member(owner)
+                .consignmentReceipt(receipt)
+                .status(status)
+                .currentTerm(currentTerm)
+                .termStartedAt(termStartedAt)
+                .build();
+    }
+
+    @Test
+    @DisplayName("getMyProduct: không tìm thấy -> PRODUCT_NOT_FOUND")
+    void getMyProduct_notFound_throws() {
         when(productRepository.findById("missing")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.getProductById("missing"))
-                .isInstanceOf(AppException.class)
-                .hasMessage("Không tìm thấy sản phẩm.");
+        AppException ex = assertThrows(AppException.class, () -> service.getMyProduct(owner.getId(), "missing"));
 
-        verifyNoInteractions(productMapper, endOfTermDecisionRepository);
+        assertEquals(ErrorCode.PRODUCT_NOT_FOUND, ex.getErrorCode());
+        verifyNoInteractions(productMapper);
+    }
+
+    @Test
+    @DisplayName("getMyProduct: không phải chủ hàng -> PRODUCT_FORBIDDEN")
+    void getMyProduct_notOwner_throwsForbidden() {
+        Product p = ownedProduct(ProductStatus.ON_SALE, (short) 1, Instant.now());
+        when(productRepository.findById("Q7-AK-000845")).thenReturn(Optional.of(p));
+
+        AppException ex = assertThrows(AppException.class,
+                () -> service.getMyProduct(UUID.randomUUID(), "Q7-AK-000845"));
+
+        assertEquals(ErrorCode.PRODUCT_FORBIDDEN, ex.getErrorCode());
+        verifyNoInteractions(productMapper);
+    }
+
+    @Test
+    @DisplayName("getMyProduct: chủ hàng -> ghép ảnh, quyết định cuối kỳ, lịch sử đổi giá và lịch sử kỳ vào mapper")
+    void getMyProduct_success_passesAllPiecesToMapper() {
+        Instant termStart = Instant.parse("2026-10-20T00:00:00Z");
+
+        Product p = ownedProduct(ProductStatus.ON_SALE, (short) 1, termStart);
+
+        ProductPriceChange change = ProductPriceChange.builder()
+                .changedAt(Instant.parse("2026-10-25T09:00:00Z"))
+                .oldPrice(new BigDecimal("450000"))
+                .newPrice(new BigDecimal("400000"))
+                .build();
+
+        EndOfTermDecision decision = EndOfTermDecision.builder()
+                .product(p)
+                .deadline(Instant.parse("2026-12-19T00:00:00Z"))
+                .build();
+
+        MyProductResponse dto = buildResponse("Q7-AK-000845", ProductStatus.ON_SALE);
+
+        when(productRepository.findById("Q7-AK-000845"))
+                .thenReturn(Optional.of(p));
+
+        when(productPriceChangeRepository.findByProduct_IdOrderByChangedAtAsc("Q7-AK-000845"))
+                .thenReturn(List.of(change));
+
+        // Tạo ảnh trước khi stub repository
+        ProductPhoto photo = photoOf(p, "https://img/a.jpg");
+
+        when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(List.of("Q7-AK-000845")))
+                .thenReturn(List.of(photo));
+
+        when(endOfTermDecisionRepository.findByProductIds(List.of("Q7-AK-000845")))
+                .thenReturn(List.of(decision));
+
+        when(productMapper.toMyProductDetail(
+                eq(p),
+                eq("https://img/a.jpg"),
+                eq(decision),
+                isNull(),
+                anyList(),
+                anyList()
+        )).thenReturn(dto);
+
+        MyProductResponse result = service.getMyProduct(owner.getId(), "Q7-AK-000845");
+
+        assertSame(dto, result);
+
+        ArgumentCaptor<List> changes = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List> terms = ArgumentCaptor.forClass(List.class);
+
+        verify(productMapper).toMyProductDetail(
+                eq(p),
+                eq("https://img/a.jpg"),
+                eq(decision),
+                isNull(),
+                changes.capture(),
+                terms.capture()
+        );
+
+        assertEquals(1, changes.getValue().size());
+        assertEquals(1, terms.getValue().size());
+    }
+
+    @Test
+    @DisplayName("getMyProduct: sản phẩm SOLD -> lấy đơn đang hoạt động; không SOLD -> không tra đơn")
+    void getMyProduct_orderOnlyWhenSold() {
+        Product sold = ownedProduct(ProductStatus.SOLD, (short) 1, Instant.now());
+        Order order = Order.builder().id(UUID.randomUUID()).orderNo("OD-2026-000012").build();
+        when(productRepository.findById("Q7-AK-000845")).thenReturn(Optional.of(sold));
+        when(orderItemRepository.findActiveByProductIds(List.of("Q7-AK-000845")))
+                .thenReturn(List.of(OrderItem.builder().product(sold).order(order).build()));
+
+        service.getMyProduct(owner.getId(), "Q7-AK-000845");
+
+        verify(productMapper).toMyProductDetail(eq(sold), any(), any(), eq(order), anyList(), anyList());
+
+        Product onSale = ownedProduct(ProductStatus.ON_SALE, (short) 1, Instant.now());
+        when(productRepository.findById("Q7-AK-000845")).thenReturn(Optional.of(onSale));
+
+        service.getMyProduct(owner.getId(), "Q7-AK-000845");
+
+        verify(orderItemRepository, times(1)).findActiveByProductIds(anyList());
+    }
+
+    @Test
+    @DisplayName("getMyProduct: kỳ 2 -> termHistory có 2 kỳ, giá mỗi kỳ là giá có hiệu lực lúc kỳ đó bắt đầu")
+    void getMyProduct_termHistory_priceAtEachTermStart() {
+        Instant termStart = Instant.parse("2026-11-19T00:00:00Z");   // kỳ 2 bắt đầu
+        Product p = ownedProduct(ProductStatus.ON_SALE, (short) 2, termStart);
+        BigDecimal agreed = p.getConsignmentReceipt().getAgreedPrice();
+        BigDecimal reduced = new BigDecimal("400000");
+        // đổi giá 10 ngày trước khi kỳ 2 bắt đầu = trong kỳ 1 (kỳ 1 bắt đầu cách kỳ 2 đúng 30 ngày)
+        ProductPriceChange change = ProductPriceChange.builder()
+                .changedAt(termStart.minus(Duration.ofDays(10)))
+                .oldPrice(agreed).newPrice(reduced).build();
+        when(productRepository.findById("Q7-AK-000845")).thenReturn(Optional.of(p));
+        when(productPriceChangeRepository.findByProduct_IdOrderByChangedAtAsc("Q7-AK-000845"))
+                .thenReturn(List.of(change));
+
+        service.getMyProduct(owner.getId(), "Q7-AK-000845");
+
+        ArgumentCaptor<List> terms = ArgumentCaptor.forClass(List.class);
+        verify(productMapper).toMyProductDetail(eq(p), any(), any(), any(), anyList(), terms.capture());
+        List<MyProductResponse.TermInfo> history = terms.getValue();
+        assertEquals(2, history.size());
+        assertThat(history).extracting("price").containsExactly(agreed, reduced);
     }
 
     // =====================================================================

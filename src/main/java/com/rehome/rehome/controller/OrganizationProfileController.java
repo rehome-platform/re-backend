@@ -46,6 +46,12 @@ public class OrganizationProfileController {
         return ResponseEntity.status(201).body(ApiResponse.success(authService.registerOrganization(request), 201));
     }
 
+    @GetMapping("/options")
+    @Operation(summary = "Danh sách loại tổ chức và phạm vi hoạt động cho form đăng ký")
+    public ResponseEntity<ApiResponse<OrganizationOptionsResponse>> getOptions() {
+        return ResponseEntity.ok(ApiResponse.success(organizationService.getOptions()));
+    }
+
     @GetMapping("/me")
     @PreAuthorize("hasRole('ORGANIZATION')")
     public ResponseEntity<OrganizationProfileResponse> getMyProfile(

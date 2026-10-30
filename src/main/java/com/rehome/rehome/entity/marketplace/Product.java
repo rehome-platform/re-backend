@@ -111,6 +111,9 @@ public class Product implements Persistable<String> {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "last_price_changed_at", nullable = true)
+    private Instant lastPriceChangedAt;
+
     @PrePersist
     private void onCreate() {
         Instant now = Instant.now();

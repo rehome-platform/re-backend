@@ -41,6 +41,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -54,6 +55,9 @@ class ConsignmentFormServiceImplTest {
     @Mock private ConsignmentFormPhotoRepository photoRepository;
     @Mock private ConsignmentFormMapper consignmentFormMapper;
     @Mock private ConsignmentReceiptRepository consignmentReceiptRepository;
+
+    // create()/submitDrafts() gọi lockMember() -> accountRepository.findByIdForUpdate(...)
+    @Mock private AccountRepository accountRepository;
 
     // MỚI: service có field ConsignmentProperties (dùng cho approve)
     @Spy private ConsignmentProperties consignmentProperties = new ConsignmentProperties();
@@ -92,6 +96,7 @@ class ConsignmentFormServiceImplTest {
         List<ConsignmentFormPhoto> photos = List.of(new ConsignmentFormPhoto(), new ConsignmentFormPhoto());
         ConsignmentFormResponse response = new ConsignmentFormResponse();
 
+        givenMemberLockable(account);
         when(consignmentFormMapper.toEntity(req)).thenReturn(mapped);
         when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
         when(brandRepository.findById(brandId)).thenReturn(Optional.of(brand));
@@ -114,8 +119,9 @@ class ConsignmentFormServiceImplTest {
         assertThat(toSave.getWarehouse()).isSameAs(warehouse);
         assertThat(toSave.getMember()).isSameAs(account);
 
-        // phải lưu form trước rồi mới lưu ảnh, và ảnh được map từ form đã save
-        InOrder order = inOrder(consignmentFormRepository, photoRepository);
+        // phải khoá Member trước, rồi lưu form, rồi mới lưu ảnh (ảnh map từ form đã save)
+        InOrder order = inOrder(accountRepository, consignmentFormRepository, photoRepository);
+        order.verify(accountRepository).findByIdForUpdate(account.getId());
         order.verify(consignmentFormRepository).save(mapped);
         order.verify(photoRepository).saveAll(photos);
     }
@@ -125,6 +131,7 @@ class ConsignmentFormServiceImplTest {
         Account account = Account.builder().id(UUID.randomUUID()).role(Role.MEMBER).build();
         ConsignmentFormRequest req = request();
 
+        givenMemberLockable(account);
         when(consignmentFormMapper.toEntity(req)).thenReturn(new ConsignmentForm());
         when(categoryRepository.findById(categoryId)).thenReturn(Optional.empty());
 
@@ -132,6 +139,45 @@ class ConsignmentFormServiceImplTest {
 
         verify(consignmentFormRepository, never()).save(any());
         verifyNoInteractions(photoRepository);
+    }
+
+    @Test
+    void create_memberRowNotFound_throwsAccountNotFound_andSavesNothing() {
+        Account account = Account.builder().id(UUID.randomUUID()).role(Role.MEMBER).build();
+        when(accountRepository.findByIdForUpdate(account.getId())).thenReturn(Optional.empty());
+
+        assertAppError(() -> service.create(request(), account), ErrorCode.ACCOUNT_NOT_FOUND);
+
+        verifyNoInteractions(consignmentFormMapper, photoRepository);
+        verify(consignmentFormRepository, never()).save(any());
+    }
+
+    @Test
+    void create_pendingLimitReached_throwsTooManyPendingForms_andSavesNothing() {
+        Account account = Account.builder().id(UUID.randomUUID()).role(Role.MEMBER).build();
+        consignmentProperties.setMaxPendingForms(3);
+        givenMemberLockable(account);
+        when(consignmentFormRepository.countByMember_IdAndStatus(account.getId(), ConsignmentFormStatus.PENDING))
+                .thenReturn(3L);
+
+        assertAppError(() -> service.create(request(), account), ErrorCode.TOO_MANY_PENDING_FORMS);
+
+        verifyNoInteractions(consignmentFormMapper, photoRepository);
+        verify(consignmentFormRepository, never()).save(any());
+    }
+
+    @Test
+    void create_nonMember_throwsNotMemberCreateForm_beforeLockingAnything() {
+        Account moderator = Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR).build();
+
+        assertAppError(() -> service.create(request(), moderator), ErrorCode.NOT_MEMBER_CREATE_FORM);
+
+        verifyNoInteractions(accountRepository, consignmentFormMapper, photoRepository);
+    }
+
+    // lockMember(): khoá dòng Member bằng accountRepository.findByIdForUpdate rồi mới đếm đơn PENDING
+    private void givenMemberLockable(Account account) {
+        when(accountRepository.findByIdForUpdate(account.getId())).thenReturn(Optional.of(account));
     }
 
     // SỬA: thêm role MEMBER vì getMyForms() có check role
@@ -146,14 +192,20 @@ class ConsignmentFormServiceImplTest {
     @Test
     void getMyForms_withStatus_usesStatusQueryAndMapsItems() {
         Account account = member();
-        ConsignmentForm form = new ConsignmentForm();
+        ConsignmentForm form = formOf(account, ConsignmentFormStatus.PENDING);
+        ConsignmentFormPhoto photo = mock(ConsignmentFormPhoto.class);
+        when(photo.getForm()).thenReturn(form);
+        when(photo.getImageUrl()).thenReturn("https://img/1.jpg");
         ConsignmentFormListItemResponse item = new ConsignmentFormListItemResponse(
-                UUID.randomUUID(), ConsignmentFormStatus.PENDING, "Áo sơ mi Zara", new BigDecimal("250000"));
+                form.getId(), ConsignmentFormStatus.PENDING, "Áo sơ mi Zara", new BigDecimal("250000"),
+                "https://img/1.jpg", null, null, null, null);
 
         when(consignmentFormRepository.findByMemberIdAndStatus(eq(account.getId()),
                 eq(ConsignmentFormStatus.PENDING), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(form), PageRequest.of(0, 20), 1));
-        when(consignmentFormMapper.toListItem(form)).thenReturn(item);
+        when(photoRepository.findByForm_IdInOrderByDisplayOrderAscIdAsc(List.of(form.getId())))
+                .thenReturn(List.of(photo));
+        when(consignmentFormMapper.toListItem(form, "https://img/1.jpg")).thenReturn(item);
 
         PageResponse<ConsignmentFormListItemResponse> result =
                 service.getMyForms(account, ConsignmentFormStatus.PENDING, 0, 20);
@@ -161,19 +213,53 @@ class ConsignmentFormServiceImplTest {
         assertThat(result.getContent()).containsExactly(item);
         assertThat(result.getTotalElements()).isEqualTo(1);
         assertThat(result.getTotalPages()).isEqualTo(1);
-        verify(consignmentFormRepository, never()).findByMemberId(any(), any());
+        verify(consignmentFormRepository, never()).findByMemberIdAndStatusNot(any(), any(), any());
+    }
+
+    @Test
+    void getMyForms_formWithoutPhoto_passesNullThumbnail() {
+        Account account = member();
+        ConsignmentForm form = formOf(account, ConsignmentFormStatus.PENDING);
+        ConsignmentFormListItemResponse item = new ConsignmentFormListItemResponse(
+                form.getId(), ConsignmentFormStatus.PENDING, "Áo sơ mi Zara", new BigDecimal("250000"),
+                null, null, null, null, null);
+
+        when(consignmentFormRepository.findByMemberIdAndStatus(eq(account.getId()),
+                eq(ConsignmentFormStatus.PENDING), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(form), PageRequest.of(0, 20), 1));
+        when(photoRepository.findByForm_IdInOrderByDisplayOrderAscIdAsc(List.of(form.getId())))
+                .thenReturn(List.of());
+        when(consignmentFormMapper.toListItem(form, null)).thenReturn(item);
+
+        PageResponse<ConsignmentFormListItemResponse> result =
+                service.getMyForms(account, ConsignmentFormStatus.PENDING, 0, 20);
+
+        assertThat(result.getContent()).containsExactly(item);
+    }
+
+    @Test
+    void getMyForms_emptyPage_doesNotQueryPhotos() {
+        Account account = member();
+        when(consignmentFormRepository.findByMemberIdAndStatus(eq(account.getId()),
+                eq(ConsignmentFormStatus.PENDING), any(Pageable.class)))
+                .thenReturn(Page.empty());
+
+        service.getMyForms(account, ConsignmentFormStatus.PENDING, 0, 20);
+
+        verifyNoInteractions(photoRepository);
     }
 
     @Test
     void getMyForms_withoutStatus_usesMemberQuery_sortedNewestFirst() {
         Account account = member();
-        when(consignmentFormRepository.findByMemberId(eq(account.getId()), any(Pageable.class)))
+        when(consignmentFormRepository.findByMemberIdAndStatusNot(eq(account.getId()), eq(ConsignmentFormStatus.DRAFT), any(Pageable.class)))
                 .thenReturn(Page.empty());
 
         service.getMyForms(account, null, 0, 20);
 
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        verify(consignmentFormRepository).findByMemberId(eq(account.getId()), captor.capture());
+        verify(consignmentFormRepository).findByMemberIdAndStatusNot(
+                eq(account.getId()), eq(ConsignmentFormStatus.DRAFT), captor.capture());
 
         Sort.Order order = captor.getValue().getSort().getOrderFor("createdAt");
         assertThat(order).isNotNull();
@@ -185,13 +271,14 @@ class ConsignmentFormServiceImplTest {
     @CsvSource({"-5, 0, 20", "0, 0, 20", "0, 1000, 50", "3, 10, 10"})
     void getMyForms_normalizesPageAndSize(int page, int size, int expectedSize) {
         Account account = member();
-        when(consignmentFormRepository.findByMemberId(eq(account.getId()), any(Pageable.class)))
+        when(consignmentFormRepository.findByMemberIdAndStatusNot(eq(account.getId()), eq(ConsignmentFormStatus.DRAFT), any(Pageable.class)))
                 .thenReturn(Page.empty());
 
         service.getMyForms(account, null, page, size);
 
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        verify(consignmentFormRepository).findByMemberId(eq(account.getId()), captor.capture());
+        verify(consignmentFormRepository).findByMemberIdAndStatusNot(
+                eq(account.getId()), eq(ConsignmentFormStatus.DRAFT), captor.capture());
         assertThat(captor.getValue().getPageSize()).isEqualTo(expectedSize);
         assertThat(captor.getValue().getPageNumber()).isEqualTo(Math.max(page, 0));
     }
@@ -229,11 +316,11 @@ class ConsignmentFormServiceImplTest {
     @Test
     void getMyForm_notFound_throws404() {
         UUID id = UUID.randomUUID();
-        when(consignmentFormRepository.findById(id)).thenReturn(Optional.empty());
+        when(consignmentFormRepository.findWithDetailsById(id)).thenReturn(Optional.empty());
 
         assertAppError(() -> service.getMyForm(member(), id), ErrorCode.CONSIGNMENT_FORM_NOT_FOUND);
 
-        verify(consignmentFormRepository).findById(id);
+        verify(consignmentFormRepository).findWithDetailsById(id);
         verifyNoInteractions(consignmentFormMapper, consignmentReceiptRepository);
     }
 
@@ -242,7 +329,7 @@ class ConsignmentFormServiceImplTest {
         Account owner = member();
         Account other = member(); // phải có id khác owner
         ConsignmentForm form = formOf(owner, ConsignmentFormStatus.PENDING);
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormRepository.findWithDetailsById(form.getId())).thenReturn(Optional.of(form));
 
         assertAppError(() -> service.getMyForm(other, form.getId()), ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
 
@@ -256,8 +343,8 @@ class ConsignmentFormServiceImplTest {
         ConsignmentFormDetailResponse dto = detailOf(form, ConsignmentFormStatus.REJECTED);
         dto.setRejectReason(form.getRejectReason());
 
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
-        when(consignmentFormMapper.toDetail(form)).thenReturn(dto);
+        when(consignmentFormRepository.findWithDetailsById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormMapper.toDetail(eq(form), anyList())).thenReturn(dto);
         when(consignmentReceiptRepository.findByConsignmentForm_Id(form.getId()))
                 .thenReturn(Optional.empty());
 
@@ -286,8 +373,8 @@ class ConsignmentFormServiceImplTest {
         ConsignmentReceipt receipt = mock(ConsignmentReceipt.class);
         when(receipt.getId()).thenReturn(receiptId);
 
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
-        when(consignmentFormMapper.toDetail(form)).thenReturn(dto);
+        when(consignmentFormRepository.findWithDetailsById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormMapper.toDetail(eq(form), anyList())).thenReturn(dto);
         when(consignmentReceiptRepository.findByConsignmentForm_Id(form.getId()))
                 .thenReturn(Optional.of(receipt));
 
@@ -306,7 +393,7 @@ class ConsignmentFormServiceImplTest {
     void approve_success_setsApproved_deadline7Days_clearsRejectReason() {
         ConsignmentForm form = formOf(member(), ConsignmentFormStatus.PENDING);   // formOf có rejectReason cũ
         ConsignmentFormResponse dto = new ConsignmentFormResponse();
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
         when(consignmentFormRepository.save(form)).thenReturn(form);
         when(consignmentFormMapper.toResponse(form)).thenReturn(dto);
 
@@ -322,7 +409,7 @@ class ConsignmentFormServiceImplTest {
     void approve_usesConfiguredDeadlineDays() {
         consignmentProperties.setBringInDeadlineDays(3);
         ConsignmentForm form = formOf(member(), ConsignmentFormStatus.PENDING);
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
         when(consignmentFormRepository.save(form)).thenReturn(form);
         when(consignmentFormMapper.toResponse(form)).thenReturn(new ConsignmentFormResponse());
 
@@ -334,7 +421,7 @@ class ConsignmentFormServiceImplTest {
     @Test
     void approve_notFound_throws404() {
         UUID id = UUID.randomUUID();
-        when(consignmentFormRepository.findById(id)).thenReturn(Optional.empty());
+        when(consignmentFormRepository.findByIdForUpdate(id)).thenReturn(Optional.empty());
 
         assertAppError(() -> service.approve(id), ErrorCode.CONSIGNMENT_FORM_NOT_FOUND);
 
@@ -345,7 +432,7 @@ class ConsignmentFormServiceImplTest {
     @EnumSource(value = ConsignmentFormStatus.class, names = "PENDING", mode = EnumSource.Mode.EXCLUDE)
     void approve_notPending_throws409(ConsignmentFormStatus status) {
         ConsignmentForm form = formOf(member(), status);
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
 
         assertAppError(() -> service.approve(form.getId()), ErrorCode.CONSIGNMENT_FORM_NOT_PENDING);
 
@@ -367,7 +454,7 @@ class ConsignmentFormServiceImplTest {
     void reject_success_setsRejectedTrimmedReason_clearsDeadline() {
         ConsignmentForm form = formOf(member(), ConsignmentFormStatus.PENDING);
         form.setBringInDeadline(LocalDate.now().plusDays(7));
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
 
         ConsignmentFormStatusResponse result = service.reject(form.getId(), rejectRequest("  Ảnh không rõ  "));
 
@@ -382,7 +469,7 @@ class ConsignmentFormServiceImplTest {
     @Test
     void reject_notFound_throws404() {
         UUID id = UUID.randomUUID();
-        when(consignmentFormRepository.findById(id)).thenReturn(Optional.empty());
+        when(consignmentFormRepository.findByIdForUpdate(id)).thenReturn(Optional.empty());
 
         assertAppError(() -> service.reject(id, rejectRequest("x")), ErrorCode.CONSIGNMENT_FORM_NOT_FOUND);
     }
@@ -391,7 +478,7 @@ class ConsignmentFormServiceImplTest {
     @EnumSource(value = ConsignmentFormStatus.class, names = "PENDING", mode = EnumSource.Mode.EXCLUDE)
     void reject_notPending_throws409(ConsignmentFormStatus status) {
         ConsignmentForm form = formOf(member(), status);
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
 
         assertAppError(() -> service.reject(form.getId(), rejectRequest("x")),
                 ErrorCode.CONSIGNMENT_FORM_NOT_PENDING);
@@ -406,7 +493,7 @@ class ConsignmentFormServiceImplTest {
     @Test
     void startInspection_success_approvedBecomesInspecting() {
         ConsignmentForm form = formOf(member(), ConsignmentFormStatus.APPROVED);
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
 
         service.startInspection(form.getId());
 
@@ -417,7 +504,7 @@ class ConsignmentFormServiceImplTest {
     @Test
     void startInspection_notFound_throws404() {
         UUID id = UUID.randomUUID();
-        when(consignmentFormRepository.findById(id)).thenReturn(Optional.empty());
+        when(consignmentFormRepository.findByIdForUpdate(id)).thenReturn(Optional.empty());
 
         assertAppError(() -> service.startInspection(id), ErrorCode.CONSIGNMENT_FORM_NOT_FOUND);
     }
@@ -426,7 +513,7 @@ class ConsignmentFormServiceImplTest {
     @EnumSource(value = ConsignmentFormStatus.class, names = "APPROVED", mode = EnumSource.Mode.EXCLUDE)
     void startInspection_notApproved_throws409(ConsignmentFormStatus status) {
         ConsignmentForm form = formOf(member(), status);
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
 
         assertAppError(() -> service.startInspection(form.getId()), ErrorCode.CONSIGNMENT_FORM_NOT_APPROVED);
 
@@ -449,7 +536,7 @@ class ConsignmentFormServiceImplTest {
     void returnOnsite_success_inspectingBecomesRejected(ReturnOnsiteResult result) {
         ConsignmentForm form = formOf(member(), ConsignmentFormStatus.INSPECTING);
         form.setBringInDeadline(LocalDate.now().plusDays(3));
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
 
         ConsignmentFormStatusResponse res =
                 service.returnOnsite(form.getId(), returnRequest(result, "  Vải bị mốc  "));
@@ -464,7 +551,7 @@ class ConsignmentFormServiceImplTest {
     @Test
     void returnOnsite_notFound_throws404() {
         UUID id = UUID.randomUUID();
-        when(consignmentFormRepository.findById(id)).thenReturn(Optional.empty());
+        when(consignmentFormRepository.findByIdForUpdate(id)).thenReturn(Optional.empty());
 
         assertAppError(() -> service.returnOnsite(id, returnRequest(ReturnOnsiteResult.FAIL, "x")),
                 ErrorCode.CONSIGNMENT_FORM_NOT_FOUND);
@@ -474,7 +561,7 @@ class ConsignmentFormServiceImplTest {
     @EnumSource(value = ConsignmentFormStatus.class, names = "INSPECTING", mode = EnumSource.Mode.EXCLUDE)
     void returnOnsite_notInspecting_throws409(ConsignmentFormStatus status) {
         ConsignmentForm form = formOf(member(), status);
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
 
         assertAppError(() -> service.returnOnsite(form.getId(), returnRequest(ReturnOnsiteResult.FAIL, "x")),
                 ErrorCode.CONSIGNMENT_FORM_NOT_INSPECTING);

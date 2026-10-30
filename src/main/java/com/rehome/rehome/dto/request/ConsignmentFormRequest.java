@@ -1,5 +1,7 @@
 package com.rehome.rehome.dto.request;
 
+import com.rehome.rehome.entity.enums.ProductCondition;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -19,4 +21,7 @@ public class ConsignmentFormRequest {
     private BigDecimal desiredPrice;
     private UUID warehouseId;
     private List<String> photoUrls;
+    @Size(max = 50)
+    private String size;
+    private ProductCondition condition;
 }

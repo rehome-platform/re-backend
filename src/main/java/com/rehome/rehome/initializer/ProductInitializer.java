@@ -35,24 +35,28 @@ public class ProductInitializer implements CommandLineRunner {
     private final ConsignmentReceiptRepository consignmentReceiptRepository;
     private final EndOfTermDecisionRepository endOfTermDecisionRepository;
 
-    // id, tên, size, giá thỏa thuận, giá hiện tại, status, kỳ hiện tại, số ngày đã chạy
+    // Tiền tố câu chung chung cũ, dữ liệu nào còn dùng câu này sẽ được thay bằng tình trạng thật
+    private static final String GENERIC_CONDITION_PREFIX = "Hàng đã qua kiểm định";
+
+    // id, tên, size, giá thỏa thuận, giá hiện tại, status, kỳ hiện tại, số ngày đã chạy, tình trạng
     private record Seed(String id, String name, String size, String agreedPrice, String price,
-                        ProductStatus status, short term, int daysIntoTerm) {}
+                        ProductStatus status, short term, int daysIntoTerm, String conditionNote) {}
 
     private static final List<Seed> SEEDS = List.of(
-            new Seed("Q7-AK-000845", "Áo sơ mi Zara trắng", "M", "250000", "220000", ProductStatus.ON_SALE, (short) 1, 5),
-            new Seed("Q7-AK-000846", "Áo thun Nike đen", "L", "180000", "150000", ProductStatus.RESERVED, (short) 1, 10),
-            new Seed("Q7-AK-000847", "Quần jean Levi's", "32", "350000", "300000", ProductStatus.SOLD, (short) 2, 40),
-            new Seed("Q7-QU-000848", "Quần kaki Uniqlo", "30", "200000", "180000", ProductStatus.WITHDRAWN, (short) 1, 3),
-            new Seed("Q7-AK-000849", "Áo khoác Adidas", "XL", "450000", "400000", ProductStatus.ON_SALE, (short) 3, 89),
-            new Seed("Q7-AK-000850", "Áo len H&M", "M", "150000", "120000", ProductStatus.UNCLAIMED, (short) 3, 90),
-            new Seed("Q7-QU-000851", "Quần short Puma", "L", "100000", "90000", ProductStatus.DONATED, (short) 3, 90)
+            new Seed("Q7-AK-000845", "Áo sơ mi Zara trắng", "M", "250000", "220000", ProductStatus.ON_SALE, (short) 1, 5, "Như mới, không lỗi"),
+            new Seed("Q7-AK-000846", "Áo thun Nike đen", "L", "180000", "150000", ProductStatus.RESERVED, (short) 1, 10, "Đã mặc vài lần, màu còn đẹp, không xù lông"),
+            new Seed("Q7-AK-000847", "Quần jean Levi's", "32", "350000", "300000", ProductStatus.SOLD, (short) 2, 40, "Tốt, form đứng, đường chỉ nguyên vẹn, không rách"),
+            new Seed("Q7-QU-000848", "Quần kaki Uniqlo", "30", "200000", "180000", ProductStatus.WITHDRAWN, (short) 1, 3, "Còn 90%, có một vết ố nhỏ ở gấu quần"),
+            new Seed("Q7-AK-000849", "Áo khoác Adidas", "XL", "450000", "400000", ProductStatus.ON_SALE, (short) 3, 89, "Còn 85%, khóa kéo mượt, bo tay hơi giãn nhẹ"),
+            new Seed("Q7-AK-000850", "Áo len H&M", "M", "150000", "120000", ProductStatus.UNCLAIMED, (short) 3, 90, "Còn 80%, xù lông nhẹ ở vùng nách"),
+            new Seed("Q7-QU-000851", "Quần short Puma", "L", "100000", "90000", ProductStatus.DONATED, (short) 3, 90, "Như mới, còn nguyên mác")
     );
 
     @Override
     @Transactional
     public void run(String... args) {
         log.info("ProductInitializer: bắt đầu chạy");
+        repairGenericConditionNotes();
         if (productRepository.count() > 0) {
             log.info("ProductInitializer: đã có sản phẩm, bỏ qua.");
             return;
@@ -81,7 +85,7 @@ public class ProductInitializer implements CommandLineRunner {
                     .category(category)
                     .brand(brand)
                     .productName(s.name())
-                    .description("Còn 90%")
+                    .description(s.conditionNote())
                     .desiredPrice(agreed)
                     .status(ConsignmentFormStatus.APPROVED)
                     .bringInDeadline(LocalDate.ofInstant(termStartedAt, ZoneOffset.UTC))
@@ -108,7 +112,7 @@ public class ProductInitializer implements CommandLineRunner {
                     .brand(brand)
                     .name(s.name())
                     .size(s.size())
-                    .conditionNote("Còn 90%")
+                    .conditionNote(s.conditionNote())
                     .currentPrice(new BigDecimal(s.price()))
                     .status(s.status())
                     .currentTerm(s.term())
@@ -126,5 +130,20 @@ public class ProductInitializer implements CommandLineRunner {
             }
         }
         log.info("ProductInitializer: đã tạo {} sản phẩm mẫu.", SEEDS.size());
+    }
+
+    // DB đã có sẵn sản phẩm mẫu từ lần chạy trước nên khối seed bị bỏ qua; sửa riêng các sản phẩm mẫu
+    // còn mang câu chung chung "Hàng đã qua kiểm định…". Sản phẩm thật do Moderator nhập không bị đụng tới.
+    private void repairGenericConditionNotes() {
+        for (Seed s : SEEDS) {
+            productRepository.findById(s.id())
+                    .filter(p -> p.getConditionNote() != null
+                            && p.getConditionNote().startsWith(GENERIC_CONDITION_PREFIX))
+                    .ifPresent(p -> {
+                        p.setConditionNote(s.conditionNote());
+                        productRepository.save(p);
+                        log.info("ProductInitializer: đã sửa tình trạng của {}.", p.getId());
+                    });
+        }
     }
 }

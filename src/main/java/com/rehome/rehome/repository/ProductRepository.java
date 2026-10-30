@@ -5,10 +5,7 @@ import com.rehome.rehome.entity.marketplace.Product;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import org.springframework.data.jpa.repository.Lock;
-import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
@@ -51,5 +48,19 @@ WHERE p.warehouse.id = :warehouseId
                                 @Param("status") ProductStatus status,
                                 @Param("shelfLocation") String shelfLocation,
                                 Pageable pageable);
+
+    @EntityGraph(attributePaths = {"brand", "warehouse", "consignmentReceipt"})
+    @Query("""
+    SELECT p FROM Product p
+    WHERE p.member.id = :memberId
+      AND (:status IS NULL OR p.status = :status)
+      AND (:pendingDecision = false OR EXISTS (
+            SELECT 1 FROM EndOfTermDecision d
+            WHERE d.product = p AND d.decision IS NULL))
+    """)
+    Page<Product> findMine(@Param("memberId") UUID memberId,
+                           @Param("status") ProductStatus status,
+                           @Param("pendingDecision") boolean pendingDecision,
+                           Pageable pageable);
 
 }

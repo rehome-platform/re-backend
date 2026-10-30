@@ -41,6 +41,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -146,14 +147,20 @@ class ConsignmentFormServiceImplTest {
     @Test
     void getMyForms_withStatus_usesStatusQueryAndMapsItems() {
         Account account = member();
-        ConsignmentForm form = new ConsignmentForm();
+        ConsignmentForm form = formOf(account, ConsignmentFormStatus.PENDING);
+        ConsignmentFormPhoto photo = mock(ConsignmentFormPhoto.class);
+        when(photo.getForm()).thenReturn(form);
+        when(photo.getImageUrl()).thenReturn("https://img/1.jpg");
         ConsignmentFormListItemResponse item = new ConsignmentFormListItemResponse(
-                UUID.randomUUID(), ConsignmentFormStatus.PENDING, "Áo sơ mi Zara", new BigDecimal("250000"));
+                form.getId(), ConsignmentFormStatus.PENDING, "Áo sơ mi Zara", new BigDecimal("250000"),
+                "https://img/1.jpg", null, null, null, null);
 
         when(consignmentFormRepository.findByMemberIdAndStatus(eq(account.getId()),
                 eq(ConsignmentFormStatus.PENDING), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(form), PageRequest.of(0, 20), 1));
-        when(consignmentFormMapper.toListItem(form)).thenReturn(item);
+        when(photoRepository.findByForm_IdInOrderByDisplayOrderAscIdAsc(List.of(form.getId())))
+                .thenReturn(List.of(photo));
+        when(consignmentFormMapper.toListItem(form, "https://img/1.jpg")).thenReturn(item);
 
         PageResponse<ConsignmentFormListItemResponse> result =
                 service.getMyForms(account, ConsignmentFormStatus.PENDING, 0, 20);
@@ -161,19 +168,53 @@ class ConsignmentFormServiceImplTest {
         assertThat(result.getContent()).containsExactly(item);
         assertThat(result.getTotalElements()).isEqualTo(1);
         assertThat(result.getTotalPages()).isEqualTo(1);
-        verify(consignmentFormRepository, never()).findByMemberId(any(), any());
+        verify(consignmentFormRepository, never()).findByMemberIdAndStatusNot(any(), any(), any());
+    }
+
+    @Test
+    void getMyForms_formWithoutPhoto_passesNullThumbnail() {
+        Account account = member();
+        ConsignmentForm form = formOf(account, ConsignmentFormStatus.PENDING);
+        ConsignmentFormListItemResponse item = new ConsignmentFormListItemResponse(
+                form.getId(), ConsignmentFormStatus.PENDING, "Áo sơ mi Zara", new BigDecimal("250000"),
+                null, null, null, null, null);
+
+        when(consignmentFormRepository.findByMemberIdAndStatus(eq(account.getId()),
+                eq(ConsignmentFormStatus.PENDING), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(form), PageRequest.of(0, 20), 1));
+        when(photoRepository.findByForm_IdInOrderByDisplayOrderAscIdAsc(List.of(form.getId())))
+                .thenReturn(List.of());
+        when(consignmentFormMapper.toListItem(form, null)).thenReturn(item);
+
+        PageResponse<ConsignmentFormListItemResponse> result =
+                service.getMyForms(account, ConsignmentFormStatus.PENDING, 0, 20);
+
+        assertThat(result.getContent()).containsExactly(item);
+    }
+
+    @Test
+    void getMyForms_emptyPage_doesNotQueryPhotos() {
+        Account account = member();
+        when(consignmentFormRepository.findByMemberIdAndStatus(eq(account.getId()),
+                eq(ConsignmentFormStatus.PENDING), any(Pageable.class)))
+                .thenReturn(Page.empty());
+
+        service.getMyForms(account, ConsignmentFormStatus.PENDING, 0, 20);
+
+        verifyNoInteractions(photoRepository);
     }
 
     @Test
     void getMyForms_withoutStatus_usesMemberQuery_sortedNewestFirst() {
         Account account = member();
-        when(consignmentFormRepository.findByMemberId(eq(account.getId()), any(Pageable.class)))
+        when(consignmentFormRepository.findByMemberIdAndStatusNot(eq(account.getId()), eq(ConsignmentFormStatus.DRAFT), any(Pageable.class)))
                 .thenReturn(Page.empty());
 
         service.getMyForms(account, null, 0, 20);
 
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        verify(consignmentFormRepository).findByMemberId(eq(account.getId()), captor.capture());
+        verify(consignmentFormRepository).findByMemberIdAndStatusNot(
+                eq(account.getId()), eq(ConsignmentFormStatus.DRAFT), captor.capture());
 
         Sort.Order order = captor.getValue().getSort().getOrderFor("createdAt");
         assertThat(order).isNotNull();
@@ -185,13 +226,14 @@ class ConsignmentFormServiceImplTest {
     @CsvSource({"-5, 0, 20", "0, 0, 20", "0, 1000, 50", "3, 10, 10"})
     void getMyForms_normalizesPageAndSize(int page, int size, int expectedSize) {
         Account account = member();
-        when(consignmentFormRepository.findByMemberId(eq(account.getId()), any(Pageable.class)))
+        when(consignmentFormRepository.findByMemberIdAndStatusNot(eq(account.getId()), eq(ConsignmentFormStatus.DRAFT), any(Pageable.class)))
                 .thenReturn(Page.empty());
 
         service.getMyForms(account, null, page, size);
 
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        verify(consignmentFormRepository).findByMemberId(eq(account.getId()), captor.capture());
+        verify(consignmentFormRepository).findByMemberIdAndStatusNot(
+                eq(account.getId()), eq(ConsignmentFormStatus.DRAFT), captor.capture());
         assertThat(captor.getValue().getPageSize()).isEqualTo(expectedSize);
         assertThat(captor.getValue().getPageNumber()).isEqualTo(Math.max(page, 0));
     }
@@ -229,11 +271,11 @@ class ConsignmentFormServiceImplTest {
     @Test
     void getMyForm_notFound_throws404() {
         UUID id = UUID.randomUUID();
-        when(consignmentFormRepository.findById(id)).thenReturn(Optional.empty());
+        when(consignmentFormRepository.findWithDetailsById(id)).thenReturn(Optional.empty());
 
         assertAppError(() -> service.getMyForm(member(), id), ErrorCode.CONSIGNMENT_FORM_NOT_FOUND);
 
-        verify(consignmentFormRepository).findById(id);
+        verify(consignmentFormRepository).findWithDetailsById(id);
         verifyNoInteractions(consignmentFormMapper, consignmentReceiptRepository);
     }
 
@@ -242,7 +284,7 @@ class ConsignmentFormServiceImplTest {
         Account owner = member();
         Account other = member(); // phải có id khác owner
         ConsignmentForm form = formOf(owner, ConsignmentFormStatus.PENDING);
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormRepository.findWithDetailsById(form.getId())).thenReturn(Optional.of(form));
 
         assertAppError(() -> service.getMyForm(other, form.getId()), ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
 
@@ -256,8 +298,8 @@ class ConsignmentFormServiceImplTest {
         ConsignmentFormDetailResponse dto = detailOf(form, ConsignmentFormStatus.REJECTED);
         dto.setRejectReason(form.getRejectReason());
 
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
-        when(consignmentFormMapper.toDetail(form)).thenReturn(dto);
+        when(consignmentFormRepository.findWithDetailsById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormMapper.toDetail(eq(form), anyList())).thenReturn(dto);
         when(consignmentReceiptRepository.findByConsignmentForm_Id(form.getId()))
                 .thenReturn(Optional.empty());
 
@@ -286,8 +328,8 @@ class ConsignmentFormServiceImplTest {
         ConsignmentReceipt receipt = mock(ConsignmentReceipt.class);
         when(receipt.getId()).thenReturn(receiptId);
 
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
-        when(consignmentFormMapper.toDetail(form)).thenReturn(dto);
+        when(consignmentFormRepository.findWithDetailsById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormMapper.toDetail(eq(form), anyList())).thenReturn(dto);
         when(consignmentReceiptRepository.findByConsignmentForm_Id(form.getId()))
                 .thenReturn(Optional.of(receipt));
 

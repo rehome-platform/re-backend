@@ -26,4 +26,8 @@ public class ConsignmentFormPhoto {
     // Ảnh món đồ Member chụp kèm form
     @Column(name = "image_url", nullable = false, length = 2048)
     private String imageUrl;
+
+    @Column(name = "display_order", nullable = false)
+    @Builder.Default
+    private Integer displayOrder = 0;
 }

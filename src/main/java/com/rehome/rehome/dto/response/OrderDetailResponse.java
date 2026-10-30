@@ -36,6 +36,8 @@ public class OrderDetailResponse {
     private String shippingRecipientName;
     private String shippingPhone;
     private String shippingAddressDetail;
+    private String shippingWardName;
+    private String shippingProvinceName;
 
     private List<OrderDetailItemResponse> items;
 

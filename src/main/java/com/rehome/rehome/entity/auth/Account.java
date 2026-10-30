@@ -41,6 +41,10 @@ public class Account implements UserDetails {
     @Column(unique = true)
     private String phone;
 
+    // Lý do khoá tài khoản, chỉ có ý nghĩa khi status = BANNED; trả cho app trong body lỗi ACCOUNT_BANNED
+    @Column(name = "ban_reason", columnDefinition = "text")
+    private String banReason;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @Builder.Default

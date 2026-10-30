@@ -12,8 +12,12 @@ import java.util.UUID;
 
 public interface AccountRepository extends JpaRepository<Account, UUID> {
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
-    @org.springframework.data.jpa.repository.Query("select u from Account u where u.email = :email")
-    Optional<Account> findByEmailForUpdate(@org.springframework.data.repository.query.Param("email") String email);
+    @Query("select u from Account u where u.email = :email")
+    Optional<Account> findByEmailForUpdate(@Param("email") String email);
+    // Khoá dòng Member để các thao tác gửi form của cùng một người chạy lần lượt (kiểm tra giới hạn chờ duyệt)
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from Account u where u.id = :id")
+    Optional<Account> findByIdForUpdate(@Param("id") UUID id);
     Optional<Account> findByEmail(String email);
     boolean existsByEmail(String email);
     boolean existsByEmailIgnoreCase(String email);
@@ -22,6 +26,7 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
     Optional<Account> findByEmailIgnoreCase(String email);
     Optional<Account> findFirstByRole(Role role);
     boolean existsByPhone(String phone);
+    boolean existsByPhoneAndIdNot(String phone, UUID id);
 
     @Query("""
         select a from Account a

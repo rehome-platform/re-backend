@@ -13,6 +13,7 @@ import com.rehome.rehome.entity.auth.RefreshToken;
 import com.rehome.rehome.entity.enums.AccountStatus;
 import com.rehome.rehome.entity.enums.OtpPurpose;
 import com.rehome.rehome.entity.enums.Role;
+import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.exception.*;
 
 import com.rehome.rehome.mapper.OrganizationProfileMapper;
@@ -20,6 +21,7 @@ import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 
 import com.rehome.rehome.repository.OrganizationProfileRepository;
+import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.security.GoogleTokenVerifier;
 import com.rehome.rehome.security.JwtService;
 
@@ -55,6 +57,7 @@ public class AuthServiceImpl implements AuthService {
     private final OrganizationProfileRepository organizationProfileRepository;
     private final OrganizationProfileMapper organizationProfileMapper;
     private final GoogleTokenVerifier googleTokenVerifier;
+    private final WalletRepository walletRepository;
 
     // ==================== REGISTER ====================
 
@@ -88,6 +91,8 @@ public class AuthServiceImpl implements AuthService {
         memberProfile.setFullName(request.getFullName());
 
         memberProfileRepository.save(memberProfile);
+
+        walletRepository.save(Wallet.builder().member(account).build());
 
         otpService.issue(account, OtpPurpose.REGISTER);
 
@@ -197,6 +202,8 @@ public class AuthServiceImpl implements AuthService {
             memberProfile.setAccount(account);
             memberProfile.setFullName(info.name());
             memberProfileRepository.save(memberProfile);
+
+            walletRepository.save(Wallet.builder().member(account).build());
 
         } else {
             // Tài khoản đã tồn tại

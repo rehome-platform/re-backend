@@ -157,7 +157,20 @@ public enum ErrorCode {
     INVALID_UPLOAD_FOLDER(HttpStatus.BAD_REQUEST, "folder không hợp lệ."),
     TOO_MANY_FILES(HttpStatus.BAD_REQUEST, "Vượt quá số file cho phép trong một lần upload."),
     FILE_UPLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể lưu file. Vui lòng thử lại."),
-    FILE_DELETE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể xóa file.");
+    FILE_DELETE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể xóa file."),
+
+    // API 90 - F-032: Member yêu cầu rút lại hàng ký gửi giữa kỳ
+    PRODUCT_ALREADY_ORDERED(HttpStatus.CONFLICT, "PRODUCT_ALREADY_ORDERED: sản phẩm đã có đơn mua, không thể rút."),
+    ITEM_WITHDRAWAL_ALREADY_PENDING(HttpStatus.CONFLICT, "Sản phẩm đang có yêu cầu rút hàng chờ xử lý."),
+
+    // API 91 - F-033: Member trả phí rút hàng
+    ITEM_WITHDRAWAL_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy yêu cầu rút hàng."),
+    ITEM_WITHDRAWAL_FORBIDDEN(HttpStatus.FORBIDDEN, "Yêu cầu rút hàng này không thuộc về bạn."),
+
+    // API 95 - F-036: Member quyết định cách xử lý hàng xuống cấp
+    DEGRADED_ITEM_CASE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy ca xử lý hàng xuống cấp."),
+    DEGRADED_ITEM_CASE_FORBIDDEN(HttpStatus.FORBIDDEN, "Ca xử lý hàng xuống cấp này không thuộc về bạn."),
+    DEGRADED_ITEM_CASE_ALREADY_DECIDED(HttpStatus.CONFLICT, "Ca này đã được quyết định.");
 
     private final HttpStatus status;
     private final String defaultMessage;

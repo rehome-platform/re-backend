@@ -1,18 +1,22 @@
 package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.CreateReturnRequestRequest;
-import com.rehome.rehome.dto.request.InspectReturnRequest;
 import com.rehome.rehome.dto.request.InvalidReturnChoiceRequest;
+import com.rehome.rehome.dto.request.MarkLostRequest;
 import com.rehome.rehome.dto.request.RejectReturnRequestRequest;
+import com.rehome.rehome.dto.request.ResolveReturnRequestRequest;
+import com.rehome.rehome.dto.request.StartInspectionRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.ReturnRequestResponse;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.ReturnRequestService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -138,25 +142,40 @@ public class ReturnRequestController {
         return ResponseEntity.ok(ApiResponse.success(result, "Đã từ chối yêu cầu trả hàng"));
     }
 
-    // F-132 - nhận hàng về kho, bắt đầu kiểm
-    @PostMapping("/{id}/inspection/start")
+    // F-132 (API 85) - nhận hàng về kho, ghi nhận tình trạng và bắt đầu kiểm
+    @PostMapping("/{id}/inspect")
     @PreAuthorize("hasRole('MODERATOR')")
-    public ResponseEntity<ApiResponse<ReturnRequestResponse>> startInspection(@PathVariable UUID id) {
+    public ResponseEntity<ApiResponse<ReturnRequestResponse>> startInspection(
+            @PathVariable UUID id,
+            @RequestBody StartInspectionRequest request) {
 
-        ReturnRequestResponse result = returnRequestService.startInspection(id);
+        ReturnRequestResponse result = returnRequestService.startInspection(id, request);
 
-        return ResponseEntity.ok(ApiResponse.success(result, "Đã bắt đầu kiểm hàng trả"));
+        return ResponseEntity.ok(ApiResponse.success(result, "Đã ghi nhận kết quả kiểm tra"));
     }
 
-    // F-132 - chốt kết luận hợp lệ / không hợp lệ
-    @PostMapping("/{id}/inspection")
+    // API 88 (F-133) - chốt kết luận VALID/INVALID và hướng xử lý món hàng nếu VALID
+    @PostMapping("/{id}/resolve")
     @PreAuthorize("hasRole('MODERATOR')")
-    public ResponseEntity<ApiResponse<ReturnRequestResponse>> inspect(
+    public ResponseEntity<ApiResponse<ReturnRequestResponse>> resolve(
+            @AuthenticationPrincipal Account moderator,
             @PathVariable UUID id,
-            @RequestBody InspectReturnRequest request) {
+            @RequestBody ResolveReturnRequestRequest request) {
 
-        ReturnRequestResponse result = returnRequestService.inspect(id, request);
+        ReturnRequestResponse result = returnRequestService.resolve(moderator, id, request);
 
-        return ResponseEntity.ok(ApiResponse.success(result, "Đã chốt kết luận hàng trả"));
+        return ResponseEntity.ok(ApiResponse.success(result, "Đã xử lý yêu cầu trả hàng"));
+    }
+
+    // API 89 (F-136) - Moderator tự tay đánh dấu hàng trả thất lạc, hoàn tiền người mua
+    @PostMapping("/{id}/mark-lost")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<ReturnRequestResponse>> markLost(
+            @PathVariable UUID id,
+            @RequestBody MarkLostRequest request) {
+
+        ReturnRequestResponse result = returnRequestService.markLost(id, request);
+
+        return ResponseEntity.ok(ApiResponse.success(result, "Đã đánh dấu thất lạc, hoàn tiền người mua"));
     }
 }

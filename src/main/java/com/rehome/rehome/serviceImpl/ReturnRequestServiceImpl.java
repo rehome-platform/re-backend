@@ -4,9 +4,11 @@ import com.rehome.rehome.client.GhnApi;
 import com.rehome.rehome.dto.request.CreateReturnRequestRequest;
 import com.rehome.rehome.dto.request.GhnCreateOrderRequest;
 import com.rehome.rehome.dto.request.GhnOrderItem;
-import com.rehome.rehome.dto.request.InspectReturnRequest;
 import com.rehome.rehome.dto.request.InvalidReturnChoiceRequest;
+import com.rehome.rehome.dto.request.MarkLostRequest;
 import com.rehome.rehome.dto.request.RejectReturnRequestRequest;
+import com.rehome.rehome.dto.request.ResolveReturnRequestRequest;
+import com.rehome.rehome.dto.request.StartInspectionRequest;
 import com.rehome.rehome.dto.response.GhnCreateOrderResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.ReturnRequestResponse;
@@ -15,6 +17,8 @@ import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
+import com.rehome.rehome.entity.enums.ReturnedItemAction;
+import com.rehome.rehome.entity.marketplace.DegradedItemCase;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
@@ -25,6 +29,7 @@ import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.exception.GhnException;
 import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.repository.DegradedItemCaseRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.ReturnRequestPhotoRepository;
@@ -40,6 +45,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -67,6 +73,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     private final OrderItemRepository orderItemRepository;
     private final ReturnRequestRepository returnRequestRepository;
     private final ReturnRequestPhotoRepository returnRequestPhotoRepository;
+    private final DegradedItemCaseRepository degradedItemCaseRepository;
     private final OrderService orderService;
     private final QueueService queueService;
     private final GhnApi ghnApi;
@@ -316,60 +323,105 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             throw new ConflictException("Yêu cầu trả hàng chưa được duyệt.", "RETURN_NOT_APPROVED");
         }
 
+        // Quá handoverDeadline mà job F-069 chưa kịp quét tới -> hủy ngay tại đây, tránh
+        // cho bàn giao trễ vẫn được chấp nhận trong lúc chờ tới lượt quét định kỳ.
+        if (returnRequest.getHandoverDeadline() != null
+                && Instant.now().isAfter(returnRequest.getHandoverDeadline())) {
+            returnRequest.setStatus(ReturnRequestStatus.CANCELLED);
+            returnRequest.setResolutionNote("Quá hạn bàn giao hàng trả cho GHN, yêu cầu bị hủy tự động.");
+            returnRequest.setResolvedAt(Instant.now());
+            returnRequestRepository.save(returnRequest);
+
+            payoutIfReturnWindowPassed(returnRequest.getOrder(),
+                    "Yêu cầu trả hàng quá hạn bàn giao sau hạn trả hàng - đơn "
+                            + returnRequest.getOrder().getOrderNo());
+
+            throw new ConflictException("Yêu cầu trả hàng đã quá hạn bàn giao.", "RETURN_HANDOVER_EXPIRED");
+        }
+
         returnRequest.setStatus(ReturnRequestStatus.SHIPPED_BACK);
         returnRequestRepository.save(returnRequest);
 
         return toResponseWithPhotos(returnRequest);
     }
 
+    // API 85: Moderator nhận hàng về kho, ghi nhận đúng sản phẩm gốc/xuống cấp/nghi hàng giả
+    // không, kèm conditionNote bắt buộc; đồng thời chuyển sang INSPECTING nếu chưa.
     @Override
     @Transactional
-    public ReturnRequestResponse startInspection(UUID id) {
+    public ReturnRequestResponse startInspection(UUID id, StartInspectionRequest request) {
+
+        if (request == null || !StringUtils.hasText(request.getConditionNote())) {
+            throw new BadRequestException("conditionNote là bắt buộc.");
+        }
 
         ReturnRequest returnRequest = findOrThrow(id);
 
-        if (returnRequest.getStatus() == ReturnRequestStatus.INSPECTING) {
-            return toResponseWithPhotos(returnRequest);
-        }
-
-        if (returnRequest.getStatus() != ReturnRequestStatus.SHIPPED_BACK) {
+        if (returnRequest.getStatus() != ReturnRequestStatus.INSPECTING
+                && returnRequest.getStatus() != ReturnRequestStatus.SHIPPED_BACK) {
             throw new ConflictException("Hàng trả chưa được bàn giao cho GHN.", "RETURN_NOT_SHIPPED_BACK");
         }
 
         returnRequest.setStatus(ReturnRequestStatus.INSPECTING);
+        returnRequest.setMatchesOriginal(request.getMatchesOriginal());
+        returnRequest.setDegraded(request.getDegraded());
+        returnRequest.setCounterfeitSuspected(Boolean.TRUE.equals(request.getCounterfeitSuspected()));
+        returnRequest.setConditionNote(request.getConditionNote());
         returnRequestRepository.save(returnRequest);
 
         return toResponseWithPhotos(returnRequest);
     }
 
-    // F-132: kết luận hợp lệ thì hoàn 100% cho người mua; không hợp lệ thì không hoàn tiền,
-    // Member có pickupDeadline ngày để chọn cách nhận lại hàng (F-070)
+    // API 88 (F-133): VALID -> hoàn 100% cho người mua, kèm action quyết định hướng xử lý món
+    // hàng (RELIST/RETURN_TO_SELLER/DISCARD); INVALID -> không hoàn tiền, đơn vẫn tính bán, Member
+    // có pickupDeadline ngày để chọn cách nhận lại hàng (F-070) - action không áp dụng cho INVALID.
+    // Hàng bị đánh dấu degraded lúc kiểm (API 85) thì không dùng action - mở DegradedItemCase
+    // (F-036) để Member bán tự quyết định, "không đăng bán lại" (docs/OVERVIEW.md).
     @Override
     @Transactional
-    public ReturnRequestResponse inspect(UUID id, InspectReturnRequest request) {
+    public ReturnRequestResponse resolve(Account moderator, UUID id, ResolveReturnRequestRequest request) {
 
-        if (request == null || request.getValid() == null) {
-            throw new BadRequestException("valid là bắt buộc.");
+        if (request == null || !StringUtils.hasText(request.getResolution())) {
+            throw new BadRequestException("resolution và action là bắt buộc.");
         }
+
+        ReturnRequestStatus resolution = parseResolution(request.getResolution());
 
         ReturnRequest returnRequest = findOrThrow(id);
 
         if (returnRequest.getStatus() != ReturnRequestStatus.INSPECTING) {
-            throw new ConflictException("Yêu cầu trả hàng chưa ở trạng thái đang kiểm.", "RETURN_NOT_INSPECTING");
+            throw new ConflictException("Chưa kiểm tra hàng trả về.", "RETURN_NOT_INSPECTING");
+        }
+
+        boolean degraded = Boolean.TRUE.equals(returnRequest.getDegraded());
+
+        ReturnedItemAction action = null;
+        if (resolution == ReturnRequestStatus.VALID && !degraded) {
+            if (!StringUtils.hasText(request.getAction())) {
+                throw new BadRequestException("resolution và action là bắt buộc.");
+            }
+            action = parseItemAction(request.getAction());
         }
 
         Instant now = Instant.now();
         returnRequest.setResolutionNote(request.getResolutionNote());
         queueService.dequeue(QueueType.RETURN, returnRequest.getId().toString());
 
-        if (Boolean.TRUE.equals(request.getValid())) {
+        if (resolution == ReturnRequestStatus.VALID) {
             returnRequest.setStatus(ReturnRequestStatus.VALID);
+            returnRequest.setItemAction(action);
             returnRequest.setResolvedAt(now);
             returnRequestRepository.save(returnRequest);
 
             orderService.refundOrderForReturn(
                     returnRequest.getOrder().getId(),
                     "Hoàn tiền trả hàng hợp lệ - đơn " + returnRequest.getOrder().getOrderNo());
+
+            if (degraded) {
+                openDegradedItemCase(moderator, returnRequest);
+            } else {
+                orderService.applyReturnedItemAction(returnRequest.getOrder().getId(), action);
+            }
         } else {
             // Chưa đóng (resolvedAt để trống): còn chờ Member nhận lại hàng, hết hạn thì F-071 đóng hộ.
             // Trả hàng không hợp lệ -> người ký gửi vẫn được trả tiền, và trả ngay lúc kết luận
@@ -385,6 +437,49 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         }
 
         return toResponseWithPhotos(returnRequest);
+    }
+
+    private ReturnRequestStatus parseResolution(String resolution) {
+        ReturnRequestStatus parsed;
+        try {
+            parsed = ReturnRequestStatus.valueOf(resolution.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException("resolution phải là VALID hoặc INVALID.");
+        }
+        if (parsed != ReturnRequestStatus.VALID && parsed != ReturnRequestStatus.INVALID) {
+            throw new BadRequestException("resolution phải là VALID hoặc INVALID.");
+        }
+        return parsed;
+    }
+
+    private ReturnedItemAction parseItemAction(String action) {
+        try {
+            return ReturnedItemAction.valueOf(action.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException("action phải là RELIST, RETURN_TO_SELLER hoặc DISCARD.");
+        }
+    }
+
+    // F-036: snapshot mức đền đủ (giá bán - hoa hồng áp dụng lúc đặt đơn, KHÔNG trừ thuế - khác
+    // payout thường) ngay lúc mở ca; Member tự chọn FULL_COMPENSATION hay PARTIAL_WITH_ITEM_BACK
+    // sau đó ở API 95, choice/paidAmount để trống tới lúc đó.
+    private void openDegradedItemCase(Account moderator, ReturnRequest returnRequest) {
+        OrderItem item = orderItemRepository
+                .findAllByOrder_IdWithProductOrderByIdAsc(returnRequest.getOrder().getId())
+                .stream().findFirst()
+                .orElseThrow(() -> new IllegalStateException("Đơn không có món hàng."));
+
+        BigDecimal baseCompensation = item.getPriceAtOrder()
+                .subtract(item.getPriceAtOrder().multiply(item.getCommissionRateApplied()));
+
+        DegradedItemCase degradedCase = DegradedItemCase.builder()
+                .product(item.getProduct())
+                .returnRequest(returnRequest)
+                .compensationAmount(baseCompensation)
+                .moderator(moderator)
+                .build();
+
+        degradedItemCaseRepository.save(degradedCase);
     }
 
     // F-070: Member chọn gửi lại (tự trả phí) hoặc đến kho nhận hàng trả không hợp lệ
@@ -448,21 +543,52 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         } else if (LOST_GHN_STATUSES.contains(status)
                 && OPEN_STATUSES.contains(returnRequest.getStatus())) {
             // F-136: hàng trả thất lạc - người mua không phải chịu, hoàn 100%
-            returnRequest.setStatus(ReturnRequestStatus.LOST);
-            queueService.dequeue(QueueType.RETURN, returnRequest.getId().toString());
-            returnRequest.setResolutionNote(StringUtils.hasText(reason) ? reason : status);
-            returnRequest.setResolvedAt(Instant.now());
-            returnRequestRepository.save(returnRequest);
-
-            orderService.refundOrderForReturn(
-                    returnRequest.getOrder().getId(),
-                    "Hoàn tiền do hàng trả thất lạc - đơn " + returnRequest.getOrder().getOrderNo());
+            markLost(returnRequest, StringUtils.hasText(reason) ? reason : status);
 
             log.info(">>>> Hang tra that lac, da hoan tien: returnRequestId={}, ghnStatus={}",
                     returnRequest.getId(), status);
         }
 
         return true;
+    }
+
+    // API 89 (F-136): Moderator tự tay đánh dấu thất lạc khi webhook GHN không về kịp hoặc không về
+    @Override
+    @Transactional
+    public ReturnRequestResponse markLost(UUID id, MarkLostRequest request) {
+
+        if (request == null || !StringUtils.hasText(request.getNote())) {
+            throw new BadRequestException("note là bắt buộc.");
+        }
+
+        ReturnRequest returnRequest = findOrThrow(id);
+
+        if (returnRequest.getStatus() == ReturnRequestStatus.LOST) {
+            return toResponseWithPhotos(returnRequest);
+        }
+
+        if (!OPEN_STATUSES.contains(returnRequest.getStatus())) {
+            throw new ConflictException("Yêu cầu trả hàng đã được xử lý xong.", "RETURN_ALREADY_RESOLVED");
+        }
+
+        markLost(returnRequest, request.getNote());
+
+        return toResponseWithPhotos(returnRequest);
+    }
+
+    // F-136: hàng trả thất lạc trên đường về kho - rủi ro thuộc nền tảng/vận chuyển, không phải
+    // người mua, nên hoàn 100% dù hàng chưa về kho và chưa qua kiểm. Dùng chung cho cả webhook
+    // GHN tự báo lẫn Moderator tự tay đánh dấu (API 89).
+    private void markLost(ReturnRequest returnRequest, String note) {
+        returnRequest.setStatus(ReturnRequestStatus.LOST);
+        returnRequest.setResolutionNote(note);
+        returnRequest.setResolvedAt(Instant.now());
+        returnRequestRepository.save(returnRequest);
+        queueService.dequeue(QueueType.RETURN, returnRequest.getId().toString());
+
+        orderService.refundOrderForReturn(
+                returnRequest.getOrder().getId(),
+                "Hoàn tiền do hàng trả thất lạc - đơn " + returnRequest.getOrder().getOrderNo());
     }
 
     // Vận đơn chiều ngược: lấy hàng tại địa chỉ người mua, giao về kho đã bán món hàng
@@ -550,6 +676,11 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                         ? returnRequest.getInvalidReturnChoice().name() : null)
                 .pickupDeadline(returnRequest.getPickupDeadline())
                 .resolutionNote(returnRequest.getResolutionNote())
+                .matchesOriginal(returnRequest.getMatchesOriginal())
+                .degraded(returnRequest.getDegraded())
+                .counterfeitSuspected(returnRequest.getCounterfeitSuspected())
+                .conditionNote(returnRequest.getConditionNote())
+                .itemAction(returnRequest.getItemAction() != null ? returnRequest.getItemAction().name() : null)
                 .refundAmount(order.getRefundAmount())
                 .createdAt(returnRequest.getCreatedAt())
                 .resolvedAt(returnRequest.getResolvedAt())

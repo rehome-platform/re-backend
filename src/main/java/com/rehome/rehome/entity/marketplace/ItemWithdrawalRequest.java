@@ -40,10 +40,34 @@ public class ItemWithdrawalRequest {
     @Builder.Default
     private BigDecimal feeCharged = new BigDecimal("0");
 
-    // WALLET / MOMO / MIXED — trừ ví trước, thiếu mới qua MoMo
+    // WALLET / MOMO / VNPAY — chỉ set khi đã thanh toán xong (thành công), không phải lúc chọn
     @Enumerated(EnumType.STRING)
     @Column(name = "fee_payment_method", nullable = true)
     private WithdrawalFeePaymentMethod feePaymentMethod;
+
+    // Thời điểm phí rút hàng được thanh toán xong (ví trừ ngay, hoặc MoMo/VNPay xác nhận qua IPN)
+    @Column(name = "fee_paid_at", nullable = true)
+    private Instant feePaidAt;
+
+    // orderId gửi cho MoMo lúc tạo giao dịch trả phí rút hàng, dùng map IPN về đúng yêu cầu này
+    @Column(name = "momo_order_id", nullable = true, length = 255)
+    private String momoOrderId;
+
+    // requestId gửi cho MoMo lúc tạo giao dịch
+    @Column(name = "momo_request_id", nullable = true, length = 255)
+    private String momoRequestId;
+
+    // vnp_TxnRef gửi cho VNPay lúc tạo giao dịch, dùng map IPN về đúng yêu cầu này
+    @Column(name = "vnp_txn_ref", nullable = true, length = 255)
+    private String vnpTxnRef;
+
+    // Mã giao dịch VNPay (vnp_TransactionNo) trả về khi thanh toán xong
+    @Column(name = "vnp_transaction_no", nullable = true, length = 255)
+    private String vnpTransactionNo;
+
+    // vnp_CreateDate (yyyyMMddHHmmss) lúc tạo giao dịch - VNPay yêu cầu gửi lại khi tra cứu
+    @Column(name = "vnp_create_date", nullable = true, length = 32)
+    private String vnpCreateDate;
 
     // PENDING_PICKUP / COMPLETED / EXPIRED
     @Enumerated(EnumType.STRING)

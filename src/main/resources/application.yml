@@ -118,6 +118,13 @@ app:
     # F-069/F-071: chu kỳ job quét hai mốc hết hạn ở trên
     auto-expire-check-interval-ms: 60000
 
+  # Rút lại hàng ký gửi giữa kỳ F-032
+  item-withdrawal:
+    # Hạn Member đến kho nhận lại hàng sau khi gửi yêu cầu rút, mặc định 7 ngày
+    pickup-deadline-days: 7
+    # F-035: chu kỳ job quét yêu cầu quá hạn đến kho nhận hàng
+    auto-expire-check-interval-ms: 60000
+
 # ==================== LOGGING ====================
 logging:
   level:

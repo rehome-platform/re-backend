@@ -10,7 +10,9 @@ import com.rehome.rehome.entity.counter.CounterIdentityConfirmation;
 import com.rehome.rehome.entity.enums.*;
 import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
 import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
+import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
+import com.rehome.rehome.entity.marketplace.StockMovementLog;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.*;
@@ -37,6 +39,8 @@ public class CounterServiceImpl implements CounterService {
     private final AccountRepository accountRepository;
     private final CounterIdentityConfirmationRepository identityConfirmationRepository;
     private final ReturnRequestRepository returnRequestRepository;
+    private final ProductRepository productRepository;
+    private final StockMovementLogRepository stockMovementLogRepository;
 
     private static final List<ConsignmentFormStatus> OPEN_FORM_STATUSES =
             List.of(ConsignmentFormStatus.PENDING, ConsignmentFormStatus.APPROVED);
@@ -67,7 +71,7 @@ public class CounterServiceImpl implements CounterService {
         UUID refId = parseRefId(request.getRefId());
 
         switch (context) {
-            case ITEM_WITHDRAWAL -> handoverItemWithdrawal(request.getAccountId(), refId);
+            case ITEM_WITHDRAWAL -> handoverItemWithdrawal(moderator, request.getAccountId(), refId);
             case END_OF_TERM_TAKE_BACK -> handoverEndOfTermTakeBack(request.getAccountId(), refId);
             case INVALID_RETURN_PICKUP -> handoverInvalidReturnPickup(request.getAccountId(), refId);
         }
@@ -98,7 +102,10 @@ public class CounterServiceImpl implements CounterService {
         }
     }
 
-    private void handoverItemWithdrawal(UUID accountId, UUID refId) {
+    // F-034: đóng yêu cầu rút hàng khi Moderator bàn giao xong tại quầy (record phải khớp thực
+    // tế: hàng đã về tay người ký gửi). Sản phẩm đã WITHDRAWN từ lúc tạo yêu cầu (F-032 - ngừng
+    // bán ngay), ở đây chỉ ghi nhận hàng vừa rời kho thật (xóa vị trí kệ, log WITHDRAWAL_OUT).
+    private void handoverItemWithdrawal(Account moderator, UUID accountId, UUID refId) {
         ItemWithdrawalRequest withdrawal = itemWithdrawalRequestRepository.findById(refId)
                 .filter(r -> r.getMember().getId().equals(accountId))
                 .filter(r -> r.getStatus() == ItemWithdrawalStatus.PENDING_PICKUP)
@@ -107,6 +114,24 @@ public class CounterServiceImpl implements CounterService {
         withdrawal.setStatus(ItemWithdrawalStatus.COMPLETED);
         withdrawal.setCompletedAt(Instant.now());
         itemWithdrawalRequestRepository.save(withdrawal);
+
+        Product product = productRepository.findByIdForUpdate(withdrawal.getProduct().getId())
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+
+        if (product.getStatus() == ProductStatus.WITHDRAWN) {
+            String fromLocation = product.getShelfLocation();
+            product.setShelfLocation(null);
+            productRepository.save(product);
+
+            stockMovementLogRepository.save(StockMovementLog.builder()
+                    .product(product)
+                    .warehouse(product.getWarehouse())
+                    .movementType(StockMovementType.WITHDRAWAL_OUT)
+                    .fromLocation(fromLocation)
+                    .moderator(moderator)
+                    .note("Rút hàng ký gửi giữa kỳ - yêu cầu rút hàng " + withdrawal.getId())
+                    .build());
+        }
     }
 
     private void handoverEndOfTermTakeBack(UUID accountId, UUID refId) {

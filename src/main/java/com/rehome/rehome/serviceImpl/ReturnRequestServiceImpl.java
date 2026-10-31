@@ -584,6 +584,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         returnRequest.setResolutionNote(note);
         returnRequest.setResolvedAt(Instant.now());
         returnRequestRepository.save(returnRequest);
+        queueService.dequeue(QueueType.RETURN, returnRequest.getId().toString());
 
         orderService.refundOrderForReturn(
                 returnRequest.getOrder().getId(),

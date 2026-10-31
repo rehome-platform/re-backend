@@ -8,6 +8,8 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.VerificationStatus;
+import com.rehome.rehome.entity.enums.QueueType;
+import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.OrganizationProfileMapper;
@@ -42,6 +44,7 @@ class OrganizationProfileServiceImplTest {
     @Mock private OrganizationProfileRepository organizationProfileRepository;
     @Mock private OrganizationProfileMapper organizationProfileMapper;
     @Mock private AccountRepository accountRepository;
+    @Mock private QueueService queueService;
 
     @InjectMocks private OrganizationServiceImpl service;
 
@@ -98,6 +101,7 @@ class OrganizationProfileServiceImplTest {
         assertThat(saved.getAccount()).isSameAs(account);
         assertThat(saved.getContactEmail()).isEqualTo(NORMALIZED_EMAIL);
         assertThat(saved.getVerificationStatus()).isEqualTo(VerificationStatus.PENDING);
+        verify(queueService).enqueue(QueueType.ORG_VERIFICATION, id.toString(), null);
     }
 
     @Test
@@ -183,6 +187,7 @@ class OrganizationProfileServiceImplTest {
         assertThat(profile.getVerificationStatus()).isEqualTo(VerificationStatus.PENDING);
         verify(organizationProfileMapper).updateEntity(req, profile);
         verify(organizationProfileRepository).save(profile);
+        verify(queueService).enqueue(QueueType.ORG_VERIFICATION, id.toString(), null);
     }
 
     @Test

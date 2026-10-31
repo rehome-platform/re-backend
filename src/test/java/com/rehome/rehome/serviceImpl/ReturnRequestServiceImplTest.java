@@ -29,6 +29,8 @@ import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.ReturnRequestPhotoRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.service.OrderService;
+import com.rehome.rehome.entity.enums.QueueType;
+import com.rehome.rehome.service.QueueService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -78,6 +80,7 @@ class ReturnRequestServiceImplTest {
     @Mock ReturnRequestRepository returnRequestRepository;
     @Mock ReturnRequestPhotoRepository returnRequestPhotoRepository;
     @Mock OrderService orderService;
+    @Mock QueueService queueService;
     @Mock GhnApi ghnApi;
 
     @InjectMocks
@@ -398,6 +401,20 @@ class ReturnRequestServiceImplTest {
         assertThat(response.getStatus()).isEqualTo("PENDING");
         assertThat(response.getReason()).isEqualTo("Không đúng mô tả");
         assertThat(response.getPhotoUrls()).containsExactly("a.jpg", "b.jpg");
+        verify(queueService).enqueue(eq(QueueType.RETURN), eq(returnId.toString()), any());
+    }
+
+    @Test
+    @DisplayName("create: đơn đã COMPLETED (buyer đã bấm xác nhận) nhưng còn trong hạn 3 ngày vẫn được trả hàng")
+    void create_completedOrderWithinWindow_isAllowed() {
+        stubSaveAssignsId();
+        order.setStatus(OrderStatus.COMPLETED);
+        CreateReturnRequestRequest req = createRequest(orderId.toString(), "Lỗi", List.of("a.jpg"));
+
+        ReturnRequestResponse response = service.create(EMAIL, req);
+
+        assertThat(response.getStatus()).isEqualTo("PENDING");
+        verify(returnRequestRepository).save(any());
     }
 
     @Test
@@ -887,6 +904,29 @@ class ReturnRequestServiceImplTest {
         assertThat(response.getStatus()).isEqualTo("CANCELLED");
         assertThat(response.getResolutionNote()).isEqualTo("Ảnh không rõ");
         verifyNoInteractions(orderService);
+        verify(queueService).dequeue(QueueType.RETURN, returnId.toString());
+    }
+
+    @Test
+    @DisplayName("reject: đơn đã quá hạn trả hàng (autoCompleteDeadline) -> trả tiền người ký gửi ngay")
+    void reject_afterReturnWindowPassed_paysOutSellerImmediately() {
+        order.setAutoCompleteDeadline(Instant.now().minus(1, ChronoUnit.HOURS));
+        returnRequest(ReturnRequestStatus.PENDING);
+
+        service.reject(returnId, rejectRequest("Ảnh không rõ"));
+
+        verify(orderService).payoutOrder(eq(orderId), any());
+    }
+
+    @Test
+    @DisplayName("reject: đơn còn trong hạn trả hàng (autoCompleteDeadline) -> chưa trả tiền, để job xử lý sau")
+    void reject_withinReturnWindow_doesNotPayOutYet() {
+        order.setAutoCompleteDeadline(Instant.now().plus(1, ChronoUnit.HOURS));
+        returnRequest(ReturnRequestStatus.PENDING);
+
+        service.reject(returnId, rejectRequest("Ảnh không rõ"));
+
+        verifyNoInteractions(orderService);
     }
 
     @Test
@@ -1079,6 +1119,7 @@ class ReturnRequestServiceImplTest {
         inOrder.verify(orderService).refundOrderForReturn(orderId, "Hoàn tiền trả hàng hợp lệ - đơn OD-2026-000008");
 
         assertThat(response.getStatus()).isEqualTo("VALID");
+        verify(queueService).dequeue(QueueType.RETURN, returnId.toString());
     }
 
     @Test
@@ -1103,6 +1144,7 @@ class ReturnRequestServiceImplTest {
 
         assertThat(response.getStatus()).isEqualTo("INVALID");
         assertThat(response.getPickupDeadline()).isEqualTo(r.getPickupDeadline());
+        verify(queueService).dequeue(QueueType.RETURN, returnId.toString());
     }
 
     // ==================== chooseInvalidReturn ====================
@@ -1297,6 +1339,7 @@ class ReturnRequestServiceImplTest {
         inOrder.verify(returnRequestRepository).save(r);
         inOrder.verify(orderService)
                 .refundOrderForReturn(orderId, "Hoàn tiền do hàng trả thất lạc - đơn OD-2026-000008");
+        verify(queueService).dequeue(QueueType.RETURN, returnId.toString());
     }
 
     @ParameterizedTest

@@ -14,18 +14,18 @@ import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.auth.RefreshToken;
 import com.rehome.rehome.entity.enums.AccountStatus;
 import com.rehome.rehome.entity.enums.OtpPurpose;
+import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.VerificationStatus;
-import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.exception.*;
 import com.rehome.rehome.mapper.OrganizationProfileMapper;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
-import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.security.GoogleTokenVerifier;
 import com.rehome.rehome.security.JwtService;
 import com.rehome.rehome.service.OtpService;
+import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.service.RefreshTokenService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -63,7 +63,7 @@ class AuthServiceImplTest {
     @Mock OrganizationProfileRepository organizationProfileRepository;
     @Mock OrganizationProfileMapper organizationProfileMapper;
     @Mock GoogleTokenVerifier googleTokenVerifier;
-    @Mock WalletRepository walletRepository;
+    @Mock QueueService queueService;
 
     @InjectMocks AuthServiceImpl service;
 
@@ -132,10 +132,6 @@ class AuthServiceImplTest {
         verify(memberProfileRepository).save(mpCaptor.capture());
         assertThat(mpCaptor.getValue().getAccount()).isSameAs(saved);
         assertThat(mpCaptor.getValue().getFullName()).isEqualTo("Nguyen A");
-
-        ArgumentCaptor<Wallet> walletCaptor = ArgumentCaptor.forClass(Wallet.class);
-        verify(walletRepository).save(walletCaptor.capture());
-        assertThat(walletCaptor.getValue().getMember()).isSameAs(saved);
 
         verify(otpService).issue(saved, OtpPurpose.REGISTER);
         assertThat(res).extracting("message")
@@ -367,11 +363,6 @@ class AuthServiceImplTest {
         verify(memberProfileRepository).save(mp.capture());
         assertThat(mp.getValue().getAccount()).isSameAs(saved);
         assertThat(mp.getValue().getFullName()).isEqualTo("Google User");
-
-        ArgumentCaptor<Wallet> walletCaptor = ArgumentCaptor.forClass(Wallet.class);
-        verify(walletRepository).save(walletCaptor.capture());
-        assertThat(walletCaptor.getValue().getMember()).isSameAs(saved);
-
         assertThat(res).extracting("accessToken", "refreshToken").containsExactly("access", "refresh");
     }
 
@@ -569,6 +560,7 @@ class AuthServiceImplTest {
         assertThat(org).extracting("account", "verificationStatus")
                 .containsExactly(current, VerificationStatus.PENDING);
         verify(organizationProfileRepository).save(org);
+        verify(queueService).enqueue(QueueType.ORG_VERIFICATION, current.getId().toString(), null);
         assertThat(result).isSameAs(expected);
     }
 

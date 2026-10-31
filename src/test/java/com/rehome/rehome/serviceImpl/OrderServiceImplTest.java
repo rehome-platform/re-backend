@@ -22,6 +22,8 @@ import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
 import com.rehome.rehome.entity.enums.WalletType;
+import com.rehome.rehome.entity.enums.QueueType;
+import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.entity.marketplace.Cart;
 import com.rehome.rehome.entity.marketplace.CartItem;
@@ -105,6 +107,7 @@ class OrderServiceImplTest {
     @Mock WalletRepository walletRepository;
     @Mock WalletTransactionRepository walletTransactionRepository;
     @Mock PlatformFundRepository platformFundRepository;
+    @Mock QueueService queueService;
     @Mock GhnShippingFeeCalculator ghnShippingFeeCalculator;
 
     @InjectMocks
@@ -850,6 +853,7 @@ class OrderServiceImplTest {
         assertThat(order.getRefundAmount()).isNull();
         verify(walletRepository, never()).save(any());
         verify(walletTransactionRepository, never()).save(any());
+        verify(queueService, never()).dequeue(any(), any());
     }
 
     @Test
@@ -934,6 +938,7 @@ class OrderServiceImplTest {
         assertThat(order.getCancelReason()).isEqualTo(CancelReason.BUYER_CANCELLED);
         assertThat(order.getCancelledAt()).isNotNull();
         assertThat(order.getRefundAmount()).isEqualTo(new BigDecimal("245000"));
+        verify(queueService).dequeue(QueueType.PACKING, orderId.toString());
     }
 
     @Test
@@ -1462,6 +1467,7 @@ class OrderServiceImplTest {
         assertThat(order.getCancelledAt()).isNotNull();
         assertThat(order.getRefundAmount()).isEqualByComparingTo(new BigDecimal("245000"));
         verify(orderRepository).save(order);
+        verify(queueService).dequeue(QueueType.PACKING, orderId.toString());
     }
 
     @Test
@@ -1675,6 +1681,8 @@ class OrderServiceImplTest {
         // Tiền ra khỏi ví nên bút toán phải âm
         assertThat(memberTransactions).extracting(WalletTransaction::getAmount)
                 .containsExactly(new BigDecimal("-150000"), new BigDecimal("-50000"));
+        verify(queueService).enqueue(eq(QueueType.PACKING), eq(firstOrderId.toString()), any());
+        verify(queueService).enqueue(eq(QueueType.PACKING), eq(secondOrderId.toString()), any());
     }
 
     @Test
@@ -1717,6 +1725,7 @@ class OrderServiceImplTest {
         assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
         assertThat(order.getPaymentMethod()).isEqualTo(OrderPaymentMethod.MOMO);
         verify(walletRepository, never()).save(any());
+        verify(queueService).enqueue(eq(QueueType.PACKING), eq(orderId.toString()), any());
     }
 
     // Đây là bug P3.2: IPN về muộn sau khi đơn tự hủy vì quá hạn thanh toán. Hàng đã nhả về sàn
@@ -1746,6 +1755,7 @@ class OrderServiceImplTest {
         ArgumentCaptor<WalletTransaction> captor = ArgumentCaptor.forClass(WalletTransaction.class);
         verify(walletTransactionRepository, times(2)).save(captor.capture());
         assertThat(captor.getAllValues().get(0).getType()).isEqualTo(WalletTransactionType.REFUND);
+        verify(queueService, never()).enqueue(any(), any(), any());
     }
 
     @Test

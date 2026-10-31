@@ -374,7 +374,6 @@ class AuthServiceImplTest {
         ArgumentCaptor<Wallet> walletCaptor = ArgumentCaptor.forClass(Wallet.class);
         verify(walletRepository).save(walletCaptor.capture());
         assertThat(walletCaptor.getValue().getMember()).isSameAs(saved);
-
         assertThat(res).extracting("accessToken", "refreshToken").containsExactly("access", "refresh");
     }
 

@@ -103,6 +103,9 @@ app:
     auto-cancel-check-interval-ms: 60000
     # F-064: hạn tự hoàn thành đơn, tính từ lúc GHN báo đã giao (webhook set autoCompleteDeadline)
     auto-complete-days: 3
+    # F-064 + payout người ký gửi: chu kỳ job quét đơn quá hạn autoCompleteDeadline để tự
+    # chốt COMPLETED (nếu còn DELIVERED) và cộng tiền ví người ký gửi
+    auto-complete-check-interval-ms: 60000
 
   # Trả hàng F-067 -> F-071
   return:

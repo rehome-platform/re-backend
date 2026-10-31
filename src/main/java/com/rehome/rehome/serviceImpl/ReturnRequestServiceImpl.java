@@ -126,10 +126,13 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             throw new ForbiddenException("Bạn không có quyền trả hàng cho đơn này.");
         }
 
-        // Chỉ trả được đơn đã giao mà chưa chốt, vì chốt đơn là đã payout cho người bán
-        if (order.getStatus() != OrderStatus.DELIVERED || order.getDeliveredAt() == null) {
+        // Buyer được trả hàng trong 3 ngày kể từ lúc GHN báo giao, kể cả khi đã bấm "Đã nhận
+        // hàng" (đơn COMPLETED) - vì payout người ký gửi giờ giữ lại tới hết hạn đó, không trả
+        // ngay lúc confirm-receipt nữa.
+        boolean returnable = order.getStatus() == OrderStatus.DELIVERED || order.getStatus() == OrderStatus.COMPLETED;
+        if (!returnable || order.getDeliveredAt() == null) {
             throw new ConflictException(
-                    "Chỉ gửi yêu cầu trả hàng cho đơn đã giao và chưa xác nhận nhận hàng.",
+                    "Chỉ gửi yêu cầu trả hàng cho đơn đã giao.",
                     "ORDER_NOT_RETURNABLE");
         }
 
@@ -272,7 +275,18 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         returnRequest.setResolvedAt(Instant.now());
         returnRequestRepository.save(returnRequest);
 
+        payoutIfReturnWindowPassed(returnRequest.getOrder(),
+                "Yêu cầu trả hàng bị từ chối sau hạn trả hàng - đơn " + returnRequest.getOrder().getOrderNo());
+
         return toResponseWithPhotos(returnRequest);
+    }
+
+    // Yêu cầu trả hàng bị từ chối/hủy mà lúc đó đã quá hạn 3 ngày (autoCompleteDeadline) thì trả
+    // tiền ngay, khỏi chờ job quét định kỳ. Còn trong hạn thì để OrderAutoCompleteServiceImpl xử lý.
+    private void payoutIfReturnWindowPassed(Order order, String note) {
+        if (order.getAutoCompleteDeadline() != null && Instant.now().isAfter(order.getAutoCompleteDeadline())) {
+            orderService.payoutOrder(order.getId(), note);
+        }
     }
 
     // F-068: Member bàn giao hàng cho GHN (webhook GHN cũng tự chuyển trạng thái này khi tài xế lấy hàng)
@@ -351,10 +365,17 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                     returnRequest.getOrder().getId(),
                     "Hoàn tiền trả hàng hợp lệ - đơn " + returnRequest.getOrder().getOrderNo());
         } else {
-            // Chưa đóng (resolvedAt để trống): còn chờ Member nhận lại hàng, hết hạn thì F-071 đóng hộ
+            // Chưa đóng (resolvedAt để trống): còn chờ Member nhận lại hàng, hết hạn thì F-071 đóng hộ.
+            // Trả hàng không hợp lệ -> người ký gửi vẫn được trả tiền, và trả ngay lúc kết luận
+            // (không chờ hết hạn 3 ngày, không chờ Member chọn cách nhận lại hàng)
             returnRequest.setStatus(ReturnRequestStatus.INVALID);
             returnRequest.setPickupDeadline(now.plus(pickupDeadlineDays, ChronoUnit.DAYS));
             returnRequestRepository.save(returnRequest);
+
+            orderService.payoutOrder(
+                    returnRequest.getOrder().getId(),
+                    "Thanh toán đơn hàng - hàng trả bị kết luận không hợp lệ, đơn "
+                            + returnRequest.getOrder().getOrderNo());
         }
 
         return toResponseWithPhotos(returnRequest);

@@ -7,5 +7,8 @@ public enum ProductStatus {
     WITHDRAWN,
     UNCLAIMED,
     DONATED,
-    DESTROYED
+    DESTROYED,
+    // Trả hàng hợp lệ/thất lạc (F-132/F-136) - về kho chờ Moderator quyết định đăng bán lại,
+    // trả về người ký gửi hay tiêu hủy (F-133, chưa triển khai) - xem OrderServiceImpl.refundOrderForReturn
+    RETURNED
 }

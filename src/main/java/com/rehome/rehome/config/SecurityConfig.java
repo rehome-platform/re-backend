@@ -72,15 +72,25 @@ public class SecurityConfig {
                         // Chỉ GET, còn upload đi qua /uploads (phải đăng nhập).
                         .requestMatchers(HttpMethod.GET, "/files/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/organizations/register/account").permitAll()
+                        // Giữ hành vi cũ cho 2 path literal trước khi mở public /api/organizations/{id} (F-082)
+                        .requestMatchers(HttpMethod.GET, "/api/organizations/me", "/api/organizations/options")
+                                .authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/organizations/{id}").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/categories", "/brands").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/products",
                                 "/products/{id}",
                                 "/products/detail/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/campaigns/{id}").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/posts", "/posts/{id}", "/posts/{id}/comments").permitAll()
                         // API kho gần nhất (F-015) chỉ dành cho Member
                         // MỚI: API kho gần nhất (F-015) chỉ dành cho Member
                         .requestMatchers("/warehouses/moderator").hasRole("MODERATOR")
+                        // Phải đứng TRƯỚC rule /warehouses/** (hasRole MEMBER) để Moderator không bị 403
+                        // (F-163/F-164/F-165). Liệt kê cả 2 pattern: "{id}/donations" không khớp sub-path.
+                        .requestMatchers("/warehouses/{id}/donations",
+                                "/warehouses/{id}/donations/**").hasRole("MODERATOR")
                         .requestMatchers("/warehouses/**").hasRole("MEMBER")
                         .anyRequest().authenticated()
                 )

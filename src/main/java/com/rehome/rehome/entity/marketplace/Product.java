@@ -71,7 +71,7 @@ public class Product implements Persistable<String> {
     @Column(name = "current_price", nullable = false, precision = 19, scale = 2)
     private BigDecimal currentPrice;
 
-    // ON_SALE / RESERVED / SOLD / WITHDRAWN / UNCLAIMED / DONATED / DESTROYED
+    // ON_SALE / RESERVED / SOLD / WITHDRAWN / UNCLAIMED / DONATED / DESTROYED / RETURNED
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     @ColumnDefault("'ON_SALE'")

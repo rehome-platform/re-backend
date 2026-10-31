@@ -1263,6 +1263,17 @@ public class OrderServiceImpl implements OrderService {
         order.setStatus(OrderStatus.RETURNED);
         order.setRefundAmount(order.getTotalAmount());
         orderRepository.save(order);
+
+        // Món vẫn SOLD tới lúc này (completeOrder chạy trước khi buyer gửi yêu cầu trả) - trả
+        // hàng hợp lệ/thất lạc nghĩa là người ký gửi không nhận được tiền cho món này, nên không
+        // thể tiếp tục hiện "Đã bán". Về RETURNED chờ Moderator quyết định hướng xử lý (F-133).
+        for (OrderItem item : orderItemRepository.findAllByOrder_Id(orderId)) {
+            Product product = productRepository.findByIdForUpdate(item.getProduct().getId()).orElse(null);
+            if (product != null && product.getStatus() == ProductStatus.SOLD) {
+                product.setStatus(ProductStatus.RETURNED);
+                productRepository.save(product);
+            }
+        }
     }
 
     // Hoàn 100% tổng tiền đơn vào ví người mua rồi chuyển đơn sang CANCELLED, dùng chung cho mọi lý do hủy có hoàn tiền

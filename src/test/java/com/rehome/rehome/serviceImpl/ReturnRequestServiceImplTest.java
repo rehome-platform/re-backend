@@ -33,6 +33,8 @@ import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.ReturnRequestPhotoRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.service.OrderService;
+import com.rehome.rehome.entity.enums.QueueType;
+import com.rehome.rehome.service.QueueService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -83,6 +85,7 @@ class ReturnRequestServiceImplTest {
     @Mock ReturnRequestPhotoRepository returnRequestPhotoRepository;
     @Mock com.rehome.rehome.repository.DegradedItemCaseRepository degradedItemCaseRepository;
     @Mock OrderService orderService;
+    @Mock QueueService queueService;
     @Mock GhnApi ghnApi;
 
     @InjectMocks
@@ -420,6 +423,7 @@ class ReturnRequestServiceImplTest {
         assertThat(response.getStatus()).isEqualTo("PENDING");
         assertThat(response.getReason()).isEqualTo("Không đúng mô tả");
         assertThat(response.getPhotoUrls()).containsExactly("a.jpg", "b.jpg");
+        verify(queueService).enqueue(eq(QueueType.RETURN), eq(returnId.toString()), any());
     }
 
     @Test
@@ -909,6 +913,7 @@ class ReturnRequestServiceImplTest {
         assertThat(response.getStatus()).isEqualTo("CANCELLED");
         assertThat(response.getResolutionNote()).isEqualTo("Ảnh không rõ");
         verifyNoInteractions(orderService);
+        verify(queueService).dequeue(QueueType.RETURN, returnId.toString());
     }
 
     @Test
@@ -1286,6 +1291,7 @@ class ReturnRequestServiceImplTest {
 
         assertThat(response.getStatus()).isEqualTo("INVALID");
         assertThat(response.getPickupDeadline()).isEqualTo(r.getPickupDeadline());
+        verify(queueService).dequeue(QueueType.RETURN, returnId.toString());
     }
 
     // ==================== chooseInvalidReturn ====================
@@ -1480,6 +1486,7 @@ class ReturnRequestServiceImplTest {
         inOrder.verify(returnRequestRepository).save(r);
         inOrder.verify(orderService)
                 .refundOrderForReturn(orderId, "Hoàn tiền do hàng trả thất lạc - đơn OD-2026-000008");
+        verify(queueService).dequeue(QueueType.RETURN, returnId.toString());
     }
 
     @ParameterizedTest

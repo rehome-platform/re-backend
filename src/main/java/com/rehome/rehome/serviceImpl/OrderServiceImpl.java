@@ -37,6 +37,8 @@ import com.rehome.rehome.entity.enums.ReturnedItemAction;
 import com.rehome.rehome.entity.enums.TransactionStatus;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
 import com.rehome.rehome.entity.enums.WalletType;
+import com.rehome.rehome.entity.enums.QueueType;
+import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.entity.marketplace.Cart;
 import com.rehome.rehome.entity.marketplace.CartItem;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
@@ -130,6 +132,7 @@ public class OrderServiceImpl implements OrderService {
     private final WalletRepository walletRepository;
     private final WalletTransactionRepository walletTransactionRepository;
     private final PlatformFundRepository platformFundRepository;
+    private final QueueService queueService;
     private final GhnApi ghnApi;
     private final GhnShippingFeeCalculator ghnShippingFeeCalculator;
 
@@ -719,6 +722,7 @@ public class OrderServiceImpl implements OrderService {
             order.setPaymentMethod(OrderPaymentMethod.WALLET);
             order.setStatus(OrderStatus.PAID);
             orderRepository.save(order);
+            queueService.enqueue(QueueType.PACKING, order.getId().toString(), order.getWarehouse());
 
             paidOrders.add(PaidOrderResponse.builder()
                     .id(order.getId().toString())
@@ -785,6 +789,7 @@ public class OrderServiceImpl implements OrderService {
             order.setPaymentMethod(method);
             order.setStatus(OrderStatus.PAID);
             orderRepository.save(order);
+            queueService.enqueue(QueueType.PACKING, order.getId().toString(), order.getWarehouse());
             return;
         }
 
@@ -1076,6 +1081,7 @@ public class OrderServiceImpl implements OrderService {
         order.setExpectedDeliveryDate(parseGhnTime(ghnResponse.getData().getExpectedDeliveryTime()));
         order.setStatus(OrderStatus.SHIPPING);
         orderRepository.save(order);
+        queueService.dequeue(QueueType.PACKING, order.getId().toString());
 
         return CreateShipmentResponse.builder()
                 .id(order.getId().toString())
@@ -1307,6 +1313,7 @@ public class OrderServiceImpl implements OrderService {
         order.setCancelledAt(Instant.now());
         order.setRefundAmount(order.getTotalAmount());
         orderRepository.save(order);
+        queueService.dequeue(QueueType.PACKING, order.getId().toString());
     }
 
     private void refundBuyerWallet(Order order, String note) {

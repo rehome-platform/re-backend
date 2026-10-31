@@ -9,6 +9,8 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.VerificationStatus;
+import com.rehome.rehome.entity.enums.QueueType;
+import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.OrganizationProfileMapper;
@@ -29,6 +31,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     private final OrganizationProfileRepository organizationProfileRepository;
     private final OrganizationProfileMapper organizationProfileMapper;
     private final AccountRepository accountRepository;
+    private final QueueService queueService;
 
     @Override
     @Transactional
@@ -66,6 +69,7 @@ public class OrganizationServiceImpl implements OrganizationService {
         organization.setSubmittedAt(Instant.now());
 
         organizationProfileRepository.save(organization);
+        queueService.enqueue(QueueType.ORG_VERIFICATION, account.getId().toString(), null);
         return organizationProfileMapper.toResponse(organization);
     }
 
@@ -91,6 +95,7 @@ public class OrganizationServiceImpl implements OrganizationService {
         profile.setVerificationStatus(VerificationStatus.PENDING);
         profile.setSubmittedAt(Instant.now());
         organizationProfileRepository.save(profile);
+        queueService.enqueue(QueueType.ORG_VERIFICATION, account.getId().toString(), null);
 
         return new OrganizationResubmitResponse(profile.getVerificationStatus());
     }

@@ -3,9 +3,11 @@ package com.rehome.rehome.serviceImpl;
 import com.rehome.rehome.client.GhnApi;
 import com.rehome.rehome.dto.request.CreateReturnRequestRequest;
 import com.rehome.rehome.dto.request.GhnCreateOrderRequest;
-import com.rehome.rehome.dto.request.InspectReturnRequest;
 import com.rehome.rehome.dto.request.InvalidReturnChoiceRequest;
+import com.rehome.rehome.dto.request.MarkLostRequest;
 import com.rehome.rehome.dto.request.RejectReturnRequestRequest;
+import com.rehome.rehome.dto.request.ResolveReturnRequestRequest;
+import com.rehome.rehome.dto.request.StartInspectionRequest;
 import com.rehome.rehome.dto.response.GhnCreateOrderResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.ReturnRequestResponse;
@@ -13,6 +15,8 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.InvalidReturnChoice;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
+import com.rehome.rehome.entity.enums.ReturnedItemAction;
+import com.rehome.rehome.entity.marketplace.DegradedItemCase;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.Product;
@@ -79,6 +83,7 @@ class ReturnRequestServiceImplTest {
     @Mock OrderItemRepository orderItemRepository;
     @Mock ReturnRequestRepository returnRequestRepository;
     @Mock ReturnRequestPhotoRepository returnRequestPhotoRepository;
+    @Mock com.rehome.rehome.repository.DegradedItemCaseRepository degradedItemCaseRepository;
     @Mock OrderService orderService;
     @Mock QueueService queueService;
     @Mock GhnApi ghnApi;
@@ -95,6 +100,7 @@ class ReturnRequestServiceImplTest {
 
     Account buyer;
     Account otherBuyer;
+    Account moderator;
     UUID orderId;
     Order order;
     UUID returnId;
@@ -113,6 +119,7 @@ class ReturnRequestServiceImplTest {
 
         buyer = Account.builder().id(UUID.randomUUID()).email(EMAIL).build();
         otherBuyer = Account.builder().id(UUID.randomUUID()).email("other@example.com").build();
+        moderator = Account.builder().id(UUID.randomUUID()).email("moderator@example.com").build();
 
         orderId = UUID.randomUUID();
         order = Order.builder()
@@ -151,9 +158,10 @@ class ReturnRequestServiceImplTest {
         return req;
     }
 
-    private InspectReturnRequest inspectRequest(Boolean valid, String note) {
-        InspectReturnRequest req = mock(InspectReturnRequest.class);
-        when(req.getValid()).thenReturn(valid);
+    private ResolveReturnRequestRequest resolveRequest(String resolution, String action, String note) {
+        ResolveReturnRequestRequest req = mock(ResolveReturnRequestRequest.class);
+        when(req.getResolution()).thenReturn(resolution);
+        when(req.getAction()).thenReturn(action);
         when(req.getResolutionNote()).thenReturn(note);
         return req;
     }
@@ -167,6 +175,20 @@ class ReturnRequestServiceImplTest {
     private RejectReturnRequestRequest rejectRequest(String reason) {
         RejectReturnRequestRequest req = mock(RejectReturnRequestRequest.class);
         when(req.getReason()).thenReturn(reason);
+        return req;
+    }
+
+    private StartInspectionRequest startInspectionRequest(String conditionNote) {
+        return startInspectionRequest(true, false, false, conditionNote);
+    }
+
+    private StartInspectionRequest startInspectionRequest(
+            Boolean matchesOriginal, Boolean degraded, Boolean counterfeitSuspected, String conditionNote) {
+        StartInspectionRequest req = mock(StartInspectionRequest.class);
+        when(req.getMatchesOriginal()).thenReturn(matchesOriginal);
+        when(req.getDegraded()).thenReturn(degraded);
+        when(req.getCounterfeitSuspected()).thenReturn(counterfeitSuspected);
+        when(req.getConditionNote()).thenReturn(conditionNote);
         return req;
     }
 
@@ -983,25 +1005,78 @@ class ReturnRequestServiceImplTest {
         assertThat(response.getStatus()).isEqualTo("SHIPPED_BACK");
     }
 
-    // ==================== startInspection ====================
+    @Test
+    @DisplayName("confirmHandover: còn hạn bàn giao -> SHIPPED_BACK")
+    void confirmHandover_withinDeadline_succeeds() {
+        ReturnRequest r = returnRequest(ReturnRequestStatus.APPROVED);
+        r.setHandoverDeadline(Instant.now().plus(1, ChronoUnit.HOURS));
+
+        ReturnRequestResponse response = service.confirmHandover(EMAIL, returnId);
+
+        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.SHIPPED_BACK);
+        assertThat(response.getStatus()).isEqualTo("SHIPPED_BACK");
+    }
+
+    @Test
+    @DisplayName("confirmHandover: quá handoverDeadline -> tự hủy và RETURN_HANDOVER_EXPIRED")
+    void confirmHandover_pastDeadline_cancelsAndThrowsConflict() {
+        ReturnRequest r = returnRequest(ReturnRequestStatus.APPROVED);
+        r.setHandoverDeadline(Instant.now().minus(1, ChronoUnit.MINUTES));
+
+        assertThatThrownBy(() -> service.confirmHandover(EMAIL, returnId))
+                .isInstanceOf(ConflictException.class)
+                .extracting(ex -> ((ConflictException) ex).getCode())
+                .isEqualTo("RETURN_HANDOVER_EXPIRED");
+
+        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.CANCELLED);
+        verify(returnRequestRepository).save(r);
+    }
+
+    @Test
+    @DisplayName("confirmHandover: quá handoverDeadline và đã quá autoCompleteDeadline -> trả tiền ký gửi ngay")
+    void confirmHandover_pastDeadline_afterAutoCompleteWindow_paysOutNow() {
+        order.setAutoCompleteDeadline(Instant.now().minus(1, ChronoUnit.HOURS));
+        ReturnRequest r = returnRequest(ReturnRequestStatus.APPROVED);
+        r.setHandoverDeadline(Instant.now().minus(1, ChronoUnit.MINUTES));
+
+        assertThatThrownBy(() -> service.confirmHandover(EMAIL, returnId))
+                .isInstanceOf(ConflictException.class);
+
+        verify(orderService).payoutOrder(eq(orderId), anyString());
+    }
+
+    @Test
+    @DisplayName("confirmHandover: quá handoverDeadline nhưng còn trong hạn trả hàng -> chưa trả tiền")
+    void confirmHandover_pastDeadline_withinReturnWindow_doesNotPayOutYet() {
+        order.setAutoCompleteDeadline(Instant.now().plus(1, ChronoUnit.HOURS));
+        ReturnRequest r = returnRequest(ReturnRequestStatus.APPROVED);
+        r.setHandoverDeadline(Instant.now().minus(1, ChronoUnit.MINUTES));
+
+        assertThatThrownBy(() -> service.confirmHandover(EMAIL, returnId))
+                .isInstanceOf(ConflictException.class);
+
+        verifyNoInteractions(orderService);
+    }
+
+    // ==================== startInspection (API 85) ====================
+
+    @Test
+    @DisplayName("startInspection: thiếu conditionNote -> BadRequestException")
+    void startInspection_missingConditionNote_throwsBadRequest() {
+        assertThatThrownBy(() -> service.startInspection(returnId, startInspectionRequest(null)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("conditionNote là bắt buộc.");
+
+        verify(returnRequestRepository, never()).findById(any());
+    }
 
     @Test
     @DisplayName("startInspection: không tìm thấy -> IllegalArgumentException")
     void startInspection_notFound_throws() {
         when(returnRequestRepository.findById(returnId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.startInspection(returnId)).isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    @DisplayName("startInspection: đã INSPECTING -> idempotent, không save")
-    void startInspection_alreadyInspecting_isIdempotent() {
-        returnRequest(ReturnRequestStatus.INSPECTING);
-
-        ReturnRequestResponse response = service.startInspection(returnId);
-
-        assertThat(response.getStatus()).isEqualTo("INSPECTING");
-        verify(returnRequestRepository, never()).save(any());
+        assertThatThrownBy(() -> service.startInspection(returnId, startInspectionRequest("Đúng sản phẩm")))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @ParameterizedTest
@@ -1010,55 +1085,119 @@ class ReturnRequestServiceImplTest {
     void startInspection_notShippedBack_throwsConflict(ReturnRequestStatus status) {
         returnRequest(status);
 
-        assertThatThrownBy(() -> service.startInspection(returnId))
+        assertThatThrownBy(() -> service.startInspection(returnId, startInspectionRequest("Đúng sản phẩm")))
                 .isInstanceOf(ConflictException.class)
                 .extracting(ex -> ((ConflictException) ex).getCode())
                 .isEqualTo("RETURN_NOT_SHIPPED_BACK");
     }
 
     @Test
-    @DisplayName("startInspection: SHIPPED_BACK -> INSPECTING")
-    void startInspection_success() {
+    @DisplayName("startInspection: SHIPPED_BACK -> INSPECTING, lưu tình trạng hàng")
+    void startInspection_fromShippedBack_success() {
         ReturnRequest r = returnRequest(ReturnRequestStatus.SHIPPED_BACK);
 
-        ReturnRequestResponse response = service.startInspection(returnId);
+        ReturnRequestResponse response = service.startInspection(
+                returnId, startInspectionRequest(true, false, false, "Đúng sản phẩm, có lỗi nhỏ ở tay áo"));
 
         assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.INSPECTING);
+        assertThat(r.getMatchesOriginal()).isTrue();
+        assertThat(r.getDegraded()).isFalse();
+        assertThat(r.getCounterfeitSuspected()).isFalse();
+        assertThat(r.getConditionNote()).isEqualTo("Đúng sản phẩm, có lỗi nhỏ ở tay áo");
         verify(returnRequestRepository).save(r);
         assertThat(response.getStatus()).isEqualTo("INSPECTING");
     }
 
-    // ==================== inspect ====================
+    @Test
+    @DisplayName("startInspection: đã INSPECTING (vd webhook GHN tới trước) -> vẫn ghi nhận tình trạng hàng")
+    void startInspection_alreadyInspecting_stillRecordsCondition() {
+        ReturnRequest r = returnRequest(ReturnRequestStatus.INSPECTING);
+
+        ReturnRequestResponse response = service.startInspection(
+                returnId, startInspectionRequest(false, true, true, "Nghi hàng giả, có dấu hiệu xuống cấp"));
+
+        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.INSPECTING);
+        assertThat(r.getMatchesOriginal()).isFalse();
+        assertThat(r.getDegraded()).isTrue();
+        assertThat(r.getCounterfeitSuspected()).isTrue();
+        verify(returnRequestRepository).save(r);
+        assertThat(response.getStatus()).isEqualTo("INSPECTING");
+    }
+
+    // ==================== resolve (API 88) ====================
 
     @Test
-    @DisplayName("inspect: request null -> BadRequest")
-    void inspect_nullRequest_throws() {
-        assertThatThrownBy(() -> service.inspect(returnId, null)).isInstanceOf(BadRequestException.class);
+    @DisplayName("resolve: request null -> BadRequest")
+    void resolve_nullRequest_throws() {
+        assertThatThrownBy(() -> service.resolve(moderator, returnId, null)).isInstanceOf(BadRequestException.class);
     }
 
     @Test
-    @DisplayName("inspect: valid null -> BadRequest")
-    void inspect_nullValid_throws() {
-        assertThatThrownBy(() -> service.inspect(returnId, inspectRequest(null, "ok")))
-                .isInstanceOf(BadRequestException.class);
+    @DisplayName("resolve: thiếu resolution -> BadRequest")
+    void resolve_missingResolution_throws() {
+        assertThatThrownBy(() -> service.resolve(moderator, returnId, resolveRequest(null, "RELIST", "ok")))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("resolution và action là bắt buộc.");
+
+        verify(returnRequestRepository, never()).findById(any());
     }
 
     @Test
-    @DisplayName("inspect: không tìm thấy -> IllegalArgumentException")
-    void inspect_notFound_throws() {
+    @DisplayName("resolve: resolution VALID, không degraded, thiếu action -> BadRequest")
+    void resolve_validMissingAction_throws() {
+        returnRequest(ReturnRequestStatus.INSPECTING);
+
+        assertThatThrownBy(() -> service.resolve(moderator, returnId, resolveRequest("VALID", null, "ok")))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("resolution và action là bắt buộc.");
+
+        verify(returnRequestRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("resolve: resolution INVALID không cần action -> không BadRequest")
+    void resolve_invalidWithoutAction_doesNotThrow() {
+        returnRequest(ReturnRequestStatus.INSPECTING);
+
+        ReturnRequestResponse response = service.resolve(moderator, returnId, resolveRequest("INVALID", null, "ok"));
+
+        assertThat(response.getStatus()).isEqualTo("INVALID");
+    }
+
+    @Test
+    @DisplayName("resolve: resolution không hợp lệ -> BadRequest")
+    void resolve_invalidResolutionValue_throws() {
+        assertThatThrownBy(() -> service.resolve(moderator, returnId, resolveRequest("CANCELLED", "RELIST", "ok")))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("resolution phải là VALID hoặc INVALID.");
+    }
+
+    @Test
+    @DisplayName("resolve: action không hợp lệ -> BadRequest")
+    void resolve_invalidActionValue_throws() {
+        returnRequest(ReturnRequestStatus.INSPECTING);
+
+        assertThatThrownBy(() -> service.resolve(moderator, returnId, resolveRequest("VALID", "SELL_AGAIN", "ok")))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("action phải là RELIST, RETURN_TO_SELLER hoặc DISCARD.");
+    }
+
+    @Test
+    @DisplayName("resolve: không tìm thấy -> IllegalArgumentException")
+    void resolve_notFound_throws() {
         when(returnRequestRepository.findById(returnId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.inspect(returnId, inspectRequest(true, "ok")))
+        assertThatThrownBy(() -> service.resolve(moderator, returnId, resolveRequest("VALID", "RELIST", "ok")))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @ParameterizedTest
     @EnumSource(value = ReturnRequestStatus.class, names = "INSPECTING", mode = EnumSource.Mode.EXCLUDE)
-    @DisplayName("inspect: chưa ở trạng thái INSPECTING -> RETURN_NOT_INSPECTING, không hoàn tiền")
-    void inspect_notInspecting_throwsConflict(ReturnRequestStatus status) {
+    @DisplayName("resolve: chưa ở trạng thái INSPECTING -> RETURN_NOT_INSPECTING, không hoàn tiền")
+    void resolve_notInspecting_throwsConflict(ReturnRequestStatus status) {
         returnRequest(status);
 
-        assertThatThrownBy(() -> service.inspect(returnId, inspectRequest(true, "ok")))
+        assertThatThrownBy(() -> service.resolve(moderator, returnId, resolveRequest("VALID", "RELIST", "ok")))
                 .isInstanceOf(ConflictException.class)
                 .extracting(ex -> ((ConflictException) ex).getCode())
                 .isEqualTo("RETURN_NOT_INSPECTING");
@@ -1067,14 +1206,16 @@ class ReturnRequestServiceImplTest {
     }
 
     @Test
-    @DisplayName("inspect: hợp lệ -> VALID, resolvedAt, lưu TRƯỚC rồi hoàn tiền cho đơn")
-    void inspect_valid_refundsOrder() {
+    @DisplayName("resolve: VALID -> hoàn tiền đơn rồi áp dụng action lên món hàng")
+    void resolve_valid_refundsOrderAndAppliesItemAction() {
         ReturnRequest r = returnRequest(ReturnRequestStatus.INSPECTING);
 
         Instant before = Instant.now();
-        ReturnRequestResponse response = service.inspect(returnId, inspectRequest(true, "Hàng đúng như khách báo"));
+        ReturnRequestResponse response = service.resolve(
+                moderator, returnId, resolveRequest("VALID", "RETURN_TO_SELLER", "Hàng đúng như khách báo"));
 
         assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.VALID);
+        assertThat(r.getItemAction()).isEqualTo(ReturnedItemAction.RETURN_TO_SELLER);
         assertThat(r.getResolutionNote()).isEqualTo("Hàng đúng như khách báo");
         assertThat(r.getResolvedAt()).isNotNull().isAfterOrEqualTo(before);
         assertThat(r.getPickupDeadline()).isNull();
@@ -1082,21 +1223,61 @@ class ReturnRequestServiceImplTest {
         InOrder inOrder = inOrder(returnRequestRepository, orderService);
         inOrder.verify(returnRequestRepository).save(r);
         inOrder.verify(orderService).refundOrderForReturn(orderId, "Hoàn tiền trả hàng hợp lệ - đơn OD-2026-000008");
+        inOrder.verify(orderService).applyReturnedItemAction(orderId, ReturnedItemAction.RETURN_TO_SELLER);
 
         assertThat(response.getStatus()).isEqualTo("VALID");
-        verify(queueService).dequeue(QueueType.RETURN, returnId.toString());
+        assertThat(response.getItemAction()).isEqualTo("RETURN_TO_SELLER");
+
+        verifyNoInteractions(degradedItemCaseRepository);
     }
 
     @Test
-    @DisplayName("inspect: không hợp lệ -> INVALID, đặt hạn nhận lại hàng, chưa đóng (resolvedAt null), "
-            + "KHÔNG hoàn tiền người mua nhưng TRẢ TIỀN NGAY cho người ký gửi")
-    void inspect_invalid_setsPickupDeadlineAndPaysOutSellerWithoutRefunding() {
+    @DisplayName("resolve: VALID + degraded -> không cần action, mở DegradedItemCase, không RELIST/RETURN/DISCARD")
+    void resolve_validAndDegraded_opensDegradedItemCaseInsteadOfAction() {
+        ReturnRequest r = returnRequest(ReturnRequestStatus.INSPECTING);
+        r.setDegraded(true);
+
+        Product product = Product.builder().id("Q7-AK-000845").build();
+        OrderItem item = OrderItem.builder().order(order).product(product)
+                .priceAtOrder(new BigDecimal("300000"))
+                .commissionRateApplied(new BigDecimal("0.10"))
+                .build();
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId)).thenReturn(List.of(item));
+
+        // Không truyền action - hàng degraded thì không cần
+        ReturnRequestResponse response = service.resolve(
+                moderator, returnId, resolveRequest("VALID", null, "Hàng bị lỗi do vận chuyển"));
+
+        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.VALID);
+        assertThat(r.getItemAction()).isNull();
+        assertThat(response.getStatus()).isEqualTo("VALID");
+
+        verify(orderService).refundOrderForReturn(orderId, "Hoàn tiền trả hàng hợp lệ - đơn OD-2026-000008");
+        verify(orderService, never()).applyReturnedItemAction(any(), any());
+
+        ArgumentCaptor<DegradedItemCase> captor = ArgumentCaptor.forClass(DegradedItemCase.class);
+        verify(degradedItemCaseRepository).save(captor.capture());
+        DegradedItemCase degradedCase = captor.getValue();
+        assertThat(degradedCase.getProduct()).isEqualTo(product);
+        assertThat(degradedCase.getReturnRequest()).isEqualTo(r);
+        assertThat(degradedCase.getModerator()).isEqualTo(moderator);
+        assertThat(degradedCase.getChoice()).isNull();
+        // 300000 - 300000*0.10 = 270000
+        assertThat(degradedCase.getCompensationAmount()).isEqualByComparingTo(new BigDecimal("270000"));
+    }
+
+    @Test
+    @DisplayName("resolve: INVALID -> đặt hạn nhận lại hàng, chưa đóng (resolvedAt null), "
+            + "KHÔNG hoàn tiền người mua nhưng TRẢ TIỀN NGAY cho người ký gửi, không áp dụng action")
+    void resolve_invalid_setsPickupDeadlineAndPaysOutSellerWithoutRefunding() {
         ReturnRequest r = returnRequest(ReturnRequestStatus.INSPECTING);
 
         Instant before = Instant.now();
-        ReturnRequestResponse response = service.inspect(returnId, inspectRequest(false, "Hàng đã qua sử dụng"));
+        ReturnRequestResponse response = service.resolve(
+                moderator, returnId, resolveRequest("INVALID", null, "Hàng đã qua sử dụng"));
 
         assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.INVALID);
+        assertThat(r.getItemAction()).isNull();
         assertThat(r.getResolutionNote()).isEqualTo("Hàng đã qua sử dụng");
         assertThat(r.getResolvedAt()).isNull();
         assertThat(r.getPickupDeadline())
@@ -1105,6 +1286,7 @@ class ReturnRequestServiceImplTest {
         verify(returnRequestRepository).save(r);
 
         verify(orderService, never()).refundOrderForReturn(any(), any());
+        verify(orderService, never()).applyReturnedItemAction(any(), any());
         verify(orderService).payoutOrder(eq(orderId), any());
 
         assertThat(response.getStatus()).isEqualTo("INVALID");
@@ -1375,6 +1557,79 @@ class ReturnRequestServiceImplTest {
         assertThat(handled).isTrue();
         assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.SHIPPED_BACK);
         verify(returnRequestRepository, never()).save(any());
+        verifyNoInteractions(orderService);
+    }
+
+    // ==================== markLost (API 89) ====================
+
+    private MarkLostRequest markLostRequest(String note) {
+        MarkLostRequest req = mock(MarkLostRequest.class);
+        when(req.getNote()).thenReturn(note);
+        return req;
+    }
+
+    @Test
+    @DisplayName("markLost: thiếu note -> BadRequest")
+    void markLost_missingNote_throws() {
+        assertThatThrownBy(() -> service.markLost(returnId, markLostRequest(null)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("note là bắt buộc.");
+
+        verify(returnRequestRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("markLost: không tìm thấy -> IllegalArgumentException")
+    void markLost_notFound_throws() {
+        when(returnRequestRepository.findById(returnId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.markLost(returnId, markLostRequest("GHN báo mất hàng")))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ReturnRequestStatus.class, names = {"PENDING", "APPROVED", "SHIPPED_BACK", "INSPECTING"})
+    @DisplayName("markLost: mọi trạng thái đang mở -> LOST, hoàn tiền 100%")
+    void markLost_openStatus_marksLostAndRefunds(ReturnRequestStatus status) {
+        ReturnRequest r = returnRequest(status);
+
+        Instant before = Instant.now();
+        ReturnRequestResponse response = service.markLost(
+                returnId, markLostRequest("GHN báo mất hàng trong quá trình vận chuyển"));
+
+        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.LOST);
+        assertThat(r.getResolutionNote()).isEqualTo("GHN báo mất hàng trong quá trình vận chuyển");
+        assertThat(r.getResolvedAt()).isNotNull().isAfterOrEqualTo(before);
+        verify(returnRequestRepository).save(r);
+        verify(orderService).refundOrderForReturn(
+                orderId, "Hoàn tiền do hàng trả thất lạc - đơn OD-2026-000008");
+
+        assertThat(response.getStatus()).isEqualTo("LOST");
+    }
+
+    @Test
+    @DisplayName("markLost: đã LOST trước đó -> idempotent, không lưu/hoàn tiền lại")
+    void markLost_alreadyLost_isIdempotent() {
+        ReturnRequest r = returnRequest(ReturnRequestStatus.LOST);
+
+        ReturnRequestResponse response = service.markLost(returnId, markLostRequest("mất lần nữa?"));
+
+        assertThat(response.getStatus()).isEqualTo("LOST");
+        verify(returnRequestRepository, never()).save(any());
+        verifyNoInteractions(orderService);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ReturnRequestStatus.class, names = {"VALID", "INVALID", "CANCELLED"})
+    @DisplayName("markLost: yêu cầu đã xử lý xong -> RETURN_ALREADY_RESOLVED, không hoàn tiền lại")
+    void markLost_alreadyResolved_throwsConflict(ReturnRequestStatus status) {
+        returnRequest(status);
+
+        assertThatThrownBy(() -> service.markLost(returnId, markLostRequest("mất hàng")))
+                .isInstanceOf(ConflictException.class)
+                .extracting(ex -> ((ConflictException) ex).getCode())
+                .isEqualTo("RETURN_ALREADY_RESOLVED");
+
         verifyNoInteractions(orderService);
     }
 }

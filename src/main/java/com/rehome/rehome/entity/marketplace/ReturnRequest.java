@@ -4,6 +4,7 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.CounterfeitConclusion;
 import com.rehome.rehome.entity.enums.InvalidReturnChoice;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
+import com.rehome.rehome.entity.enums.ReturnedItemAction;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
@@ -60,6 +61,23 @@ public class ReturnRequest {
     // Kết luận xử lý của Moderator sau khi kiểm hàng về
     @Column(name = "resolution_note", nullable = true, columnDefinition = "text")
     private String resolutionNote;
+
+    // Đúng sản phẩm gốc đã bán hay không — ghi nhận lúc Moderator kiểm hàng (F-132 / API 85)
+    @Column(name = "matches_original", nullable = true)
+    private Boolean matchesOriginal;
+
+    // Hàng có bị xuống cấp (hư hỏng, thiếu phụ kiện...) so với lúc giao hay không
+    @Column(name = "degraded", nullable = true)
+    private Boolean degraded;
+
+    // Ghi chú tình trạng hàng khi kiểm — bắt buộc ở API 85
+    @Column(name = "condition_note", nullable = true, columnDefinition = "text")
+    private String conditionNote;
+
+    // RELIST / RETURN_TO_SELLER / DISCARD — hướng xử lý món hàng khi kết luận VALID (F-133 / API 88)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "item_action", nullable = true)
+    private ReturnedItemAction itemAction;
 
     // Moderator A gắn cờ nghi hàng giả — bắt buộc có Moderator thứ hai
     @Column(name = "counterfeit_suspected", nullable = false)

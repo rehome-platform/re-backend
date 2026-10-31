@@ -16,6 +16,7 @@ import com.rehome.rehome.dto.response.PackScanResponse;
 import com.rehome.rehome.dto.response.PayOrdersResponse;
 import com.rehome.rehome.dto.response.SoldOrderListResponse;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
+import com.rehome.rehome.entity.enums.ReturnedItemAction;
 import com.rehome.rehome.entity.marketplace.Order;
 
 import java.util.List;
@@ -65,6 +66,10 @@ public interface OrderService {
 
     // F-132/F-136 - trả hàng hợp lệ hoặc hàng trả thất lạc: hoàn 100% vào ví người mua, đơn chuyển RETURNED
     void refundOrderForReturn(UUID orderId, String note);
+
+    // API 88 (F-133) - Moderator quyết định hướng xử lý món hàng đang ở RETURNED: đăng bán lại,
+    // trả về người ký gửi hay tiêu hủy
+    void applyReturnedItemAction(UUID orderId, ReturnedItemAction action);
 
     // F-064 phần tự chốt đơn: hệ thống tự chuyển DELIVERED -> COMPLETED khi buyer không bấm xác nhận.
     // Không payout ở đây - tiền giữ lại tới hết hạn trả hàng, xem payoutOrder.

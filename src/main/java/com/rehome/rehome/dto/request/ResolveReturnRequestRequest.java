@@ -7,8 +7,10 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class InspectReturnRequest {
-    // true = trả hàng hợp lệ (hoàn 100% cho người mua), false = không hợp lệ (không hoàn tiền)
-    private Boolean valid;
+public class ResolveReturnRequestRequest {
+    // VALID / INVALID
+    private String resolution;
+    // RELIST / RETURN_TO_SELLER / DISCARD — bắt buộc khi resolution = VALID
+    private String action;
     private String resolutionNote;
 }

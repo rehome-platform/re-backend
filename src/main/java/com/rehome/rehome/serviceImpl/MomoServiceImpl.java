@@ -15,6 +15,7 @@ import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.PaymentRepository;
+import com.rehome.rehome.service.ItemWithdrawalRequestService;
 import com.rehome.rehome.service.MomoService;
 import com.rehome.rehome.service.OrderService;
 import lombok.RequiredArgsConstructor;
@@ -63,6 +64,7 @@ public class MomoServiceImpl implements MomoService {
     private final OrderRepository orderRepository;
     private final PaymentRepository paymentRepository;
     private final OrderService orderService;
+    private final ItemWithdrawalRequestService itemWithdrawalRequestService;
 
     @Override
     @Transactional
@@ -180,7 +182,12 @@ public class MomoServiceImpl implements MomoService {
 
         List<Payment> payments = paymentRepository.findAllByMomoOrderId(ipnRequest.getOrderId());
         if (payments.isEmpty()) {
-            log.warn(">>>> IPN cho momoOrderId={} khong khop giao dich nao, bo qua", ipnRequest.getOrderId());
+            // Không phải thanh toán đơn hàng - có thể là phí rút hàng (API 91 / F-033)
+            boolean handled = itemWithdrawalRequestService.applyMomoFeePaymentResult(
+                    ipnRequest.getOrderId(), ipnRequest.getResultCode(), String.valueOf(ipnRequest.getTransId()));
+            if (!handled) {
+                log.warn(">>>> IPN cho momoOrderId={} khong khop giao dich nao, bo qua", ipnRequest.getOrderId());
+            }
             return;
         }
 

@@ -66,6 +66,16 @@ public class WalletTransaction {
     @JoinColumn(name = "related_payout_request_id", nullable = true)
     private PayoutRequest relatedPayoutRequest;
 
+    // Yêu cầu rút hàng sinh ra bút toán này — chỉ có với WITHDRAWAL_FEE (API 91 / F-033)
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "related_item_withdrawal_request_id", nullable = true)
+    private ItemWithdrawalRequest relatedItemWithdrawalRequest;
+
+    // Ca xử lý hàng xuống cấp sinh ra bút toán này — chỉ có với DEGRADED_COMPENSATION (API 95 / F-036)
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "related_degraded_item_case_id", nullable = true)
+    private DegradedItemCase relatedDegradedItemCase;
+
     // Bút toán đối ứng bên kia — ghi sổ kép, hai dòng bằng nhau và ngược dấu
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "counterpart_transaction_id", nullable = true)

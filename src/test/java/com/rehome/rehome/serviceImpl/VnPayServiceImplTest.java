@@ -64,6 +64,7 @@ class VnPayServiceImplTest {
     @Mock OrderRepository orderRepository;
     @Mock PaymentRepository paymentRepository;
     @Mock OrderService orderService;
+    @Mock com.rehome.rehome.service.ItemWithdrawalRequestService itemWithdrawalRequestService;
 
     @InjectMocks
     VnPayServiceImpl vnPayService;
@@ -433,6 +434,20 @@ class VnPayServiceImplTest {
         VnPayIpnResult result = vnPayService.handleIpn(params);
 
         assertThat(result).usingRecursiveComparison().isEqualTo(new VnPayIpnResult("01", "Order not found"));
+        verifyNoInteractions(orderService);
+    }
+
+    @Test
+    @DisplayName("handleIpn: không khớp payment nhưng khớp phí rút hàng -> giao cho ItemWithdrawalRequestService")
+    void ipn_noPaymentButMatchesWithdrawalFee_delegates() throws Exception {
+        Map<String, String> params = signedParams("ref-1", 15000000, "00", "123");
+        when(paymentRepository.findAllByVnpTxnRef("ref-1")).thenReturn(List.of());
+        when(itemWithdrawalRequestService.applyVnPayFeePaymentResult("ref-1", "00", "123")).thenReturn(true);
+
+        VnPayIpnResult result = vnPayService.handleIpn(params);
+
+        assertThat(result).usingRecursiveComparison().isEqualTo(new VnPayIpnResult("00", "Confirm Success"));
+        verify(itemWithdrawalRequestService).applyVnPayFeePaymentResult("ref-1", "00", "123");
         verifyNoInteractions(orderService);
     }
 

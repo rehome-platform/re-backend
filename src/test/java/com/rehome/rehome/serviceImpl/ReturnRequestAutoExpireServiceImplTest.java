@@ -1,8 +1,10 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
+import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.repository.ReturnRequestRepository;
+import com.rehome.rehome.service.OrderService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,6 +33,9 @@ class ReturnRequestAutoExpireServiceImplTest {
     @Mock
     ReturnRequestRepository returnRequestRepository;
 
+    @Mock
+    OrderService orderService;
+
     @InjectMocks
     ReturnRequestAutoExpireServiceImpl service;
 
@@ -41,12 +46,21 @@ class ReturnRequestAutoExpireServiceImplTest {
 
     @BeforeEach
     void setup() {
+        // approved1: đơn còn trong hạn trả hàng (autoCompleteDeadline ở tương lai) -> không payout ngay,
+        // chờ OrderAutoCompleteServiceImpl. approved2: đơn đã quá hạn -> payout ngay lúc hủy.
+        Order orderWithinWindow = Order.builder().id(UUID.randomUUID()).orderNo("OD-2026-000010")
+                .autoCompleteDeadline(Instant.now().plus(1, ChronoUnit.DAYS)).build();
+        Order orderPastWindow = Order.builder().id(UUID.randomUUID()).orderNo("OD-2026-000011")
+                .autoCompleteDeadline(Instant.now().minus(1, ChronoUnit.HOURS)).build();
+
         approved1 = ReturnRequest.builder().id(UUID.randomUUID())
                 .status(ReturnRequestStatus.APPROVED)
+                .order(orderWithinWindow)
                 .handoverDeadline(Instant.now().minus(1, ChronoUnit.HOURS))
                 .build();
         approved2 = ReturnRequest.builder().id(UUID.randomUUID())
                 .status(ReturnRequestStatus.APPROVED)
+                .order(orderPastWindow)
                 .handoverDeadline(Instant.now().minus(2, ChronoUnit.DAYS))
                 .build();
 
@@ -92,6 +106,11 @@ class ReturnRequestAutoExpireServiceImplTest {
             assertThat(r.getResolutionNote()).isEqualTo("Quá hạn bàn giao hàng trả cho GHN, yêu cầu bị hủy tự động.");
             assertThat(r.getResolvedAt()).isNotNull().isAfterOrEqualTo(before);
         }
+
+        // approved1 còn trong hạn trả hàng -> chưa payout, để job quét định kỳ xử lý sau.
+        // approved2 đã quá hạn -> payout ngay lúc hủy.
+        verify(orderService, never()).payoutOrder(eq(approved1.getOrder().getId()), any());
+        verify(orderService).payoutOrder(eq(approved2.getOrder().getId()), any());
     }
 
     @Test

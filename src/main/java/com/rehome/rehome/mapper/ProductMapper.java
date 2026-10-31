@@ -61,7 +61,8 @@ public class ProductMapper {
                         : new MyProductResponse.EndOfTermDecisionInfo(
                         d.getId(), d.getDeadline(), d.getDecision()))
                 .order(o == null ? null
-                        : new MyProductResponse.OrderRef(o.getId(), o.getOrderNo()))
+                        : new MyProductResponse.OrderRef(
+                                o.getId(), o.getOrderNo(), o.getAutoCompleteDeadline(), o.getPayoutAt()))
                 .expectedPayout(ConsignmentCommission.payout(
                         p.getCurrentPrice(),
                         ConsignmentCommission.rateForTerm(r, p.getCurrentTerm())));

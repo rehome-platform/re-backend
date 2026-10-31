@@ -65,4 +65,13 @@ public interface OrderService {
 
     // F-132/F-136 - trả hàng hợp lệ hoặc hàng trả thất lạc: hoàn 100% vào ví người mua, đơn chuyển RETURNED
     void refundOrderForReturn(UUID orderId, String note);
+
+    // F-064 phần tự chốt đơn: hệ thống tự chuyển DELIVERED -> COMPLETED khi buyer không bấm xác nhận.
+    // Không payout ở đây - tiền giữ lại tới hết hạn trả hàng, xem payoutOrder.
+    void autoCompleteOrder(UUID orderId);
+
+    // Cộng ORDER_PAYOUT cho người ký gửi của mọi món trong đơn rồi ghi payoutAt. Idempotent:
+    // không làm gì nếu đơn đã được trả tiền. Gọi từ OrderAutoCompleteServiceImpl (job quá hạn
+    // 3 ngày) và từ ReturnRequestServiceImpl khi yêu cầu trả hàng bị từ chối/hủy/kết luận không hợp lệ.
+    void payoutOrder(UUID orderId, String note);
 }

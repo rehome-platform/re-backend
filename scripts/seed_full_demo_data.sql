@@ -354,12 +354,15 @@ BEGIN
 
     -- Order A: COMPLETED — #1 (seller1, 450000đ), đã confirm-receipt -> có WalletTransaction ORDER_PAYOUT
     -- Test: GET /orders/{id}, GET /orders?status=COMPLETED, POST /orders/{id}/rating
+    -- payout_at = completed_at: đơn này coi như đã được OrderAutoCompleteServiceImpl trả tiền từ
+    -- trước rồi (WalletTransaction ORDER_PAYOUT bên dưới là bằng chứng). Không set thì job sẽ thấy
+    -- payout_at NULL + status COMPLETED + đã quá auto_complete_deadline và trả tiền LẦN THỨ HAI.
     INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
                          shipping_recipient_name, shipping_phone, shipping_address_detail,
                          shipping_ward_name, shipping_district_name, shipping_province_name, shipping_is_new_address,
                          scanned_count, subtotal, shipping_fee, total_amount, payment_method, status,
                          ghn_tracking_code, payment_deadline, delivered_at, auto_complete_deadline,
-                         cancel_reason, cancelled_at, refund_amount, completed_at,
+                         cancel_reason, cancelled_at, refund_amount, completed_at, payout_at,
                          service_rating, rated_at, rating_comment, created_at, updated_at)
     VALUES (gen_random_uuid(), 'OD-2026-SEED01', v_buyer1_id, v_wh1_id, v_sa_buyer1_1,
             'Nguyễn Văn Buyer 1', '0911111101', '12 Nguyễn Huệ, Phường Bến Nghé',
@@ -367,7 +370,7 @@ BEGIN
             1, 450000, 25000, 475000, 'WALLET', 'COMPLETED',
             NULL, v_now - interval '6 days' + interval '15 minutes',
             v_now - interval '2 days', v_now - interval '2 days' + interval '3 days',
-            NULL, NULL, NULL, v_now - interval '1 day',
+            NULL, NULL, NULL, v_now - interval '1 day', v_now - interval '1 day',
             NULL, NULL, NULL, v_now - interval '6 days', v_now - interval '1 day')
     RETURNING id INTO v_order_a_id;
 

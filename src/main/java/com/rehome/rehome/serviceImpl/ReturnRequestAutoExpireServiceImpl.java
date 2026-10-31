@@ -1,8 +1,10 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
+import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.repository.ReturnRequestRepository;
+import com.rehome.rehome.service.OrderService;
 import com.rehome.rehome.service.ReturnRequestAutoExpireService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,6 +22,7 @@ import java.util.List;
 public class ReturnRequestAutoExpireServiceImpl implements ReturnRequestAutoExpireService {
 
     private final ReturnRequestRepository returnRequestRepository;
+    private final OrderService orderService;
 
     @Override
     @Scheduled(fixedRateString = "${app.return.auto-expire-check-interval-ms}")
@@ -34,6 +37,14 @@ public class ReturnRequestAutoExpireServiceImpl implements ReturnRequestAutoExpi
             returnRequest.setResolutionNote("Quá hạn bàn giao hàng trả cho GHN, yêu cầu bị hủy tự động.");
             returnRequest.setResolvedAt(Instant.now());
             returnRequestRepository.save(returnRequest);
+
+            // Quá hạn bàn giao mà lúc này cũng đã qua hạn 3 ngày (autoCompleteDeadline) thì trả
+            // tiền người ký gửi luôn, khỏi chờ job OrderAutoCompleteServiceImpl quét lại
+            Order order = returnRequest.getOrder();
+            if (order.getAutoCompleteDeadline() != null && Instant.now().isAfter(order.getAutoCompleteDeadline())) {
+                orderService.payoutOrder(order.getId(),
+                        "Yêu cầu trả hàng quá hạn bàn giao sau hạn trả hàng - đơn " + order.getOrderNo());
+            }
 
             log.info(">>>> Tu huy yeu cau tra hang qua han ban giao: returnRequestId={}", returnRequest.getId());
         }

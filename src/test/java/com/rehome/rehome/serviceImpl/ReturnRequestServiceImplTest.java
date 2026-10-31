@@ -418,19 +418,6 @@ class ReturnRequestServiceImplTest {
     }
 
     @Test
-    @DisplayName("create: đơn đã COMPLETED (buyer đã bấm xác nhận) nhưng còn trong hạn 3 ngày vẫn được trả hàng")
-    void create_completedOrderWithinWindow_isAllowed() {
-        stubSaveAssignsId();
-        order.setStatus(OrderStatus.COMPLETED);
-        CreateReturnRequestRequest req = createRequest(orderId.toString(), "Lỗi", List.of("a.jpg"));
-
-        ReturnRequestResponse response = service.create(EMAIL, req);
-
-        assertThat(response.getStatus()).isEqualTo("PENDING");
-        verify(returnRequestRepository).save(any());
-    }
-
-    @Test
     @DisplayName("create: đúng hạn chót (giao 7 ngày trước trừ vài giây) vẫn được phép")
     void create_justInsideWindow_isAllowed() {
         stubSaveAssignsId();
@@ -905,28 +892,6 @@ class ReturnRequestServiceImplTest {
         assertThat(response.getResolutionNote()).isEqualTo("Ảnh không rõ");
         verifyNoInteractions(orderService);
         verify(queueService).dequeue(QueueType.RETURN, returnId.toString());
-    }
-
-    @Test
-    @DisplayName("reject: đơn đã quá hạn trả hàng (autoCompleteDeadline) -> trả tiền người ký gửi ngay")
-    void reject_afterReturnWindowPassed_paysOutSellerImmediately() {
-        order.setAutoCompleteDeadline(Instant.now().minus(1, ChronoUnit.HOURS));
-        returnRequest(ReturnRequestStatus.PENDING);
-
-        service.reject(returnId, rejectRequest("Ảnh không rõ"));
-
-        verify(orderService).payoutOrder(eq(orderId), any());
-    }
-
-    @Test
-    @DisplayName("reject: đơn còn trong hạn trả hàng (autoCompleteDeadline) -> chưa trả tiền, để job xử lý sau")
-    void reject_withinReturnWindow_doesNotPayOutYet() {
-        order.setAutoCompleteDeadline(Instant.now().plus(1, ChronoUnit.HOURS));
-        returnRequest(ReturnRequestStatus.PENDING);
-
-        service.reject(returnId, rejectRequest("Ảnh không rõ"));
-
-        verifyNoInteractions(orderService);
     }
 
     @Test

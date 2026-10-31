@@ -864,21 +864,69 @@ public class OrderServiceImpl implements OrderService {
                     "ORDER_NOT_DELIVERED_YET");
         }
 
-        // Đang tranh chấp trả hàng thì chưa chốt đơn, vì chốt đơn là payout cho người bán
-        // mà trả hàng hợp lệ lại phải hoàn 100% cho người mua
+        // Đang tranh chấp trả hàng thì chưa chốt đơn được, chờ kết luận trả hàng xong đã
         if (returnRequestRepository.existsByOrder_IdAndStatusIn(orderId, OPEN_RETURN_STATUSES)) {
             throw new ConflictException(
                     "Đơn đang có yêu cầu trả hàng chưa xử lý xong.",
                     "RETURN_REQUEST_IN_PROGRESS");
         }
 
-        for (OrderItem item : orderItemRepository.findAllByOrder_Id(orderId)) {
+        completeOrder(order);
+
+        return OrderConfirmReceiptResponse.builder()
+                .id(order.getId().toString())
+                .status(order.getStatus().name())
+                .build();
+    }
+
+    // Đổi món RESERVED -> SOLD và đơn -> COMPLETED. Không payout ở đây: tiền người ký gửi
+    // giữ lại tới hết hạn trả hàng (autoCompleteDeadline), xem payoutOrder/OrderAutoCompleteServiceImpl.
+    private void completeOrder(Order order) {
+        for (OrderItem item : orderItemRepository.findAllByOrder_Id(order.getId())) {
             Product product = productRepository.findByIdForUpdate(item.getProduct().getId()).orElse(null);
             if (product != null && product.getStatus() == ProductStatus.RESERVED) {
                 product.setStatus(ProductStatus.SOLD);
                 productRepository.save(product);
             }
+        }
 
+        order.setStatus(OrderStatus.COMPLETED);
+        order.setCompletedAt(Instant.now());
+        orderRepository.save(order);
+    }
+
+    // F-064: hệ thống tự chốt đơn DELIVERED quá hạn mà buyer không bấm xác nhận.
+    @Override
+    @Transactional
+    public void autoCompleteOrder(UUID orderId) {
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
+
+        if (order.getStatus() != OrderStatus.DELIVERED) {
+            return;
+        }
+
+        if (returnRequestRepository.existsByOrder_IdAndStatusIn(orderId, OPEN_RETURN_STATUSES)) {
+            return;
+        }
+
+        completeOrder(order);
+    }
+
+    // Trả tiền người ký gửi của mọi món trong đơn và ghi payoutAt. Idempotent qua kiểm tra
+    // payoutAt - job quá hạn 3 ngày và các nhánh từ chối/hủy/kết luận trả hàng đều gọi chung
+    // hàm này nên không cần lo gọi trùng.
+    @Override
+    @Transactional
+    public void payoutOrder(UUID orderId, String note) {
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
+
+        if (order.getPayoutAt() != null) {
+            return;
+        }
+
+        for (OrderItem item : orderItemRepository.findAllByOrder_Id(orderId)) {
             BigDecimal payoutAmount = item.getPriceAtOrder()
                     .subtract(item.getPriceAtOrder().multiply(item.getCommissionRateApplied()));
 
@@ -897,20 +945,14 @@ public class OrderServiceImpl implements OrderService {
                     .relatedOrder(order)
                     .relatedOrderItem(item)
                     .status(TransactionStatus.SUCCESS)
-                    .note("Thanh toán đơn hàng " + order.getOrderNo())
+                    .note(note)
                     .build();
             walletTransactionRepository.save(payoutTransaction);
             recordPlatformCounterpart(payoutTransaction);
         }
 
-        order.setStatus(OrderStatus.COMPLETED);
-        order.setCompletedAt(Instant.now());
+        order.setPayoutAt(Instant.now());
         orderRepository.save(order);
-
-        return OrderConfirmReceiptResponse.builder()
-                .id(order.getId().toString())
-                .status(order.getStatus().name())
-                .build();
     }
 
     @Override
@@ -1227,6 +1269,17 @@ public class OrderServiceImpl implements OrderService {
         order.setStatus(OrderStatus.RETURNED);
         order.setRefundAmount(order.getTotalAmount());
         orderRepository.save(order);
+
+        // Món vẫn SOLD tới lúc này (completeOrder chạy trước khi buyer gửi yêu cầu trả) - trả
+        // hàng hợp lệ/thất lạc nghĩa là người ký gửi không nhận được tiền cho món này, nên không
+        // thể tiếp tục hiện "Đã bán". Về RETURNED chờ Moderator quyết định hướng xử lý (F-133).
+        for (OrderItem item : orderItemRepository.findAllByOrder_Id(orderId)) {
+            Product product = productRepository.findByIdForUpdate(item.getProduct().getId()).orElse(null);
+            if (product != null && product.getStatus() == ProductStatus.SOLD) {
+                product.setStatus(ProductStatus.RETURNED);
+                productRepository.save(product);
+            }
+        }
     }
 
     // Hoàn 100% tổng tiền đơn vào ví người mua rồi chuyển đơn sang CANCELLED, dùng chung cho mọi lý do hủy có hoàn tiền

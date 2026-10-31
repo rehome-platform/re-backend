@@ -1048,7 +1048,7 @@ class OrderServiceImplTest {
     }
 
     @Test
-    void confirmReceipt_marksProductsSold_paysOutEachSeller_andCompletesOrder() {
+    void confirmReceipt_marksProductsSold_andCompletesOrder_withoutPayingOutSellers() {
         UUID orderId = UUID.randomUUID();
         Account seller1 = Account.builder().id(UUID.randomUUID()).email("seller1@example.com").build();
         Account seller2 = Account.builder().id(UUID.randomUUID()).email("seller2@example.com").build();
@@ -1073,28 +1073,11 @@ class OrderServiceImplTest {
                 .commissionRateApplied(new BigDecimal("0.15"))
                 .build();
 
-        Wallet seller1Wallet = Wallet.builder().id(UUID.randomUUID()).member(seller1)
-                .balance(new BigDecimal("10000")).build();
-
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
         when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1, item2));
         when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
         when(productRepository.findByIdForUpdate(product2.getId())).thenReturn(Optional.of(product2));
-        when(walletRepository.findByMember_Id(seller1.getId())).thenReturn(Optional.of(seller1Wallet));
-        when(walletRepository.findByMember_Id(seller2.getId())).thenReturn(Optional.empty());
-
-        AtomicReference<PlatformFund> fundHolder = new AtomicReference<>();
-        when(platformFundRepository.findTopByOrderByIdAsc())
-                .thenAnswer(invocation -> Optional.ofNullable(fundHolder.get()));
-        when(platformFundRepository.save(any())).thenAnswer(invocation -> {
-            PlatformFund saved = invocation.getArgument(0);
-            if (saved.getId() == null) {
-                saved.setId(UUID.randomUUID());
-            }
-            fundHolder.set(saved);
-            return saved;
-        });
 
         OrderConfirmReceiptResponse response = orderService.confirmReceipt(email, orderId);
 
@@ -1106,58 +1089,18 @@ class OrderServiceImplTest {
         verify(productRepository).save(product1);
         verify(productRepository).save(product2);
 
-        // 220000 - 220000*0.10 = 198000; cộng vào ví có sẵn 10000 -> 208000
-        assertThat(seller1Wallet.getBalance()).isEqualByComparingTo(new BigDecimal("208000"));
-
-        ArgumentCaptor<Wallet> walletCaptor = ArgumentCaptor.forClass(Wallet.class);
-        verify(walletRepository, times(2)).save(walletCaptor.capture());
-        Wallet seller2WalletSaved = walletCaptor.getAllValues().stream()
-                .filter(w -> w.getMember().equals(seller2))
-                .findFirst().orElseThrow();
-        // 380000 - 380000*0.15 = 323000, ví mới tạo balance ban đầu = 0
-        assertThat(seller2WalletSaved.getBalance()).isEqualByComparingTo(new BigDecimal("323000"));
-
-        ArgumentCaptor<WalletTransaction> txCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
-        verify(walletTransactionRepository, times(4)).save(txCaptor.capture());
-
-        List<WalletTransaction> memberTxs = txCaptor.getAllValues().stream()
-                .filter(tx -> tx.getWalletType() == WalletType.MEMBER).toList();
-        List<WalletTransaction> platformTxs = txCaptor.getAllValues().stream()
-                .filter(tx -> tx.getWalletType() == WalletType.PLATFORM).toList();
-        assertThat(memberTxs).hasSize(2);
-        assertThat(platformTxs).hasSize(2);
-
-        assertThat(memberTxs)
-                .allSatisfy(tx -> {
-                    assertThat(tx.getType()).isEqualTo(WalletTransactionType.ORDER_PAYOUT);
-                    assertThat(tx.getRelatedOrder()).isEqualTo(order);
-                    assertThat(tx.getTransactionNo()).isNotBlank();
-                    assertThat(tx.getBalanceAfter()).isNotNull();
-                    assertThat(tx.getRelatedOrderItem()).isNotNull();
-                });
-        assertThat(memberTxs)
-                .extracting(tx -> tx.getRelatedOrderItem().getProduct())
-                .containsExactlyInAnyOrder(product1, product2);
-
-        assertThat(platformTxs)
-                .allSatisfy(tx -> {
-                    assertThat(tx.getType()).isEqualTo(WalletTransactionType.ORDER_PAYOUT);
-                    assertThat(tx.getRelatedOrder()).isEqualTo(order);
-                    assertThat(tx.getCounterpartTransaction()).isIn(memberTxs);
-                });
-        assertThat(platformTxs)
-                .extracting(WalletTransaction::getAmount)
-                .usingElementComparator(java.util.Comparator.comparing(BigDecimal::doubleValue))
-                .containsExactlyInAnyOrder(new BigDecimal("-198000"), new BigDecimal("-323000"));
-        // quỹ nền tảng giảm dần theo từng lần chi trả cho seller: 0 -> -198000 -> -521000
-        assertThat(fundHolder.get().getBalance()).isEqualByComparingTo(new BigDecimal("-521000"));
-
         assertThat(order.getStatus()).isEqualTo(OrderStatus.COMPLETED);
         assertThat(order.getCompletedAt()).isNotNull();
+
+        // Tiền giữ lại tới hết hạn trả hàng - không trả ngay lúc confirm-receipt nữa
+        assertThat(order.getPayoutAt()).isNull();
+        verify(walletRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
+        verify(platformFundRepository, never()).save(any());
     }
 
     @Test
-    void confirmReceipt_stillPaysOutSeller_whenProductNoLongerReserved() {
+    void confirmReceipt_doesNotTouchProduct_whenNoLongerReserved() {
         UUID orderId = UUID.randomUUID();
         Account seller = Account.builder().id(UUID.randomUUID()).email("seller@example.com").build();
         product1.setStatus(ProductStatus.SOLD);
@@ -1179,17 +1122,119 @@ class OrderServiceImplTest {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
         when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
         when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
-        when(walletRepository.findByMember_Id(seller.getId())).thenReturn(Optional.empty());
 
         orderService.confirmReceipt(email, orderId);
 
         verify(productRepository, never()).save(product1);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.COMPLETED);
+        verify(walletTransactionRepository, never()).save(any());
+    }
+
+    @Test
+    void payoutOrder_paysEachSellerAndSetsPayoutAt() {
+        UUID orderId = UUID.randomUUID();
+        Account seller = Account.builder().id(UUID.randomUUID()).email("seller@example.com").build();
+        product1.setMember(seller);
+
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000003")
+                .buyer(member)
+                .status(OrderStatus.COMPLETED)
+                .build();
+
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1)
+                .priceAtOrder(new BigDecimal("220000"))
+                .commissionRateApplied(new BigDecimal("0.10"))
+                .build();
+
+        Wallet sellerWallet = Wallet.builder().id(UUID.randomUUID()).member(seller)
+                .balance(BigDecimal.ZERO).build();
+
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+        when(walletRepository.findByMember_Id(seller.getId())).thenReturn(Optional.of(sellerWallet));
+
+        orderService.payoutOrder(orderId, "Tự động chuyển tiền sau hạn trả hàng");
+
+        assertThat(sellerWallet.getBalance()).isEqualByComparingTo(new BigDecimal("198000"));
+        assertThat(order.getPayoutAt()).isNotNull();
 
         ArgumentCaptor<WalletTransaction> txCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
         verify(walletTransactionRepository, times(2)).save(txCaptor.capture());
         WalletTransaction memberTx = txCaptor.getAllValues().stream()
                 .filter(tx -> tx.getWalletType() == WalletType.MEMBER).findFirst().orElseThrow();
-        assertThat(memberTx.getAmount()).isEqualByComparingTo(new BigDecimal("90000"));
+        assertThat(memberTx.getType()).isEqualTo(WalletTransactionType.ORDER_PAYOUT);
+        assertThat(memberTx.getNote()).isEqualTo("Tự động chuyển tiền sau hạn trả hàng");
+        verify(orderRepository).save(order);
+    }
+
+    @Test
+    void payoutOrder_doesNothing_whenAlreadyPaidOut() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000004")
+                .buyer(member)
+                .status(OrderStatus.COMPLETED)
+                .payoutAt(Instant.now())
+                .build();
+
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+
+        orderService.payoutOrder(orderId, "note");
+
+        verify(orderItemRepository, never()).findAllByOrder_Id(any());
+        verify(walletTransactionRepository, never()).save(any());
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void autoCompleteOrder_completesDeliveredOrder() {
+        UUID orderId = UUID.randomUUID();
+        product1.setStatus(ProductStatus.RESERVED);
+
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000005")
+                .buyer(member)
+                .status(OrderStatus.DELIVERED)
+                .build();
+
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1)
+                .priceAtOrder(new BigDecimal("100000"))
+                .commissionRateApplied(new BigDecimal("0.10"))
+                .build();
+
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+        when(returnRequestRepository.existsByOrder_IdAndStatusIn(eq(orderId), any())).thenReturn(false);
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+        when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
+
+        orderService.autoCompleteOrder(orderId);
+
+        assertThat(product1.getStatus()).isEqualTo(ProductStatus.SOLD);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.COMPLETED);
+        assertThat(order.getCompletedAt()).isNotNull();
+    }
+
+    @Test
+    void autoCompleteOrder_doesNothing_whenReturnRequestStillOpen() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000006")
+                .buyer(member)
+                .status(OrderStatus.DELIVERED)
+                .build();
+
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+        when(returnRequestRepository.existsByOrder_IdAndStatusIn(eq(orderId), any())).thenReturn(true);
+
+        orderService.autoCompleteOrder(orderId);
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.DELIVERED);
+        verify(orderItemRepository, never()).findAllByOrder_Id(any());
     }
 
     @Test

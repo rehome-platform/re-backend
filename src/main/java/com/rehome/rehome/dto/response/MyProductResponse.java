@@ -44,7 +44,9 @@ public class MyProductResponse {
     private List<TermInfo> termHistory;
 
     public record EndOfTermDecisionInfo(UUID id, Instant deadline, EndOfTermChoice decision) {}
-    public record OrderRef(UUID id, String orderNo) {}
+    // payoutDueAt = mốc dự kiến tiền vào ví (deliveredAt + hạn trả hàng), payoutAt = đã trả lúc
+    // nào, null nếu chưa trả. App hiện "Tiền vào ví sau dd/MM HH:mm" dựa trên 2 mốc này.
+    public record OrderRef(UUID id, String orderNo, Instant payoutDueAt, Instant payoutAt) {}
     public record PriceChange(Instant changedAt, BigDecimal oldPrice, BigDecimal newPrice) {}
     public record TermInfo(int term, BigDecimal price, BigDecimal commissionRate) {}
 }

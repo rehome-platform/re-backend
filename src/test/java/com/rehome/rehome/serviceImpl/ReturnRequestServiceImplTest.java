@@ -302,8 +302,8 @@ class ReturnRequestServiceImplTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = OrderStatus.class, names = "DELIVERED", mode = EnumSource.Mode.EXCLUDE)
-    @DisplayName("create: đơn chưa ở trạng thái DELIVERED -> ORDER_NOT_RETURNABLE")
+    @EnumSource(value = OrderStatus.class, names = {"DELIVERED", "COMPLETED"}, mode = EnumSource.Mode.EXCLUDE)
+    @DisplayName("create: đơn chưa giao hoặc đã quá hạn xử lý -> ORDER_NOT_RETURNABLE")
     void create_orderNotDelivered_throwsConflict(OrderStatus status) {
         order.setStatus(status);
         CreateReturnRequestRequest req = createRequest(orderId.toString(), "Lỗi", List.of("a.jpg"));
@@ -402,6 +402,19 @@ class ReturnRequestServiceImplTest {
         assertThat(response.getReason()).isEqualTo("Không đúng mô tả");
         assertThat(response.getPhotoUrls()).containsExactly("a.jpg", "b.jpg");
         verify(queueService).enqueue(eq(QueueType.RETURN), eq(returnId.toString()), any());
+    }
+
+    @Test
+    @DisplayName("create: đơn đã COMPLETED (buyer đã bấm xác nhận) nhưng còn trong hạn 3 ngày vẫn được trả hàng")
+    void create_completedOrderWithinWindow_isAllowed() {
+        stubSaveAssignsId();
+        order.setStatus(OrderStatus.COMPLETED);
+        CreateReturnRequestRequest req = createRequest(orderId.toString(), "Lỗi", List.of("a.jpg"));
+
+        ReturnRequestResponse response = service.create(EMAIL, req);
+
+        assertThat(response.getStatus()).isEqualTo("PENDING");
+        verify(returnRequestRepository).save(any());
     }
 
     @Test
@@ -881,6 +894,28 @@ class ReturnRequestServiceImplTest {
         verify(queueService).dequeue(QueueType.RETURN, returnId.toString());
     }
 
+    @Test
+    @DisplayName("reject: đơn đã quá hạn trả hàng (autoCompleteDeadline) -> trả tiền người ký gửi ngay")
+    void reject_afterReturnWindowPassed_paysOutSellerImmediately() {
+        order.setAutoCompleteDeadline(Instant.now().minus(1, ChronoUnit.HOURS));
+        returnRequest(ReturnRequestStatus.PENDING);
+
+        service.reject(returnId, rejectRequest("Ảnh không rõ"));
+
+        verify(orderService).payoutOrder(eq(orderId), any());
+    }
+
+    @Test
+    @DisplayName("reject: đơn còn trong hạn trả hàng (autoCompleteDeadline) -> chưa trả tiền, để job xử lý sau")
+    void reject_withinReturnWindow_doesNotPayOutYet() {
+        order.setAutoCompleteDeadline(Instant.now().plus(1, ChronoUnit.HOURS));
+        returnRequest(ReturnRequestStatus.PENDING);
+
+        service.reject(returnId, rejectRequest("Ảnh không rõ"));
+
+        verifyNoInteractions(orderService);
+    }
+
     // ==================== confirmHandover ====================
 
     @Test
@@ -1053,8 +1088,9 @@ class ReturnRequestServiceImplTest {
     }
 
     @Test
-    @DisplayName("inspect: không hợp lệ -> INVALID, đặt hạn nhận lại hàng, chưa đóng (resolvedAt null), KHÔNG hoàn tiền")
-    void inspect_invalid_setsPickupDeadlineAndDoesNotRefund() {
+    @DisplayName("inspect: không hợp lệ -> INVALID, đặt hạn nhận lại hàng, chưa đóng (resolvedAt null), "
+            + "KHÔNG hoàn tiền người mua nhưng TRẢ TIỀN NGAY cho người ký gửi")
+    void inspect_invalid_setsPickupDeadlineAndPaysOutSellerWithoutRefunding() {
         ReturnRequest r = returnRequest(ReturnRequestStatus.INSPECTING);
 
         Instant before = Instant.now();
@@ -1067,7 +1103,9 @@ class ReturnRequestServiceImplTest {
                 .isAfter(before.plus(PICKUP_DEADLINE_DAYS, ChronoUnit.DAYS).minusSeconds(5))
                 .isBefore(Instant.now().plus(PICKUP_DEADLINE_DAYS, ChronoUnit.DAYS).plusSeconds(5));
         verify(returnRequestRepository).save(r);
-        verifyNoInteractions(orderService);
+
+        verify(orderService, never()).refundOrderForReturn(any(), any());
+        verify(orderService).payoutOrder(eq(orderId), any());
 
         assertThat(response.getStatus()).isEqualTo("INVALID");
         assertThat(response.getPickupDeadline()).isEqualTo(r.getPickupDeadline());

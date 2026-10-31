@@ -137,6 +137,12 @@ public class Order {
     @Column(name = "completed_at", nullable = true)
     private Instant completedAt;
 
+    // Thời điểm tiền thực sự vào ví người ký gửi. Null = chưa trả. Tách khỏi completedAt vì
+    // tiền giữ lại tới hết hạn trả hàng (autoCompleteDeadline) rồi mới cộng ví, không trả ngay
+    // lúc confirm-receipt nữa — xem OrderAutoCompleteServiceImpl.
+    @Column(name = "payout_at", nullable = true)
+    private Instant payoutAt;
+
     // 1–5 sao — UC-39 / F-066
     @Column(name = "service_rating", nullable = true)
     private Short serviceRating;

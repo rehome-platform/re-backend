@@ -99,6 +99,16 @@ DECLARE
     v_order_d_id     uuid;
     v_order_e_id     uuid;
     v_oi_c_id        uuid;
+
+    -- Order F..I: 4 đơn đã bị trả hàng (F-132/F-136/F-036) -> sản phẩm #21-24 nằm ở ProductStatus.RETURNED
+    v_order_f_id     uuid;
+    v_order_g_id     uuid;
+    v_order_h_id     uuid;
+    v_order_i_id     uuid;
+    v_return_f_id    uuid;
+    v_return_g_id    uuid;
+    v_return_h_id    uuid;
+    v_return_i_id    uuid;
 BEGIN
     ------------------------------------------------------------------
     -- 0. Sequence sinh member_code — MemberCodeGenerator chạy 'SELECT nextval(...)'
@@ -210,12 +220,16 @@ BEGIN
     );
 
     ------------------------------------------------------------------
-    -- 3. Ví — số dư khớp với wallet_transactions sẽ insert ở bước 8
+    -- 3. Ví — số dư khớp với wallet_transactions sẽ insert ở bước 8 và bước 9 (hoàn tiền trả hàng)
     ------------------------------------------------------------------
+    -- buyer1 = 5.000.000 gốc + 275.000 hoàn hủy đơn SEED04 + 505.000 hoàn trả hàng SEED06 (thất lạc)
+    --          + 335.000 hoàn trả hàng SEED08 (xuống cấp) = 5.840.000
     INSERT INTO wallets (id, member_id, balance, locked_balance, updated_at)
-    VALUES (gen_random_uuid(), v_buyer1_id, 5000000, 0, v_now) RETURNING id INTO v_wallet_buyer1;
+    VALUES (gen_random_uuid(), v_buyer1_id, 5840000, 0, v_now) RETURNING id INTO v_wallet_buyer1;
+    -- buyer2 = 3.000.000 gốc + 215.000 hoàn trả hàng SEED07 (thất lạc) + 285.000 hoàn trả hàng SEED09
+    --          (xuống cấp) = 3.500.000
     INSERT INTO wallets (id, member_id, balance, locked_balance, updated_at)
-    VALUES (gen_random_uuid(), v_buyer2_id, 3000000, 0, v_now) RETURNING id INTO v_wallet_buyer2;
+    VALUES (gen_random_uuid(), v_buyer2_id, 3500000, 0, v_now) RETURNING id INTO v_wallet_buyer2;
     INSERT INTO wallets (id, member_id, balance, locked_balance, updated_at)
     VALUES (gen_random_uuid(), v_seller1_id, 405000, 0, v_now) RETURNING id INTO v_wallet_seller1;
     INSERT INTO wallets (id, member_id, balance, locked_balance, updated_at)
@@ -324,6 +338,146 @@ BEGIN
         INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
         VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
     END LOOP;
+
+    ------------------------------------------------------------------
+    -- 6b. 4 sản phẩm bổ sung #21-24, status = RETURNED ngay từ đầu — mô phỏng đúng trạng thái
+    --     cuối cùng mà OrderServiceImpl.refundOrderForReturn ghi lại sau khi một yêu cầu trả hàng
+    --     được kết luận VALID+degraded (F-036, chờ Member chọn đền bù ở bước 9) hoặc LOST (F-136,
+    --     hàng thất lạc trên đường về kho). Dùng chung chuỗi FK consignment_form -> receipt ->
+    --     product -> product_photo như 20 sản phẩm trên; đơn hàng/yêu cầu trả hàng tương ứng được
+    --     tạo ở bước 9 (sau khi có orders/order_items).
+    ------------------------------------------------------------------
+    -- #21: Q7, seller1, sẽ LOST trên đơn OD-2026-SEED06 (buyer1)
+    v_confirmed_at := v_now - interval '20 days';
+    v_product_id   := 'Q7-AK-000021';
+    INSERT INTO consignment_forms (id, member_id, warehouse_id, category_id, brand_id,
+                                    product_name, description, desired_price, status,
+                                    reject_reason, bring_in_deadline, created_at, updated_at)
+    VALUES (gen_random_uuid(), v_seller1_id, v_wh1_id, v_cat_ids[1], v_brand_ids[1],
+            'Áo khoác dạ Uniqlo nam', 'Hàng còn mới, ít sử dụng (seed data)', 480000, 'APPROVED',
+            NULL, (v_confirmed_at - interval '1 day')::date + 7,
+            v_confirmed_at - interval '1 day', v_confirmed_at - interval '1 day')
+    RETURNING id INTO v_form_id;
+    INSERT INTO consignment_receipts (id, receipt_no, consignment_form_id, member_id, moderator_id,
+                                       warehouse_id, agreed_price, floor_price, term_length_days,
+                                       max_renewals, free_withdrawal_window_days,
+                                       commission_rate_term1, commission_rate_term2, commission_rate_term3,
+                                       withdrawal_fee, degraded_compensation_rate, confirmed_at,
+                                       condition_note, created_at)
+    VALUES (gen_random_uuid(), 'KG-2026-SEED21', v_form_id, v_seller1_id, v_mod1_id,
+            v_wh1_id, 480000, 240000, 30, 2, 7,
+            0.10, 0.15, 0.20, 50000, 0.50, v_confirmed_at,
+            'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.', v_confirmed_at)
+    RETURNING id INTO v_receipt_id;
+    INSERT INTO products (id, consignment_receipt_id, member_id, warehouse_id, category_id, brand_id,
+                           name, size, condition_note, current_price, status, current_term,
+                           term_started_at, end_of_term_deadline, unclaimed_decision_deadline,
+                           shelf_location, created_at, updated_at)
+    VALUES (v_product_id, v_receipt_id, v_seller1_id, v_wh1_id, v_cat_ids[1], v_brand_ids[1],
+            'Áo khoác dạ Uniqlo nam', 'M', 'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.',
+            480000, 'RETURNED', 1, v_confirmed_at, v_confirmed_at + interval '90 days', NULL,
+            'A1-21', v_confirmed_at, v_now);
+    INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
+    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+
+    -- #22: Q7, seller2, sẽ LOST trên đơn OD-2026-SEED07 (buyer2)
+    v_confirmed_at := v_now - interval '22 days';
+    v_product_id   := 'Q7-AT-000022';
+    INSERT INTO consignment_forms (id, member_id, warehouse_id, category_id, brand_id,
+                                    product_name, description, desired_price, status,
+                                    reject_reason, bring_in_deadline, created_at, updated_at)
+    VALUES (gen_random_uuid(), v_seller2_id, v_wh1_id, v_cat_ids[2], v_brand_ids[2],
+            'Áo thun Zara trơn', 'Hàng còn mới, ít sử dụng (seed data)', 190000, 'APPROVED',
+            NULL, (v_confirmed_at - interval '1 day')::date + 7,
+            v_confirmed_at - interval '1 day', v_confirmed_at - interval '1 day')
+    RETURNING id INTO v_form_id;
+    INSERT INTO consignment_receipts (id, receipt_no, consignment_form_id, member_id, moderator_id,
+                                       warehouse_id, agreed_price, floor_price, term_length_days,
+                                       max_renewals, free_withdrawal_window_days,
+                                       commission_rate_term1, commission_rate_term2, commission_rate_term3,
+                                       withdrawal_fee, degraded_compensation_rate, confirmed_at,
+                                       condition_note, created_at)
+    VALUES (gen_random_uuid(), 'KG-2026-SEED22', v_form_id, v_seller2_id, v_mod2_id,
+            v_wh1_id, 190000, 95000, 30, 2, 7,
+            0.10, 0.15, 0.20, 50000, 0.50, v_confirmed_at,
+            'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.', v_confirmed_at)
+    RETURNING id INTO v_receipt_id;
+    INSERT INTO products (id, consignment_receipt_id, member_id, warehouse_id, category_id, brand_id,
+                           name, size, condition_note, current_price, status, current_term,
+                           term_started_at, end_of_term_deadline, unclaimed_decision_deadline,
+                           shelf_location, created_at, updated_at)
+    VALUES (v_product_id, v_receipt_id, v_seller2_id, v_wh1_id, v_cat_ids[2], v_brand_ids[2],
+            'Áo thun Zara trơn', 'M', 'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.',
+            190000, 'RETURNED', 1, v_confirmed_at, v_confirmed_at + interval '90 days', NULL,
+            'A1-22', v_confirmed_at, v_now);
+    INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
+    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+
+    -- #23: CG, seller3, sẽ VALID+degraded trên đơn OD-2026-SEED08 (buyer1)
+    v_confirmed_at := v_now - interval '24 days';
+    v_product_id   := 'CG-QJ-000023';
+    INSERT INTO consignment_forms (id, member_id, warehouse_id, category_id, brand_id,
+                                    product_name, description, desired_price, status,
+                                    reject_reason, bring_in_deadline, created_at, updated_at)
+    VALUES (gen_random_uuid(), v_seller3_id, v_wh2_id, v_cat_ids[3], v_brand_ids[3],
+            'Quần jean H&M cao cấp', 'Hàng còn mới, ít sử dụng (seed data)', 310000, 'APPROVED',
+            NULL, (v_confirmed_at - interval '1 day')::date + 7,
+            v_confirmed_at - interval '1 day', v_confirmed_at - interval '1 day')
+    RETURNING id INTO v_form_id;
+    INSERT INTO consignment_receipts (id, receipt_no, consignment_form_id, member_id, moderator_id,
+                                       warehouse_id, agreed_price, floor_price, term_length_days,
+                                       max_renewals, free_withdrawal_window_days,
+                                       commission_rate_term1, commission_rate_term2, commission_rate_term3,
+                                       withdrawal_fee, degraded_compensation_rate, confirmed_at,
+                                       condition_note, created_at)
+    VALUES (gen_random_uuid(), 'KG-2026-SEED23', v_form_id, v_seller3_id, v_mod3_id,
+            v_wh2_id, 310000, 155000, 30, 2, 7,
+            0.10, 0.15, 0.20, 50000, 0.50, v_confirmed_at,
+            'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.', v_confirmed_at)
+    RETURNING id INTO v_receipt_id;
+    INSERT INTO products (id, consignment_receipt_id, member_id, warehouse_id, category_id, brand_id,
+                           name, size, condition_note, current_price, status, current_term,
+                           term_started_at, end_of_term_deadline, unclaimed_decision_deadline,
+                           shelf_location, created_at, updated_at)
+    VALUES (v_product_id, v_receipt_id, v_seller3_id, v_wh2_id, v_cat_ids[3], v_brand_ids[3],
+            'Quần jean H&M cao cấp', 'M', 'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.',
+            310000, 'RETURNED', 1, v_confirmed_at, v_confirmed_at + interval '90 days', NULL,
+            'A1-23', v_confirmed_at, v_now);
+    INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
+    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+
+    -- #24: CG, seller1, sẽ VALID+degraded trên đơn OD-2026-SEED09 (buyer2)
+    v_confirmed_at := v_now - interval '26 days';
+    v_product_id   := 'CG-CV-000024';
+    INSERT INTO consignment_forms (id, member_id, warehouse_id, category_id, brand_id,
+                                    product_name, description, desired_price, status,
+                                    reject_reason, bring_in_deadline, created_at, updated_at)
+    VALUES (gen_random_uuid(), v_seller1_id, v_wh2_id, v_cat_ids[4], v_brand_ids[4],
+            'Chân váy Nike basic', 'Hàng còn mới, ít sử dụng (seed data)', 260000, 'APPROVED',
+            NULL, (v_confirmed_at - interval '1 day')::date + 7,
+            v_confirmed_at - interval '1 day', v_confirmed_at - interval '1 day')
+    RETURNING id INTO v_form_id;
+    INSERT INTO consignment_receipts (id, receipt_no, consignment_form_id, member_id, moderator_id,
+                                       warehouse_id, agreed_price, floor_price, term_length_days,
+                                       max_renewals, free_withdrawal_window_days,
+                                       commission_rate_term1, commission_rate_term2, commission_rate_term3,
+                                       withdrawal_fee, degraded_compensation_rate, confirmed_at,
+                                       condition_note, created_at)
+    VALUES (gen_random_uuid(), 'KG-2026-SEED24', v_form_id, v_seller1_id, v_mod3_id,
+            v_wh2_id, 260000, 130000, 30, 2, 7,
+            0.10, 0.15, 0.20, 50000, 0.50, v_confirmed_at,
+            'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.', v_confirmed_at)
+    RETURNING id INTO v_receipt_id;
+    INSERT INTO products (id, consignment_receipt_id, member_id, warehouse_id, category_id, brand_id,
+                           name, size, condition_note, current_price, status, current_term,
+                           term_started_at, end_of_term_deadline, unclaimed_decision_deadline,
+                           shelf_location, created_at, updated_at)
+    VALUES (v_product_id, v_receipt_id, v_seller1_id, v_wh2_id, v_cat_ids[4], v_brand_ids[4],
+            'Chân váy Nike basic', 'M', 'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.',
+            260000, 'RETURNED', 1, v_confirmed_at, v_confirmed_at + interval '90 days', NULL,
+            'A1-24', v_confirmed_at, v_now);
+    INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
+    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
 
     -- name_normalized là cột GET /products?search= so khớp (gõ "ao khoac" ra "Áo khoác").
     -- App tự sinh cột này trong @PrePersist/@PreUpdate của entity Product, nhưng seed ghi
@@ -497,6 +651,195 @@ BEGIN
                               tax_rate_applied, term_applied, scanned)
     VALUES (gen_random_uuid(), v_order_e_id, 'CG-AK-000011', 430000, 0.10, 0, 1, false);
 
+    ------------------------------------------------------------------
+    -- 9. Đơn hàng F..I — đã bị trả hàng, đúng chuỗi ReturnRequestServiceImpl thật đi qua:
+    --    order DELIVERED/COMPLETED -> return_request (ảnh bằng chứng) -> LOST (F-136) hoặc
+    --    INSPECTING rồi VALID+degraded (F-132, mở DegradedItemCase chờ Member chọn đền bù ở
+    --    F-036/API 95) -> OrderServiceImpl.refundOrderForReturn hoàn 100% cho buyer + chuyển
+    --    order/product sang RETURNED. payout_at để NULL vì payout người ký gửi bị giữ lại tới hết
+    --    hạn trả hàng (xem ghi chú payout_at ở Order A) và đơn này bị trả trước khi tới hạn đó.
+    ------------------------------------------------------------------
+
+    -- Order F: LOST — #21 (seller1, 480000đ), buyer1, trả hàng nhưng vận đơn GHN chiều về báo thất lạc
+    -- Test: GET /return-requests/{id}, POST /orders/{id}/rating sẽ bị chặn vì order không còn COMPLETED
+    INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
+                         shipping_recipient_name, shipping_phone, shipping_address_detail,
+                         shipping_ward_name, shipping_district_name, shipping_province_name, shipping_is_new_address,
+                         scanned_count, subtotal, shipping_fee, total_amount, payment_method, status,
+                         ghn_tracking_code, payment_deadline, delivered_at, auto_complete_deadline,
+                         cancel_reason, cancelled_at, refund_amount, completed_at, payout_at,
+                         service_rating, rated_at, rating_comment, created_at, updated_at)
+    VALUES (gen_random_uuid(), 'OD-2026-SEED06', v_buyer1_id, v_wh1_id, v_sa_buyer1_1,
+            'Nguyễn Văn Buyer 1', '0911111101', '12 Nguyễn Huệ, Phường Bến Nghé',
+            'Phường Sài Gòn', NULL, 'Hồ Chí Minh', true,
+            1, 480000, 25000, 505000, 'WALLET', 'RETURNED',
+            'GHNSEED00006', v_now - interval '6 days' + interval '15 minutes',
+            v_now - interval '4 days', v_now - interval '4 days' + interval '3 days',
+            NULL, NULL, 505000, v_now - interval '3 days 12 hours', NULL,
+            NULL, NULL, NULL, v_now - interval '6 days', v_now - interval '1 day')
+    RETURNING id INTO v_order_f_id;
+
+    INSERT INTO order_items (id, order_id, product_id, price_at_order, commission_rate_applied,
+                              tax_rate_applied, term_applied, scanned)
+    VALUES (gen_random_uuid(), v_order_f_id, 'Q7-AK-000021', 480000, 0.10, 0, 1, true);
+
+    INSERT INTO return_requests (id, order_id, reason, status, ghn_return_tracking_code,
+                                  handover_deadline, resolution_note, moderator_id, created_at, resolved_at)
+    VALUES (gen_random_uuid(), v_order_f_id, 'Áo không giống hình, muốn trả hàng.', 'LOST',
+            'GHNRT-SEED06', v_now - interval '3 days' + interval '3 days',
+            'Vận đơn trả GHN báo thất lạc trên đường về kho.', v_mod1_id,
+            v_now - interval '3 days', v_now - interval '1 day')
+    RETURNING id INTO v_return_f_id;
+
+    INSERT INTO return_request_photos (id, return_request_id, image_url)
+    VALUES (gen_random_uuid(), v_return_f_id, 'https://picsum.photos/seed/return-seed06/600/800');
+
+    INSERT INTO wallet_transactions (id, transaction_no, wallet_type, wallet_id, type, amount,
+                                      balance_after, related_order_id, related_order_item_id,
+                                      counterpart_transaction_id, status, note, created_at)
+    VALUES (gen_random_uuid(), 'WT-2026-SEED03', 'MEMBER', v_wallet_buyer1, 'REFUND', 505000,
+            5505000, v_order_f_id, NULL, NULL, 'SUCCESS',
+            'Hoàn tiền do hàng trả thất lạc - đơn OD-2026-SEED06', v_now - interval '1 day');
+
+    -- Order G: LOST — #22 (seller2, 190000đ), buyer2, cùng tình huống thất lạc chiều trả
+    INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
+                         shipping_recipient_name, shipping_phone, shipping_address_detail,
+                         shipping_ward_name, shipping_district_name, shipping_province_name, shipping_is_new_address,
+                         scanned_count, subtotal, shipping_fee, total_amount, payment_method, status,
+                         ghn_tracking_code, payment_deadline, delivered_at, auto_complete_deadline,
+                         cancel_reason, cancelled_at, refund_amount, completed_at, payout_at,
+                         service_rating, rated_at, rating_comment, created_at, updated_at)
+    VALUES (gen_random_uuid(), 'OD-2026-SEED07', v_buyer2_id, v_wh1_id, v_sa_buyer2_1,
+            'Đặng Thị Buyer 2', '0911111102', '78 Trần Thái Tông, Phường Dịch Vọng',
+            'Phường Cầu Giấy', NULL, 'Hà Nội', true,
+            1, 190000, 25000, 215000, 'WALLET', 'RETURNED',
+            'GHNSEED00007', v_now - interval '7 days' + interval '15 minutes',
+            v_now - interval '5 days', v_now - interval '5 days' + interval '3 days',
+            NULL, NULL, 215000, v_now - interval '4 days 12 hours', NULL,
+            NULL, NULL, NULL, v_now - interval '7 days', v_now - interval '2 days')
+    RETURNING id INTO v_order_g_id;
+
+    INSERT INTO order_items (id, order_id, product_id, price_at_order, commission_rate_applied,
+                              tax_rate_applied, term_applied, scanned)
+    VALUES (gen_random_uuid(), v_order_g_id, 'Q7-AT-000022', 190000, 0.10, 0, 1, true);
+
+    INSERT INTO return_requests (id, order_id, reason, status, ghn_return_tracking_code,
+                                  handover_deadline, resolution_note, moderator_id, created_at, resolved_at)
+    VALUES (gen_random_uuid(), v_order_g_id, 'Áo bị lỗi chỉ ở đường may, muốn trả hàng.', 'LOST',
+            'GHNRT-SEED07', v_now - interval '4 days' + interval '3 days',
+            'Vận đơn trả GHN báo thất lạc trên đường về kho.', v_mod2_id,
+            v_now - interval '4 days', v_now - interval '2 days')
+    RETURNING id INTO v_return_g_id;
+
+    INSERT INTO return_request_photos (id, return_request_id, image_url)
+    VALUES (gen_random_uuid(), v_return_g_id, 'https://picsum.photos/seed/return-seed07/600/800');
+
+    INSERT INTO wallet_transactions (id, transaction_no, wallet_type, wallet_id, type, amount,
+                                      balance_after, related_order_id, related_order_item_id,
+                                      counterpart_transaction_id, status, note, created_at)
+    VALUES (gen_random_uuid(), 'WT-2026-SEED04', 'MEMBER', v_wallet_buyer2, 'REFUND', 215000,
+            3215000, v_order_g_id, NULL, NULL, 'SUCCESS',
+            'Hoàn tiền do hàng trả thất lạc - đơn OD-2026-SEED07', v_now - interval '2 days');
+
+    -- Order H: VALID + degraded — #23 (seller3, 310000đ), buyer1, hàng về kho đúng gốc nhưng xuống
+    -- cấp -> mở DegradedItemCase, chờ Member (seller3) chọn đền bù ở API 95 (F-036)
+    -- Test: GET /degraded-item-cases (hoặc tương đương) rồi POST chọn FULL_COMPENSATION/PARTIAL_WITH_ITEM_BACK
+    INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
+                         shipping_recipient_name, shipping_phone, shipping_address_detail,
+                         shipping_ward_name, shipping_district_name, shipping_province_name, shipping_is_new_address,
+                         scanned_count, subtotal, shipping_fee, total_amount, payment_method, status,
+                         ghn_tracking_code, payment_deadline, delivered_at, auto_complete_deadline,
+                         cancel_reason, cancelled_at, refund_amount, completed_at, payout_at,
+                         service_rating, rated_at, rating_comment, created_at, updated_at)
+    VALUES (gen_random_uuid(), 'OD-2026-SEED08', v_buyer1_id, v_wh2_id, v_sa_buyer1_1,
+            'Nguyễn Văn Buyer 1', '0911111101', '12 Nguyễn Huệ, Phường Bến Nghé',
+            'Phường Sài Gòn', NULL, 'Hồ Chí Minh', true,
+            1, 310000, 25000, 335000, 'WALLET', 'RETURNED',
+            'GHNSEED00008', v_now - interval '8 days' + interval '15 minutes',
+            v_now - interval '6 days', v_now - interval '6 days' + interval '3 days',
+            NULL, NULL, 335000, v_now - interval '5 days 12 hours', NULL,
+            NULL, NULL, NULL, v_now - interval '8 days', v_now - interval '12 hours')
+    RETURNING id INTO v_order_h_id;
+
+    INSERT INTO order_items (id, order_id, product_id, price_at_order, commission_rate_applied,
+                              tax_rate_applied, term_applied, scanned)
+    VALUES (gen_random_uuid(), v_order_h_id, 'CG-QJ-000023', 310000, 0.10, 0, 1, true);
+
+    INSERT INTO return_requests (id, order_id, reason, status, ghn_return_tracking_code,
+                                  handover_deadline, resolution_note, matches_original, degraded,
+                                  condition_note, item_action, moderator_id, created_at, resolved_at)
+    VALUES (gen_random_uuid(), v_order_h_id, 'Quần có vết bẩn loang ở ống, không giống lúc nhận hàng.',
+            'VALID', 'GHNRT-SEED08', v_now - interval '5 days' + interval '3 days',
+            'Hàng đúng sản phẩm gốc nhưng xuống cấp so với lúc giao - mở ca đền bù.', true, true,
+            'Vải bị co rút, có vết bẩn loang không giặt được ở ống quần, không giống tình trạng lúc giao.',
+            NULL, v_mod3_id, v_now - interval '5 days', v_now - interval '12 hours')
+    RETURNING id INTO v_return_h_id;
+
+    INSERT INTO return_request_photos (id, return_request_id, image_url)
+    VALUES (gen_random_uuid(), v_return_h_id, 'https://picsum.photos/seed/return-seed08/600/800');
+
+    INSERT INTO wallet_transactions (id, transaction_no, wallet_type, wallet_id, type, amount,
+                                      balance_after, related_order_id, related_order_item_id,
+                                      counterpart_transaction_id, status, note, created_at)
+    VALUES (gen_random_uuid(), 'WT-2026-SEED05', 'MEMBER', v_wallet_buyer1, 'REFUND', 335000,
+            5840000, v_order_h_id, NULL, NULL, 'SUCCESS',
+            'Hoàn tiền trả hàng hợp lệ - đơn OD-2026-SEED08', v_now - interval '12 hours');
+
+    -- compensation_amount = price_at_order x (1 - commission_rate_term1) = 310000 x 0.9, snapshot
+    -- lúc mở ca (ReturnRequestServiceImpl.openDegradedItemCase) — mức FULL_COMPENSATION cho seller3
+    INSERT INTO degraded_item_cases (id, product_id, return_request_id, choice, compensation_amount,
+                                      paid_amount, moderator_id, created_at, decided_at)
+    VALUES (gen_random_uuid(), 'CG-QJ-000023', v_return_h_id, NULL, 279000,
+            NULL, v_mod3_id, v_now - interval '12 hours', NULL);
+
+    -- Order I: VALID + degraded — #24 (seller1, 260000đ), buyer2, cùng tình huống xuống cấp
+    INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
+                         shipping_recipient_name, shipping_phone, shipping_address_detail,
+                         shipping_ward_name, shipping_district_name, shipping_province_name, shipping_is_new_address,
+                         scanned_count, subtotal, shipping_fee, total_amount, payment_method, status,
+                         ghn_tracking_code, payment_deadline, delivered_at, auto_complete_deadline,
+                         cancel_reason, cancelled_at, refund_amount, completed_at, payout_at,
+                         service_rating, rated_at, rating_comment, created_at, updated_at)
+    VALUES (gen_random_uuid(), 'OD-2026-SEED09', v_buyer2_id, v_wh2_id, v_sa_buyer2_1,
+            'Đặng Thị Buyer 2', '0911111102', '78 Trần Thái Tông, Phường Dịch Vọng',
+            'Phường Cầu Giấy', NULL, 'Hà Nội', true,
+            1, 260000, 25000, 285000, 'WALLET', 'RETURNED',
+            'GHNSEED00009', v_now - interval '9 days' + interval '15 minutes',
+            v_now - interval '7 days', v_now - interval '7 days' + interval '3 days',
+            NULL, NULL, 285000, v_now - interval '6 days 12 hours', NULL,
+            NULL, NULL, NULL, v_now - interval '9 days', v_now - interval '6 hours')
+    RETURNING id INTO v_order_i_id;
+
+    INSERT INTO order_items (id, order_id, product_id, price_at_order, commission_rate_applied,
+                              tax_rate_applied, term_applied, scanned)
+    VALUES (gen_random_uuid(), v_order_i_id, 'CG-CV-000024', 260000, 0.10, 0, 1, true);
+
+    INSERT INTO return_requests (id, order_id, reason, status, ghn_return_tracking_code,
+                                  handover_deadline, resolution_note, matches_original, degraded,
+                                  condition_note, item_action, moderator_id, created_at, resolved_at)
+    VALUES (gen_random_uuid(), v_order_i_id, 'Chân váy bị tuột chỉ ở lưng, không giống lúc nhận hàng.',
+            'VALID', 'GHNRT-SEED09', v_now - interval '6 days' + interval '3 days',
+            'Hàng đúng sản phẩm gốc nhưng xuống cấp so với lúc giao - mở ca đền bù.', true, true,
+            'Đường chỉ ở lưng váy bị tuột, có thể do quá trình vận chuyển/sử dụng tạm, không giống tình trạng lúc giao.',
+            NULL, v_mod3_id, v_now - interval '6 days', v_now - interval '6 hours')
+    RETURNING id INTO v_return_i_id;
+
+    INSERT INTO return_request_photos (id, return_request_id, image_url)
+    VALUES (gen_random_uuid(), v_return_i_id, 'https://picsum.photos/seed/return-seed09/600/800');
+
+    INSERT INTO wallet_transactions (id, transaction_no, wallet_type, wallet_id, type, amount,
+                                      balance_after, related_order_id, related_order_item_id,
+                                      counterpart_transaction_id, status, note, created_at)
+    VALUES (gen_random_uuid(), 'WT-2026-SEED06', 'MEMBER', v_wallet_buyer2, 'REFUND', 285000,
+            3500000, v_order_i_id, NULL, NULL, 'SUCCESS',
+            'Hoàn tiền trả hàng hợp lệ - đơn OD-2026-SEED09', v_now - interval '6 hours');
+
+    -- compensation_amount = 260000 x 0.9, snapshot lúc mở ca — mức FULL_COMPENSATION cho seller1
+    INSERT INTO degraded_item_cases (id, product_id, return_request_id, choice, compensation_amount,
+                                      paid_amount, moderator_id, created_at, decided_at)
+    VALUES (gen_random_uuid(), 'CG-CV-000024', v_return_i_id, NULL, 234000,
+            NULL, v_mod3_id, v_now - interval '6 hours', NULL);
+
 END $$;
 
 -- ============================================================================
@@ -505,18 +848,18 @@ END $$;
 --   moderator1@rehome.test  MODERATOR  — phụ trách "Kho Quận 7 - TP.HCM"
 --   moderator2@rehome.test  MODERATOR  — phụ trách "Kho Quận 7 - TP.HCM"
 --   moderator3@rehome.test  MODERATOR  — phụ trách "Kho Cầu Giấy - Hà Nội"
---   buyer1@rehome.test      MEMBER  MB000901  — ví 5.000.000đ, 2 địa chỉ (TP.HCM), giỏ có 2 món (2 kho khác nhau)
---   buyer2@rehome.test      MEMBER  MB000902  — ví 3.000.000đ, 1 địa chỉ (Hà Nội), có đơn OD-2026-SEED05 chờ thanh toán
+--   buyer1@rehome.test      MEMBER  MB000901  — ví 5.840.000đ, 2 địa chỉ (TP.HCM), giỏ có 2 món (2 kho khác nhau)
+--   buyer2@rehome.test      MEMBER  MB000902  — ví 3.500.000đ, 1 địa chỉ (Hà Nội), có đơn OD-2026-SEED05 chờ thanh toán
 --   seller1@rehome.test     MEMBER  MB000903  — ví 405.000đ (đã nhận payout từ OD-2026-SEED01)
 --   seller2@rehome.test     MEMBER  MB000904  — ví 0đ
 --   seller3@rehome.test     MEMBER  MB000905  — ví 0đ
 --   org1@rehome.test        ORGANIZATION — hồ sơ VERIFIED
 --
 -- Kho:
---   Kho Quận 7 - TP.HCM     — sản phẩm #1-10 (SKU Q7-xx-0000NN)
---   Kho Cầu Giấy - Hà Nội   — sản phẩm #11-20 (SKU CG-xx-0000NN)
+--   Kho Quận 7 - TP.HCM     — sản phẩm #1-10, #21-22 (SKU Q7-xx-0000NN)
+--   Kho Cầu Giấy - Hà Nội   — sản phẩm #11-20, #23-24 (SKU CG-xx-0000NN)
 --
--- Đơn hàng (buyer1 trừ OD-2026-SEED05 là của buyer2):
+-- Đơn hàng (buyer1 trừ OD-2026-SEED05/07/09 là của buyer2):
 --   OD-2026-SEED01  COMPLETED           — test GET /orders/{id}, POST /orders/{id}/rating
 --   OD-2026-SEED02  PAID (ví)           — test POST /orders/{id}/pack/scan rồi /shipment
 --   OD-2026-SEED03  SHIPPING (VNPay)    — có payments(VNPAY) + ghn_tracking_code GHNSEED00001 + 2 tracking event
@@ -525,6 +868,14 @@ END $$;
 --   OD-2026-SEED05  PENDING_PAYMENT     — test POST /api/vnpay/create | /api/momo/create với
 --                                          body {"orderIds":[...]}, hoặc POST /orders/pay bằng ví,
 --                                          hoặc POST /orders/{id}/cancel (huỷ đơn chưa thanh toán)
+--   OD-2026-SEED06  RETURNED (LOST)     — #21, return_request LOST, đã hoàn 505.000đ vào ví buyer1
+--   OD-2026-SEED07  RETURNED (LOST)     — #22, return_request LOST, đã hoàn 215.000đ vào ví buyer2
+--   OD-2026-SEED08  RETURNED (VALID)    — #23, return_request VALID+degraded, đã hoàn 335.000đ vào ví
+--                                          buyer1; mở DegradedItemCase (compensation 279.000đ) chờ
+--                                          seller3 chọn ở API 95 -> test POST đền bù xuống cấp
+--   OD-2026-SEED09  RETURNED (VALID)    — #24, return_request VALID+degraded, đã hoàn 285.000đ vào ví
+--                                          buyer2; mở DegradedItemCase (compensation 234.000đ) chờ
+--                                          seller1 chọn ở API 95
 --
 -- Tra cứu Member tại quầy (API 25, POST /counter/lookup, role MODERATOR) — gửi đúng 1 field:
 --   {"memberCode": "MB000901"}                       -> 1 kết quả
@@ -533,6 +884,12 @@ END $$;
 --   {"qrPayload": "REHOME:PRODUCT:v1:Q7-AK-000001"}  -> 400 QR_PAYLOAD_INVALID (sai tiền tố)
 -- Chuỗi QR không nằm trong DB: GET /members/me/code tính ra từ member_code mỗi lần gọi.
 --
+-- Sản phẩm RETURNED (F-132/F-136/F-036, xem OrderServiceImpl.refundOrderForReturn) — chờ Moderator
+-- quyết định hướng xử lý tiếp (API 88) hoặc chờ Member chọn đền bù (API 95):
+--   Q7-AK-000021 (seller1, LOST)        Q7-AT-000022 (seller2, LOST)
+--   CG-QJ-000023 (seller3, VALID/degraded)   CG-CV-000024 (seller1, VALID/degraded)
+--
 -- Sản phẩm ON_SALE còn trống để test thêm giỏ hàng / đặt đơn mới: tất cả trừ
--- Q7-AK-000001 (SOLD), Q7-AT-000002 (RESERVED), Q7-QJ-000003 (RESERVED), CG-AK-000011 (RESERVED).
+-- Q7-AK-000001 (SOLD), Q7-AT-000002 (RESERVED), Q7-QJ-000003 (RESERVED), CG-AK-000011 (RESERVED),
+-- và 4 sản phẩm #21-24 (RETURNED, xem trên).
 -- ============================================================================

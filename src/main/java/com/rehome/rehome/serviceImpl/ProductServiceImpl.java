@@ -141,6 +141,13 @@ public class ProductServiceImpl implements ProductService {
         return viewerId != null && viewerId.equals(product.getMember().getId());
     }
 
+    // RESERVED (từ lúc đặt hàng) và SOLD (từ lúc buyer xác nhận nhận hàng) đều gắn với đúng 1 đơn
+    // đang active - hiện order sớm từ RESERVED để người ký gửi thấy mốc tiền vào ví (payoutDueAt)
+    // ngay khi GHN báo giao, không phải chờ tới lúc buyer bấm nhận.
+    private static boolean hasOrderToShow(ProductStatus status) {
+        return status == ProductStatus.RESERVED || status == ProductStatus.SOLD;
+    }
+
     // ================================================================ Hàng ký gửi của tôi
 
     @Override
@@ -179,7 +186,7 @@ public class ProductServiceImpl implements ProductService {
                 p,
                 photos.get(p.getId()),
                 decisions.get(p.getId()),
-                p.getStatus() == ProductStatus.SOLD ? orders.get(p.getId()) : null));
+                hasOrderToShow(p.getStatus()) ? orders.get(p.getId()) : null));
     }
 
     @Override
@@ -203,7 +210,7 @@ public class ProductServiceImpl implements ProductService {
         EndOfTermDecision decision = endOfTermDecisionRepository.findByProductIds(List.of(id)).stream()
                 .findFirst().orElse(null);
 
-        Order order = product.getStatus() == ProductStatus.SOLD
+        Order order = hasOrderToShow(product.getStatus())
                 ? orderItemRepository.findActiveByProductIds(List.of(id)).stream()
                 .map(OrderItem::getOrder).findFirst().orElse(null)
                 : null;

@@ -12,6 +12,8 @@ import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.ReturnRequestResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.OrderStatus;
+import com.rehome.rehome.entity.enums.QueueType;
+import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
@@ -66,6 +68,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     private final ReturnRequestRepository returnRequestRepository;
     private final ReturnRequestPhotoRepository returnRequestPhotoRepository;
     private final OrderService orderService;
+    private final QueueService queueService;
     private final GhnApi ghnApi;
 
     @Value("${app.return.request-window-days}")
@@ -152,6 +155,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .handoverDeadline(Instant.now().plus(handoverDeadlineDays, ChronoUnit.DAYS))
                 .build();
         returnRequestRepository.save(returnRequest);
+        queueService.enqueue(QueueType.RETURN, returnRequest.getId().toString(), order.getWarehouse());
 
         List<ReturnRequestPhoto> photos = request.getPhotoUrls().stream()
                 .map(url -> ReturnRequestPhoto.builder()
@@ -268,6 +272,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         }
 
         returnRequest.setStatus(ReturnRequestStatus.CANCELLED);
+        queueService.dequeue(QueueType.RETURN, returnRequest.getId().toString());
         returnRequest.setResolutionNote(request.getReason());
         returnRequest.setResolvedAt(Instant.now());
         returnRequestRepository.save(returnRequest);
@@ -341,6 +346,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         Instant now = Instant.now();
         returnRequest.setResolutionNote(request.getResolutionNote());
+        queueService.dequeue(QueueType.RETURN, returnRequest.getId().toString());
 
         if (Boolean.TRUE.equals(request.getValid())) {
             returnRequest.setStatus(ReturnRequestStatus.VALID);
@@ -422,6 +428,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 && OPEN_STATUSES.contains(returnRequest.getStatus())) {
             // F-136: hàng trả thất lạc - người mua không phải chịu, hoàn 100%
             returnRequest.setStatus(ReturnRequestStatus.LOST);
+            queueService.dequeue(QueueType.RETURN, returnRequest.getId().toString());
             returnRequest.setResolutionNote(StringUtils.hasText(reason) ? reason : status);
             returnRequest.setResolvedAt(Instant.now());
             returnRequestRepository.save(returnRequest);

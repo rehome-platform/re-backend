@@ -9,6 +9,8 @@ import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
 import com.rehome.rehome.entity.enums.Role;
+import com.rehome.rehome.entity.enums.QueueType;
+import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.ConsignmentFormPhoto;
 import com.rehome.rehome.entity.marketplace.Warehouse;
@@ -47,6 +49,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     private final ConsignmentReceiptRepository consignmentReceiptRepository;
     private final ConsignmentProperties consignmentProperties;
     private final AccountRepository accountRepository;
+    private final QueueService queueService;
 
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final int DEFAULT_SIZE = 20;
@@ -81,6 +84,8 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
         cf = consignmentFormRepository.save(cf);
         photoRepository.saveAll(consignmentFormMapper.toPhotoEntities(cf, request.getPhotoUrls()));
+
+        queueService.enqueue(QueueType.FORM_REVIEW, cf.getId().toString(), cf.getWarehouse());
 
         return consignmentFormMapper.toResponse(cf);
     }
@@ -286,6 +291,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
             form.setBringInDeadline(null);
             form.setRejectReason(null);
             consignmentFormRepository.save(form);
+            queueService.enqueue(QueueType.FORM_REVIEW, form.getId().toString(), warehouse);
 
             pending++;
             success++;
@@ -318,6 +324,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         }
 
         form.setStatus(ConsignmentFormStatus.APPROVED);
+        queueService.dequeue(QueueType.FORM_REVIEW, form.getId().toString());
         form.setBringInDeadline(
                 LocalDate.now(VN_ZONE).plusDays(consignmentProperties.getBringInDeadlineDays()));
         form.setRejectReason(null);
@@ -337,6 +344,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
         form.setStatus(ConsignmentFormStatus.INSPECTING);
         consignmentFormRepository.save(form);
+        queueService.enqueue(QueueType.INSPECTION, form.getId().toString(), form.getWarehouse());
     }
 
     @Override
@@ -350,6 +358,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         }
 
         form.setStatus(ConsignmentFormStatus.REJECTED);
+        queueService.dequeue(QueueType.FORM_REVIEW, form.getId().toString());
         form.setRejectReason(request.getReason().trim());
         form.setBringInDeadline(null);
 
@@ -368,6 +377,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         }
 
         form.setStatus(ConsignmentFormStatus.REJECTED);
+        queueService.dequeue(QueueType.INSPECTION, form.getId().toString());
         form.setRejectReason(request.getReason().trim());
         form.setBringInDeadline(null);
 

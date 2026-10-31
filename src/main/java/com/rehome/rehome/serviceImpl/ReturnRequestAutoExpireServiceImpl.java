@@ -1,6 +1,8 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
+import com.rehome.rehome.entity.enums.QueueType;
+import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.service.ReturnRequestAutoExpireService;
@@ -20,6 +22,7 @@ import java.util.List;
 public class ReturnRequestAutoExpireServiceImpl implements ReturnRequestAutoExpireService {
 
     private final ReturnRequestRepository returnRequestRepository;
+    private final QueueService queueService;
 
     @Override
     @Scheduled(fixedRateString = "${app.return.auto-expire-check-interval-ms}")
@@ -34,6 +37,7 @@ public class ReturnRequestAutoExpireServiceImpl implements ReturnRequestAutoExpi
             returnRequest.setResolutionNote("Quá hạn bàn giao hàng trả cho GHN, yêu cầu bị hủy tự động.");
             returnRequest.setResolvedAt(Instant.now());
             returnRequestRepository.save(returnRequest);
+            queueService.dequeue(QueueType.RETURN, returnRequest.getId().toString());
 
             log.info(">>>> Tu huy yeu cau tra hang qua han ban giao: returnRequestId={}", returnRequest.getId());
         }

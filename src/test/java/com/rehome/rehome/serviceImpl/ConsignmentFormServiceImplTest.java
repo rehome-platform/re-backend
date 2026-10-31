@@ -13,6 +13,8 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
 import com.rehome.rehome.entity.enums.ReturnOnsiteResult;   // đổi package nếu enum của bạn nằm chỗ khác
 import com.rehome.rehome.entity.enums.Role;
+import com.rehome.rehome.entity.enums.QueueType;
+import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.entity.marketplace.*;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
@@ -58,6 +60,7 @@ class ConsignmentFormServiceImplTest {
 
     // create()/submitDrafts() gọi lockMember() -> accountRepository.findByIdForUpdate(...)
     @Mock private AccountRepository accountRepository;
+    @Mock private QueueService queueService;
 
     // MỚI: service có field ConsignmentProperties (dùng cho approve)
     @Spy private ConsignmentProperties consignmentProperties = new ConsignmentProperties();
@@ -89,7 +92,7 @@ class ConsignmentFormServiceImplTest {
         ConsignmentFormRequest req = request();
 
         ConsignmentForm mapped = new ConsignmentForm();
-        ConsignmentForm saved = new ConsignmentForm();           // save() trả về instance khác
+        ConsignmentForm saved = ConsignmentForm.builder().id(UUID.randomUUID()).build();   // save() trả về instance khác, có id như JPA
         Category category = new Category();
         Brand brand = new Brand();
         Warehouse warehouse = new Warehouse();
@@ -124,6 +127,7 @@ class ConsignmentFormServiceImplTest {
         order.verify(accountRepository).findByIdForUpdate(account.getId());
         order.verify(consignmentFormRepository).save(mapped);
         order.verify(photoRepository).saveAll(photos);
+        verify(queueService).enqueue(eq(QueueType.FORM_REVIEW), eq(saved.getId().toString()), any());
     }
 
     @Test
@@ -403,6 +407,7 @@ class ConsignmentFormServiceImplTest {
         assertThat(form.getStatus()).isEqualTo(ConsignmentFormStatus.APPROVED);
         assertThat(form.getBringInDeadline()).isEqualTo(LocalDate.now(VN_ZONE).plusDays(7));
         assertThat(form.getRejectReason()).isNull();
+        verify(queueService).dequeue(QueueType.FORM_REVIEW, form.getId().toString());
     }
 
     @Test
@@ -464,6 +469,7 @@ class ConsignmentFormServiceImplTest {
         assertThat(result.getId()).isEqualTo(form.getId());
         assertThat(result.getStatus()).isEqualTo(ConsignmentFormStatus.REJECTED);
         verify(consignmentFormRepository).save(form);
+        verify(queueService).dequeue(QueueType.FORM_REVIEW, form.getId().toString());
     }
 
     @Test
@@ -499,6 +505,7 @@ class ConsignmentFormServiceImplTest {
 
         assertThat(form.getStatus()).isEqualTo(ConsignmentFormStatus.INSPECTING);
         verify(consignmentFormRepository).save(form);
+        verify(queueService).enqueue(eq(QueueType.INSPECTION), eq(form.getId().toString()), any());
     }
 
     @Test
@@ -546,6 +553,7 @@ class ConsignmentFormServiceImplTest {
         assertThat(form.getBringInDeadline()).isNull();
         assertThat(res.getStatus()).isEqualTo(ConsignmentFormStatus.REJECTED);
         verify(consignmentFormRepository).save(form);
+        verify(queueService).dequeue(QueueType.INSPECTION, form.getId().toString());
     }
 
     @Test

@@ -66,6 +66,7 @@ class AuthServiceImplTest {
     @Mock OrganizationProfileMapper organizationProfileMapper;
     @Mock GoogleTokenVerifier googleTokenVerifier;
     @Mock WalletRepository walletRepository;
+    @Mock QueueService queueService;
 
     @InjectMocks AuthServiceImpl service;
 

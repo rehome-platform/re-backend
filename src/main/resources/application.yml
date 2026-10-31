@@ -125,6 +125,11 @@ app:
     # F-035: chu kỳ job quét yêu cầu quá hạn đến kho nhận hàng
     auto-expire-check-interval-ms: 60000
 
+  # Chiến dịch quyên góp F-098 -> F-102
+  campaign:
+    # F-102: chu kỳ job quét chiến dịch còn OPEN nhưng đã qua endTime để tự đóng
+    auto-close-check-interval-ms: 60000
+
 # ==================== LOGGING ====================
 logging:
   level:

@@ -1,19 +1,33 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.NullNode;
+import com.rehome.rehome.dto.request.CreateLegalChangeRequestRequest;
+import com.rehome.rehome.dto.request.UpdateOrganizationProfileRequest;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
+import com.rehome.rehome.dto.response.LegalChangeRequestResponse;
 import com.rehome.rehome.dto.response.OrganizationProfileResponse;
+import com.rehome.rehome.dto.response.OrganizationProfileUpdateResponse;
+import com.rehome.rehome.dto.response.OrganizationPublicProfileResponse;
 import com.rehome.rehome.dto.response.OrganizationResubmitResponse;
 import com.rehome.rehome.dto.response.RegisterOrganizationResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.auth.OrganizationLegalChangeRequest;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
+import com.rehome.rehome.entity.marketplace.Follow;
+import com.rehome.rehome.entity.enums.LegalChangeRequestStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.VerificationStatus;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.exception.AppException;
+import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.OrganizationProfileMapper;
 import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.repository.FollowRepository;
+import com.rehome.rehome.repository.OrganizationLegalChangeRequestRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -45,6 +59,8 @@ class OrganizationProfileServiceImplTest {
     @Mock private OrganizationProfileMapper organizationProfileMapper;
     @Mock private AccountRepository accountRepository;
     @Mock private QueueService queueService;
+    @Mock private FollowRepository followRepository;
+    @Mock private OrganizationLegalChangeRequestRepository organizationLegalChangeRequestRepository;
 
     @InjectMocks private OrganizationServiceImpl service;
 
@@ -391,5 +407,393 @@ class OrganizationProfileServiceImplTest {
         verify(organizationProfileRepository).findById(id);
         verifyNoMoreInteractions(organizationProfileRepository);
         verifyNoInteractions(accountRepository, organizationProfileMapper);
+    }
+
+    // =====================================================================
+    // getPublicProfile  (F-082)
+    // =====================================================================
+
+    @Test
+    void getPublicProfile_verified_guest_returnsProfileWithFollowingFalse() {
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(orgId)
+                .verificationStatus(VerificationStatus.VERIFIED)
+                .build();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        OrganizationPublicProfileResponse res = service.getPublicProfile(orgId, null);
+
+        assertThat(res.getId()).isEqualTo(orgId.toString());
+        assertThat(res.getDisplayName()).isEqualTo("Chia Sẻ");
+        assertThat(res.getDescription()).isEqualTo("Tổ chức thiện nguyện");
+        assertThat(res.isFollowing()).isFalse();
+        verifyNoInteractions(followRepository);
+    }
+
+    @Test
+    void getPublicProfile_verified_memberFollowing_returnsTrue() {
+        UUID orgId = UUID.randomUUID();
+        UUID viewerId = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(orgId)
+                .verificationStatus(VerificationStatus.VERIFIED)
+                .build();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+        when(followRepository.existsByMember_IdAndOrganization_AccountId(viewerId, orgId)).thenReturn(true);
+
+        OrganizationPublicProfileResponse res = service.getPublicProfile(orgId, viewerId);
+
+        assertThat(res.isFollowing()).isTrue();
+    }
+
+    @Test
+    void getPublicProfile_verified_memberNotFollowing_returnsFalse() {
+        UUID orgId = UUID.randomUUID();
+        UUID viewerId = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(orgId)
+                .verificationStatus(VerificationStatus.VERIFIED)
+                .build();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+        when(followRepository.existsByMember_IdAndOrganization_AccountId(viewerId, orgId)).thenReturn(false);
+
+        OrganizationPublicProfileResponse res = service.getPublicProfile(orgId, viewerId);
+
+        assertThat(res.isFollowing()).isFalse();
+    }
+
+    @Test
+    void getPublicProfile_notFound_throws() {
+        UUID orgId = UUID.randomUUID();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getPublicProfile(orgId, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy tổ chức.");
+
+        verifyNoInteractions(followRepository);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = VerificationStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "VERIFIED")
+    void getPublicProfile_notVerified_throws(VerificationStatus status) {
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(orgId)
+                .verificationStatus(status)
+                .build();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        assertThatThrownBy(() -> service.getPublicProfile(orgId, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy tổ chức.");
+
+        verifyNoInteractions(followRepository);
+    }
+
+    // =====================================================================
+    // follow / unfollow  (F-085)
+    // =====================================================================
+
+    @Test
+    void follow_notYetFollowing_savesNewFollow() {
+        UUID orgId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(orgId).verificationStatus(VerificationStatus.VERIFIED).build();
+        Account member = account(memberId, Role.MEMBER);
+
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+        when(followRepository.existsByMember_IdAndOrganization_AccountId(memberId, orgId)).thenReturn(false);
+        when(accountRepository.findById(memberId)).thenReturn(Optional.of(member));
+
+        service.follow(memberId, orgId);
+
+        ArgumentCaptor<Follow> captor = ArgumentCaptor.forClass(Follow.class);
+        verify(followRepository).save(captor.capture());
+        assertThat(captor.getValue().getMember()).isSameAs(member);
+        assertThat(captor.getValue().getOrganization()).isSameAs(profile);
+    }
+
+    @Test
+    void follow_alreadyFollowing_isIdempotent_doesNotSaveAgain() {
+        UUID orgId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(orgId).verificationStatus(VerificationStatus.VERIFIED).build();
+
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+        when(followRepository.existsByMember_IdAndOrganization_AccountId(memberId, orgId)).thenReturn(true);
+
+        service.follow(memberId, orgId);
+
+        verify(followRepository, never()).save(any());
+        verifyNoInteractions(accountRepository);
+    }
+
+    @Test
+    void follow_organizationNotFound_throws() {
+        UUID orgId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.follow(memberId, orgId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy tổ chức.");
+
+        verifyNoInteractions(followRepository, accountRepository);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = VerificationStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "VERIFIED")
+    void follow_organizationNotVerified_throws(VerificationStatus status) {
+        UUID orgId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(orgId).verificationStatus(status).build();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        assertThatThrownBy(() -> service.follow(memberId, orgId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy tổ chức.");
+
+        verifyNoInteractions(followRepository, accountRepository);
+    }
+
+    @Test
+    void unfollow_existingFollow_deletesIt() {
+        UUID orgId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        Follow follow = Follow.builder().id(UUID.randomUUID()).build();
+
+        when(organizationProfileRepository.existsById(orgId)).thenReturn(true);
+        when(followRepository.findByMember_IdAndOrganization_AccountId(memberId, orgId))
+                .thenReturn(Optional.of(follow));
+
+        service.unfollow(memberId, orgId);
+
+        verify(followRepository).delete(follow);
+    }
+
+    @Test
+    void unfollow_notFollowing_isIdempotent_doesNotThrow() {
+        UUID orgId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+
+        when(organizationProfileRepository.existsById(orgId)).thenReturn(true);
+        when(followRepository.findByMember_IdAndOrganization_AccountId(memberId, orgId))
+                .thenReturn(Optional.empty());
+
+        service.unfollow(memberId, orgId);
+
+        verify(followRepository, never()).delete(any());
+    }
+
+    @Test
+    void unfollow_organizationNotFound_throws() {
+        UUID orgId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        when(organizationProfileRepository.existsById(orgId)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.unfollow(memberId, orgId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy tổ chức.");
+
+        verifyNoInteractions(followRepository);
+    }
+
+    // =====================================================================
+    // updateMyProfile  (F-096)
+    // =====================================================================
+
+    @Test
+    void updateMyProfile_onlyProvidedFieldChanges() {
+        UUID id = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id).build();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+
+        OrganizationProfileUpdateResponse res = service.updateMyProfile(id,
+                new UpdateOrganizationProfileRequest(null, "Mô tả mới", null, null));
+
+        assertThat(profile.getDescription()).isEqualTo("Mô tả mới");
+        // Các field không truyền phải giữ nguyên
+        assertThat(profile.getLogoUrl()).isEqualTo("https://cdn/logo.png");
+        assertThat(profile.getContactPhone()).isEqualTo("0900000000");
+        assertThat(profile.getDonationPointReceivingHours()).isEqualTo("8:00-17:00 T2-T6");
+
+        assertThat(res.getId()).isEqualTo(id.toString());
+        assertThat(res.getDescription()).isEqualTo("Mô tả mới");
+        verify(organizationProfileRepository).save(profile);
+    }
+
+    @Test
+    void updateMyProfile_allFields_areUpdated() {
+        UUID id = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id).build();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+
+        OrganizationProfileUpdateResponse res = service.updateMyProfile(id,
+                new UpdateOrganizationProfileRequest(
+                        "https://cdn/logo-v2.png", "Mô tả mới", "0988888888", "9:00-18:00 T2-T7"));
+
+        assertThat(res.getLogoUrl()).isEqualTo("https://cdn/logo-v2.png");
+        assertThat(res.getDescription()).isEqualTo("Mô tả mới");
+        assertThat(res.getContactPhone()).isEqualTo("0988888888");
+        assertThat(res.getDonationPointReceivingHours()).isEqualTo("9:00-18:00 T2-T7");
+    }
+
+    @Test
+    void updateMyProfile_blankValues_doNotOverwrite() {
+        UUID id = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id).build();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+
+        // description/contactPhone/giờ nhận là NOT NULL -> chuỗi rỗng coi như không truyền
+        service.updateMyProfile(id, new UpdateOrganizationProfileRequest("  ", "", "   ", ""));
+
+        assertThat(profile.getDescription()).isEqualTo("Tổ chức thiện nguyện");
+        assertThat(profile.getContactPhone()).isEqualTo("0900000000");
+        assertThat(profile.getDonationPointReceivingHours()).isEqualTo("8:00-17:00 T2-T6");
+        assertThat(profile.getLogoUrl()).isEqualTo("https://cdn/logo.png");
+    }
+
+    @Test
+    void updateMyProfile_emptyRequest_keepsEverything() {
+        UUID id = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id).build();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+
+        OrganizationProfileUpdateResponse res = service.updateMyProfile(id,
+                new UpdateOrganizationProfileRequest(null, null, null, null));
+
+        assertThat(res.getDescription()).isEqualTo("Tổ chức thiện nguyện");
+        assertThat(res.getContactPhone()).isEqualTo("0900000000");
+    }
+
+    @Test
+    void updateMyProfile_doesNotTouchLegalOrVerificationFields() {
+        UUID id = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id)
+                .verificationStatus(VerificationStatus.VERIFIED)
+                .build();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+
+        service.updateMyProfile(id, new UpdateOrganizationProfileRequest(null, "Mô tả mới", null, null));
+
+        // Thông tin pháp lý đi qua luồng duyệt riêng (F-097), không đổi ở đây
+        assertThat(profile.getLegalName()).isEqualTo("Hội Chia Sẻ");
+        assertThat(profile.getTaxCode()).isEqualTo(TAX_CODE);
+        assertThat(profile.getVerificationStatus()).isEqualTo(VerificationStatus.VERIFIED);
+    }
+
+    @Test
+    void updateMyProfile_profileNotFound_throws() {
+        UUID id = UUID.randomUUID();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.empty());
+
+        assertAppError(() -> service.updateMyProfile(id,
+                        new UpdateOrganizationProfileRequest(null, "Mô tả mới", null, null)),
+                ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND);
+
+        verify(organizationProfileRepository, never()).save(any());
+    }
+
+    // =====================================================================
+    // requestLegalChange  (F-097)
+    // =====================================================================
+
+    private JsonNode proposedChanges() {
+        return JsonNodeFactory.instance.objectNode()
+                .put("legalName", "Quỹ Chia Sẻ Yêu Thương 2");
+    }
+
+    @Test
+    void requestLegalChange_success_savesPendingAndEnqueuesForModerator() {
+        UUID id = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id).build();
+        JsonNode changes = proposedChanges();
+
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+        when(organizationLegalChangeRequestRepository.save(any())).thenAnswer(invocation -> {
+            OrganizationLegalChangeRequest saved = invocation.getArgument(0);
+            saved.setId(UUID.randomUUID());
+            return saved;
+        });
+
+        LegalChangeRequestResponse res = service.requestLegalChange(id,
+                new CreateLegalChangeRequestRequest(changes));
+
+        ArgumentCaptor<OrganizationLegalChangeRequest> captor =
+                ArgumentCaptor.forClass(OrganizationLegalChangeRequest.class);
+        verify(organizationLegalChangeRequestRepository).save(captor.capture());
+        OrganizationLegalChangeRequest saved = captor.getValue();
+
+        assertThat(saved.getOrganization()).isSameAs(profile);
+        assertThat(saved.getProposedChanges()).isSameAs(changes);
+        assertThat(saved.getStatus()).isEqualTo(LegalChangeRequestStatus.PENDING);
+
+        assertThat(res.getId()).isEqualTo(saved.getId().toString());
+        assertThat(res.getStatus()).isEqualTo("PENDING");
+
+        // Mỗi yêu cầu là 1 việc riêng trong hàng đợi, refId là id của yêu cầu
+        verify(queueService).enqueue(QueueType.LEGAL_CHANGE, saved.getId().toString(), null);
+    }
+
+    @Test
+    void requestLegalChange_doesNotApplyChangesImmediately() {
+        UUID id = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id).build();
+
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+        when(organizationLegalChangeRequestRepository.save(any())).thenAnswer(invocation -> {
+            OrganizationLegalChangeRequest saved = invocation.getArgument(0);
+            saved.setId(UUID.randomUUID());
+            return saved;
+        });
+
+        service.requestLegalChange(id, new CreateLegalChangeRequestRequest(proposedChanges()));
+
+        // Khác API 117: thông tin pháp lý chỉ đổi sau khi Moderator duyệt
+        assertThat(profile.getLegalName()).isEqualTo("Hội Chia Sẻ");
+        verify(organizationProfileRepository, never()).save(any());
+    }
+
+    @Test
+    void requestLegalChange_nullProposedChanges_throwsBadRequest() {
+        assertThatThrownBy(() -> service.requestLegalChange(UUID.randomUUID(),
+                new CreateLegalChangeRequestRequest(null)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("proposedChanges là bắt buộc.");
+
+        verifyNoInteractions(organizationProfileRepository, organizationLegalChangeRequestRepository,
+                queueService);
+    }
+
+    @Test
+    void requestLegalChange_emptyObject_throwsBadRequest() {
+        assertThatThrownBy(() -> service.requestLegalChange(UUID.randomUUID(),
+                new CreateLegalChangeRequestRequest(JsonNodeFactory.instance.objectNode())))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("proposedChanges là bắt buộc.");
+
+        verifyNoInteractions(organizationProfileRepository, organizationLegalChangeRequestRepository,
+                queueService);
+    }
+
+    @Test
+    void requestLegalChange_jsonNull_throwsBadRequest() {
+        assertThatThrownBy(() -> service.requestLegalChange(UUID.randomUUID(),
+                new CreateLegalChangeRequestRequest(NullNode.getInstance())))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("proposedChanges là bắt buộc.");
+
+        verifyNoInteractions(organizationProfileRepository, organizationLegalChangeRequestRepository,
+                queueService);
+    }
+
+    @Test
+    void requestLegalChange_profileNotFound_throws() {
+        UUID id = UUID.randomUUID();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.empty());
+
+        assertAppError(() -> service.requestLegalChange(id,
+                        new CreateLegalChangeRequestRequest(proposedChanges())),
+                ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND);
+
+        verifyNoInteractions(organizationLegalChangeRequestRepository, queueService);
     }
 }

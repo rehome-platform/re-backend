@@ -36,4 +36,8 @@ public final class SystemConfigKeys {
     // Trước mắt miễn phí (0). Admin có thể đổi sau trong system_configs
     public static final String WITHDRAWAL_FEE = "withdrawal_fee";
     public static final BigDecimal DEFAULT_WITHDRAWAL_FEE = BigDecimal.ZERO;
+
+    // Số chiến dịch đang chạy tối đa của mỗi tổ chức (F-099)
+    public static final String MAX_CONCURRENT_CAMPAIGNS = "max_concurrent_campaigns";
+    public static final int DEFAULT_MAX_CONCURRENT_CAMPAIGNS = 3;
 }

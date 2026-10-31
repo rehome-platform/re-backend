@@ -33,6 +33,7 @@ import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
+import com.rehome.rehome.entity.enums.ReturnedItemAction;
 import com.rehome.rehome.entity.enums.TransactionStatus;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
 import com.rehome.rehome.entity.enums.WalletType;
@@ -1271,6 +1272,27 @@ public class OrderServiceImpl implements OrderService {
             Product product = productRepository.findByIdForUpdate(item.getProduct().getId()).orElse(null);
             if (product != null && product.getStatus() == ProductStatus.SOLD) {
                 product.setStatus(ProductStatus.RETURNED);
+                productRepository.save(product);
+            }
+        }
+    }
+
+    // API 88 (F-133): món đang RETURNED (trả hàng hợp lệ/thất lạc, xem refundOrderForReturn) được
+    // Moderator quyết định hướng xử lý cuối - đăng bán lại, trả về người ký gửi hay tiêu hủy
+    @Override
+    @Transactional
+    public void applyReturnedItemAction(UUID orderId, ReturnedItemAction action) {
+
+        ProductStatus targetStatus = switch (action) {
+            case RELIST -> ProductStatus.ON_SALE;
+            case RETURN_TO_SELLER -> ProductStatus.WITHDRAWN;
+            case DISCARD -> ProductStatus.DESTROYED;
+        };
+
+        for (OrderItem item : orderItemRepository.findAllByOrder_Id(orderId)) {
+            Product product = productRepository.findByIdForUpdate(item.getProduct().getId()).orElse(null);
+            if (product != null && product.getStatus() == ProductStatus.RETURNED) {
+                product.setStatus(targetStatus);
                 productRepository.save(product);
             }
         }

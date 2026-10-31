@@ -10,5 +10,7 @@ public enum ProductStatus {
     DESTROYED,
     // Trả hàng hợp lệ/thất lạc (F-132/F-136) - về kho chờ Moderator quyết định đăng bán lại,
     // trả về người ký gửi hay tiêu hủy (F-133, chưa triển khai) - xem OrderServiceImpl.refundOrderForReturn
-    RETURNED
+    RETURNED,
+    // Hàng xuống cấp, Member chọn FULL_COMPENSATION (F-036/API 95) - tài sản nền tảng, chờ thanh lý hoặc hủy
+    PLATFORM_OWNED
 }

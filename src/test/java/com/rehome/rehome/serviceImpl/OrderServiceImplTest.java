@@ -20,6 +20,7 @@ import com.rehome.rehome.entity.enums.CancelReason;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.ReturnedItemAction;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
 import com.rehome.rehome.entity.enums.WalletType;
 import com.rehome.rehome.entity.marketplace.Brand;
@@ -2123,5 +2124,67 @@ class OrderServiceImplTest {
 
         verify(walletRepository, never()).save(any());
         verify(walletTransactionRepository, never()).save(any());
+    }
+
+    // ==================== applyReturnedItemAction (API 88 / F-133) ====================
+
+    @Test
+    void applyReturnedItemAction_relist_movesReturnedProductBackOnSale() {
+        UUID orderId = UUID.randomUUID();
+        product1.setStatus(ProductStatus.RETURNED);
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).product(product1).build();
+
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+        when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
+
+        orderService.applyReturnedItemAction(orderId, ReturnedItemAction.RELIST);
+
+        assertThat(product1.getStatus()).isEqualTo(ProductStatus.ON_SALE);
+        verify(productRepository).save(product1);
+    }
+
+    @Test
+    void applyReturnedItemAction_returnToSeller_withdrawsReturnedProduct() {
+        UUID orderId = UUID.randomUUID();
+        product1.setStatus(ProductStatus.RETURNED);
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).product(product1).build();
+
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+        when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
+
+        orderService.applyReturnedItemAction(orderId, ReturnedItemAction.RETURN_TO_SELLER);
+
+        assertThat(product1.getStatus()).isEqualTo(ProductStatus.WITHDRAWN);
+        verify(productRepository).save(product1);
+    }
+
+    @Test
+    void applyReturnedItemAction_discard_destroysReturnedProduct() {
+        UUID orderId = UUID.randomUUID();
+        product1.setStatus(ProductStatus.RETURNED);
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).product(product1).build();
+
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+        when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
+
+        orderService.applyReturnedItemAction(orderId, ReturnedItemAction.DISCARD);
+
+        assertThat(product1.getStatus()).isEqualTo(ProductStatus.DESTROYED);
+        verify(productRepository).save(product1);
+    }
+
+    @Test
+    void applyReturnedItemAction_productNotReturned_doesNotTouchIt() {
+        UUID orderId = UUID.randomUUID();
+        product1.setStatus(ProductStatus.SOLD);
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).product(product1).build();
+
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+        when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
+
+        orderService.applyReturnedItemAction(orderId, ReturnedItemAction.RELIST);
+
+        assertThat(product1.getStatus()).isEqualTo(ProductStatus.SOLD);
+        verify(productRepository, never()).save(any());
     }
 }

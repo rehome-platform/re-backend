@@ -11,13 +11,17 @@ import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
 import com.rehome.rehome.entity.enums.EndOfTermChoice;
 import com.rehome.rehome.entity.enums.InvalidReturnChoice;
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
+import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
+import com.rehome.rehome.entity.enums.StockMovementType;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
 import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
+import com.rehome.rehome.entity.marketplace.StockMovementLog;
+import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.AccountRepository;
@@ -26,7 +30,9 @@ import com.rehome.rehome.repository.CounterIdentityConfirmationRepository;
 import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.ItemWithdrawalRequestRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
+import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
+import com.rehome.rehome.repository.StockMovementLogRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -63,6 +69,8 @@ class CounterServiceImplTest {
     @Mock private ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
     @Mock private EndOfTermDecisionRepository endOfTermDecisionRepository;
     @Mock private ReturnRequestRepository returnRequestRepository;
+    @Mock private ProductRepository productRepository;
+    @Mock private StockMovementLogRepository stockMovementLogRepository;
 
     @InjectMocks private CounterServiceImpl service;
 
@@ -419,20 +427,35 @@ class CounterServiceImplTest {
 
     // ---------------------------------------------------------------- handover - ITEM_WITHDRAWAL
 
+    private static final String ITEM_WITHDRAWAL_PRODUCT_ID = "Q7-AK-000845";
+
     private ItemWithdrawalRequest itemWithdrawalRequest(Account owner, ItemWithdrawalStatus status) {
+        Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).name("Kho Quận 7").build();
+        // Sản phẩm đã WITHDRAWN từ lúc tạo yêu cầu (F-032 - ngừng bán ngay), chưa rời kho nên vẫn còn shelfLocation
+        Product product = Product.builder()
+                .id(ITEM_WITHDRAWAL_PRODUCT_ID)
+                .member(owner)
+                .warehouse(warehouse)
+                .status(ProductStatus.WITHDRAWN)
+                .shelfLocation("A1-01")
+                .build();
+
         return ItemWithdrawalRequest.builder()
                 .id(refId)
                 .member(owner)
+                .product(product)
                 .status(status)
                 .pickupDeadline(Instant.now().plus(1, ChronoUnit.DAYS))
                 .build();
     }
 
     @Test
-    @DisplayName("handover ITEM_WITHDRAWAL: thành công -> COMPLETED + completedAt")
+    @DisplayName("handover ITEM_WITHDRAWAL: thành công -> COMPLETED + completedAt, gỡ sản phẩm khỏi sàn")
     void handover_itemWithdrawal_success() {
         ItemWithdrawalRequest withdrawal = itemWithdrawalRequest(member, ItemWithdrawalStatus.PENDING_PICKUP);
         when(itemWithdrawalRequestRepository.findById(refId)).thenReturn(Optional.of(withdrawal));
+        when(productRepository.findByIdForUpdate(ITEM_WITHDRAWAL_PRODUCT_ID))
+                .thenReturn(Optional.of(withdrawal.getProduct()));
         CounterHandoverRequest request = request("ITEM_WITHDRAWAL", memberId, refId.toString());
 
         service.handover(moderator, request);
@@ -440,6 +463,37 @@ class CounterServiceImplTest {
         assertThat(withdrawal.getStatus()).isEqualTo(ItemWithdrawalStatus.COMPLETED);
         assertThat(withdrawal.getCompletedAt()).isNotNull();
         verify(itemWithdrawalRequestRepository).save(withdrawal);
+
+        Product product = withdrawal.getProduct();
+        assertThat(product.getStatus()).isEqualTo(ProductStatus.WITHDRAWN);
+        assertThat(product.getShelfLocation()).isNull();
+        verify(productRepository).save(product);
+
+        ArgumentCaptor<StockMovementLog> logCaptor = ArgumentCaptor.forClass(StockMovementLog.class);
+        verify(stockMovementLogRepository).save(logCaptor.capture());
+        StockMovementLog log = logCaptor.getValue();
+        assertThat(log.getProduct()).isEqualTo(product);
+        assertThat(log.getWarehouse()).isEqualTo(product.getWarehouse());
+        assertThat(log.getMovementType()).isEqualTo(StockMovementType.WITHDRAWAL_OUT);
+        assertThat(log.getFromLocation()).isEqualTo("A1-01");
+        assertThat(log.getModerator()).isEqualTo(moderator);
+    }
+
+    @Test
+    @DisplayName("handover ITEM_WITHDRAWAL: sản phẩm không còn WITHDRAWN (vd đã bị xử lý khác) -> vẫn đóng yêu cầu, không ghi log")
+    void handover_itemWithdrawal_productNotWithdrawn_skipsProductUpdate() {
+        ItemWithdrawalRequest withdrawal = itemWithdrawalRequest(member, ItemWithdrawalStatus.PENDING_PICKUP);
+        withdrawal.getProduct().setStatus(ProductStatus.DESTROYED);
+        when(itemWithdrawalRequestRepository.findById(refId)).thenReturn(Optional.of(withdrawal));
+        when(productRepository.findByIdForUpdate(ITEM_WITHDRAWAL_PRODUCT_ID))
+                .thenReturn(Optional.of(withdrawal.getProduct()));
+        CounterHandoverRequest request = request("ITEM_WITHDRAWAL", memberId, refId.toString());
+
+        service.handover(moderator, request);
+
+        assertThat(withdrawal.getStatus()).isEqualTo(ItemWithdrawalStatus.COMPLETED);
+        verify(productRepository, never()).save(any());
+        verify(stockMovementLogRepository, never()).save(any());
     }
 
     @Test

@@ -51,6 +51,7 @@ class MomoServiceImplTest {
     @Mock OrderRepository orderRepository;
     @Mock PaymentRepository paymentRepository;
     @Mock OrderService orderService;
+    @Mock com.rehome.rehome.service.ItemWithdrawalRequestService itemWithdrawalRequestService;
 
     @InjectMocks
     MomoServiceImpl momoService;
@@ -260,11 +261,26 @@ class MomoServiceImplTest {
     void handleIpn_paymentNotFound_doesNothing() throws Exception {
         MomoIpnRequest ipn = validIpn("unknown-momo-order-id", 0, 12345L);
         when(paymentRepository.findAllByMomoOrderId("unknown-momo-order-id")).thenReturn(List.of());
+        when(itemWithdrawalRequestService.applyMomoFeePaymentResult("unknown-momo-order-id", 0, "12345"))
+                .thenReturn(false);
 
         momoService.handleIpn(ipn);
 
         verify(paymentRepository, never()).save(any());
         verify(orderService, never()).applyGatewayPaymentSuccess(any(), any(), anyString());
+    }
+
+    @Test
+    void handleIpn_noPaymentButMatchesWithdrawalFee_delegatesToItemWithdrawalRequestService() throws Exception {
+        MomoIpnRequest ipn = validIpn("iwr-momo-order-id", 0, 999L);
+        when(paymentRepository.findAllByMomoOrderId("iwr-momo-order-id")).thenReturn(List.of());
+        when(itemWithdrawalRequestService.applyMomoFeePaymentResult("iwr-momo-order-id", 0, "999"))
+                .thenReturn(true);
+
+        momoService.handleIpn(ipn);
+
+        verify(itemWithdrawalRequestService).applyMomoFeePaymentResult("iwr-momo-order-id", 0, "999");
+        verify(paymentRepository, never()).save(any());
     }
 
     @Test

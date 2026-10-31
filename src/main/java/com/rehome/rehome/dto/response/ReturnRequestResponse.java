@@ -28,6 +28,11 @@ public class ReturnRequestResponse {
     private Instant pickupDeadline;
 
     private String resolutionNote;
+    private Boolean matchesOriginal;
+    private Boolean degraded;
+    private Boolean counterfeitSuspected;
+    private String conditionNote;
+    private String itemAction;
     private BigDecimal refundAmount;
 
     private Instant createdAt;

@@ -17,11 +17,13 @@ import com.rehome.rehome.entity.enums.OtpPurpose;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.VerificationStatus;
+import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.exception.*;
 import com.rehome.rehome.mapper.OrganizationProfileMapper;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
+import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.security.GoogleTokenVerifier;
 import com.rehome.rehome.security.JwtService;
 import com.rehome.rehome.service.OtpService;
@@ -63,6 +65,7 @@ class AuthServiceImplTest {
     @Mock OrganizationProfileRepository organizationProfileRepository;
     @Mock OrganizationProfileMapper organizationProfileMapper;
     @Mock GoogleTokenVerifier googleTokenVerifier;
+    @Mock WalletRepository walletRepository;
     @Mock QueueService queueService;
 
     @InjectMocks AuthServiceImpl service;
@@ -133,6 +136,10 @@ class AuthServiceImplTest {
         assertThat(mpCaptor.getValue().getAccount()).isSameAs(saved);
         assertThat(mpCaptor.getValue().getFullName()).isEqualTo("Nguyen A");
 
+        ArgumentCaptor<Wallet> walletCaptor = ArgumentCaptor.forClass(Wallet.class);
+        verify(walletRepository).save(walletCaptor.capture());
+        assertThat(walletCaptor.getValue().getMember()).isSameAs(saved);
+
         verify(otpService).issue(saved, OtpPurpose.REGISTER);
         assertThat(res).extracting("message")
                 .isEqualTo("Đăng ký thành công. Vui lòng kiểm tra email để xác minh OTP.");
@@ -188,7 +195,7 @@ class AuthServiceImplTest {
         assertThat(saved.isEmailVerified()).isFalse();
         assertThat(saved.getPhone()).isEqualTo("0909");
 
-        verifyNoInteractions(memberProfileRepository);
+        verifyNoInteractions(memberProfileRepository, walletRepository);
         verify(otpService).issue(saved, OtpPurpose.REGISTER);
         assertThat(res).extracting("message")
                 .isEqualTo("Đăng ký thành công. Vui lòng kiểm tra email để xác minh OTP.");
@@ -363,6 +370,10 @@ class AuthServiceImplTest {
         verify(memberProfileRepository).save(mp.capture());
         assertThat(mp.getValue().getAccount()).isSameAs(saved);
         assertThat(mp.getValue().getFullName()).isEqualTo("Google User");
+
+        ArgumentCaptor<Wallet> walletCaptor = ArgumentCaptor.forClass(Wallet.class);
+        verify(walletRepository).save(walletCaptor.capture());
+        assertThat(walletCaptor.getValue().getMember()).isSameAs(saved);
         assertThat(res).extracting("accessToken", "refreshToken").containsExactly("access", "refresh");
     }
 

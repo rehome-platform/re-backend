@@ -1,5 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.client.GhnApi;
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.dto.request.CreateOrderRequest;
 import com.rehome.rehome.dto.request.PayOrdersRequest;
@@ -108,6 +109,7 @@ class OrderServiceImplTest {
     @Mock WalletTransactionRepository walletTransactionRepository;
     @Mock PlatformFundRepository platformFundRepository;
     @Mock QueueService queueService;
+    @Mock GhnApi ghnApi;
     @Mock GhnShippingFeeCalculator ghnShippingFeeCalculator;
 
     @InjectMocks
@@ -1885,7 +1887,7 @@ class OrderServiceImplTest {
     }
 
     private OrderTrackingEvent trackingEvent(Order order, String status, String description,
-                                              String location, Instant occurredAt) {
+                                             String location, Instant occurredAt) {
         return OrderTrackingEvent.builder()
                 .id(UUID.randomUUID())
                 .order(order)

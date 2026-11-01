@@ -166,6 +166,11 @@ public enum ErrorCode {
     TOO_MANY_FILES(HttpStatus.BAD_REQUEST, "Vượt quá số file cho phép trong một lần upload."),
     FILE_UPLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể lưu file. Vui lòng thử lại."),
     FILE_DELETE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể xóa file."),
+    FILE_READ_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể đọc file. Vui lòng thử lại."),
+
+    // F-139: ảnh giấy tờ pháp lý chỉ ra qua endpoint có phân quyền, không qua URL công khai
+    LEGAL_FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy tệp giấy tờ."),
+    LEGAL_FILE_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền xem tệp giấy tờ này."),
 
     // API 90 - F-032: Member yêu cầu rút lại hàng ký gửi giữa kỳ
     PRODUCT_ALREADY_ORDERED(HttpStatus.CONFLICT, "PRODUCT_ALREADY_ORDERED: sản phẩm đã có đơn mua, không thể rút."),

@@ -130,6 +130,13 @@ app:
     # F-102: chu kỳ job quét chiến dịch còn OPEN nhưng đã qua endTime để tự đóng
     auto-close-check-interval-ms: 60000
 
+  # Hồ sơ tổ chức
+  organization:
+    # F-139: chu kỳ job quét hồ sơ đã duyệt quá hạn giữ ảnh giấy tờ để xóa ảnh.
+    # Số ngày giữ lấy từ system_configs (legal_image_retention_days, mặc định 30) nên
+    # job chỉ cần chạy thưa; 1 giờ là đủ.
+    legal-image-cleanup-check-interval-ms: 3600000
+
 # ==================== LOGGING ====================
 logging:
   level:

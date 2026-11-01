@@ -6,6 +6,7 @@ import com.rehome.rehome.service.FileStorageService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
@@ -60,5 +61,40 @@ public class LocalFileStorageServiceImpl implements FileStorageService {
         } catch (IOException e) {
             throw new AppException(ErrorCode.FILE_UPLOAD_FAILED);
         }
+    }
+
+    @Override
+    public boolean deleteByUrl(String url, String contentType) {
+        String path = pathFromUrl(url);
+        return path != null && delete(path, contentType);
+    }
+
+    @Override
+    public Optional<byte[]> loadByUrl(String url) {
+        String path = pathFromUrl(url);
+        if (path == null) {
+            return Optional.empty();
+        }
+
+        Path target = root.resolve(path).normalize();
+        // Chặn path traversal: URL nằm trong DB nên không tin được hoàn toàn
+        if (!target.startsWith(root) || !Files.isRegularFile(target)) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(Files.readAllBytes(target));
+        } catch (IOException e) {
+            throw new AppException(ErrorCode.FILE_READ_FAILED);
+        }
+    }
+
+    /** store() trả publicBaseUrl + "/" + path nên bỏ đúng tiền tố đó là ra path. */
+    private String pathFromUrl(String url) {
+        String prefix = publicBaseUrl + "/";
+        if (url == null || !url.startsWith(prefix)) {
+            return null;
+        }
+        String path = url.substring(prefix.length());
+        return path.isBlank() ? null : path;
     }
 }

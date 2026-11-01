@@ -72,6 +72,19 @@ Download is `GET /consignment-receipts/{id}/pdf` (F-023) → `ConsignmentReceipt
 
 `ConsignmentReceiptPdf.content` needs its explicit `length` — plain `byte[]` defaults to `varbinary(255)` and a ~40KB PDF will not insert; `@Lob` would instead give Postgres `oid` (large object), which plain `byte[]` access cannot read. `PostgresSchemaContractTest` generates the DDL with `PostgreSQLDialect` and asserts the column is `bytea`, because the normal test suite runs on H2 and would never catch either mistake.
 
+**Legal documents of organizations (F-139) → still on storage, but no public URL ever leaves the server.** CCCD photos of the representative and the licence files are the one thing `docs/OVERVIEW.md` §9 says only a Moderator may look at. They are uploaded through the normal `/uploads` route and the storage URL is kept in `cccd_front_url` / `cccd_back_url` / `organization_documents.file_url` as before — but **no API returns that URL any more**. `OrganizationVerificationResponse` (API 128) and `OrganizationProfileResponse` (`/organizations/me`) return the protected endpoint paths built by `LegalFileLinks` instead, and `OrganizationLegalFileServiceImpl.download` reads the bytes server-side and streams them from:
+
+- `GET /api/organizations/{id}/legal-files/cccd-front`
+- `GET /api/organizations/{id}/legal-files/cccd-back`
+- `GET /api/organizations/{id}/legal-files/documents/{documentId}`
+
+each authorized per request (MODERATOR, or the owning ORGANIZATION itself — Admin gets 403, matching API 128). `/files/organization-documents/**` is `denyAll` in `SecurityConfig` (ordered before the `/files/**` permitAll) so the local-dev static route cannot serve them either.
+
+Things that are load-bearing here:
+- `FileStorageService.loadByUrl(url)` returns `Optional<byte[]>` and **each impl must reject any URL it did not produce** — the URL comes out of the DB (user-submitted at registration), so accepting a foreign one turns the download endpoint into SSRF. `LocalFileStorageServiceImpl` requires the `publicBaseUrl` prefix and re-checks path traversal; `CloudinaryFileStorageServiceImpl.ownDeliveryUri` requires https + host `res.cloudinary.com` + first path segment equal to the configured `cloud_name` (so a Cloudinary CNAME would need that constant changed), and `fetch(URI)` is `protected` only so tests can exercise the URL check without network.
+- **Known residual gap of this design:** on `provider=cloudinary` the stored URL is still publicly fetchable by anyone who already holds it (the uploading organization gets it in the `/uploads` response). Closing that needs `type=authenticated` uploads plus signed delivery URLs, which is not implemented. On `provider=local` the gap is closed by the `denyAll` above. There is also no check that an organization submits *its own* file URL, since nothing records who uploaded what.
+- `OrganizationLegalImageCleanupServiceImpl` (`@Scheduled`, retention from `system_configs.legal_image_retention_days`, default 30 days after `verifiedAt`, VERIFIED profiles only) deletes the file via `deleteByUrl` and nulls the column — it clears the column even when the delete fails, because a dangling pointer to a CCCD is worse than an orphan file. `organization_documents.file_url` had to become nullable for this; `ddl-auto: update` cannot drop the old NOT NULL, so `src/main/java/com/rehome/rehome/scripts/2026-11-01_organization_documents_file_url_nullable.sql` must be run by hand on Postgres.
+
 **SKU label PDF → not stored at all.** `SkuLabelPdfServiceImpl.generate()` returns bytes; `GET /products/{id}/sku-label` streams them. It is a print-and-stick label, fully derivable from `Product`, not a document anyone has to keep.
 
 A leftover `pdf_url` column stays on `consignment_receipts` after deploy (`ddl-auto: update` never drops columns); `scripts/drop-consignment-receipt-pdf-url.sql` has the checks and the drop, to run by hand.

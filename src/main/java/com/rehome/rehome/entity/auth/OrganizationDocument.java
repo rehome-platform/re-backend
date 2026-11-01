@@ -40,7 +40,9 @@ public class OrganizationDocument {
     @Column(name = "issuing_authority", nullable = true, length = 255)
     private String issuingAuthority;
 
-    // Tệp ảnh hoặc PDF, chỉ Moderator xem được
-    @Column(name = "file_url", nullable = false, length = 2048)
+    // Tệp ảnh hoặc PDF, chỉ Moderator xem được.
+    // Nullable vì F-139 xóa ảnh sau thời hạn nhưng vẫn giữ bản ghi đã kiểm;
+    // xem scripts/2026-11-01_organization_documents_file_url_nullable.sql
+    @Column(name = "file_url", nullable = true, length = 2048)
     private String fileUrl;
 }

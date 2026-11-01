@@ -1,19 +1,26 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.dto.request.CreateDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateDonationRequest;
 import com.rehome.rehome.dto.request.HandoverDonationsRequest;
 import com.rehome.rehome.dto.response.DonationHandoverResponse;
+import com.rehome.rehome.dto.response.DonationNoteResponse;
 import com.rehome.rehome.dto.response.DonationResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.DonationStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.VerificationStatus;
+import com.rehome.rehome.entity.marketplace.Campaign;
 import com.rehome.rehome.entity.marketplace.Donation;
+import com.rehome.rehome.entity.marketplace.DonationNote;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.exception.ForbiddenException;
+import com.rehome.rehome.repository.CampaignRepository;
+import com.rehome.rehome.repository.DonationNoteRepository;
 import com.rehome.rehome.repository.DonationRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
@@ -41,8 +48,10 @@ import static org.mockito.Mockito.when;
 class DonationServiceImplTest {
 
     @Mock private DonationRepository donationRepository;
+    @Mock private DonationNoteRepository donationNoteRepository;
     @Mock private WarehouseRepository warehouseRepository;
     @Mock private OrganizationProfileRepository organizationProfileRepository;
+    @Mock private CampaignRepository campaignRepository;
 
     @InjectMocks private DonationServiceImpl service;
 
@@ -504,6 +513,266 @@ class DonationServiceImplTest {
                 .hasMessage(ORG_OR_WAREHOUSE_NOT_FOUND);
 
         verifyNoInteractions(organizationProfileRepository, donationRepository);
+    }
+
+    // =====================================================================
+    // listOrganizationDonations  (F-166)
+    // =====================================================================
+
+    private Donation handedOverDonation(UUID warehouseId, UUID organizationId) {
+        Donation donation = donation(warehouseId, "Trần Thị B", false);
+        donation.setStatus(DonationStatus.HANDED_OVER);
+        donation.setHandedOverToOrganization(
+                OrganizationProfile.builder().accountId(organizationId).build());
+        return donation;
+    }
+
+    @Test
+    void listOrganizationDonations_noFilter_returnsPendingPoolPlusOwnHistory() {
+        UUID orgId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        when(donationRepository.findVisibleForOrganization(orgId, DonationStatus.PENDING_PICKUP))
+                .thenReturn(List.of(
+                        donation(warehouseId, "Nguyễn Văn A", false),
+                        handedOverDonation(warehouseId, orgId)));
+
+        List<DonationResponse> result = service.listOrganizationDonations(orgId, null);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getWarehouseId()).isEqualTo(warehouseId.toString());
+        assertThat(result.get(0).getDonorName()).isEqualTo("Nguyễn Văn A");
+        assertThat(result.get(0).getStatus()).isEqualTo("PENDING_PICKUP");
+        assertThat(result.get(1).getStatus()).isEqualTo("HANDED_OVER");
+    }
+
+    @Test
+    void listOrganizationDonations_filterPendingPickup_readsSharedPool() {
+        UUID orgId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        when(donationRepository.findByStatusOrderByCreatedAtDesc(DonationStatus.PENDING_PICKUP))
+                .thenReturn(List.of(donation(UUID.randomUUID(), "Nguyễn Văn A", false)));
+
+        List<DonationResponse> result =
+                service.listOrganizationDonations(orgId, DonationStatus.PENDING_PICKUP);
+
+        assertThat(result).hasSize(1);
+        // Lượt chờ lấy là pool chung nên không giới hạn theo tổ chức
+        verify(donationRepository, never()).findVisibleForOrganization(any(), any());
+        verify(donationRepository, never())
+                .findByHandedOverToOrganization_AccountIdAndStatusOrderByCreatedAtDesc(any(), any());
+    }
+
+    @Test
+    void listOrganizationDonations_filterHandedOver_onlyOwnHistory() {
+        UUID orgId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        when(donationRepository.findByHandedOverToOrganization_AccountIdAndStatusOrderByCreatedAtDesc(
+                orgId, DonationStatus.HANDED_OVER))
+                .thenReturn(List.of(handedOverDonation(warehouseId, orgId)));
+
+        List<DonationResponse> result =
+                service.listOrganizationDonations(orgId, DonationStatus.HANDED_OVER);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getStatus()).isEqualTo("HANDED_OVER");
+        // Không lọt lịch sử của tổ chức khác
+        verify(donationRepository).findByHandedOverToOrganization_AccountIdAndStatusOrderByCreatedAtDesc(
+                orgId, DonationStatus.HANDED_OVER);
+        verify(donationRepository, never()).findByStatusOrderByCreatedAtDesc(any());
+    }
+
+    @Test
+    void listOrganizationDonations_anonymousDonation_hidesDonorName() {
+        UUID orgId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        when(donationRepository.findVisibleForOrganization(orgId, DonationStatus.PENDING_PICKUP))
+                .thenReturn(List.of(donation(UUID.randomUUID(), null, true)));
+
+        List<DonationResponse> result = service.listOrganizationDonations(orgId, null);
+
+        assertThat(result.get(0).isAnonymous()).isTrue();
+        assertThat(result.get(0).getDonorName()).isNull();
+    }
+
+    @Test
+    void listOrganizationDonations_empty_returnsEmptyList() {
+        UUID orgId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        when(donationRepository.findVisibleForOrganization(orgId, DonationStatus.PENDING_PICKUP))
+                .thenReturn(List.of());
+
+        assertThat(service.listOrganizationDonations(orgId, null)).isEmpty();
+    }
+
+    @Test
+    void listOrganizationDonations_organizationNotFound_throwsForbidden() {
+        UUID orgId = UUID.randomUUID();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.listOrganizationDonations(orgId, null))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("Bạn không có quyền truy cập.");
+
+        verifyNoInteractions(donationRepository);
+    }
+
+    @Test
+    void listOrganizationDonations_organizationNotVerified_throwsForbidden() {
+        UUID orgId = UUID.randomUUID();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(
+                OrganizationProfile.builder().accountId(orgId)
+                        .verificationStatus(VerificationStatus.PENDING).build()));
+
+        assertThatThrownBy(() -> service.listOrganizationDonations(orgId, null))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("Bạn không có quyền truy cập.");
+
+        verifyNoInteractions(donationRepository);
+    }
+
+    // =====================================================================
+    // createDonationNote  (F-167)
+    // =====================================================================
+
+    private void stubNoteSaveAssignsId() {
+        when(donationNoteRepository.save(any())).thenAnswer(invocation -> {
+            DonationNote saved = invocation.getArgument(0);
+            saved.setId(UUID.randomUUID());
+            return saved;
+        });
+    }
+
+    private Campaign campaignOf(UUID campaignId, UUID orgId) {
+        return Campaign.builder()
+                .id(campaignId)
+                .organization(OrganizationProfile.builder().accountId(orgId).build())
+                .build();
+    }
+
+    @Test
+    void createDonationNote_withCampaign_success() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(campaignOf(campaignId, orgId)));
+        stubNoteSaveAssignsId();
+
+        DonationNoteResponse res = service.createDonationNote(orgId, new CreateDonationNoteRequest(
+                campaignId.toString(), "Trần Thị B", false, "1 túi quần áo trẻ em"));
+
+        assertThat(res.getId()).isNotNull();
+        assertThat(res.getCampaignId()).isEqualTo(campaignId.toString());
+        assertThat(res.getDonorName()).isEqualTo("Trần Thị B");
+        assertThat(res.isAnonymous()).isFalse();
+        assertThat(res.getNote()).isEqualTo("1 túi quần áo trẻ em");
+        assertThat(res.getCreatedAt()).isNotNull();
+
+        ArgumentCaptor<DonationNote> captor = ArgumentCaptor.forClass(DonationNote.class);
+        verify(donationNoteRepository).save(captor.capture());
+        assertThat(captor.getValue().getOrganization().getAccountId()).isEqualTo(orgId);
+        assertThat(captor.getValue().getCampaign().getId()).isEqualTo(campaignId);
+    }
+
+    @Test
+    void createDonationNote_withoutCampaign_success() {
+        UUID orgId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        stubNoteSaveAssignsId();
+
+        // Nhận đồ ngoài chiến dịch nào thì campaignId để trống
+        DonationNoteResponse res = service.createDonationNote(orgId,
+                new CreateDonationNoteRequest(null, "Trần Thị B", false, "1 túi quần áo"));
+
+        assertThat(res.getCampaignId()).isNull();
+        verifyNoInteractions(campaignRepository);
+    }
+
+    @Test
+    void createDonationNote_anonymous_doesNotStoreDonorName() {
+        UUID orgId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        stubNoteSaveAssignsId();
+
+        DonationNoteResponse res = service.createDonationNote(orgId,
+                new CreateDonationNoteRequest(null, "Trần Thị B", true, "1 túi quần áo"));
+
+        assertThat(res.isAnonymous()).isTrue();
+        assertThat(res.getDonorName()).isNull();
+
+        ArgumentCaptor<DonationNote> captor = ArgumentCaptor.forClass(DonationNote.class);
+        verify(donationNoteRepository).save(captor.capture());
+        assertThat(captor.getValue().getDonorName()).isNull();
+    }
+
+    @Test
+    void createDonationNote_blankDonorNameAndNotAnonymous_throwsBadRequest() {
+        assertThatThrownBy(() -> service.createDonationNote(UUID.randomUUID(),
+                new CreateDonationNoteRequest(null, "  ", false, "ghi chú")))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Vui lòng nhập tên người quyên góp hoặc chọn ẩn danh.");
+
+        verifyNoInteractions(organizationProfileRepository, campaignRepository, donationNoteRepository);
+    }
+
+    @Test
+    void createDonationNote_campaignNotFound_throws() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.createDonationNote(orgId,
+                new CreateDonationNoteRequest(campaignId.toString(), "Trần Thị B", false, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy chiến dịch.");
+
+        verify(donationNoteRepository, never()).save(any());
+    }
+
+    @Test
+    void createDonationNote_otherOrganizationCampaign_treatedAsNotFound() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        // Chiến dịch của tổ chức khác
+        when(campaignRepository.findById(campaignId))
+                .thenReturn(Optional.of(campaignOf(campaignId, UUID.randomUUID())));
+
+        assertThatThrownBy(() -> service.createDonationNote(orgId,
+                new CreateDonationNoteRequest(campaignId.toString(), "Trần Thị B", false, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy chiến dịch.");
+
+        verify(donationNoteRepository, never()).save(any());
+    }
+
+    @Test
+    void createDonationNote_malformedCampaignId_throwsNotFound() {
+        UUID orgId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+
+        assertThatThrownBy(() -> service.createDonationNote(orgId,
+                new CreateDonationNoteRequest("camp-01", "Trần Thị B", false, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy chiến dịch.");
+
+        verifyNoInteractions(campaignRepository, donationNoteRepository);
+    }
+
+    @Test
+    void createDonationNote_organizationProfileNotFound_throws() {
+        UUID orgId = UUID.randomUUID();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.createDonationNote(orgId,
+                new CreateDonationNoteRequest(null, "Trần Thị B", false, null)))
+                .isInstanceOf(AppException.class)
+                .satisfies(e -> assertThat(((AppException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND));
+
+        verify(donationNoteRepository, never()).save(any());
     }
 
     @Test

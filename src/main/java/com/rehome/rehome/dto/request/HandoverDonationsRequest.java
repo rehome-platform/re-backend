@@ -12,4 +12,5 @@ import java.util.List;
 public class HandoverDonationsRequest {
     private List<String> donationIds;
     private String organizationId;
+    private String campaignId;
 }

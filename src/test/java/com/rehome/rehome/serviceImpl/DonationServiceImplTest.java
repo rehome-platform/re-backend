@@ -7,6 +7,7 @@ import com.rehome.rehome.dto.response.DonationHandoverResponse;
 import com.rehome.rehome.dto.response.DonationNoteResponse;
 import com.rehome.rehome.dto.response.DonationResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.auth.ModeratorProfile;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.DonationStatus;
 import com.rehome.rehome.entity.enums.Role;
@@ -22,6 +23,7 @@ import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.repository.CampaignRepository;
 import com.rehome.rehome.repository.DonationNoteRepository;
 import com.rehome.rehome.repository.DonationRepository;
+import com.rehome.rehome.repository.ModeratorProfileRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import org.junit.jupiter.api.Test;
@@ -34,6 +36,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,6 +55,7 @@ class DonationServiceImplTest {
     @Mock private WarehouseRepository warehouseRepository;
     @Mock private OrganizationProfileRepository organizationProfileRepository;
     @Mock private CampaignRepository campaignRepository;
+    @Mock private ModeratorProfileRepository moderatorProfileRepository;
 
     @InjectMocks private DonationServiceImpl service;
 
@@ -71,41 +75,65 @@ class DonationServiceImplTest {
         });
     }
 
+    // Chiến dịch có chọn warehouseId này để nhận đồ (xem Campaign.warehouses, OC-02)
+    private Campaign campaignServingWarehouse(UUID campaignId, UUID warehouseId) {
+        return Campaign.builder()
+                .id(campaignId)
+                .warehouses(Set.of(Warehouse.builder().id(warehouseId).build()))
+                .build();
+    }
+
+    private void stubCampaignServingWarehouse(UUID campaignId, UUID warehouseId) {
+        when(campaignRepository.findById(campaignId))
+                .thenReturn(Optional.of(campaignServingWarehouse(campaignId, warehouseId)));
+    }
+
     @Test
     void recordDonation_named_success() {
         UUID warehouseId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
         Warehouse warehouse = Warehouse.builder().id(warehouseId).name("Kho Quận 7").build();
+        Account moderatorAccount = moderator(warehouseId);
 
         when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
+        stubCampaignServingWarehouse(campaignId, warehouseId);
+        when(moderatorProfileRepository.findById(moderatorAccount.getId())).thenReturn(Optional.of(
+                ModeratorProfile.builder().accountId(moderatorAccount.getId()).moderatorCode("MOD-07-003").build()));
         stubSaveAssignsId();
 
-        DonationResponse res = service.recordDonation(moderator(warehouseId), warehouseId,
-                new CreateDonationRequest("Nguyễn Văn A", false, "2 áo khoác, 1 chăn"));
+        DonationResponse res = service.recordDonation(moderatorAccount, warehouseId,
+                new CreateDonationRequest(campaignId.toString(), "Nguyễn Văn A", false, "2 áo khoác, 1 chăn"));
 
         assertThat(res.getId()).isNotNull();
         assertThat(res.getWarehouseId()).isEqualTo(warehouseId.toString());
+        assertThat(res.getCampaignId()).isEqualTo(campaignId.toString());
         assertThat(res.getDonorName()).isEqualTo("Nguyễn Văn A");
         assertThat(res.isAnonymous()).isFalse();
         assertThat(res.getNote()).isEqualTo("2 áo khoác, 1 chăn");
         assertThat(res.getStatus()).isEqualTo("PENDING_PICKUP");
+        assertThat(res.getRecordedBy()).isEqualTo("MOD-07-003");
         assertThat(res.getCreatedAt()).isNotNull();
 
         ArgumentCaptor<Donation> captor = ArgumentCaptor.forClass(Donation.class);
         verify(donationRepository).save(captor.capture());
         assertThat(captor.getValue().getWarehouse()).isSameAs(warehouse);
         assertThat(captor.getValue().getDonorName()).isEqualTo("Nguyễn Văn A");
+        assertThat(captor.getValue().getCampaign().getId()).isEqualTo(campaignId);
+        assertThat(captor.getValue().getRecordedBy()).isSameAs(moderatorAccount);
     }
 
     @Test
     void recordDonation_anonymous_doesNotStoreDonorName() {
         UUID warehouseId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
         when(warehouseRepository.findById(warehouseId))
                 .thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
+        stubCampaignServingWarehouse(campaignId, warehouseId);
         stubSaveAssignsId();
 
         // Client gửi kèm tên nhưng đã chọn ẩn danh -> không được lưu lại tên
         DonationResponse res = service.recordDonation(moderator(warehouseId), warehouseId,
-                new CreateDonationRequest("Nguyễn Văn A", true, "1 thùng quần áo"));
+                new CreateDonationRequest(campaignId.toString(), "Nguyễn Văn A", true, "1 thùng quần áo"));
 
         assertThat(res.isAnonymous()).isTrue();
         assertThat(res.getDonorName()).isNull();
@@ -119,12 +147,14 @@ class DonationServiceImplTest {
     @Test
     void recordDonation_anonymousWithoutDonorName_isAllowed() {
         UUID warehouseId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
         when(warehouseRepository.findById(warehouseId))
                 .thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
+        stubCampaignServingWarehouse(campaignId, warehouseId);
         stubSaveAssignsId();
 
         DonationResponse res = service.recordDonation(moderator(warehouseId), warehouseId,
-                new CreateDonationRequest(null, true, null));
+                new CreateDonationRequest(campaignId.toString(), null, true, null));
 
         assertThat(res.isAnonymous()).isTrue();
         assertThat(res.getDonorName()).isNull();
@@ -136,7 +166,7 @@ class DonationServiceImplTest {
         UUID warehouseId = UUID.randomUUID();
 
         assertThatThrownBy(() -> service.recordDonation(moderator(warehouseId), warehouseId,
-                new CreateDonationRequest("   ", false, "ghi chú")))
+                new CreateDonationRequest(UUID.randomUUID().toString(), "   ", false, "ghi chú")))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("Vui lòng nhập tên người quyên góp hoặc chọn ẩn danh.");
 
@@ -148,7 +178,7 @@ class DonationServiceImplTest {
         UUID warehouseId = UUID.randomUUID();
 
         assertThatThrownBy(() -> service.recordDonation(moderator(warehouseId), warehouseId,
-                new CreateDonationRequest(null, null, "ghi chú")))
+                new CreateDonationRequest(UUID.randomUUID().toString(), null, null, "ghi chú")))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("Vui lòng nhập tên người quyên góp hoặc chọn ẩn danh.");
 
@@ -161,7 +191,7 @@ class DonationServiceImplTest {
         when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.recordDonation(moderator(warehouseId), warehouseId,
-                new CreateDonationRequest("Nguyễn Văn A", false, null)))
+                new CreateDonationRequest(UUID.randomUUID().toString(), "Nguyễn Văn A", false, null)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Không tìm thấy điểm ký gửi.");
 
@@ -176,7 +206,7 @@ class DonationServiceImplTest {
 
         // Moderator của kho khác không ghi nhận được ở kho này
         assertThatThrownBy(() -> service.recordDonation(moderator(UUID.randomUUID()), warehouseId,
-                new CreateDonationRequest("Nguyễn Văn A", false, null)))
+                new CreateDonationRequest(UUID.randomUUID().toString(), "Nguyễn Văn A", false, null)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Không tìm thấy điểm ký gửi.");
 
@@ -190,10 +220,73 @@ class DonationServiceImplTest {
                 .thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
 
         assertThatThrownBy(() -> service.recordDonation(moderator(null), warehouseId,
-                new CreateDonationRequest("Nguyễn Văn A", false, null)))
+                new CreateDonationRequest(UUID.randomUUID().toString(), "Nguyễn Văn A", false, null)))
                 .isInstanceOf(AppException.class)
                 .satisfies(e -> assertThat(((AppException) e).getErrorCode())
                         .isEqualTo(ErrorCode.MODERATOR_NO_WAREHOUSE));
+
+        verify(donationRepository, never()).save(any());
+    }
+
+    @Test
+    void recordDonation_missingCampaignId_throwsBadRequest() {
+        UUID warehouseId = UUID.randomUUID();
+        when(warehouseRepository.findById(warehouseId))
+                .thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
+
+        assertThatThrownBy(() -> service.recordDonation(moderator(warehouseId), warehouseId,
+                new CreateDonationRequest(null, "Nguyễn Văn A", false, null)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Vui lòng chọn chiến dịch.");
+
+        verify(donationRepository, never()).save(any());
+    }
+
+    @Test
+    void recordDonation_malformedCampaignId_throwsNotFound() {
+        UUID warehouseId = UUID.randomUUID();
+        when(warehouseRepository.findById(warehouseId))
+                .thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
+
+        assertThatThrownBy(() -> service.recordDonation(moderator(warehouseId), warehouseId,
+                new CreateDonationRequest("camp-01", "Nguyễn Văn A", false, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy chiến dịch.");
+
+        verifyNoInteractions(campaignRepository);
+        verify(donationRepository, never()).save(any());
+    }
+
+    @Test
+    void recordDonation_campaignNotFound_throwsNotFound() {
+        UUID warehouseId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        when(warehouseRepository.findById(warehouseId))
+                .thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.recordDonation(moderator(warehouseId), warehouseId,
+                new CreateDonationRequest(campaignId.toString(), "Nguyễn Văn A", false, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy chiến dịch.");
+
+        verify(donationRepository, never()).save(any());
+    }
+
+    @Test
+    void recordDonation_campaignNotServingThisWarehouse_treatedAsNotFound() {
+        UUID warehouseId = UUID.randomUUID();
+        UUID otherWarehouseId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        when(warehouseRepository.findById(warehouseId))
+                .thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
+        // Chiến dịch có thật nhưng không chọn kho này để nhận đồ
+        stubCampaignServingWarehouse(campaignId, otherWarehouseId);
+
+        assertThatThrownBy(() -> service.recordDonation(moderator(warehouseId), warehouseId,
+                new CreateDonationRequest(campaignId.toString(), "Nguyễn Văn A", false, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy chiến dịch.");
 
         verify(donationRepository, never()).save(any());
     }
@@ -215,14 +308,14 @@ class DonationServiceImplTest {
     }
 
     @Test
-    void listDonations_noStatusFilter_returnsAll() {
+    void listDonations_noFilter_returnsAll() {
         UUID warehouseId = UUID.randomUUID();
         when(warehouseRepository.findById(warehouseId))
                 .thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
         when(donationRepository.findByWarehouse_IdOrderByCreatedAtDesc(warehouseId))
                 .thenReturn(List.of(donation(warehouseId, "Nguyễn Văn A", false)));
 
-        List<DonationResponse> result = service.listDonations(moderator(warehouseId), warehouseId, null);
+        List<DonationResponse> result = service.listDonations(moderator(warehouseId), warehouseId, null, null);
 
         assertThat(result).hasSize(1);
         DonationResponse res = result.get(0);
@@ -244,12 +337,47 @@ class DonationServiceImplTest {
                 .thenReturn(List.of(donation(warehouseId, null, true)));
 
         List<DonationResponse> result = service.listDonations(
-                moderator(warehouseId), warehouseId, DonationStatus.PENDING_PICKUP);
+                moderator(warehouseId), warehouseId, null, DonationStatus.PENDING_PICKUP);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).isAnonymous()).isTrue();
         assertThat(result.get(0).getDonorName()).isNull();
         verify(donationRepository, never()).findByWarehouse_IdOrderByCreatedAtDesc(any());
+    }
+
+    @Test
+    void listDonations_withCampaignFilter_queriesByCampaign() {
+        UUID warehouseId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        when(warehouseRepository.findById(warehouseId))
+                .thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
+        when(donationRepository.findByWarehouse_IdAndCampaign_IdOrderByCreatedAtDesc(warehouseId, campaignId))
+                .thenReturn(List.of(donation(warehouseId, "Nguyễn Văn A", false)));
+
+        List<DonationResponse> result = service.listDonations(
+                moderator(warehouseId), warehouseId, campaignId, null);
+
+        assertThat(result).hasSize(1);
+        verify(donationRepository, never()).findByWarehouse_IdOrderByCreatedAtDesc(any());
+        verify(donationRepository, never()).findByWarehouse_IdAndStatusOrderByCreatedAtDesc(any(), any());
+    }
+
+    @Test
+    void listDonations_withCampaignAndStatusFilter_queriesByBoth() {
+        UUID warehouseId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        when(warehouseRepository.findById(warehouseId))
+                .thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
+        when(donationRepository.findByWarehouse_IdAndCampaign_IdAndStatusOrderByCreatedAtDesc(
+                warehouseId, campaignId, DonationStatus.PENDING_PICKUP))
+                .thenReturn(List.of(donation(warehouseId, "Nguyễn Văn A", false)));
+
+        List<DonationResponse> result = service.listDonations(
+                moderator(warehouseId), warehouseId, campaignId, DonationStatus.PENDING_PICKUP);
+
+        assertThat(result).hasSize(1);
+        verify(donationRepository, never())
+                .findByWarehouse_IdAndCampaign_IdOrderByCreatedAtDesc(any(), any());
     }
 
     @Test
@@ -259,7 +387,7 @@ class DonationServiceImplTest {
                 .thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
         when(donationRepository.findByWarehouse_IdOrderByCreatedAtDesc(warehouseId)).thenReturn(List.of());
 
-        assertThat(service.listDonations(moderator(warehouseId), warehouseId, null)).isEmpty();
+        assertThat(service.listDonations(moderator(warehouseId), warehouseId, null, null)).isEmpty();
     }
 
     @Test
@@ -267,7 +395,7 @@ class DonationServiceImplTest {
         UUID warehouseId = UUID.randomUUID();
         when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.listDonations(moderator(warehouseId), warehouseId, null))
+        assertThatThrownBy(() -> service.listDonations(moderator(warehouseId), warehouseId, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Không tìm thấy điểm ký gửi.");
 
@@ -280,7 +408,7 @@ class DonationServiceImplTest {
         when(warehouseRepository.findById(warehouseId))
                 .thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
 
-        assertThatThrownBy(() -> service.listDonations(moderator(UUID.randomUUID()), warehouseId, null))
+        assertThatThrownBy(() -> service.listDonations(moderator(UUID.randomUUID()), warehouseId, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Không tìm thấy điểm ký gửi.");
 
@@ -293,7 +421,7 @@ class DonationServiceImplTest {
         when(warehouseRepository.findById(warehouseId))
                 .thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
 
-        assertThatThrownBy(() -> service.listDonations(moderator(null), warehouseId, null))
+        assertThatThrownBy(() -> service.listDonations(moderator(null), warehouseId, null, null))
                 .isInstanceOf(AppException.class)
                 .satisfies(e -> assertThat(((AppException) e).getErrorCode())
                         .isEqualTo(ErrorCode.MODERATOR_NO_WAREHOUSE));
@@ -308,10 +436,11 @@ class DonationServiceImplTest {
     private static final String ORG_OR_WAREHOUSE_NOT_FOUND = "Không tìm thấy tổ chức hoặc điểm ký gửi.";
     private static final String INVALID_LIST = "Danh sách quyên góp không hợp lệ.";
 
-    private Donation pendingDonation(UUID id, UUID warehouseId) {
+    private Donation pendingDonation(UUID id, UUID warehouseId, UUID campaignId) {
         return Donation.builder()
                 .id(id)
                 .warehouse(Warehouse.builder().id(warehouseId).build())
+                .campaign(campaignId == null ? null : Campaign.builder().id(campaignId).build())
                 .donorName("Nguyễn Văn A")
                 .isAnonymous(false)
                 .status(DonationStatus.PENDING_PICKUP)
@@ -330,23 +459,31 @@ class DonationServiceImplTest {
                         .verificationStatus(VerificationStatus.VERIFIED).build()));
     }
 
+    private void stubOwnCampaign(UUID campaignId, UUID organizationId) {
+        when(campaignRepository.findById(campaignId))
+                .thenReturn(Optional.of(campaignOf(campaignId, organizationId)));
+    }
+
     @Test
     void handoverDonations_success_marksAllHandedOver() {
         UUID warehouseId = UUID.randomUUID();
         UUID organizationId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
         UUID firstId = UUID.randomUUID();
         UUID secondId = UUID.randomUUID();
-        Donation first = pendingDonation(firstId, warehouseId);
-        Donation second = pendingDonation(secondId, warehouseId);
+        Donation first = pendingDonation(firstId, warehouseId, campaignId);
+        Donation second = pendingDonation(secondId, warehouseId, campaignId);
 
         stubWarehouse(warehouseId);
         stubVerifiedOrganization(organizationId);
+        stubOwnCampaign(campaignId, organizationId);
         when(donationRepository.findByIdInAndWarehouse_Id(List.of(firstId, secondId), warehouseId))
                 .thenReturn(List.of(first, second));
 
         DonationHandoverResponse res = service.handoverDonations(moderator(warehouseId), warehouseId,
                 new HandoverDonationsRequest(
-                        List.of(firstId.toString(), secondId.toString()), organizationId.toString()));
+                        List.of(firstId.toString(), secondId.toString()), organizationId.toString(),
+                        campaignId.toString()));
 
         assertThat(res.getHandedOverCount()).isEqualTo(2);
         assertThat(res.getOrganizationId()).isEqualTo(organizationId.toString());
@@ -364,16 +501,19 @@ class DonationServiceImplTest {
     void handoverDonations_duplicateIds_areDeduped() {
         UUID warehouseId = UUID.randomUUID();
         UUID organizationId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
         UUID donationId = UUID.randomUUID();
 
         stubWarehouse(warehouseId);
         stubVerifiedOrganization(organizationId);
+        stubOwnCampaign(campaignId, organizationId);
         when(donationRepository.findByIdInAndWarehouse_Id(List.of(donationId), warehouseId))
-                .thenReturn(List.of(pendingDonation(donationId, warehouseId)));
+                .thenReturn(List.of(pendingDonation(donationId, warehouseId, campaignId)));
 
         DonationHandoverResponse res = service.handoverDonations(moderator(warehouseId), warehouseId,
                 new HandoverDonationsRequest(
-                        List.of(donationId.toString(), donationId.toString()), organizationId.toString()));
+                        List.of(donationId.toString(), donationId.toString()), organizationId.toString(),
+                        campaignId.toString()));
 
         assertThat(res.getHandedOverCount()).isEqualTo(1);
     }
@@ -381,7 +521,7 @@ class DonationServiceImplTest {
     @Test
     void handoverDonations_emptyIds_throwsBadRequest() {
         assertThatThrownBy(() -> service.handoverDonations(moderator(UUID.randomUUID()), UUID.randomUUID(),
-                new HandoverDonationsRequest(List.of(), UUID.randomUUID().toString())))
+                new HandoverDonationsRequest(List.of(), UUID.randomUUID().toString(), UUID.randomUUID().toString())))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage(INVALID_LIST);
 
@@ -391,7 +531,7 @@ class DonationServiceImplTest {
     @Test
     void handoverDonations_nullIds_throwsBadRequest() {
         assertThatThrownBy(() -> service.handoverDonations(moderator(UUID.randomUUID()), UUID.randomUUID(),
-                new HandoverDonationsRequest(null, UUID.randomUUID().toString())))
+                new HandoverDonationsRequest(null, UUID.randomUUID().toString(), UUID.randomUUID().toString())))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage(INVALID_LIST);
 
@@ -401,7 +541,8 @@ class DonationServiceImplTest {
     @Test
     void handoverDonations_malformedDonationId_throwsBadRequest() {
         assertThatThrownBy(() -> service.handoverDonations(moderator(UUID.randomUUID()), UUID.randomUUID(),
-                new HandoverDonationsRequest(List.of("don-001"), UUID.randomUUID().toString())))
+                new HandoverDonationsRequest(
+                        List.of("don-001"), UUID.randomUUID().toString(), UUID.randomUUID().toString())))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage(INVALID_LIST);
 
@@ -412,20 +553,23 @@ class DonationServiceImplTest {
     void handoverDonations_someDonationNotPendingPickup_handsOverNothing() {
         UUID warehouseId = UUID.randomUUID();
         UUID organizationId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
         UUID pendingId = UUID.randomUUID();
         UUID alreadyHandedId = UUID.randomUUID();
-        Donation pending = pendingDonation(pendingId, warehouseId);
-        Donation alreadyHanded = pendingDonation(alreadyHandedId, warehouseId);
+        Donation pending = pendingDonation(pendingId, warehouseId, campaignId);
+        Donation alreadyHanded = pendingDonation(alreadyHandedId, warehouseId, campaignId);
         alreadyHanded.setStatus(DonationStatus.HANDED_OVER);
 
         stubWarehouse(warehouseId);
         stubVerifiedOrganization(organizationId);
+        stubOwnCampaign(campaignId, organizationId);
         when(donationRepository.findByIdInAndWarehouse_Id(List.of(pendingId, alreadyHandedId), warehouseId))
                 .thenReturn(List.of(pending, alreadyHanded));
 
         assertThatThrownBy(() -> service.handoverDonations(moderator(warehouseId), warehouseId,
                 new HandoverDonationsRequest(
-                        List.of(pendingId.toString(), alreadyHandedId.toString()), organizationId.toString())))
+                        List.of(pendingId.toString(), alreadyHandedId.toString()), organizationId.toString(),
+                        campaignId.toString())))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage(INVALID_LIST);
 
@@ -438,20 +582,85 @@ class DonationServiceImplTest {
     void handoverDonations_unknownOrOtherWarehouseDonation_throwsBadRequest() {
         UUID warehouseId = UUID.randomUUID();
         UUID organizationId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
         UUID knownId = UUID.randomUUID();
         UUID unknownId = UUID.randomUUID();
 
         stubWarehouse(warehouseId);
         stubVerifiedOrganization(organizationId);
+        stubOwnCampaign(campaignId, organizationId);
         // Chỉ tìm thấy 1 trong 2 id -> id còn lại không tồn tại hoặc thuộc kho khác
         when(donationRepository.findByIdInAndWarehouse_Id(List.of(knownId, unknownId), warehouseId))
-                .thenReturn(List.of(pendingDonation(knownId, warehouseId)));
+                .thenReturn(List.of(pendingDonation(knownId, warehouseId, campaignId)));
 
         assertThatThrownBy(() -> service.handoverDonations(moderator(warehouseId), warehouseId,
                 new HandoverDonationsRequest(
-                        List.of(knownId.toString(), unknownId.toString()), organizationId.toString())))
+                        List.of(knownId.toString(), unknownId.toString()), organizationId.toString(),
+                        campaignId.toString())))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage(INVALID_LIST);
+
+        verify(donationRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void handoverDonations_donationBelongsToOtherCampaign_handsOverNothing() {
+        UUID warehouseId = UUID.randomUUID();
+        UUID organizationId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        UUID otherCampaignId = UUID.randomUUID();
+        UUID donationId = UUID.randomUUID();
+        Donation donation = pendingDonation(donationId, warehouseId, otherCampaignId);
+
+        stubWarehouse(warehouseId);
+        stubVerifiedOrganization(organizationId);
+        stubOwnCampaign(campaignId, organizationId);
+        when(donationRepository.findByIdInAndWarehouse_Id(List.of(donationId), warehouseId))
+                .thenReturn(List.of(donation));
+
+        assertThatThrownBy(() -> service.handoverDonations(moderator(warehouseId), warehouseId,
+                new HandoverDonationsRequest(
+                        List.of(donationId.toString()), organizationId.toString(), campaignId.toString())))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage(INVALID_LIST);
+
+        assertThat(donation.getStatus()).isEqualTo(DonationStatus.PENDING_PICKUP);
+        verify(donationRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void handoverDonations_missingCampaignId_throwsNotFound() {
+        UUID warehouseId = UUID.randomUUID();
+        UUID organizationId = UUID.randomUUID();
+
+        stubWarehouse(warehouseId);
+        stubVerifiedOrganization(organizationId);
+
+        assertThatThrownBy(() -> service.handoverDonations(moderator(warehouseId), warehouseId,
+                new HandoverDonationsRequest(
+                        List.of(UUID.randomUUID().toString()), organizationId.toString(), null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy chiến dịch.");
+
+        verify(donationRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void handoverDonations_campaignBelongsToOtherOrganization_throwsNotFound() {
+        UUID warehouseId = UUID.randomUUID();
+        UUID organizationId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+
+        stubWarehouse(warehouseId);
+        stubVerifiedOrganization(organizationId);
+        when(campaignRepository.findById(campaignId))
+                .thenReturn(Optional.of(campaignOf(campaignId, UUID.randomUUID())));
+
+        assertThatThrownBy(() -> service.handoverDonations(moderator(warehouseId), warehouseId,
+                new HandoverDonationsRequest(
+                        List.of(UUID.randomUUID().toString()), organizationId.toString(), campaignId.toString())))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy chiến dịch.");
 
         verify(donationRepository, never()).saveAll(any());
     }
@@ -466,7 +675,8 @@ class DonationServiceImplTest {
 
         assertThatThrownBy(() -> service.handoverDonations(moderator(warehouseId), warehouseId,
                 new HandoverDonationsRequest(
-                        List.of(UUID.randomUUID().toString()), organizationId.toString())))
+                        List.of(UUID.randomUUID().toString()), organizationId.toString(),
+                        UUID.randomUUID().toString())))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(ORG_OR_WAREHOUSE_NOT_FOUND);
 
@@ -485,7 +695,8 @@ class DonationServiceImplTest {
 
         assertThatThrownBy(() -> service.handoverDonations(moderator(warehouseId), warehouseId,
                 new HandoverDonationsRequest(
-                        List.of(UUID.randomUUID().toString()), organizationId.toString())))
+                        List.of(UUID.randomUUID().toString()), organizationId.toString(),
+                        UUID.randomUUID().toString())))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(ORG_OR_WAREHOUSE_NOT_FOUND);
     }
@@ -496,7 +707,8 @@ class DonationServiceImplTest {
         stubWarehouse(warehouseId);
 
         assertThatThrownBy(() -> service.handoverDonations(moderator(warehouseId), warehouseId,
-                new HandoverDonationsRequest(List.of(UUID.randomUUID().toString()), "  ")))
+                new HandoverDonationsRequest(
+                        List.of(UUID.randomUUID().toString()), "  ", UUID.randomUUID().toString())))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(ORG_OR_WAREHOUSE_NOT_FOUND);
     }
@@ -508,7 +720,8 @@ class DonationServiceImplTest {
 
         assertThatThrownBy(() -> service.handoverDonations(moderator(warehouseId), warehouseId,
                 new HandoverDonationsRequest(
-                        List.of(UUID.randomUUID().toString()), UUID.randomUUID().toString())))
+                        List.of(UUID.randomUUID().toString()), UUID.randomUUID().toString(),
+                        UUID.randomUUID().toString())))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(ORG_OR_WAREHOUSE_NOT_FOUND);
 
@@ -782,7 +995,8 @@ class DonationServiceImplTest {
 
         assertThatThrownBy(() -> service.handoverDonations(moderator(UUID.randomUUID()), warehouseId,
                 new HandoverDonationsRequest(
-                        List.of(UUID.randomUUID().toString()), UUID.randomUUID().toString())))
+                        List.of(UUID.randomUUID().toString()), UUID.randomUUID().toString(),
+                        UUID.randomUUID().toString())))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage(ORG_OR_WAREHOUSE_NOT_FOUND);
 

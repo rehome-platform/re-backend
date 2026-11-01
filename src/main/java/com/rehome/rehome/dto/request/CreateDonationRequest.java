@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class CreateDonationRequest {
+    private String campaignId;
     private String donorName;
     private Boolean isAnonymous;
     private String note;

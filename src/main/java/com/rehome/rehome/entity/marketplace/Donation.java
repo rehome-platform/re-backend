@@ -1,5 +1,6 @@
 package com.rehome.rehome.entity.marketplace;
 
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.DonationStatus;
 import jakarta.persistence.*;
@@ -26,6 +27,18 @@ public class Donation {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "warehouse_id", nullable = false)
     private Warehouse warehouse;
+
+    // Chiến dịch mà lượt quyên góp này thuộc về — 1 kho nhận cho nhiều chiến dịch của nhiều
+    // tổ chức nên bắt buộc Moderator phải chọn (xem CreateDonationRequest/recordDonation).
+    // Cột để nullable vì ddl-auto=update không backfill được cho các lượt đã ghi nhận trước field này.
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "campaign_id", nullable = true)
+    private Campaign campaign;
+
+    // Moderator đã ghi nhận lượt quyên góp này, để tra cứu/đối soát. Nullable cùng lý do với campaign
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "recorded_by_account_id", nullable = true)
+    private Account recordedBy;
 
     // Tên người quyên góp; null khi quyên góp ẩn danh
     @Column(name = "donor_name", nullable = true, length = 255)

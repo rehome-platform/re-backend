@@ -6,6 +6,7 @@ import com.rehome.rehome.dto.request.CreateItemWithdrawalRequest;
 import com.rehome.rehome.dto.request.CreateMomoRequest;
 import com.rehome.rehome.dto.request.PayItemWithdrawalFeeRequest;
 import com.rehome.rehome.dto.response.CreateMomoResponse;
+import com.rehome.rehome.dto.response.ItemWithdrawalDetailResponse;
 import com.rehome.rehome.dto.response.ItemWithdrawalResponse;
 import com.rehome.rehome.dto.response.PayItemWithdrawalFeeResponse;
 import com.rehome.rehome.entity.auth.Account;
@@ -494,6 +495,54 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
             hexString.append(hex);
         }
         return hexString.toString();
+    }
+
+    // ---------------------------------------------------------------- Member xem yêu cầu của mình
+
+    @Override
+    public ItemWithdrawalDetailResponse getMine(Account account, UUID id) {
+        ItemWithdrawalRequest withdrawal = itemWithdrawalRequestRepository.findDetailById(id)
+                .orElseThrow(() -> new AppException(ErrorCode.ITEM_WITHDRAWAL_NOT_FOUND));
+
+        if (!withdrawal.getMember().getId().equals(account.getId())) {
+            throw new AppException(ErrorCode.ITEM_WITHDRAWAL_FORBIDDEN);
+        }
+        return toDetailResponse(withdrawal);
+    }
+
+    @Override
+    public List<ItemWithdrawalDetailResponse> listMine(Account account, String status) {
+        ItemWithdrawalStatus parsed = StringUtils.hasText(status) ? parseStatus(status) : null;
+
+        return itemWithdrawalRequestRepository
+                .findDetailsByMember(account.getId(), parsed).stream()
+                .map(ItemWithdrawalRequestServiceImpl::toDetailResponse)
+                .toList();
+    }
+
+    private ItemWithdrawalStatus parseStatus(String status) {
+        try {
+            return ItemWithdrawalStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("status phải là PENDING_PICKUP, COMPLETED hoặc EXPIRED.");
+        }
+    }
+
+    private static ItemWithdrawalDetailResponse toDetailResponse(ItemWithdrawalRequest w) {
+        Product product = w.getProduct();
+        return ItemWithdrawalDetailResponse.builder()
+                .id(w.getId().toString())
+                .productId(product.getId())
+                .productName(product.getName())
+                .status(w.getStatus().name())
+                .feeAmount(w.getFeeCharged())
+                // Cùng điều kiện mà payFee dùng để biết "không còn gì phải trả"
+                .feePaid(w.getFeeCharged().compareTo(BigDecimal.ZERO) == 0 || w.getFeePaidAt() != null)
+                .paymentMethod(w.getFeePaymentMethod() == null ? null : w.getFeePaymentMethod().name())
+                .pickupDeadline(w.getPickupDeadline())
+                .warehouseName(product.getWarehouse().getName())
+                .createdAt(w.getCreatedAt())
+                .build();
     }
 
     private ItemWithdrawalResponse toResponse(ItemWithdrawalRequest withdrawal) {

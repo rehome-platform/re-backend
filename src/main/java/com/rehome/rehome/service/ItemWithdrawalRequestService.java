@@ -2,10 +2,12 @@ package com.rehome.rehome.service;
 
 import com.rehome.rehome.dto.request.CreateItemWithdrawalRequest;
 import com.rehome.rehome.dto.request.PayItemWithdrawalFeeRequest;
+import com.rehome.rehome.dto.response.ItemWithdrawalDetailResponse;
 import com.rehome.rehome.dto.response.ItemWithdrawalResponse;
 import com.rehome.rehome.dto.response.PayItemWithdrawalFeeResponse;
 import com.rehome.rehome.entity.auth.Account;
 
+import java.util.List;
 import java.util.UUID;
 
 public interface ItemWithdrawalRequestService {
@@ -21,4 +23,10 @@ public interface ItemWithdrawalRequestService {
     boolean applyMomoFeePaymentResult(String momoOrderId, int resultCode, String transId);
 
     boolean applyVnPayFeePaymentResult(String vnpTxnRef, String responseCode, String transactionNo);
+
+    // Member xem chi tiết một yêu cầu rút hàng của mình
+    ItemWithdrawalDetailResponse getMine(Account account, UUID id);
+
+    // Member xem danh sách yêu cầu rút hàng của mình; status = null/rỗng thì lấy tất cả
+    List<ItemWithdrawalDetailResponse> listMine(Account account, String status);
 }

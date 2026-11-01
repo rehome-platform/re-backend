@@ -12,8 +12,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 /**
- * Lưu file vào ổ đĩa của server. CHỈ dùng cho dev: khi deploy bằng Docker lên Render,
- * filesystem của container bị xóa mỗi lần redeploy/restart nên file sẽ mất.
+ * Lưu file vào ổ đĩa của server. CHỈ dùng cho dev: deploy hiện tại là JAR lên Azure Web App,
+ * app.storage.local-dir là đường dẫn tương đối nên rơi vào wwwroot - bị thay sạch mỗi lần deploy.
  * Khi deploy dùng {@link CloudinaryFileStorageServiceImpl} (app.storage.provider=cloudinary).
  *
  * <p>Là bản mặc định nếu không khai báo {@code app.storage.provider}.

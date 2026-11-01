@@ -20,8 +20,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 /**
- * Lưu file lên Cloudinary. Dùng cho deploy (Render) vì filesystem của container
- * bị xóa mỗi lần redeploy nên {@link LocalFileStorageServiceImpl} không giữ được file.
+ * Lưu file lên Cloudinary. Dùng cho deploy (Azure Web App) vì mỗi lần deploy là thay sạch
+ * wwwroot nên {@link LocalFileStorageServiceImpl} không giữ được file.
  *
  * <p>Bật bằng {@code app.storage.provider=cloudinary}.
  */

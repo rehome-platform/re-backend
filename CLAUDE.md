@@ -33,7 +33,7 @@ Swagger UI: `http://localhost:8080/swagger-ui.html`.
 
 `application.yml` drives everything through `${VAR:default}` placeholders — check it before assuming a value. Key ones: `DB_HOST/DB_PORT/DB_NAME/DB_USERNAME/DB_PASSWORD` (defaults point at local Docker Postgres), `BREVO_API_KEY` (transactional email), `JWT_SECRET`, `GOOGLE_CLIENT_ID` (Google login), `MAIL_FROM`, `STORAGE_PROVIDER` + `CLOUDINARY_CLOUD_NAME/CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET` (file storage, see below). In IntelliJ these are set per-run-config in `.idea/workspace.xml` (machine-local, not committed) — don't assume the committed defaults are what actually runs if that file overrides them (e.g. it was previously pointed at a Supabase instance instead of local Docker).
 
-CI (`.github/workflows/ci.yml`) spins up its own Postgres service container and runs `./mvnw -B clean verify`; on push to `main` it also triggers a Render deploy hook.
+CI (`.github/workflows/ci.yml`) spins up its own Postgres service container and runs `./mvnw -B clean verify`. Deployment is a separate workflow, `.github/workflows/main_rehome.yml`: on push to `main` it runs `mvn clean install` and deploys the JAR to the Azure Web App `rehome` via OIDC login. The two workflows are independent — the Azure one does not wait for CI, it runs the tests again as part of its own build.
 
 ## Git commits & PRs
 
@@ -56,7 +56,7 @@ Controller → Service (interface) → ServiceImpl → Repository (Spring Data J
 Storage is split by what the file *is* — don't move a file between these tiers without re-reading why it's there.
 
 **Images → external storage.** `FileStorageService.store(path, bytes, contentType) → public URL` / `delete(path, contentType)` is the port; pick the impl with `app.storage.provider`:
-- `local` (default) — `LocalFileStorageServiceImpl` writes to `app.storage.local-dir`, served at `/files/**` by `LocalStorageWebConfig` (GET is `permitAll` in `SecurityConfig`). **Dev only**: the Render deploy uses the `Dockerfile` with no volume, so the container filesystem is wiped on every redeploy.
+- `local` (default) — `LocalFileStorageServiceImpl` writes to `app.storage.local-dir`, served at `/files/**` by `LocalStorageWebConfig` (GET is `permitAll` in `SecurityConfig`). **Dev only**: the Azure deploy ships a JAR into `wwwroot`, which is replaced on every deploy, and `app.storage.local-dir` is a relative path so it lands there. (`Dockerfile` is no longer what gets deployed — it only runs the app in Docker locally.)
 - `cloudinary` — `CloudinaryFileStorageServiceImpl`; images go up as `resource_type=image` (extension stripped from `public_id`, Cloudinary re-adds it), PDFs as `raw` (extension kept). Needs the three `cloudinary.*` env vars. `StorageProviderWiringTest` locks the `@ConditionalOnProperty` wiring (two impls of one interface — a wrong condition means a duplicate-bean startup failure).
 
 Client uploads go through `FileUploadController` (`POST /uploads`, `POST /uploads/batch`) → `FileUploadServiceImpl`, which owns all validation: size (`app.storage.max-file-size-bytes`), MIME whitelist (jpeg/png/webp, plus PDF only for folders where `UploadFolder.pdfAllowed`), **magic-byte check against the declared content type** (the `Content-Type` header is client-controlled), and a UUID filename so the client never picks the storage path. `UploadFolder` is the whitelist of destinations — add a constant there rather than accepting a free-form path.

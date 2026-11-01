@@ -13,7 +13,7 @@ spring:
       max-file-size: ${MULTIPART_MAX_FILE_SIZE:10MB}
       max-request-size: ${MULTIPART_MAX_REQUEST_SIZE:50MB}
 
-  # ==================== EMAIL SMTP - BREVO (KHÔNG DÙNG - Render chặn port SMTP) ====================
+  # ==================== EMAIL SMTP - BREVO (KHÔNG DÙNG - PaaS thường chặn port SMTP) ====================
   # mail:
   #   host: ${MAIL_HOST:smtp-relay.brevo.com}
   #   port: ${MAIL_PORT:587}
@@ -70,7 +70,7 @@ springdoc:
 # ==================== APPLICATION CONFIG ====================
 app:
   storage:
-    # local      = ghi vào ổ đĩa server, serve qua /files/** (CHỈ dev - Render xóa sạch mỗi lần redeploy)
+    # local      = ghi vào ổ đĩa server, serve qua /files/** (CHỈ dev - Azure thay sạch wwwroot mỗi lần deploy)
     # cloudinary = upload lên Cloudinary (dùng khi deploy), cần 3 biến cloudinary.* bên dưới
     provider: ${STORAGE_PROVIDER:local}
     local-dir: ${STORAGE_LOCAL_DIR:uploads}

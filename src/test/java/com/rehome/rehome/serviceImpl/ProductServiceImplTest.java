@@ -805,6 +805,7 @@ class ProductServiceImplTest {
     private ConsignmentReceipt receiptOf(Instant confirmedAt) {
         Account member = Account.builder().id(UUID.randomUUID()).build();
         Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).code("Q7").build();
+        moderator.setWarehouse(warehouse);   // Moderator chỉ nhập kho biên nhận thuộc kho mình
         Category category = Category.builder().id(UUID.randomUUID()).code("AK").build();
         ConsignmentForm form = ConsignmentForm.builder()
                 .id(UUID.randomUUID())

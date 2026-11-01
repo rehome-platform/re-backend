@@ -20,6 +20,13 @@ public interface EndOfTermDecisionRepository extends JpaRepository<EndOfTermDeci
     // Quyết định đã sinh ra biên nhận ký gửi lại này (để lấy sản phẩm cũ và giá trước đó)
     Optional<EndOfTermDecision> findByNewReceipt_Id(UUID receiptId);
 
+    // Quyết định RE_CONSIGN đang chờ Moderator của kho chốt giá và điều khoản (chưa có biên nhận mới)
+    @Query("select d from EndOfTermDecision d join fetch d.product p "
+            + "where d.decision = com.rehome.rehome.entity.enums.EndOfTermChoice.RE_CONSIGN "
+            + "and d.newReceipt is null and p.warehouse.id = :warehouseId "
+            + "order by d.decidedAt asc")
+    List<EndOfTermDecision> findPendingPricingByWarehouse(@Param("warehouseId") UUID warehouseId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select d from EndOfTermDecision d where d.id = :id")
     Optional<EndOfTermDecision> findByIdForUpdate(@Param("id") UUID id);

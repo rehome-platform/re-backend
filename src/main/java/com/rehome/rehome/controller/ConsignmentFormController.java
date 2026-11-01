@@ -109,15 +109,19 @@ public class ConsignmentFormController {
 
     @PostMapping("/{id}/approve")
     @PreAuthorize("hasRole('MODERATOR')")
-    public ResponseEntity<ApiResponse<ConsignmentFormResponse>> approve(@PathVariable UUID id) {
-        ConsignmentFormResponse result = consignmentFormService.approve(id);
+    public ResponseEntity<ApiResponse<ConsignmentFormResponse>> approve(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal Account account) {
+        ConsignmentFormResponse result = consignmentFormService.approve(id, account);
         return ResponseEntity.ok(ApiResponse.success(result, 200, "Đã duyệt form"));
     }
 
     @PostMapping("/{id}/inspection/start")
     @PreAuthorize("hasRole('MODERATOR')")
-    public ResponseEntity<ApiResponse<Void>> startInspection(@PathVariable UUID id) {
-        consignmentFormService.startInspection(id);
+    public ResponseEntity<ApiResponse<Void>> startInspection(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal Account account) {
+        consignmentFormService.startInspection(id, account);
         // Cách 1 (khuyên dùng): HTTP 200, body giữ statusCode 204 theo spec
         return ResponseEntity.ok(ApiResponse.success(null, 204, "Đã bắt đầu kiểm định"));
     }
@@ -126,8 +130,9 @@ public class ConsignmentFormController {
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<ConsignmentFormStatusResponse>> reject(
             @PathVariable UUID id,
-            @Valid @RequestBody RejectConsignmentFormRequest request) {
-        ConsignmentFormStatusResponse result = consignmentFormService.reject(id, request);
+            @Valid @RequestBody RejectConsignmentFormRequest request,
+            @AuthenticationPrincipal Account account) {
+        ConsignmentFormStatusResponse result = consignmentFormService.reject(id, request, account);
         return ResponseEntity.ok(ApiResponse.success(result, 200, "Đã từ chối form"));
     }
 
@@ -135,8 +140,9 @@ public class ConsignmentFormController {
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<ConsignmentFormStatusResponse>> returnOnsite(
             @PathVariable UUID id,
-            @Valid @RequestBody ReturnOnsiteRequest request) {
-        ConsignmentFormStatusResponse result = consignmentFormService.returnOnsite(id, request);
+            @Valid @RequestBody ReturnOnsiteRequest request,
+            @AuthenticationPrincipal Account account) {
+        ConsignmentFormStatusResponse result = consignmentFormService.returnOnsite(id, request, account);
         return ResponseEntity.ok(ApiResponse.success(result, 200, "Đã trả hàng tại quầy"));
     }
 

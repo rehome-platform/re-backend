@@ -18,13 +18,13 @@ public interface ConsignmentFormService {
 
     ConsignmentFormDetailResponse getMyForm(Account account, UUID id);
 
-    ConsignmentFormResponse approve(UUID id);
+    ConsignmentFormResponse approve(UUID id, Account moderator);
 
-    void startInspection(UUID id);
+    void startInspection(UUID id, Account moderator);
 
-    ConsignmentFormStatusResponse reject(UUID id, RejectConsignmentFormRequest request);
+    ConsignmentFormStatusResponse reject(UUID id, RejectConsignmentFormRequest request, Account moderator);
     ConsignmentFormDetailResponse update(UUID id, ConsignmentFormRequest request, Account account);
-    ConsignmentFormStatusResponse returnOnsite(UUID id, ReturnOnsiteRequest request);
+    ConsignmentFormStatusResponse returnOnsite(UUID id, ReturnOnsiteRequest request, Account moderator);
 
     // Nháp ký gửi ("Tủ đồ")
     ConsignmentFormDetailResponse createDraft(ConsignmentFormRequest request, Account account);

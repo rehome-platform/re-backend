@@ -141,17 +141,62 @@ class ConsignmentReceiptServiceImplTest {
     // getMyReceipt (API 19)
     // ------------------------------------------------------------------
 
-    // MỚI
+    // Quyền đọc theo Role: Member chỉ của mình, Moderator theo kho, Admin đọc tất cả
+    private Account staff(Role role, Warehouse warehouse) {
+        Account a = new Account();
+        a.setId(UUID.randomUUID());
+        a.setRole(role);
+        a.setWarehouse(warehouse);
+        return a;
+    }
+
     @Test
-    void getMyReceipt_nonMember_throwsNotMemberAccount() {
-        Account moderator = new Account();
-        moderator.setId(UUID.randomUUID());
-        moderator.setRole(Role.MODERATOR);
+    void getMyReceipt_moderatorCungKho_docThanhCong() {
+        ConsignmentReceipt receipt = unconfirmedReceiptOf(member());
+        when(consignmentReceiptRepository.findById(receipt.getId())).thenReturn(Optional.of(receipt));
 
-        assertAppError(() -> service.getMyReceipt(moderator, UUID.randomUUID()),
+        ConsignmentReceiptResponse result =
+                service.getMyReceipt(staff(Role.MODERATOR, receipt.getWarehouse()), receipt.getId());
+
+        assertThat(result.getId()).isEqualTo(receipt.getId());
+    }
+
+    @Test
+    void getMyReceipt_moderatorKhacKho_throws403() {
+        ConsignmentReceipt receipt = unconfirmedReceiptOf(member());
+        when(consignmentReceiptRepository.findById(receipt.getId())).thenReturn(Optional.of(receipt));
+        Warehouse other = Warehouse.builder().id(UUID.randomUUID()).build();
+
+        assertAppError(() -> service.getMyReceipt(staff(Role.MODERATOR, other), receipt.getId()),
+                ErrorCode.CONSIGNMENT_RECEIPT_FORBIDDEN);
+    }
+
+    @Test
+    void getMyReceipt_moderatorChuaGanKho_throws403() {
+        ConsignmentReceipt receipt = unconfirmedReceiptOf(member());
+        when(consignmentReceiptRepository.findById(receipt.getId())).thenReturn(Optional.of(receipt));
+
+        assertAppError(() -> service.getMyReceipt(staff(Role.MODERATOR, null), receipt.getId()),
+                ErrorCode.MODERATOR_NO_WAREHOUSE);
+    }
+
+    @Test
+    void getMyReceipt_admin_docMoiBienNhan() {
+        ConsignmentReceipt receipt = unconfirmedReceiptOf(member());
+        when(consignmentReceiptRepository.findById(receipt.getId())).thenReturn(Optional.of(receipt));
+
+        ConsignmentReceiptResponse result = service.getMyReceipt(staff(Role.ADMIN, null), receipt.getId());
+
+        assertThat(result.getId()).isEqualTo(receipt.getId());
+    }
+
+    @Test
+    void getMyReceipt_organization_throwsNotMemberAccount() {
+        ConsignmentReceipt receipt = unconfirmedReceiptOf(member());
+        when(consignmentReceiptRepository.findById(receipt.getId())).thenReturn(Optional.of(receipt));
+
+        assertAppError(() -> service.getMyReceipt(staff(Role.ORGANIZATION, null), receipt.getId()),
                 ErrorCode.NOT_MEMBER_ACCOUNT);
-
-        verifyNoInteractions(consignmentReceiptRepository);
     }
 
     @Test
@@ -426,11 +471,14 @@ class ConsignmentReceiptServiceImplTest {
     // completeInspection (API 34) - MỚI
     // ------------------------------------------------------------------
 
+    // Kho mà form và Moderator đăng nhập cùng thuộc về (Moderator chỉ kiểm định form của kho mình)
+    private final Warehouse inspectionWarehouse = Warehouse.builder().id(UUID.randomUUID()).build();
+
     private ConsignmentForm formWithStatus(ConsignmentFormStatus status) {
         return ConsignmentForm.builder()
                 .id(UUID.randomUUID())
                 .member(member())
-                .warehouse(Warehouse.builder().id(UUID.randomUUID()).build())
+                .warehouse(inspectionWarehouse)
                 .status(status)
                 .build();
     }
@@ -447,6 +495,7 @@ class ConsignmentReceiptServiceImplTest {
         Account moderator = new Account();
         moderator.setId(UUID.randomUUID());
         moderator.setRole(Role.MODERATOR);
+        moderator.setWarehouse(inspectionWarehouse);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken("moderator1@rehome.com", null, List.of()));
         when(accountRepository.findByEmail("moderator1@rehome.com")).thenReturn(Optional.of(moderator));
@@ -567,13 +616,40 @@ class ConsignmentReceiptServiceImplTest {
         ConsignmentForm form = formWithStatus(ConsignmentFormStatus.INSPECTING);
         when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
         when(consignmentReceiptRepository.existsByConsignmentFormId(form.getId())).thenReturn(false);
-        when(consignmentReceiptRepository.nextReceiptSequence()).thenReturn(1L);   // được gọi trước currentModerator()
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken("ghost@rehome.com", null, List.of()));
         when(accountRepository.findByEmail("ghost@rehome.com")).thenReturn(Optional.empty());
 
         assertAppError(() -> service.completeInspection(form.getId(), completeRequest(BigDecimal.TEN, 30)),
                 ErrorCode.UNAUTHORIZED);
+
+        verify(consignmentReceiptRepository, never()).save(any());
+    }
+
+    @Test
+    void completeInspection_moderatorKhacKho_throws403() {
+        ConsignmentForm form = formWithStatus(ConsignmentFormStatus.INSPECTING);
+        Account moderator = loginAsModerator();
+        moderator.setWarehouse(Warehouse.builder().id(UUID.randomUUID()).build());
+        when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentReceiptRepository.existsByConsignmentFormId(form.getId())).thenReturn(false);
+
+        assertAppError(() -> service.completeInspection(form.getId(), completeRequest(BigDecimal.TEN, 30)),
+                ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
+
+        verify(consignmentReceiptRepository, never()).save(any());
+    }
+
+    @Test
+    void completeInspection_moderatorChuaGanKho_throws403() {
+        ConsignmentForm form = formWithStatus(ConsignmentFormStatus.INSPECTING);
+        Account moderator = loginAsModerator();
+        moderator.setWarehouse(null);
+        when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentReceiptRepository.existsByConsignmentFormId(form.getId())).thenReturn(false);
+
+        assertAppError(() -> service.completeInspection(form.getId(), completeRequest(BigDecimal.TEN, 30)),
+                ErrorCode.MODERATOR_NO_WAREHOUSE);
 
         verify(consignmentReceiptRepository, never()).save(any());
     }

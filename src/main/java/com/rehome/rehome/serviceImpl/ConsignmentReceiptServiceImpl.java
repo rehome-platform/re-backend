@@ -57,16 +57,10 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
     @Override
     @Transactional
     public ConsignmentReceiptResponse getMyReceipt(Account account, UUID id) {
-        if(account.getRole() != Role.MEMBER){
-            throw new AppException(ErrorCode.NOT_MEMBER_ACCOUNT);
-        }
-
         ConsignmentReceipt receipt = consignmentReceiptRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_RECEIPT_NOT_FOUND));
 
-        if (!receipt.getMember().getId().equals(account.getId())) {
-            throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_FORBIDDEN);
-        }
+        authorizeRead(account, receipt);
 
         // SKU chỉ có sau khi nhập kho; chưa có Product thì để null
         String sku = productRepository.findByConsignmentReceiptId(receipt.getId())
@@ -140,6 +134,30 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         return new PdfDownload(receipt.getReceiptNo() + ".pdf", pdf.getContent());
     }
 
+    // Quyền đọc dữ liệu biên nhận: Member chỉ biên nhận của mình; Moderator biên nhận thuộc kho mình;
+    // Admin đọc mọi biên nhận. Quyền tải PDF (getReceiptPdf) giữ nguyên, không đi qua đây.
+    private void authorizeRead(Account account, ConsignmentReceipt receipt) {
+        switch (account.getRole()) {
+            case ADMIN -> {
+                // được đọc theo quyền quản trị
+            }
+            case MODERATOR -> {
+                if (account.getWarehouse() == null) {
+                    throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);                  // 403
+                }
+                if (!receipt.getWarehouse().getId().equals(account.getWarehouse().getId())) {
+                    throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_FORBIDDEN);           // 403
+                }
+            }
+            case MEMBER -> {
+                if (!receipt.getMember().getId().equals(account.getId())) {
+                    throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_FORBIDDEN);           // 403
+                }
+            }
+            default -> throw new AppException(ErrorCode.NOT_MEMBER_ACCOUNT);
+        }
+    }
+
     private static String sha256(byte[] content) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(content);
@@ -168,6 +186,16 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
             throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_ALREADY_EXISTS);                 // 409
         }
 
+        // Moderator chỉ kiểm định form thuộc kho mình phụ trách
+        Account moderator = currentModerator();
+        if (moderator.getWarehouse() == null) {
+            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);                             // 403
+        }
+        if (form.getWarehouse() == null
+                || !form.getWarehouse().getId().equals(moderator.getWarehouse().getId())) {
+            throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);                         // 403
+        }
+
         ConsignmentProperties cfg = consignmentProperties;
         BigDecimal agreedPrice = request.getAgreedPrice().setScale(2, RoundingMode.HALF_UP);
         int termDays = request.getTermLengthDays() != null
@@ -177,7 +205,7 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
                 .receiptNo(generateReceiptNo())
                 .consignmentForm(form)
                 .member(form.getMember())
-                .moderator(currentModerator())
+                .moderator(moderator)
                 .warehouse(form.getWarehouse())
                 .conditionNote(request.getConditionNote().trim())
                 .moderatorNote(request.getModeratorNote() == null || request.getModeratorNote().isBlank()

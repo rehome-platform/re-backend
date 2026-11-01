@@ -103,6 +103,7 @@ public enum ErrorCode {
     MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy Member."),
     // API 28, 29, 30 - hàng đợi
     INVALID_QUEUE_TYPE(HttpStatus.BAD_REQUEST, "type không hợp lệ."),
+    INVALID_FORM_STAGE(HttpStatus.BAD_REQUEST, "stage không hợp lệ. Giá trị hợp lệ: PENDING, APPROVED, INSPECTING, STOCKED_TODAY."),
     QUEUE_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy việc."),
     QUEUE_ITEM_ALREADY_CLAIMED(HttpStatus.CONFLICT, "ALREADY_CLAIMED: việc này đã được người khác nhận."),
     QUEUE_ITEM_NOT_CLAIMED_BY_YOU(HttpStatus.FORBIDDEN, "Bạn không phải người đang nhận việc này."),

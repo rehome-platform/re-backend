@@ -3,6 +3,7 @@ package com.rehome.rehome.controller;
 import com.rehome.rehome.dto.request.CreateDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateLegalChangeRequestRequest;
 import com.rehome.rehome.dto.request.RegisterRequest;
+import com.rehome.rehome.dto.request.RejectLegalChangeRequest;
 import com.rehome.rehome.dto.request.RejectOrganizationRequest;
 import com.rehome.rehome.dto.request.UpdateOrganizationProfileRequest;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
@@ -251,5 +252,35 @@ public class OrganizationProfileController {
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .contentLength(download.content().length)
                 .body(download.content());
+    }
+
+    // ------------------------------------------------------------------
+    // API 131 (F-140): Moderator duyệt / từ chối yêu cầu đổi thông tin pháp lý.
+    // Hàng đợi để xem danh sách là GET /queues?type=LEGAL_CHANGE (API 28, đã có).
+    // ------------------------------------------------------------------
+
+    @PostMapping("/legal-change-requests/{id}/approve")
+    @PreAuthorize("hasRole('MODERATOR')")
+    @Operation(summary = "Moderator duyệt yêu cầu đổi thông tin pháp lý của tổ chức")
+    public ResponseEntity<ApiResponse<LegalChangeRequestResponse>> approveLegalChange(
+            @AuthenticationPrincipal Account account,
+            @PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(
+                organizationService.approveLegalChange(account, id),
+                "Đã duyệt yêu cầu đổi thông tin"));
+    }
+
+    @PostMapping("/legal-change-requests/{id}/reject")
+    @PreAuthorize("hasRole('MODERATOR')")
+    @Operation(summary = "Moderator từ chối yêu cầu đổi thông tin pháp lý của tổ chức")
+    public ResponseEntity<ApiResponse<LegalChangeRequestResponse>> rejectLegalChange(
+            @AuthenticationPrincipal Account account,
+            @PathVariable UUID id,
+            // required = false: body rỗng cũng phải ra 400 "reason là bắt buộc" theo spec,
+            // chứ không ra lỗi parse JSON (handler đó trả shape ApiError khác)
+            @RequestBody(required = false) RejectLegalChangeRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                organizationService.rejectLegalChange(account, id, request),
+                "Đã từ chối yêu cầu đổi thông tin"));
     }
 }

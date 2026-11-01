@@ -26,9 +26,9 @@
         @Column(name = "receipt_no", nullable = false, unique = true, length = 255)
         private String receiptNo;
 
-        // Form đã dẫn đến biên nhận này
-        @OneToOne(fetch = FetchType.LAZY, optional = false)
-        @JoinColumn(name = "consignment_form_id", nullable = false, unique = true)
+        // Form đã dẫn đến biên nhận này. Một form có thể có nhiều biên nhận: lần đầu và các lần ký gửi lại cuối kỳ
+        @ManyToOne(fetch = FetchType.LAZY, optional = false)
+        @JoinColumn(name = "consignment_form_id", nullable = false)
         private ConsignmentForm consignmentForm;
 
         // Bên B, người ký gửi
@@ -119,5 +119,9 @@
         // Tình trạng theo kết quả kiểm định của Moderator (API 34), API 37 copy sang Product
         @Column(name = "condition_note", nullable = true, columnDefinition = "text")
         private String conditionNote;
+
+        // Ghi chú nội bộ của Moderator (khác conditionNote là tình trạng hàng)
+        @Column(name = "moderator_note", nullable = true, columnDefinition = "text")
+        private String moderatorNote;
 
     }

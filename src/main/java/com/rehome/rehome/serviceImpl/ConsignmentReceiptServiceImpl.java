@@ -12,6 +12,8 @@ import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceiptPdf;
+import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
+import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.ConsignmentReceiptMapper;
@@ -19,6 +21,8 @@ import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.ConsignmentFormRepository;
 import com.rehome.rehome.repository.ConsignmentReceiptPdfRepository;
 import com.rehome.rehome.repository.ConsignmentReceiptRepository;
+import com.rehome.rehome.repository.EndOfTermDecisionRepository;
+import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.service.ConsignmentReceiptService;
 import com.rehome.rehome.service.ReceiptPdfService;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +48,8 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
     private final ReceiptPdfService receiptPdfService;   // interface, không phải ReceiptPdfServiceImpl
     private final ConsignmentFormRepository consignmentFormRepository;
     private final AccountRepository accountRepository;
+    private final ProductRepository productRepository;
+    private final EndOfTermDecisionRepository endOfTermDecisionRepository;
 
     private final ConsignmentProperties consignmentProperties;
 
@@ -62,7 +68,17 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
             throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_FORBIDDEN);
         }
 
-        return ConsignmentReceiptMapper.toResponse(receipt);
+        // SKU chỉ có sau khi nhập kho; chưa có Product thì để null
+        String sku = productRepository.findByConsignmentReceiptId(receipt.getId())
+                .map(Product::getId)
+                .orElse(null);
+
+        // Biên nhận ký gửi lại: lấy sản phẩm cũ và giá trước đó từ quyết định cuối kỳ
+        EndOfTermDecision reConsign = endOfTermDecisionRepository
+                .findByNewReceipt_Id(receipt.getId())
+                .orElse(null);
+
+        return ConsignmentReceiptMapper.toResponse(receipt, sku, reConsign);
     }
 
     @Override
@@ -141,7 +157,8 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
     @Override
     @Transactional
     public CompleteInspectionResponse completeInspection(UUID formId, CompleteInspectionRequest request) {
-        ConsignmentForm form = consignmentFormRepository.findById(formId)
+        // Khóa dòng form: không còn ràng buộc unique ở DB nên phải tự chống tạo hai biên nhận cùng lúc
+        ConsignmentForm form = consignmentFormRepository.findByIdForUpdate(formId)
                 .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));      // 404
 
         if (form.getStatus() != ConsignmentFormStatus.INSPECTING) {
@@ -163,6 +180,8 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
                 .moderator(currentModerator())
                 .warehouse(form.getWarehouse())
                 .conditionNote(request.getConditionNote().trim())
+                .moderatorNote(request.getModeratorNote() == null || request.getModeratorNote().isBlank()
+                        ? null : request.getModeratorNote().trim())
                 .agreedPrice(agreedPrice)
                 .floorPrice(agreedPrice.multiply(cfg.getFloorPriceRate()).setScale(2, RoundingMode.HALF_UP))
                 .termLengthDays(termDays)

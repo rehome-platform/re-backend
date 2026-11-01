@@ -15,9 +15,9 @@ import com.rehome.rehome.repository.ConsignmentReceiptRepository;
 import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.service.EndOfTermDecisionService;
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.Year;
@@ -98,6 +98,7 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
                 .moderator(old.getModerator())
                 .warehouse(old.getWarehouse())
                 .conditionNote(old.getConditionNote())
+                .moderatorNote(old.getModeratorNote())
                 .agreedPrice(old.getAgreedPrice())
                 .floorPrice(old.getFloorPrice())
                 .termLengthDays(old.getTermLengthDays())

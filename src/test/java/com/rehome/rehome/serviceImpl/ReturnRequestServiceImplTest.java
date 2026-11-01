@@ -12,14 +12,13 @@ import com.rehome.rehome.dto.response.GhnCreateOrderResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.ReturnRequestResponse;
 import com.rehome.rehome.entity.auth.Account;
-import com.rehome.rehome.entity.enums.InvalidReturnChoice;
 import com.rehome.rehome.entity.enums.OrderStatus;
+import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
 import com.rehome.rehome.entity.enums.ReturnedItemAction;
 import com.rehome.rehome.entity.marketplace.DegradedItemCase;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
-import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.entity.marketplace.ReturnRequestPhoto;
 import com.rehome.rehome.entity.marketplace.Warehouse;
@@ -28,22 +27,20 @@ import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.exception.GhnException;
 import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.repository.DegradedItemCaseRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.ReturnRequestPhotoRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.service.OrderService;
-import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.service.QueueService;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -57,6 +54,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -67,7 +65,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -78,87 +77,90 @@ import static org.mockito.Mockito.when;
 @MockitoSettings(strictness = Strictness.LENIENT)
 class ReturnRequestServiceImplTest {
 
-    @Mock AccountRepository accountRepository;
-    @Mock OrderRepository orderRepository;
-    @Mock OrderItemRepository orderItemRepository;
-    @Mock ReturnRequestRepository returnRequestRepository;
-    @Mock ReturnRequestPhotoRepository returnRequestPhotoRepository;
-    @Mock com.rehome.rehome.repository.DegradedItemCaseRepository degradedItemCaseRepository;
-    @Mock OrderService orderService;
-    @Mock QueueService queueService;
-    @Mock GhnApi ghnApi;
+    private static final String EMAIL = "buyer@rehome.com";
+    private static final String TOKEN = "ghn-token";
+    private static final String SHOP_ID = "ghn-shop";
+
+    private static final UUID BUYER_ID = UUID.randomUUID();
+    private static final UUID ORDER_ID = UUID.randomUUID();
+    private static final UUID RR_ID = UUID.randomUUID();
+
+    @Mock private AccountRepository accountRepository;
+    @Mock private OrderRepository orderRepository;
+    @Mock private OrderItemRepository orderItemRepository;
+    @Mock private ReturnRequestRepository returnRequestRepository;
+    @Mock private ReturnRequestPhotoRepository returnRequestPhotoRepository;
+    @Mock private DegradedItemCaseRepository degradedItemCaseRepository;
+    @Mock private OrderService orderService;
+    @Mock private QueueService queueService;
+    @Mock private GhnApi ghnApi;
 
     @InjectMocks
-    ReturnRequestServiceImpl service;
+    private ReturnRequestServiceImpl service;
 
-    static final String EMAIL = "buyer@example.com";
-    static final String GHN_TOKEN = "ghn-token";
-    static final String GHN_SHOP_ID = "12345";
-    static final long REQUEST_WINDOW_DAYS = 7;
-    static final long HANDOVER_DEADLINE_DAYS = 3;
-    static final long PICKUP_DEADLINE_DAYS = 5;
-
-    Account buyer;
-    Account otherBuyer;
-    Account moderator;
-    UUID orderId;
-    Order order;
-    UUID returnId;
+    private Account buyer;
+    private Account moderator;
+    private Order order;
 
     @BeforeEach
-    void setup() {
-        ReflectionTestUtils.setField(service, "requestWindowDays", REQUEST_WINDOW_DAYS);
-        ReflectionTestUtils.setField(service, "handoverDeadlineDays", HANDOVER_DEADLINE_DAYS);
-        ReflectionTestUtils.setField(service, "pickupDeadlineDays", PICKUP_DEADLINE_DAYS);
-        ReflectionTestUtils.setField(service, "ghnToken", GHN_TOKEN);
-        ReflectionTestUtils.setField(service, "ghnShopId", GHN_SHOP_ID);
+    void setUp() {
+        ReflectionTestUtils.setField(service, "requestWindowDays", 3L);
+        ReflectionTestUtils.setField(service, "handoverDeadlineDays", 3L);
+        ReflectionTestUtils.setField(service, "pickupDeadlineDays", 7L);
+        ReflectionTestUtils.setField(service, "ghnToken", TOKEN);
+        ReflectionTestUtils.setField(service, "ghnShopId", SHOP_ID);
         ReflectionTestUtils.setField(service, "defaultPackageWeightGrams", 500);
-        ReflectionTestUtils.setField(service, "defaultPackageLengthCm", 30);
-        ReflectionTestUtils.setField(service, "defaultPackageWidthCm", 20);
+        ReflectionTestUtils.setField(service, "defaultPackageLengthCm", 20);
+        ReflectionTestUtils.setField(service, "defaultPackageWidthCm", 15);
         ReflectionTestUtils.setField(service, "defaultPackageHeightCm", 10);
 
-        buyer = Account.builder().id(UUID.randomUUID()).email(EMAIL).build();
-        otherBuyer = Account.builder().id(UUID.randomUUID()).email("other@example.com").build();
-        moderator = Account.builder().id(UUID.randomUUID()).email("moderator@example.com").build();
+        buyer = mock(Account.class);
+        when(buyer.getId()).thenReturn(BUYER_ID);
 
-        orderId = UUID.randomUUID();
-        order = Order.builder()
-                .id(orderId)
-                .orderNo("OD-2026-000008")
-                .buyer(buyer)
-                .status(OrderStatus.DELIVERED)
-                .deliveredAt(Instant.now().minus(1, ChronoUnit.DAYS))
-                .subtotal(new BigDecimal("600000"))
-                .build();
+        moderator = mock(Account.class);
 
-        returnId = UUID.randomUUID();
+        order = mock(Order.class);
+        when(order.getId()).thenReturn(ORDER_ID);
+        when(order.getBuyer()).thenReturn(buyer);
+        when(order.getWarehouse()).thenReturn(mock(Warehouse.class));
+        when(order.getSubtotal()).thenReturn(new BigDecimal("1000000"));
 
         when(accountRepository.findByEmail(EMAIL)).thenReturn(Optional.of(buyer));
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
     }
 
-    // ==================== helpers ====================
+    // ------------------------------------------------------------------ helpers
 
-    private ReturnRequest returnRequest(ReturnRequestStatus status) {
-        ReturnRequest r = ReturnRequest.builder()
-                .id(returnId)
-                .order(order)
-                .reason("Không đúng mô tả")
-                .status(status)
-                .build();
-        when(returnRequestRepository.findById(returnId)).thenReturn(Optional.of(r));
-        return r;
+    private ReturnRequest givenReturnRequest(ReturnRequestStatus status) {
+        ReturnRequest rr = ReturnRequest.builder().order(order).status(status).build();
+        ReflectionTestUtils.setField(rr, "id", RR_ID);
+        when(returnRequestRepository.findById(RR_ID)).thenReturn(Optional.of(rr));
+        return rr;
     }
 
-    private CreateReturnRequestRequest createRequest(String orderIdValue, String reason, List<String> photos) {
+    private void givenOtherBuyerOwnsOrder() {
+        Account other = mock(Account.class);
+        when(other.getId()).thenReturn(UUID.randomUUID());
+        when(order.getBuyer()).thenReturn(other);
+    }
+
+    private CreateReturnRequestRequest createReq(String orderId, String reason, List<String> photos) {
         CreateReturnRequestRequest req = mock(CreateReturnRequestRequest.class);
-        when(req.getOrderId()).thenReturn(orderIdValue);
+        when(req.getOrderId()).thenReturn(orderId);
         when(req.getReason()).thenReturn(reason);
         when(req.getPhotoUrls()).thenReturn(photos);
         return req;
     }
 
-    private ResolveReturnRequestRequest resolveRequest(String resolution, String action, String note) {
+    private StartInspectionRequest inspectReq(String note, Boolean matches, Boolean degraded, Boolean counterfeit) {
+        StartInspectionRequest req = mock(StartInspectionRequest.class);
+        when(req.getConditionNote()).thenReturn(note);
+        when(req.getMatchesOriginal()).thenReturn(matches);
+        when(req.getDegraded()).thenReturn(degraded);
+        when(req.getCounterfeitSuspected()).thenReturn(counterfeit);
+        return req;
+    }
+
+    private ResolveReturnRequestRequest resolveReq(String resolution, String action, String note) {
         ResolveReturnRequestRequest req = mock(ResolveReturnRequestRequest.class);
         when(req.getResolution()).thenReturn(resolution);
         when(req.getAction()).thenReturn(action);
@@ -166,1470 +168,1070 @@ class ReturnRequestServiceImplTest {
         return req;
     }
 
-    private InvalidReturnChoiceRequest choiceRequest(InvalidReturnChoice choice) {
-        InvalidReturnChoiceRequest req = mock(InvalidReturnChoiceRequest.class);
-        when(req.getChoice()).thenReturn(choice);
-        return req;
-    }
-
-    private RejectReturnRequestRequest rejectRequest(String reason) {
+    private RejectReturnRequestRequest rejectReq(String reason) {
         RejectReturnRequestRequest req = mock(RejectReturnRequestRequest.class);
         when(req.getReason()).thenReturn(reason);
         return req;
     }
 
-    private StartInspectionRequest startInspectionRequest(String conditionNote) {
-        return startInspectionRequest(true, false, false, conditionNote);
-    }
-
-    private StartInspectionRequest startInspectionRequest(
-            Boolean matchesOriginal, Boolean degraded, Boolean counterfeitSuspected, String conditionNote) {
-        StartInspectionRequest req = mock(StartInspectionRequest.class);
-        when(req.getMatchesOriginal()).thenReturn(matchesOriginal);
-        when(req.getDegraded()).thenReturn(degraded);
-        when(req.getCounterfeitSuspected()).thenReturn(counterfeitSuspected);
-        when(req.getConditionNote()).thenReturn(conditionNote);
-        return req;
-    }
-
-    /** Giả lập JPA gán id khi save yêu cầu trả hàng mới. */
-    private void stubSaveAssignsId() {
-        when(returnRequestRepository.save(any(ReturnRequest.class))).thenAnswer(inv -> {
-            ReturnRequest r = inv.getArgument(0);
-            if (r.getId() == null) {
-                ReflectionTestUtils.setField(r, "id", returnId);
-            }
-            return r;
-        });
-    }
-
-    private GhnCreateOrderResponse ghnResponse(String orderCode) {
-        GhnCreateOrderResponse resp = mock(GhnCreateOrderResponse.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
-        when(resp.getData().getOrderCode()).thenReturn(orderCode);
-        return resp;
-    }
-
-    private void attachShippingData() {
-        Warehouse warehouse = Warehouse.builder()
-                .id(UUID.randomUUID())
-                .name("Kho Quận 7")
-                .phone("02812345678")
-                .address("1 Nguyễn Văn Linh")
-                .wardName("Tân Phú")
-                .districtName("Quận 7")
-                .provinceName("TP.HCM")
-                .isNewAddress(false)
-                .build();
-        order.setWarehouse(warehouse);
-        order.setShippingRecipientName("Tạ Thị Ngọc Anh");
-        order.setShippingPhone("0912345678");
-        order.setShippingAddressDetail("12 Nguyễn Trãi");
-        order.setShippingWardName("Bến Thành");
-        order.setShippingDistrictName("Quận 1");
-        order.setShippingProvinceName("TP.HCM");
-        order.setShippingIsNewAddress(false);
-    }
-
-    private void stubItems() {
-        Product p1 = Product.builder().id("Q7-AK-000845").name("Áo khoác Uniqlo").build();
-        Product p2 = Product.builder().id("Q7-AK-000846").name("Đầm Zara").build();
-        OrderItem i1 = OrderItem.builder().order(order).product(p1).priceAtOrder(new BigDecimal("350000")).build();
-        OrderItem i2 = OrderItem.builder().order(order).product(p2).priceAtOrder(new BigDecimal("250000")).build();
-        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId)).thenReturn(List.of(i1, i2));
-    }
-
-    // ==================== create ====================
-
-    @ParameterizedTest
-    @ValueSource(strings = {"", "   "})
-    @DisplayName("create: orderId rỗng/trắng -> BadRequest")
-    void create_blankOrderId_throws(String blank) {
-        CreateReturnRequestRequest req = createRequest(blank, "Lỗi", List.of("a.jpg"));
-
-        assertThatThrownBy(() -> service.create(EMAIL, req)).isInstanceOf(BadRequestException.class);
-
-        verifyNoInteractions(returnRequestRepository);
-    }
-
-    @Test
-    @DisplayName("create: orderId null -> BadRequest")
-    void create_nullOrderId_throws() {
-        CreateReturnRequestRequest req = createRequest(null, "Lỗi", List.of("a.jpg"));
-
-        assertThatThrownBy(() -> service.create(EMAIL, req)).isInstanceOf(BadRequestException.class);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"", "  "})
-    @DisplayName("create: reason rỗng/trắng -> BadRequest")
-    void create_blankReason_throws(String blank) {
-        CreateReturnRequestRequest req = createRequest(orderId.toString(), blank, List.of("a.jpg"));
-
-        assertThatThrownBy(() -> service.create(EMAIL, req)).isInstanceOf(BadRequestException.class);
-
-        verifyNoInteractions(returnRequestRepository);
-    }
-
-    @Test
-    @DisplayName("create: photoUrls null -> BadRequest (cần ít nhất 1 ảnh)")
-    void create_nullPhotos_throws() {
-        CreateReturnRequestRequest req = createRequest(orderId.toString(), "Lỗi", null);
-
-        assertThatThrownBy(() -> service.create(EMAIL, req)).isInstanceOf(BadRequestException.class);
-    }
-
-    @Test
-    @DisplayName("create: photoUrls rỗng -> BadRequest")
-    void create_emptyPhotos_throws() {
-        CreateReturnRequestRequest req = createRequest(orderId.toString(), "Lỗi", List.of());
-
-        assertThatThrownBy(() -> service.create(EMAIL, req)).isInstanceOf(BadRequestException.class);
-    }
-
-    @Test
-    @DisplayName("create: account không tồn tại -> IllegalArgumentException")
-    void create_accountNotFound_throws() {
-        when(accountRepository.findByEmail(EMAIL)).thenReturn(Optional.empty());
-        CreateReturnRequestRequest req = createRequest(orderId.toString(), "Lỗi", List.of("a.jpg"));
-
-        assertThatThrownBy(() -> service.create(EMAIL, req)).isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    @DisplayName("create: orderId không phải UUID -> BadRequest")
-    void create_invalidUuid_throws() {
-        CreateReturnRequestRequest req = createRequest("not-a-uuid", "Lỗi", List.of("a.jpg"));
-
-        assertThatThrownBy(() -> service.create(EMAIL, req)).isInstanceOf(BadRequestException.class);
-    }
-
-    @Test
-    @DisplayName("create: không tìm thấy đơn -> IllegalArgumentException")
-    void create_orderNotFound_throws() {
-        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
-        CreateReturnRequestRequest req = createRequest(orderId.toString(), "Lỗi", List.of("a.jpg"));
-
-        assertThatThrownBy(() -> service.create(EMAIL, req)).isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    @DisplayName("create: đơn của người khác -> Forbidden")
-    void create_notOwner_throwsForbidden() {
-        order.setBuyer(otherBuyer);
-        CreateReturnRequestRequest req = createRequest(orderId.toString(), "Lỗi", List.of("a.jpg"));
-
-        assertThatThrownBy(() -> service.create(EMAIL, req)).isInstanceOf(ForbiddenException.class);
-
-        verify(returnRequestRepository, never()).save(any());
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = OrderStatus.class, names = {"DELIVERED", "COMPLETED"}, mode = EnumSource.Mode.EXCLUDE)
-    @DisplayName("create: đơn chưa giao hoặc đã quá hạn xử lý -> ORDER_NOT_RETURNABLE")
-    void create_orderNotDelivered_throwsConflict(OrderStatus status) {
-        order.setStatus(status);
-        CreateReturnRequestRequest req = createRequest(orderId.toString(), "Lỗi", List.of("a.jpg"));
-
-        assertThatThrownBy(() -> service.create(EMAIL, req))
-                .isInstanceOf(ConflictException.class)
-                .extracting(ex -> ((ConflictException) ex).getCode())
-                .isEqualTo("ORDER_NOT_RETURNABLE");
-    }
-
-    @Test
-    @DisplayName("create: DELIVERED nhưng deliveredAt null -> ORDER_NOT_RETURNABLE")
-    void create_deliveredAtNull_throwsConflict() {
-        order.setDeliveredAt(null);
-        CreateReturnRequestRequest req = createRequest(orderId.toString(), "Lỗi", List.of("a.jpg"));
-
-        assertThatThrownBy(() -> service.create(EMAIL, req))
-                .isInstanceOf(ConflictException.class)
-                .extracting(ex -> ((ConflictException) ex).getCode())
-                .isEqualTo("ORDER_NOT_RETURNABLE");
-    }
-
-    @Test
-    @DisplayName("create: quá hạn gửi yêu cầu trả hàng -> RETURN_WINDOW_EXPIRED")
-    void create_windowExpired_throwsConflict() {
-        order.setDeliveredAt(Instant.now().minus(REQUEST_WINDOW_DAYS + 1, ChronoUnit.DAYS));
-        CreateReturnRequestRequest req = createRequest(orderId.toString(), "Lỗi", List.of("a.jpg"));
-
-        assertThatThrownBy(() -> service.create(EMAIL, req))
-                .isInstanceOf(ConflictException.class)
-                .extracting(ex -> ((ConflictException) ex).getCode())
-                .isEqualTo("RETURN_WINDOW_EXPIRED");
-    }
-
-    @Test
-    @DisplayName("create: đơn đã có yêu cầu đang xử lý -> RETURN_REQUEST_EXISTS")
-    void create_openRequestExists_throwsConflict() {
-        when(returnRequestRepository.existsByOrder_IdAndStatusIn(eq(orderId), anyList())).thenReturn(true);
-        CreateReturnRequestRequest req = createRequest(orderId.toString(), "Lỗi", List.of("a.jpg"));
-
-        assertThatThrownBy(() -> service.create(EMAIL, req))
-                .isInstanceOf(ConflictException.class)
-                .extracting(ex -> ((ConflictException) ex).getCode())
-                .isEqualTo("RETURN_REQUEST_EXISTS");
-
-        verify(returnRequestRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("create: kiểm tra yêu cầu đang mở theo đúng 4 trạng thái PENDING/APPROVED/SHIPPED_BACK/INSPECTING")
-    void create_checksOpenStatuses() {
-        stubSaveAssignsId();
-        CreateReturnRequestRequest req = createRequest(orderId.toString(), "Lỗi", List.of("a.jpg"));
-
-        service.create(EMAIL, req);
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<ReturnRequestStatus>> captor = ArgumentCaptor.forClass(List.class);
-        verify(returnRequestRepository).existsByOrder_IdAndStatusIn(eq(orderId), captor.capture());
-        assertThat(captor.getValue()).containsExactlyInAnyOrder(
-                ReturnRequestStatus.PENDING, ReturnRequestStatus.APPROVED,
-                ReturnRequestStatus.SHIPPED_BACK, ReturnRequestStatus.INSPECTING);
-    }
-
-    @Test
-    @DisplayName("create: thành công -> lưu PENDING kèm hạn bàn giao tạm, lưu ảnh, trả response")
-    void create_success() {
-        stubSaveAssignsId();
-        List<String> photos = List.of("a.jpg", "b.jpg");
-        CreateReturnRequestRequest req = createRequest(orderId.toString(), "Không đúng mô tả", photos);
-
-        Instant before = Instant.now();
-        ReturnRequestResponse response = service.create(EMAIL, req);
-
-        ArgumentCaptor<ReturnRequest> captor = ArgumentCaptor.forClass(ReturnRequest.class);
-        verify(returnRequestRepository).save(captor.capture());
-        ReturnRequest saved = captor.getValue();
-        assertThat(saved.getOrder()).isSameAs(order);
-        assertThat(saved.getReason()).isEqualTo("Không đúng mô tả");
-        assertThat(saved.getStatus()).isEqualTo(ReturnRequestStatus.PENDING);
-        assertThat(saved.getHandoverDeadline())
-                .isAfter(before.plus(HANDOVER_DEADLINE_DAYS, ChronoUnit.DAYS).minusSeconds(5))
-                .isBefore(Instant.now().plus(HANDOVER_DEADLINE_DAYS, ChronoUnit.DAYS).plusSeconds(5));
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<ReturnRequestPhoto>> photoCaptor = ArgumentCaptor.forClass(List.class);
-        verify(returnRequestPhotoRepository).saveAll(photoCaptor.capture());
-        assertThat(photoCaptor.getValue()).extracting(ReturnRequestPhoto::getImageUrl)
-                .containsExactly("a.jpg", "b.jpg");
-        assertThat(photoCaptor.getValue()).allSatisfy(p -> assertThat(p.getReturnRequest()).isSameAs(saved));
-
-        assertThat(response.getId()).isEqualTo(returnId.toString());
-        assertThat(response.getOrderId()).isEqualTo(orderId.toString());
-        assertThat(response.getOrderNo()).isEqualTo("OD-2026-000008");
-        assertThat(response.getStatus()).isEqualTo("PENDING");
-        assertThat(response.getReason()).isEqualTo("Không đúng mô tả");
-        assertThat(response.getPhotoUrls()).containsExactly("a.jpg", "b.jpg");
-        verify(queueService).enqueue(eq(QueueType.RETURN), eq(returnId.toString()), any());
-    }
-
-    @Test
-    @DisplayName("create: đơn đã COMPLETED (buyer đã bấm xác nhận) nhưng còn trong hạn 3 ngày vẫn được trả hàng")
-    void create_completedOrderWithinWindow_isAllowed() {
-        stubSaveAssignsId();
-        order.setStatus(OrderStatus.COMPLETED);
-        CreateReturnRequestRequest req = createRequest(orderId.toString(), "Lỗi", List.of("a.jpg"));
-
-        ReturnRequestResponse response = service.create(EMAIL, req);
-
-        assertThat(response.getStatus()).isEqualTo("PENDING");
-        verify(returnRequestRepository).save(any());
-    }
-
-    @Test
-    @DisplayName("create: đúng hạn chót (giao 7 ngày trước trừ vài giây) vẫn được phép")
-    void create_justInsideWindow_isAllowed() {
-        stubSaveAssignsId();
-        order.setDeliveredAt(Instant.now().minus(REQUEST_WINDOW_DAYS, ChronoUnit.DAYS).plusSeconds(60));
-        CreateReturnRequestRequest req = createRequest(orderId.toString(), "Lỗi", List.of("a.jpg"));
-
-        ReturnRequestResponse response = service.create(EMAIL, req);
-
-        assertThat(response.getStatus()).isEqualTo("PENDING");
-    }
-
-    // ==================== getMyReturnRequests ====================
-
-    @Test
-    @DisplayName("getMyReturnRequests: account không tồn tại -> IllegalArgumentException")
-    void getMyReturnRequests_accountNotFound_throws() {
-        when(accountRepository.findByEmail(EMAIL)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.getMyReturnRequests(EMAIL, 0, 10))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    @DisplayName("getMyReturnRequests: trả danh sách của chính buyer, kèm ảnh")
-    void getMyReturnRequests_success() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.PENDING);
-        when(returnRequestRepository.findByOrder_Buyer_IdOrderByCreatedAtDesc(eq(buyer.getId()), any(Pageable.class)))
-                .thenReturn(new PageImpl<>(List.of(r)));
-        when(returnRequestPhotoRepository.findAllByReturnRequest_IdOrderByIdAsc(returnId))
-                .thenReturn(List.of(ReturnRequestPhoto.builder().returnRequest(r).imageUrl("a.jpg").build()));
-
-        PageResponse<ReturnRequestResponse> result = service.getMyReturnRequests(EMAIL, 0, 10);
-
-        assertThat(result.getContent()).hasSize(1);
-        assertThat(result.getContent().get(0).getId()).isEqualTo(returnId.toString());
-        assertThat(result.getContent().get(0).getPhotoUrls()).containsExactly("a.jpg");
-    }
-
-    @Test
-    @DisplayName("getMyReturnRequests: page âm -> 0, size < 1 -> 1")
-    void getMyReturnRequests_clampsPaging() {
-        when(returnRequestRepository.findByOrder_Buyer_IdOrderByCreatedAtDesc(any(), any(Pageable.class)))
-                .thenReturn(Page.empty());
-
-        service.getMyReturnRequests(EMAIL, -5, 0);
-
-        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        verify(returnRequestRepository).findByOrder_Buyer_IdOrderByCreatedAtDesc(eq(buyer.getId()), captor.capture());
-        assertThat(captor.getValue().getPageNumber()).isZero();
-        assertThat(captor.getValue().getPageSize()).isEqualTo(1);
-    }
-
-    // ==================== getMyReturnRequest ====================
-
-    @Test
-    @DisplayName("getMyReturnRequest: không tìm thấy -> IllegalArgumentException")
-    void getMyReturnRequest_notFound_throws() {
-        when(returnRequestRepository.findById(returnId)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.getMyReturnRequest(EMAIL, returnId))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    @DisplayName("getMyReturnRequest: của người khác -> Forbidden")
-    void getMyReturnRequest_notOwner_throwsForbidden() {
-        returnRequest(ReturnRequestStatus.PENDING);
-        order.setBuyer(otherBuyer);
-
-        assertThatThrownBy(() -> service.getMyReturnRequest(EMAIL, returnId))
-                .isInstanceOf(ForbiddenException.class);
-    }
-
-    @Test
-    @DisplayName("getMyReturnRequest: của mình -> trả chi tiết kèm ảnh và số tiền hoàn")
-    void getMyReturnRequest_success() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.VALID);
-        r.setInvalidReturnChoice(null);
-        order.setRefundAmount(new BigDecimal("625000"));
-        when(returnRequestPhotoRepository.findAllByReturnRequest_IdOrderByIdAsc(returnId))
-                .thenReturn(List.of(ReturnRequestPhoto.builder().returnRequest(r).imageUrl("x.jpg").build()));
-
-        ReturnRequestResponse response = service.getMyReturnRequest(EMAIL, returnId);
-
-        assertThat(response.getId()).isEqualTo(returnId.toString());
-        assertThat(response.getStatus()).isEqualTo("VALID");
-        assertThat(response.getPhotoUrls()).containsExactly("x.jpg");
-        assertThat(response.getRefundAmount()).isEqualByComparingTo("625000");
-        assertThat(response.getInvalidReturnChoice()).isNull();
-    }
-
-    // ==================== getQueue ====================
-
-    @SuppressWarnings("unchecked")
-    private List<ReturnRequestStatus> captureQueueStatuses() {
-        ArgumentCaptor<List<ReturnRequestStatus>> captor = ArgumentCaptor.forClass(List.class);
-        verify(returnRequestRepository).findByStatusInOrderByCreatedAtAsc(captor.capture(), any(Pageable.class));
-        return captor.getValue();
-    }
-
-    @Test
-    @DisplayName("getQueue: không truyền status -> lấy 4 trạng thái đang mở")
-    void getQueue_noStatus_usesOpenStatuses() {
-        when(returnRequestRepository.findByStatusInOrderByCreatedAtAsc(anyList(), any(Pageable.class)))
-                .thenReturn(Page.empty());
-
-        service.getQueue(null, 0, 10);
-
-        assertThat(captureQueueStatuses()).containsExactlyInAnyOrder(
-                ReturnRequestStatus.PENDING, ReturnRequestStatus.APPROVED,
-                ReturnRequestStatus.SHIPPED_BACK, ReturnRequestStatus.INSPECTING);
-    }
-
-    @Test
-    @DisplayName("getQueue: status trắng -> coi như không truyền")
-    void getQueue_blankStatus_usesOpenStatuses() {
-        when(returnRequestRepository.findByStatusInOrderByCreatedAtAsc(anyList(), any(Pageable.class)))
-                .thenReturn(Page.empty());
-
-        service.getQueue("   ", 0, 10);
-
-        assertThat(captureQueueStatuses()).hasSize(4);
-    }
-
-    @Test
-    @DisplayName("getQueue: status chữ thường, có khoảng trắng -> parse được")
-    void getQueue_statusIsNormalized() {
-        when(returnRequestRepository.findByStatusInOrderByCreatedAtAsc(anyList(), any(Pageable.class)))
-                .thenReturn(Page.empty());
-
-        service.getQueue("  inspecting ", 0, 10);
-
-        assertThat(captureQueueStatuses()).containsExactly(ReturnRequestStatus.INSPECTING);
-    }
-
-    @Test
-    @DisplayName("getQueue: status không hợp lệ -> BadRequest")
-    void getQueue_invalidStatus_throws() {
-        assertThatThrownBy(() -> service.getQueue("NOPE", 0, 10)).isInstanceOf(BadRequestException.class);
-
-        verify(returnRequestRepository, never()).findByStatusInOrderByCreatedAtAsc(any(), any());
-    }
-
-    @Test
-    @DisplayName("getQueue: map kết quả kèm ảnh, page âm / size 0 được chặn về 0 / 1")
-    void getQueue_mapsResultAndClampsPaging() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.PENDING);
-        when(returnRequestRepository.findByStatusInOrderByCreatedAtAsc(anyList(), any(Pageable.class)))
-                .thenReturn(new PageImpl<>(List.of(r)));
-
-        PageResponse<ReturnRequestResponse> result = service.getQueue(null, -1, 0);
-
-        assertThat(result.getContent()).hasSize(1);
-        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        verify(returnRequestRepository).findByStatusInOrderByCreatedAtAsc(anyList(), captor.capture());
-        assertThat(captor.getValue().getPageNumber()).isZero();
-        assertThat(captor.getValue().getPageSize()).isEqualTo(1);
-    }
-
-    // ==================== getDetailForModerator ====================
-
-    @Test
-    @DisplayName("getDetailForModerator: không tìm thấy -> IllegalArgumentException")
-    void getDetailForModerator_notFound_throws() {
-        when(returnRequestRepository.findById(returnId)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.getDetailForModerator(returnId))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    @DisplayName("getDetailForModerator: không kiểm tra chủ sở hữu, trả đầy đủ thông tin")
-    void getDetailForModerator_success() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.APPROVED);
-        r.setGhnReturnTrackingCode("GHN123");
-        r.setInvalidReturnChoice(InvalidReturnChoice.SHIP_BACK);
-        order.setBuyer(otherBuyer);
-
-        ReturnRequestResponse response = service.getDetailForModerator(returnId);
-
-        assertThat(response.getStatus()).isEqualTo("APPROVED");
-        assertThat(response.getGhnReturnTrackingCode()).isEqualTo("GHN123");
-        assertThat(response.getInvalidReturnChoice()).isEqualTo("SHIP_BACK");
-    }
-
-    // ==================== approve ====================
-
-    @Test
-    @DisplayName("approve: không tìm thấy yêu cầu -> IllegalArgumentException")
-    void approve_notFound_throws() {
-        when(returnRequestRepository.findById(returnId)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.approve(returnId)).isInstanceOf(IllegalArgumentException.class);
-
-        verifyNoInteractions(ghnApi);
-    }
-
-    @Test
-    @DisplayName("approve: đã có mã vận đơn trả -> trả kết quả cũ, KHÔNG gọi GHN lần nữa, không save")
-    void approve_alreadyHasTrackingCode_isIdempotent() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.APPROVED);
-        r.setGhnReturnTrackingCode("GHN-OLD");
-
-        ReturnRequestResponse response = service.approve(returnId);
-
-        assertThat(response.getGhnReturnTrackingCode()).isEqualTo("GHN-OLD");
-        verifyNoInteractions(ghnApi);
-        verify(returnRequestRepository, never()).save(any());
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = ReturnRequestStatus.class, names = "PENDING", mode = EnumSource.Mode.EXCLUDE)
-    @DisplayName("approve: không ở trạng thái PENDING -> RETURN_NOT_PENDING")
-    void approve_notPending_throwsConflict(ReturnRequestStatus status) {
-        returnRequest(status);
-
-        assertThatThrownBy(() -> service.approve(returnId))
-                .isInstanceOf(ConflictException.class)
-                .extracting(ex -> ((ConflictException) ex).getCode())
-                .isEqualTo("RETURN_NOT_PENDING");
-
-        verifyNoInteractions(ghnApi);
-    }
-
-    @Test
-    @DisplayName("approve: GHN ném lỗi -> GhnException, không đổi trạng thái, không save")
-    void approve_ghnThrows_throwsGhnException() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.PENDING);
-        attachShippingData();
-        stubItems();
-        when(ghnApi.createOrder(anyString(), anyString(), any(GhnCreateOrderRequest.class)))
-                .thenThrow(new RuntimeException("timeout"));
-
-        assertThatThrownBy(() -> service.approve(returnId)).isInstanceOf(GhnException.class);
-
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.PENDING);
-        assertThat(r.getGhnReturnTrackingCode()).isNull();
-        verify(returnRequestRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("approve: GHN trả null -> GhnException")
-    void approve_ghnReturnsNull_throwsGhnException() {
-        returnRequest(ReturnRequestStatus.PENDING);
-        attachShippingData();
-        stubItems();
-        when(ghnApi.createOrder(anyString(), anyString(), any(GhnCreateOrderRequest.class))).thenReturn(null);
-
-        assertThatThrownBy(() -> service.approve(returnId)).isInstanceOf(GhnException.class);
-
-        verify(returnRequestRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("approve: GHN trả data null -> GhnException")
-    void approve_ghnDataNull_throwsGhnException() {
-        returnRequest(ReturnRequestStatus.PENDING);
-        attachShippingData();
-        stubItems();
-        GhnCreateOrderResponse resp = mock(GhnCreateOrderResponse.class);
-        when(resp.getData()).thenReturn(null);
-        when(ghnApi.createOrder(anyString(), anyString(), any(GhnCreateOrderRequest.class))).thenReturn(resp);
-
-        assertThatThrownBy(() -> service.approve(returnId)).isInstanceOf(GhnException.class);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"", "   "})
-    @DisplayName("approve: GHN trả order_code rỗng -> GhnException")
-    void approve_ghnBlankOrderCode_throwsGhnException(String blank) {
-        returnRequest(ReturnRequestStatus.PENDING);
-        attachShippingData();
-        stubItems();
-
-        GhnCreateOrderResponse response = ghnResponse(blank);
-
-        when(ghnApi.createOrder(
-                anyString(),
-                anyString(),
-                any(GhnCreateOrderRequest.class)
-        )).thenReturn(response);
-
-        assertThatThrownBy(() -> service.approve(returnId))
-                .isInstanceOf(GhnException.class);
-
-        verify(returnRequestRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("approve: thành công -> APPROVED, lưu mã vận đơn, đặt lại hạn bàn giao")
-    void approve_success_updatesRequest() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.PENDING);
-        r.setHandoverDeadline(Instant.now().plus(10, ChronoUnit.MINUTES));
-
-        attachShippingData();
-        stubItems();
-
-        GhnCreateOrderResponse response = ghnResponse("GHNRT001");
-
-        when(ghnApi.createOrder(
-                eq(GHN_TOKEN),
-                eq(GHN_SHOP_ID),
-                any(GhnCreateOrderRequest.class)
-        )).thenReturn(response);
-
-        Instant before = Instant.now();
-
-        ReturnRequestResponse responseResult = service.approve(returnId);
-
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.APPROVED);
-        assertThat(r.getGhnReturnTrackingCode()).isEqualTo("GHNRT001");
-
-        assertThat(r.getHandoverDeadline())
-                .isAfter(before.plus(HANDOVER_DEADLINE_DAYS, ChronoUnit.DAYS).minusSeconds(5));
-
-        verify(returnRequestRepository).save(r);
-
-        assertThat(responseResult.getStatus()).isEqualTo("APPROVED");
-        assertThat(responseResult.getGhnReturnTrackingCode()).isEqualTo("GHNRT001");
-    }
-
-    @Test
-    @DisplayName("approve: vận đơn chiều ngược - lấy tại địa chỉ người mua, giao về kho, COD = 0")
-    void approve_buildsReverseShipmentRequest() {
-        returnRequest(ReturnRequestStatus.PENDING);
-        attachShippingData();
-        stubItems();
-
-        GhnCreateOrderResponse response = ghnResponse("GHNRT001");
-
-        when(ghnApi.createOrder(
-                anyString(),
-                anyString(),
-                any(GhnCreateOrderRequest.class)
-        )).thenReturn(response);
-
-        service.approve(returnId);
-
-        ArgumentCaptor<GhnCreateOrderRequest> captor =
-                ArgumentCaptor.forClass(GhnCreateOrderRequest.class);
-
-        verify(ghnApi).createOrder(
-                eq(GHN_TOKEN),
-                eq(GHN_SHOP_ID),
-                captor.capture()
-        );
-
-        GhnCreateOrderRequest ghn = captor.getValue();
-
-        assertThat(ghn.getClientOrderCode()).isEqualTo("RT-" + returnId);
-
-        // from = người mua
-        assertThat(ghn.getFromName()).isEqualTo("Tạ Thị Ngọc Anh");
-        assertThat(ghn.getFromPhone()).isEqualTo("0912345678");
-        assertThat(ghn.getFromAddress()).isEqualTo("12 Nguyễn Trãi");
-        assertThat(ghn.getFromWardName()).isEqualTo("Bến Thành");
-        assertThat(ghn.getFromDistrictName()).isEqualTo("Quận 1");
-        assertThat(ghn.getFromProvinceName()).isEqualTo("TP.HCM");
-
-        // to = kho
-        assertThat(ghn.getToName()).isEqualTo("Kho Quận 7");
-        assertThat(ghn.getToPhone()).isEqualTo("02812345678");
-        assertThat(ghn.getToAddress()).isEqualTo("1 Nguyễn Văn Linh");
-        assertThat(ghn.getToWardName()).isEqualTo("Tân Phú");
-        assertThat(ghn.getToDistrictName()).isEqualTo("Quận 7");
-        assertThat(ghn.getToProvinceName()).isEqualTo("TP.HCM");
-
-        // gói hàng và thanh toán
-        assertThat(ghn.getWeight()).isEqualTo(500);
-        assertThat(ghn.getLength()).isEqualTo(30);
-        assertThat(ghn.getWidth()).isEqualTo(20);
-        assertThat(ghn.getHeight()).isEqualTo(10);
-        assertThat(ghn.getCodAmount()).isZero();
-        assertThat(ghn.getOrderValue()).isEqualTo(600000);
-
-        // items
-        assertThat(ghn.getItems()).hasSize(2);
-        assertThat(ghn.getItems().get(0).getName()).isEqualTo("Áo khoác Uniqlo");
-        assertThat(ghn.getItems().get(0).getCode()).isEqualTo("Q7-AK-000845");
-        assertThat(ghn.getItems().get(0).getQuantity()).isEqualTo(1);
-        assertThat(ghn.getItems().get(0).getPrice()).isEqualTo(350000);
-    }
-
-    @Test
-    @DisplayName("approve: địa chỉ mới (2 cấp) -> bỏ district ở phía người mua và phía kho")
-    void approve_newAddressFormat_dropsDistrict() {
-        returnRequest(ReturnRequestStatus.PENDING);
-        attachShippingData();
-
-        order.setShippingIsNewAddress(true);
-        order.getWarehouse().setIsNewAddress(true);
-
-        stubItems();
-
-        GhnCreateOrderResponse response = ghnResponse("GHNRT001");
-
-        when(ghnApi.createOrder(
-                anyString(),
-                anyString(),
-                any(GhnCreateOrderRequest.class)
-        )).thenReturn(response);
-
-        service.approve(returnId);
-
-        ArgumentCaptor<GhnCreateOrderRequest> captor =
-                ArgumentCaptor.forClass(GhnCreateOrderRequest.class);
-
-        verify(ghnApi).createOrder(
-                anyString(),
-                anyString(),
-                captor.capture()
-        );
-
-        assertThat(captor.getValue().getFromDistrictName()).isEmpty();
-        assertThat(captor.getValue().getToDistrictName()).isEmpty();
-    }
-
-    // ==================== reject ====================
-
-    @Test
-    @DisplayName("reject: request null -> BadRequest")
-    void reject_nullRequest_throws() {
-        assertThatThrownBy(() -> service.reject(returnId, null)).isInstanceOf(BadRequestException.class);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"", "  "})
-    @DisplayName("reject: reason rỗng/trắng -> BadRequest")
-    void reject_blankReason_throws(String blank) {
-        assertThatThrownBy(() -> service.reject(returnId, rejectRequest(blank)))
-                .isInstanceOf(BadRequestException.class);
-
-        verify(returnRequestRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("reject: không tìm thấy -> IllegalArgumentException")
-    void reject_notFound_throws() {
-        when(returnRequestRepository.findById(returnId)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.reject(returnId, rejectRequest("Ảnh không rõ")))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = ReturnRequestStatus.class, names = "PENDING", mode = EnumSource.Mode.EXCLUDE)
-    @DisplayName("reject: không ở trạng thái PENDING -> RETURN_NOT_PENDING")
-    void reject_notPending_throwsConflict(ReturnRequestStatus status) {
-        returnRequest(status);
-
-        assertThatThrownBy(() -> service.reject(returnId, rejectRequest("Ảnh không rõ")))
-                .isInstanceOf(ConflictException.class)
-                .extracting(ex -> ((ConflictException) ex).getCode())
-                .isEqualTo("RETURN_NOT_PENDING");
-
-        verify(returnRequestRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("reject: thành công -> CANCELLED, lưu lý do, resolvedAt")
-    void reject_success() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.PENDING);
-
-        Instant before = Instant.now();
-        ReturnRequestResponse response = service.reject(returnId, rejectRequest("Ảnh không rõ"));
-
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.CANCELLED);
-        assertThat(r.getResolutionNote()).isEqualTo("Ảnh không rõ");
-        assertThat(r.getResolvedAt()).isNotNull().isAfterOrEqualTo(before);
-        verify(returnRequestRepository).save(r);
-        assertThat(response.getStatus()).isEqualTo("CANCELLED");
-        assertThat(response.getResolutionNote()).isEqualTo("Ảnh không rõ");
-        verifyNoInteractions(orderService);
-        verify(queueService).dequeue(QueueType.RETURN, returnId.toString());
-    }
-
-    @Test
-    @DisplayName("reject: đơn đã quá hạn trả hàng (autoCompleteDeadline) -> trả tiền người ký gửi ngay")
-    void reject_afterReturnWindowPassed_paysOutSellerImmediately() {
-        order.setAutoCompleteDeadline(Instant.now().minus(1, ChronoUnit.HOURS));
-        returnRequest(ReturnRequestStatus.PENDING);
-
-        service.reject(returnId, rejectRequest("Ảnh không rõ"));
-
-        verify(orderService).payoutOrder(eq(orderId), any());
-    }
-
-    @Test
-    @DisplayName("reject: đơn còn trong hạn trả hàng (autoCompleteDeadline) -> chưa trả tiền, để job xử lý sau")
-    void reject_withinReturnWindow_doesNotPayOutYet() {
-        order.setAutoCompleteDeadline(Instant.now().plus(1, ChronoUnit.HOURS));
-        returnRequest(ReturnRequestStatus.PENDING);
-
-        service.reject(returnId, rejectRequest("Ảnh không rõ"));
-
-        verifyNoInteractions(orderService);
-    }
-
-    // ==================== confirmHandover ====================
-
-    @Test
-    @DisplayName("confirmHandover: account không tồn tại -> IllegalArgumentException")
-    void confirmHandover_accountNotFound_throws() {
-        when(accountRepository.findByEmail(EMAIL)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.confirmHandover(EMAIL, returnId))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    @DisplayName("confirmHandover: yêu cầu không tồn tại -> IllegalArgumentException")
-    void confirmHandover_requestNotFound_throws() {
-        when(returnRequestRepository.findById(returnId)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.confirmHandover(EMAIL, returnId))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    @DisplayName("confirmHandover: của người khác -> Forbidden")
-    void confirmHandover_notOwner_throwsForbidden() {
-        returnRequest(ReturnRequestStatus.APPROVED);
-        order.setBuyer(otherBuyer);
-
-        assertThatThrownBy(() -> service.confirmHandover(EMAIL, returnId))
-                .isInstanceOf(ForbiddenException.class);
-
-        verify(returnRequestRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("confirmHandover: đã SHIPPED_BACK (vd webhook GHN tới trước) -> trả kết quả cũ, không save")
-    void confirmHandover_alreadyShippedBack_isIdempotent() {
-        returnRequest(ReturnRequestStatus.SHIPPED_BACK);
-
-        ReturnRequestResponse response = service.confirmHandover(EMAIL, returnId);
-
-        assertThat(response.getStatus()).isEqualTo("SHIPPED_BACK");
-        verify(returnRequestRepository, never()).save(any());
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = ReturnRequestStatus.class, names = {"APPROVED", "SHIPPED_BACK"}, mode = EnumSource.Mode.EXCLUDE)
-    @DisplayName("confirmHandover: chưa được duyệt -> RETURN_NOT_APPROVED")
-    void confirmHandover_notApproved_throwsConflict(ReturnRequestStatus status) {
-        returnRequest(status);
-
-        assertThatThrownBy(() -> service.confirmHandover(EMAIL, returnId))
-                .isInstanceOf(ConflictException.class)
-                .extracting(ex -> ((ConflictException) ex).getCode())
-                .isEqualTo("RETURN_NOT_APPROVED");
-    }
-
-    @Test
-    @DisplayName("confirmHandover: APPROVED -> SHIPPED_BACK")
-    void confirmHandover_success() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.APPROVED);
-
-        ReturnRequestResponse response = service.confirmHandover(EMAIL, returnId);
-
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.SHIPPED_BACK);
-        verify(returnRequestRepository).save(r);
-        assertThat(response.getStatus()).isEqualTo("SHIPPED_BACK");
-    }
-
-    @Test
-    @DisplayName("confirmHandover: còn hạn bàn giao -> SHIPPED_BACK")
-    void confirmHandover_withinDeadline_succeeds() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.APPROVED);
-        r.setHandoverDeadline(Instant.now().plus(1, ChronoUnit.HOURS));
-
-        ReturnRequestResponse response = service.confirmHandover(EMAIL, returnId);
-
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.SHIPPED_BACK);
-        assertThat(response.getStatus()).isEqualTo("SHIPPED_BACK");
-    }
-
-    @Test
-    @DisplayName("confirmHandover: quá handoverDeadline -> tự hủy và RETURN_HANDOVER_EXPIRED")
-    void confirmHandover_pastDeadline_cancelsAndThrowsConflict() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.APPROVED);
-        r.setHandoverDeadline(Instant.now().minus(1, ChronoUnit.MINUTES));
-
-        assertThatThrownBy(() -> service.confirmHandover(EMAIL, returnId))
-                .isInstanceOf(ConflictException.class)
-                .extracting(ex -> ((ConflictException) ex).getCode())
-                .isEqualTo("RETURN_HANDOVER_EXPIRED");
-
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.CANCELLED);
-        verify(returnRequestRepository).save(r);
-    }
-
-    @Test
-    @DisplayName("confirmHandover: quá handoverDeadline và đã quá autoCompleteDeadline -> trả tiền ký gửi ngay")
-    void confirmHandover_pastDeadline_afterAutoCompleteWindow_paysOutNow() {
-        order.setAutoCompleteDeadline(Instant.now().minus(1, ChronoUnit.HOURS));
-        ReturnRequest r = returnRequest(ReturnRequestStatus.APPROVED);
-        r.setHandoverDeadline(Instant.now().minus(1, ChronoUnit.MINUTES));
-
-        assertThatThrownBy(() -> service.confirmHandover(EMAIL, returnId))
-                .isInstanceOf(ConflictException.class);
-
-        verify(orderService).payoutOrder(eq(orderId), anyString());
-    }
-
-    @Test
-    @DisplayName("confirmHandover: quá handoverDeadline nhưng còn trong hạn trả hàng -> chưa trả tiền")
-    void confirmHandover_pastDeadline_withinReturnWindow_doesNotPayOutYet() {
-        order.setAutoCompleteDeadline(Instant.now().plus(1, ChronoUnit.HOURS));
-        ReturnRequest r = returnRequest(ReturnRequestStatus.APPROVED);
-        r.setHandoverDeadline(Instant.now().minus(1, ChronoUnit.MINUTES));
-
-        assertThatThrownBy(() -> service.confirmHandover(EMAIL, returnId))
-                .isInstanceOf(ConflictException.class);
-
-        verifyNoInteractions(orderService);
-    }
-
-    // ==================== startInspection (API 85) ====================
-
-    @Test
-    @DisplayName("startInspection: thiếu conditionNote -> BadRequestException")
-    void startInspection_missingConditionNote_throwsBadRequest() {
-        assertThatThrownBy(() -> service.startInspection(returnId, startInspectionRequest(null)))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessage("conditionNote là bắt buộc.");
-
-        verify(returnRequestRepository, never()).findById(any());
-    }
-
-    @Test
-    @DisplayName("startInspection: không tìm thấy -> IllegalArgumentException")
-    void startInspection_notFound_throws() {
-        when(returnRequestRepository.findById(returnId)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.startInspection(returnId, startInspectionRequest("Đúng sản phẩm")))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = ReturnRequestStatus.class, names = {"SHIPPED_BACK", "INSPECTING"}, mode = EnumSource.Mode.EXCLUDE)
-    @DisplayName("startInspection: hàng chưa được bàn giao -> RETURN_NOT_SHIPPED_BACK")
-    void startInspection_notShippedBack_throwsConflict(ReturnRequestStatus status) {
-        returnRequest(status);
-
-        assertThatThrownBy(() -> service.startInspection(returnId, startInspectionRequest("Đúng sản phẩm")))
-                .isInstanceOf(ConflictException.class)
-                .extracting(ex -> ((ConflictException) ex).getCode())
-                .isEqualTo("RETURN_NOT_SHIPPED_BACK");
-    }
-
-    @Test
-    @DisplayName("startInspection: SHIPPED_BACK -> INSPECTING, lưu tình trạng hàng")
-    void startInspection_fromShippedBack_success() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.SHIPPED_BACK);
-
-        ReturnRequestResponse response = service.startInspection(
-                returnId, startInspectionRequest(true, false, false, "Đúng sản phẩm, có lỗi nhỏ ở tay áo"));
-
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.INSPECTING);
-        assertThat(r.getMatchesOriginal()).isTrue();
-        assertThat(r.getDegraded()).isFalse();
-        assertThat(r.getCounterfeitSuspected()).isFalse();
-        assertThat(r.getConditionNote()).isEqualTo("Đúng sản phẩm, có lỗi nhỏ ở tay áo");
-        verify(returnRequestRepository).save(r);
-        assertThat(response.getStatus()).isEqualTo("INSPECTING");
-    }
-
-    @Test
-    @DisplayName("startInspection: đã INSPECTING (vd webhook GHN tới trước) -> vẫn ghi nhận tình trạng hàng")
-    void startInspection_alreadyInspecting_stillRecordsCondition() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.INSPECTING);
-
-        ReturnRequestResponse response = service.startInspection(
-                returnId, startInspectionRequest(false, true, true, "Nghi hàng giả, có dấu hiệu xuống cấp"));
-
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.INSPECTING);
-        assertThat(r.getMatchesOriginal()).isFalse();
-        assertThat(r.getDegraded()).isTrue();
-        assertThat(r.getCounterfeitSuspected()).isTrue();
-        verify(returnRequestRepository).save(r);
-        assertThat(response.getStatus()).isEqualTo("INSPECTING");
-    }
-
-    // ==================== resolve (API 88) ====================
-
-    @Test
-    @DisplayName("resolve: request null -> BadRequest")
-    void resolve_nullRequest_throws() {
-        assertThatThrownBy(() -> service.resolve(moderator, returnId, null)).isInstanceOf(BadRequestException.class);
-    }
-
-    @Test
-    @DisplayName("resolve: thiếu resolution -> BadRequest")
-    void resolve_missingResolution_throws() {
-        assertThatThrownBy(() -> service.resolve(moderator, returnId, resolveRequest(null, "RELIST", "ok")))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessage("resolution và action là bắt buộc.");
-
-        verify(returnRequestRepository, never()).findById(any());
-    }
-
-    @Test
-    @DisplayName("resolve: resolution VALID, không degraded, thiếu action -> BadRequest")
-    void resolve_validMissingAction_throws() {
-        returnRequest(ReturnRequestStatus.INSPECTING);
-
-        assertThatThrownBy(() -> service.resolve(moderator, returnId, resolveRequest("VALID", null, "ok")))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessage("resolution và action là bắt buộc.");
-
-        verify(returnRequestRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("resolve: resolution INVALID không cần action -> không BadRequest")
-    void resolve_invalidWithoutAction_doesNotThrow() {
-        returnRequest(ReturnRequestStatus.INSPECTING);
-
-        ReturnRequestResponse response = service.resolve(moderator, returnId, resolveRequest("INVALID", null, "ok"));
-
-        assertThat(response.getStatus()).isEqualTo("INVALID");
-    }
-
-    @Test
-    @DisplayName("resolve: resolution không hợp lệ -> BadRequest")
-    void resolve_invalidResolutionValue_throws() {
-        assertThatThrownBy(() -> service.resolve(moderator, returnId, resolveRequest("CANCELLED", "RELIST", "ok")))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessage("resolution phải là VALID hoặc INVALID.");
-    }
-
-    @Test
-    @DisplayName("resolve: action không hợp lệ -> BadRequest")
-    void resolve_invalidActionValue_throws() {
-        returnRequest(ReturnRequestStatus.INSPECTING);
-
-        assertThatThrownBy(() -> service.resolve(moderator, returnId, resolveRequest("VALID", "SELL_AGAIN", "ok")))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessage("action phải là RELIST, RETURN_TO_SELLER hoặc DISCARD.");
-    }
-
-    @Test
-    @DisplayName("resolve: không tìm thấy -> IllegalArgumentException")
-    void resolve_notFound_throws() {
-        when(returnRequestRepository.findById(returnId)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.resolve(moderator, returnId, resolveRequest("VALID", "RELIST", "ok")))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = ReturnRequestStatus.class, names = "INSPECTING", mode = EnumSource.Mode.EXCLUDE)
-    @DisplayName("resolve: chưa ở trạng thái INSPECTING -> RETURN_NOT_INSPECTING, không hoàn tiền")
-    void resolve_notInspecting_throwsConflict(ReturnRequestStatus status) {
-        returnRequest(status);
-
-        assertThatThrownBy(() -> service.resolve(moderator, returnId, resolveRequest("VALID", "RELIST", "ok")))
-                .isInstanceOf(ConflictException.class)
-                .extracting(ex -> ((ConflictException) ex).getCode())
-                .isEqualTo("RETURN_NOT_INSPECTING");
-
-        verifyNoInteractions(orderService);
-    }
-
-    @Test
-    @DisplayName("resolve: VALID -> hoàn tiền đơn rồi áp dụng action lên món hàng")
-    void resolve_valid_refundsOrderAndAppliesItemAction() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.INSPECTING);
-
-        Instant before = Instant.now();
-        ReturnRequestResponse response = service.resolve(
-                moderator, returnId, resolveRequest("VALID", "RETURN_TO_SELLER", "Hàng đúng như khách báo"));
-
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.VALID);
-        assertThat(r.getItemAction()).isEqualTo(ReturnedItemAction.RETURN_TO_SELLER);
-        assertThat(r.getResolutionNote()).isEqualTo("Hàng đúng như khách báo");
-        assertThat(r.getResolvedAt()).isNotNull().isAfterOrEqualTo(before);
-        assertThat(r.getPickupDeadline()).isNull();
-
-        InOrder inOrder = inOrder(returnRequestRepository, orderService);
-        inOrder.verify(returnRequestRepository).save(r);
-        inOrder.verify(orderService).refundOrderForReturn(orderId, "Hoàn tiền trả hàng hợp lệ - đơn OD-2026-000008");
-        inOrder.verify(orderService).applyReturnedItemAction(orderId, ReturnedItemAction.RETURN_TO_SELLER);
-
-        assertThat(response.getStatus()).isEqualTo("VALID");
-        assertThat(response.getItemAction()).isEqualTo("RETURN_TO_SELLER");
-
-        verifyNoInteractions(degradedItemCaseRepository);
-    }
-
-    @Test
-    @DisplayName("resolve: VALID + degraded -> không cần action, mở DegradedItemCase, không RELIST/RETURN/DISCARD")
-    void resolve_validAndDegraded_opensDegradedItemCaseInsteadOfAction() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.INSPECTING);
-        r.setDegraded(true);
-
-        Product product = Product.builder().id("Q7-AK-000845").build();
-        OrderItem item = OrderItem.builder().order(order).product(product)
-                .priceAtOrder(new BigDecimal("300000"))
-                .commissionRateApplied(new BigDecimal("0.10"))
-                .build();
-        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId)).thenReturn(List.of(item));
-
-        // Không truyền action - hàng degraded thì không cần
-        ReturnRequestResponse response = service.resolve(
-                moderator, returnId, resolveRequest("VALID", null, "Hàng bị lỗi do vận chuyển"));
-
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.VALID);
-        assertThat(r.getItemAction()).isNull();
-        assertThat(response.getStatus()).isEqualTo("VALID");
-
-        verify(orderService).refundOrderForReturn(orderId, "Hoàn tiền trả hàng hợp lệ - đơn OD-2026-000008");
-        verify(orderService, never()).applyReturnedItemAction(any(), any());
-
-        ArgumentCaptor<DegradedItemCase> captor = ArgumentCaptor.forClass(DegradedItemCase.class);
-        verify(degradedItemCaseRepository).save(captor.capture());
-        DegradedItemCase degradedCase = captor.getValue();
-        assertThat(degradedCase.getProduct()).isEqualTo(product);
-        assertThat(degradedCase.getReturnRequest()).isEqualTo(r);
-        assertThat(degradedCase.getModerator()).isEqualTo(moderator);
-        assertThat(degradedCase.getChoice()).isNull();
-        // 300000 - 300000*0.10 = 270000
-        assertThat(degradedCase.getCompensationAmount()).isEqualByComparingTo(new BigDecimal("270000"));
-    }
-
-    @Test
-    @DisplayName("resolve: INVALID -> đặt hạn nhận lại hàng, chưa đóng (resolvedAt null), "
-            + "KHÔNG hoàn tiền người mua nhưng TRẢ TIỀN NGAY cho người ký gửi, không áp dụng action")
-    void resolve_invalid_setsPickupDeadlineAndPaysOutSellerWithoutRefunding() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.INSPECTING);
-
-        Instant before = Instant.now();
-        ReturnRequestResponse response = service.resolve(
-                moderator, returnId, resolveRequest("INVALID", null, "Hàng đã qua sử dụng"));
-
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.INVALID);
-        assertThat(r.getItemAction()).isNull();
-        assertThat(r.getResolutionNote()).isEqualTo("Hàng đã qua sử dụng");
-        assertThat(r.getResolvedAt()).isNull();
-        assertThat(r.getPickupDeadline())
-                .isAfter(before.plus(PICKUP_DEADLINE_DAYS, ChronoUnit.DAYS).minusSeconds(5))
-                .isBefore(Instant.now().plus(PICKUP_DEADLINE_DAYS, ChronoUnit.DAYS).plusSeconds(5));
-        verify(returnRequestRepository).save(r);
-
-        verify(orderService, never()).refundOrderForReturn(any(), any());
-        verify(orderService, never()).applyReturnedItemAction(any(), any());
-        verify(orderService).payoutOrder(eq(orderId), any());
-
-        assertThat(response.getStatus()).isEqualTo("INVALID");
-        assertThat(response.getPickupDeadline()).isEqualTo(r.getPickupDeadline());
-        verify(queueService).dequeue(QueueType.RETURN, returnId.toString());
-    }
-
-    // ==================== chooseInvalidReturn ====================
-
-    @Test
-    @DisplayName("chooseInvalidReturn: request null -> BadRequest")
-    void chooseInvalidReturn_nullRequest_throws() {
-        assertThatThrownBy(() -> service.chooseInvalidReturn(EMAIL, returnId, null))
-                .isInstanceOf(BadRequestException.class);
-    }
-
-    @Test
-    @DisplayName("chooseInvalidReturn: choice null -> BadRequest")
-    void chooseInvalidReturn_nullChoice_throws() {
-        assertThatThrownBy(() -> service.chooseInvalidReturn(EMAIL, returnId, choiceRequest(null)))
-                .isInstanceOf(BadRequestException.class);
-    }
-
-    @Test
-    @DisplayName("chooseInvalidReturn: account không tồn tại -> IllegalArgumentException")
-    void chooseInvalidReturn_accountNotFound_throws() {
-        when(accountRepository.findByEmail(EMAIL)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.chooseInvalidReturn(EMAIL, returnId,
-                choiceRequest(InvalidReturnChoice.SHIP_BACK)))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    @DisplayName("chooseInvalidReturn: của người khác -> Forbidden")
-    void chooseInvalidReturn_notOwner_throwsForbidden() {
-        returnRequest(ReturnRequestStatus.INVALID);
-        order.setBuyer(otherBuyer);
-
-        assertThatThrownBy(() -> service.chooseInvalidReturn(EMAIL, returnId,
-                choiceRequest(InvalidReturnChoice.SHIP_BACK)))
-                .isInstanceOf(ForbiddenException.class);
-
-        verify(returnRequestRepository, never()).save(any());
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = ReturnRequestStatus.class, names = "INVALID", mode = EnumSource.Mode.EXCLUDE)
-    @DisplayName("chooseInvalidReturn: yêu cầu không ở trạng thái INVALID -> RETURN_NOT_INVALID")
-    void chooseInvalidReturn_notInvalid_throwsConflict(ReturnRequestStatus status) {
-        returnRequest(status);
-
-        assertThatThrownBy(() -> service.chooseInvalidReturn(EMAIL, returnId,
-                choiceRequest(InvalidReturnChoice.SHIP_BACK)))
-                .isInstanceOf(ConflictException.class)
-                .extracting(ex -> ((ConflictException) ex).getCode())
-                .isEqualTo("RETURN_NOT_INVALID");
-    }
-
-    @Test
-    @DisplayName("chooseInvalidReturn: quá hạn nhận lại hàng -> RETURN_PICKUP_EXPIRED")
-    void chooseInvalidReturn_pickupExpired_throwsConflict() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.INVALID);
-        r.setPickupDeadline(Instant.now().minus(1, ChronoUnit.HOURS));
-
-        assertThatThrownBy(() -> service.chooseInvalidReturn(EMAIL, returnId,
-                choiceRequest(InvalidReturnChoice.WAREHOUSE_PICKUP)))
-                .isInstanceOf(ConflictException.class)
-                .extracting(ex -> ((ConflictException) ex).getCode())
-                .isEqualTo("RETURN_PICKUP_EXPIRED");
-
-        assertThat(r.getInvalidReturnChoice()).isNull();
-        verify(returnRequestRepository, never()).save(any());
-    }
-
-    @ParameterizedTest
-    @EnumSource(InvalidReturnChoice.class)
-    @DisplayName("chooseInvalidReturn: còn hạn -> lưu lựa chọn")
-    void chooseInvalidReturn_success(InvalidReturnChoice choice) {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.INVALID);
-        r.setPickupDeadline(Instant.now().plus(2, ChronoUnit.DAYS));
-
-        ReturnRequestResponse response = service.chooseInvalidReturn(EMAIL, returnId, choiceRequest(choice));
-
-        assertThat(r.getInvalidReturnChoice()).isEqualTo(choice);
-        verify(returnRequestRepository).save(r);
-        assertThat(response.getInvalidReturnChoice()).isEqualTo(choice.name());
-    }
-
-    @Test
-    @DisplayName("chooseInvalidReturn: pickupDeadline null -> không coi là quá hạn")
-    void chooseInvalidReturn_nullPickupDeadline_isAllowed() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.INVALID);
-        r.setPickupDeadline(null);
-
-        service.chooseInvalidReturn(EMAIL, returnId, choiceRequest(InvalidReturnChoice.SHIP_BACK));
-
-        assertThat(r.getInvalidReturnChoice()).isEqualTo(InvalidReturnChoice.SHIP_BACK);
-    }
-
-    // ==================== applyGhnReturnStatus ====================
-
-    @Test
-    @DisplayName("applyGhnReturnStatus: mã vận đơn không khớp yêu cầu nào -> false, không làm gì")
-    void applyGhnStatus_unknownTrackingCode_returnsFalse() {
-        when(returnRequestRepository.findByGhnReturnTrackingCode("UNKNOWN")).thenReturn(Optional.empty());
-
-        boolean handled = service.applyGhnReturnStatus("UNKNOWN", "picked", null);
-
-        assertThat(handled).isFalse();
-        verify(returnRequestRepository, never()).save(any());
-        verifyNoInteractions(orderService);
-    }
-
-    private ReturnRequest withTrackingCode(ReturnRequestStatus status) {
-        ReturnRequest r = returnRequest(status);
-        r.setGhnReturnTrackingCode("GHNRT001");
-        when(returnRequestRepository.findByGhnReturnTrackingCode("GHNRT001")).thenReturn(Optional.of(r));
-        return r;
-    }
-
-    @Test
-    @DisplayName("applyGhnReturnStatus: picked khi APPROVED -> SHIPPED_BACK")
-    void applyGhnStatus_picked_whenApproved_movesToShippedBack() {
-        ReturnRequest r = withTrackingCode(ReturnRequestStatus.APPROVED);
-
-        boolean handled = service.applyGhnReturnStatus("GHNRT001", "picked", null);
-
-        assertThat(handled).isTrue();
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.SHIPPED_BACK);
-        verify(returnRequestRepository).save(r);
-    }
-
-    @Test
-    @DisplayName("applyGhnReturnStatus: trạng thái GHN không phân biệt hoa thường (PICKED)")
-    void applyGhnStatus_isCaseInsensitive() {
-        ReturnRequest r = withTrackingCode(ReturnRequestStatus.APPROVED);
-
-        service.applyGhnReturnStatus("GHNRT001", "PICKED", null);
-
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.SHIPPED_BACK);
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = ReturnRequestStatus.class, names = "APPROVED", mode = EnumSource.Mode.EXCLUDE)
-    @DisplayName("applyGhnReturnStatus: picked khi không phải APPROVED -> không đổi, vẫn trả true")
-    void applyGhnStatus_picked_whenNotApproved_isNoop(ReturnRequestStatus status) {
-        ReturnRequest r = withTrackingCode(status);
-
-        boolean handled = service.applyGhnReturnStatus("GHNRT001", "picked", null);
-
-        assertThat(handled).isTrue();
-        assertThat(r.getStatus()).isEqualTo(status);
-        verify(returnRequestRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("applyGhnReturnStatus: delivered khi SHIPPED_BACK -> INSPECTING")
-    void applyGhnStatus_delivered_whenShippedBack_movesToInspecting() {
-        ReturnRequest r = withTrackingCode(ReturnRequestStatus.SHIPPED_BACK);
-
-        boolean handled = service.applyGhnReturnStatus("GHNRT001", "delivered", null);
-
-        assertThat(handled).isTrue();
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.INSPECTING);
-        verify(returnRequestRepository).save(r);
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = ReturnRequestStatus.class, names = "SHIPPED_BACK", mode = EnumSource.Mode.EXCLUDE)
-    @DisplayName("applyGhnReturnStatus: delivered khi không phải SHIPPED_BACK -> không đổi")
-    void applyGhnStatus_delivered_whenNotShippedBack_isNoop(ReturnRequestStatus status) {
-        ReturnRequest r = withTrackingCode(status);
-
-        boolean handled = service.applyGhnReturnStatus("GHNRT001", "delivered", null);
-
-        assertThat(handled).isTrue();
-        assertThat(r.getStatus()).isEqualTo(status);
-        verify(returnRequestRepository, never()).save(any());
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"lost", "damage", "scrap"})
-    @DisplayName("applyGhnReturnStatus: GHN báo thất lạc/hư hỏng/tiêu huỷ khi đang mở -> LOST và hoàn tiền 100%")
-    void applyGhnStatus_lost_marksLostAndRefunds(String ghnStatus) {
-        ReturnRequest r = withTrackingCode(ReturnRequestStatus.SHIPPED_BACK);
-
-        Instant before = Instant.now();
-        boolean handled = service.applyGhnReturnStatus("GHNRT001", ghnStatus, "Kiện hàng bị mất");
-
-        assertThat(handled).isTrue();
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.LOST);
-        assertThat(r.getResolutionNote()).isEqualTo("Kiện hàng bị mất");
-        assertThat(r.getResolvedAt()).isNotNull().isAfterOrEqualTo(before);
-
-        InOrder inOrder = inOrder(returnRequestRepository, orderService);
-        inOrder.verify(returnRequestRepository).save(r);
-        inOrder.verify(orderService)
-                .refundOrderForReturn(orderId, "Hoàn tiền do hàng trả thất lạc - đơn OD-2026-000008");
-        verify(queueService).dequeue(QueueType.RETURN, returnId.toString());
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = ReturnRequestStatus.class, names = {"APPROVED", "SHIPPED_BACK", "INSPECTING", "PENDING"})
-    @DisplayName("applyGhnReturnStatus: thất lạc áp dụng cho mọi trạng thái đang mở")
-    void applyGhnStatus_lost_appliesToAllOpenStatuses(ReturnRequestStatus status) {
-        ReturnRequest r = withTrackingCode(status);
-
-        service.applyGhnReturnStatus("GHNRT001", "lost", null);
-
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.LOST);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"", "   "})
-    @DisplayName("applyGhnReturnStatus: thất lạc không kèm reason -> ghi chú dùng chính mã trạng thái GHN")
-    void applyGhnStatus_lost_withoutReason_usesStatusAsNote(String blankReason) {
-        ReturnRequest r = withTrackingCode(ReturnRequestStatus.SHIPPED_BACK);
-
-        service.applyGhnReturnStatus("GHNRT001", "lost", blankReason);
-
-        assertThat(r.getResolutionNote()).isEqualTo("lost");
-    }
-
-    @Test
-    @DisplayName("applyGhnReturnStatus: thất lạc với reason null -> ghi chú là mã trạng thái")
-    void applyGhnStatus_lost_nullReason_usesStatusAsNote() {
-        ReturnRequest r = withTrackingCode(ReturnRequestStatus.APPROVED);
-
-        service.applyGhnReturnStatus("GHNRT001", "damage", null);
-
-        assertThat(r.getResolutionNote()).isEqualTo("damage");
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = ReturnRequestStatus.class, names = {"VALID", "INVALID", "CANCELLED", "LOST"})
-    @DisplayName("applyGhnReturnStatus: yêu cầu đã đóng -> thất lạc không đổi trạng thái, không hoàn tiền lần nữa")
-    void applyGhnStatus_lost_whenClosed_isNoop(ReturnRequestStatus status) {
-        ReturnRequest r = withTrackingCode(status);
-
-        boolean handled = service.applyGhnReturnStatus("GHNRT001", "lost", "mất");
-
-        assertThat(handled).isTrue();
-        assertThat(r.getStatus()).isEqualTo(status);
-        verify(returnRequestRepository, never()).save(any());
-        verifyNoInteractions(orderService);
-    }
-
-    @Test
-    @DisplayName("applyGhnReturnStatus: status null -> không làm gì nhưng vẫn trả true")
-    void applyGhnStatus_nullStatus_isNoop() {
-        ReturnRequest r = withTrackingCode(ReturnRequestStatus.APPROVED);
-
-        boolean handled = service.applyGhnReturnStatus("GHNRT001", null, null);
-
-        assertThat(handled).isTrue();
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.APPROVED);
-        verify(returnRequestRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("applyGhnReturnStatus: trạng thái GHN khác (vd transporting) -> không làm gì")
-    void applyGhnStatus_otherStatus_isNoop() {
-        ReturnRequest r = withTrackingCode(ReturnRequestStatus.SHIPPED_BACK);
-
-        boolean handled = service.applyGhnReturnStatus("GHNRT001", "transporting", null);
-
-        assertThat(handled).isTrue();
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.SHIPPED_BACK);
-        verify(returnRequestRepository, never()).save(any());
-        verifyNoInteractions(orderService);
-    }
-
-    // ==================== markLost (API 89) ====================
-
-    private MarkLostRequest markLostRequest(String note) {
+    private MarkLostRequest lostReq(String note) {
         MarkLostRequest req = mock(MarkLostRequest.class);
         when(req.getNote()).thenReturn(note);
         return req;
     }
 
-    @Test
-    @DisplayName("markLost: thiếu note -> BadRequest")
-    void markLost_missingNote_throws() {
-        assertThatThrownBy(() -> service.markLost(returnId, markLostRequest(null)))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessage("note là bắt buộc.");
-
-        verify(returnRequestRepository, never()).findById(any());
+    // Không cần biết tên enum của choice: lấy kiểu trả về của getChoice() rồi lấy hằng theo tên.
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private Object stubChoice(InvalidReturnChoiceRequest req, String constantName) throws Exception {
+        Class<?> type = InvalidReturnChoiceRequest.class.getMethod("getChoice").getReturnType();
+        Object constant = Enum.valueOf((Class) type, constantName);
+        doReturn(constant).when(req).getChoice();
+        return constant;
     }
 
-    @Test
-    @DisplayName("markLost: không tìm thấy -> IllegalArgumentException")
-    void markLost_notFound_throws() {
-        when(returnRequestRepository.findById(returnId)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.markLost(returnId, markLostRequest("GHN báo mất hàng")))
-                .isInstanceOf(IllegalArgumentException.class);
+    private OrderItem givenOrderItem() {
+        OrderItem item = mock(OrderItem.class, RETURNS_DEEP_STUBS);
+        when(item.getPriceAtOrder()).thenReturn(new BigDecimal("100000"));
+        when(item.getCommissionRateApplied()).thenReturn(new BigDecimal("0.10"));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(ORDER_ID)).thenReturn(List.of(item));
+        return item;
     }
 
-    @ParameterizedTest
-    @EnumSource(value = ReturnRequestStatus.class, names = {"PENDING", "APPROVED", "SHIPPED_BACK", "INSPECTING"})
-    @DisplayName("markLost: mọi trạng thái đang mở -> LOST, hoàn tiền 100%")
-    void markLost_openStatus_marksLostAndRefunds(ReturnRequestStatus status) {
-        ReturnRequest r = returnRequest(status);
-
-        Instant before = Instant.now();
-        ReturnRequestResponse response = service.markLost(
-                returnId, markLostRequest("GHN báo mất hàng trong quá trình vận chuyển"));
-
-        assertThat(r.getStatus()).isEqualTo(ReturnRequestStatus.LOST);
-        assertThat(r.getResolutionNote()).isEqualTo("GHN báo mất hàng trong quá trình vận chuyển");
-        assertThat(r.getResolvedAt()).isNotNull().isAfterOrEqualTo(before);
-        verify(returnRequestRepository).save(r);
-        verify(orderService).refundOrderForReturn(
-                orderId, "Hoàn tiền do hàng trả thất lạc - đơn OD-2026-000008");
-
-        assertThat(response.getStatus()).isEqualTo("LOST");
+    private GhnCreateOrderResponse ghnResponseWithCode(String code) {
+        GhnCreateOrderResponse resp = mock(GhnCreateOrderResponse.class, RETURNS_DEEP_STUBS);
+        when(resp.getData().getOrderCode()).thenReturn(code);
+        return resp;
     }
 
-    @Test
-    @DisplayName("markLost: đã LOST trước đó -> idempotent, không lưu/hoàn tiền lại")
-    void markLost_alreadyLost_isIdempotent() {
-        ReturnRequest r = returnRequest(ReturnRequestStatus.LOST);
+    // ------------------------------------------------------------------ create
 
-        ReturnRequestResponse response = service.markLost(returnId, markLostRequest("mất lần nữa?"));
+    @Nested
+    class Create {
 
-        assertThat(response.getStatus()).isEqualTo("LOST");
-        verify(returnRequestRepository, never()).save(any());
-        verifyNoInteractions(orderService);
+        private void givenReturnableOrder() {
+            when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+            when(order.getStatus()).thenReturn(OrderStatus.DELIVERED);
+            when(order.getDeliveredAt()).thenReturn(Instant.now().minus(1, ChronoUnit.DAYS));
+            when(returnRequestRepository.existsByOrder_IdAndStatusIn(eq(ORDER_ID), anyList())).thenReturn(false);
+            when(returnRequestRepository.save(any(ReturnRequest.class))).thenAnswer(inv -> {
+                ReturnRequest saved = inv.getArgument(0);
+                ReflectionTestUtils.setField(saved, "id", RR_ID);
+                return saved;
+            });
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"", "   "})
+        void blankOrderId_throwsBadRequest(String blank) {
+            assertThatThrownBy(() -> service.create(EMAIL, createReq(blank, "reason", List.of("u"))))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("orderId");
+        }
+
+        @Test
+        void nullOrderId_throwsBadRequest() {
+            assertThatThrownBy(() -> service.create(EMAIL, createReq(null, "reason", List.of("u"))))
+                    .isInstanceOf(BadRequestException.class);
+        }
+
+        @Test
+        void blankReason_throwsBadRequest() {
+            assertThatThrownBy(() -> service.create(EMAIL, createReq(ORDER_ID.toString(), " ", List.of("u"))))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("reason");
+        }
+
+        @Test
+        void nullPhotos_throwsBadRequest() {
+            assertThatThrownBy(() -> service.create(EMAIL, createReq(ORDER_ID.toString(), "r", null)))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("ảnh");
+        }
+
+        @Test
+        void emptyPhotos_throwsBadRequest() {
+            assertThatThrownBy(() -> service.create(EMAIL, createReq(ORDER_ID.toString(), "r", List.of())))
+                    .isInstanceOf(BadRequestException.class);
+        }
+
+        @Test
+        void accountNotFound_throwsIllegalArgument() {
+            when(accountRepository.findByEmail("x@x.com")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.create("x@x.com", createReq(ORDER_ID.toString(), "r", List.of("u"))))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Account");
+        }
+
+        @Test
+        void orderIdNotUuid_throwsBadRequest() {
+            assertThatThrownBy(() -> service.create(EMAIL, createReq("not-a-uuid", "r", List.of("u"))))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("không hợp lệ");
+        }
+
+        @Test
+        void orderNotFound_throwsIllegalArgument() {
+            when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.create(EMAIL, createReq(ORDER_ID.toString(), "r", List.of("u"))))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("đơn hàng");
+        }
+
+        @Test
+        void notOwner_throwsForbidden() {
+            when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+            givenOtherBuyerOwnsOrder();
+
+            assertThatThrownBy(() -> service.create(EMAIL, createReq(ORDER_ID.toString(), "r", List.of("u"))))
+                    .isInstanceOf(ForbiddenException.class);
+        }
+
+        @Test
+        void orderStatusNotReturnable_throwsConflict() {
+            OrderStatus other = Arrays.stream(OrderStatus.values())
+                    .filter(s -> s != OrderStatus.DELIVERED && s != OrderStatus.COMPLETED)
+                    .findFirst().orElseThrow();
+            when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+            when(order.getStatus()).thenReturn(other);
+            when(order.getDeliveredAt()).thenReturn(Instant.now());
+
+            assertThatThrownBy(() -> service.create(EMAIL, createReq(ORDER_ID.toString(), "r", List.of("u"))))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("đã giao");
+        }
+
+        @Test
+        void deliveredAtNull_throwsConflict() {
+            when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+            when(order.getStatus()).thenReturn(OrderStatus.DELIVERED);
+            when(order.getDeliveredAt()).thenReturn(null);
+
+            assertThatThrownBy(() -> service.create(EMAIL, createReq(ORDER_ID.toString(), "r", List.of("u"))))
+                    .isInstanceOf(ConflictException.class);
+        }
+
+        @Test
+        void windowExpired_throwsConflict() {
+            when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+            when(order.getStatus()).thenReturn(OrderStatus.DELIVERED);
+            when(order.getDeliveredAt()).thenReturn(Instant.now().minus(10, ChronoUnit.DAYS));
+
+            assertThatThrownBy(() -> service.create(EMAIL, createReq(ORDER_ID.toString(), "r", List.of("u"))))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("quá hạn");
+        }
+
+        @Test
+        void openRequestExists_throwsConflict() {
+            givenReturnableOrder();
+            when(returnRequestRepository.existsByOrder_IdAndStatusIn(eq(ORDER_ID), anyList())).thenReturn(true);
+
+            assertThatThrownBy(() -> service.create(EMAIL, createReq(ORDER_ID.toString(), "r", List.of("u"))))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("đang xử lý");
+            verify(returnRequestRepository, never()).save(any());
+        }
+
+        @Test
+        void delivered_success_savesRequestPhotosAndEnqueues() {
+            givenReturnableOrder();
+            List<String> urls = List.of("http://a/1.jpg", "http://a/2.jpg");
+
+            ReturnRequestResponse res = service.create(EMAIL, createReq(ORDER_ID.toString(), "Hàng lỗi", urls));
+
+            ArgumentCaptor<ReturnRequest> rrCaptor = ArgumentCaptor.forClass(ReturnRequest.class);
+            verify(returnRequestRepository).save(rrCaptor.capture());
+            ReturnRequest saved = rrCaptor.getValue();
+            assertThat(saved.getStatus()).isEqualTo(ReturnRequestStatus.PENDING);
+            assertThat(saved.getReason()).isEqualTo("Hàng lỗi");
+            assertThat(saved.getHandoverDeadline()).isAfter(Instant.now());
+
+            verify(queueService).enqueue(eq(QueueType.RETURN), eq(RR_ID.toString()), any());
+
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<List<ReturnRequestPhoto>> photoCaptor = ArgumentCaptor.forClass(List.class);
+            verify(returnRequestPhotoRepository).saveAll(photoCaptor.capture());
+            assertThat(photoCaptor.getValue()).hasSize(2);
+
+            assertThat(res.getStatus()).isEqualTo("PENDING");
+            assertThat(res.getPhotoUrls()).containsExactlyElementsOf(urls);
+        }
+
+        @Test
+        void completedOrder_withinWindow_isAllowed() {
+            givenReturnableOrder();
+            when(order.getStatus()).thenReturn(OrderStatus.COMPLETED);
+
+            ReturnRequestResponse res = service.create(EMAIL, createReq(ORDER_ID.toString(), "r", List.of("u")));
+
+            assertThat(res.getStatus()).isEqualTo("PENDING");
+        }
     }
 
-    @ParameterizedTest
-    @EnumSource(value = ReturnRequestStatus.class, names = {"VALID", "INVALID", "CANCELLED"})
-    @DisplayName("markLost: yêu cầu đã xử lý xong -> RETURN_ALREADY_RESOLVED, không hoàn tiền lại")
-    void markLost_alreadyResolved_throwsConflict(ReturnRequestStatus status) {
-        returnRequest(status);
+    // ------------------------------------------------------------------ getMyReturnRequests / getMyReturnRequest
 
-        assertThatThrownBy(() -> service.markLost(returnId, markLostRequest("mất hàng")))
-                .isInstanceOf(ConflictException.class)
-                .extracting(ex -> ((ConflictException) ex).getCode())
-                .isEqualTo("RETURN_ALREADY_RESOLVED");
+    @Nested
+    class MyRequests {
 
-        verifyNoInteractions(orderService);
+        @Test
+        void getMyReturnRequests_accountNotFound() {
+            when(accountRepository.findByEmail("x@x.com")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.getMyReturnRequests("x@x.com", 0, 10))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void getMyReturnRequests_success_clampsNegativePageAndZeroSize() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.PENDING);
+            Page<ReturnRequest> page = new PageImpl<>(List.of(rr));
+            when(returnRequestRepository.findByOrder_Buyer_IdOrderByCreatedAtDesc(eq(BUYER_ID), any(Pageable.class)))
+                    .thenReturn(page);
+
+            PageResponse<ReturnRequestResponse> res = service.getMyReturnRequests(EMAIL, -5, 0);
+
+            assertThat(res).isNotNull();
+            ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+            verify(returnRequestRepository).findByOrder_Buyer_IdOrderByCreatedAtDesc(eq(BUYER_ID), captor.capture());
+            assertThat(captor.getValue().getPageNumber()).isZero();
+            assertThat(captor.getValue().getPageSize()).isEqualTo(1);
+        }
+
+        @Test
+        void getMyReturnRequest_accountNotFound() {
+            when(accountRepository.findByEmail("x@x.com")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.getMyReturnRequest("x@x.com", RR_ID))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void getMyReturnRequest_notFound() {
+            when(returnRequestRepository.findById(RR_ID)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.getMyReturnRequest(EMAIL, RR_ID))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("yêu cầu trả hàng");
+        }
+
+        @Test
+        void getMyReturnRequest_notOwner_forbidden() {
+            givenReturnRequest(ReturnRequestStatus.PENDING);
+            givenOtherBuyerOwnsOrder();
+
+            assertThatThrownBy(() -> service.getMyReturnRequest(EMAIL, RR_ID))
+                    .isInstanceOf(ForbiddenException.class);
+        }
+
+        @Test
+        void getMyReturnRequest_success_includesPhotos() {
+            givenReturnRequest(ReturnRequestStatus.PENDING);
+            ReturnRequestPhoto photo = mock(ReturnRequestPhoto.class);
+            when(photo.getImageUrl()).thenReturn("http://a/1.jpg");
+            when(returnRequestPhotoRepository.findAllByReturnRequest_IdOrderByIdAsc(RR_ID))
+                    .thenReturn(List.of(photo));
+
+            ReturnRequestResponse res = service.getMyReturnRequest(EMAIL, RR_ID);
+
+            assertThat(res.getId()).isEqualTo(RR_ID.toString());
+            assertThat(res.getPhotoUrls()).containsExactly("http://a/1.jpg");
+        }
+    }
+
+    // ------------------------------------------------------------------ moderator reads
+
+    @Nested
+    class ModeratorReads {
+
+        private final List<ReturnRequestStatus> openStatuses = List.of(
+                ReturnRequestStatus.PENDING,
+                ReturnRequestStatus.APPROVED,
+                ReturnRequestStatus.SHIPPED_BACK,
+                ReturnRequestStatus.INSPECTING);
+
+        @Test
+        void getQueue_noStatus_usesOpenStatuses() {
+            when(returnRequestRepository.findByStatusInOrderByCreatedAtAsc(anyList(), any(Pageable.class)))
+                    .thenReturn(new PageImpl<>(List.of()));
+
+            service.getQueue(null, 0, 10);
+
+            verify(returnRequestRepository).findByStatusInOrderByCreatedAtAsc(eq(openStatuses), any(Pageable.class));
+        }
+
+        @Test
+        void getQueue_withStatus_filtersByThatStatus() {
+            when(returnRequestRepository.findByStatusInOrderByCreatedAtAsc(anyList(), any(Pageable.class)))
+                    .thenReturn(new PageImpl<>(List.of()));
+
+            service.getQueue(" approved ", 0, 10);
+
+            verify(returnRequestRepository).findByStatusInOrderByCreatedAtAsc(
+                    eq(List.of(ReturnRequestStatus.APPROVED)), any(Pageable.class));
+        }
+
+        @Test
+        void getQueue_invalidStatus_throwsBadRequest() {
+            assertThatThrownBy(() -> service.getQueue("WHATEVER", 0, 10))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("status");
+        }
+
+        @Test
+        void getQueue_clampsPaging() {
+            when(returnRequestRepository.findByStatusInOrderByCreatedAtAsc(anyList(), any(Pageable.class)))
+                    .thenReturn(new PageImpl<>(List.of()));
+
+            service.getQueue("", -1, -1);
+
+            ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+            verify(returnRequestRepository).findByStatusInOrderByCreatedAtAsc(anyList(), captor.capture());
+            assertThat(captor.getValue().getPageNumber()).isZero();
+            assertThat(captor.getValue().getPageSize()).isEqualTo(1);
+        }
+
+        @Test
+        void getDetailForModerator_success() {
+            givenReturnRequest(ReturnRequestStatus.PENDING);
+
+            ReturnRequestResponse res = service.getDetailForModerator(RR_ID);
+
+            assertThat(res.getId()).isEqualTo(RR_ID.toString());
+            assertThat(res.getStatus()).isEqualTo("PENDING");
+        }
+
+        @Test
+        void getDetailForModerator_notFound() {
+            when(returnRequestRepository.findById(RR_ID)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.getDetailForModerator(RR_ID))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    // ------------------------------------------------------------------ approve
+
+    @Nested
+    class Approve {
+
+        @Test
+        void alreadyHasTrackingCode_returnsWithoutCallingGhn() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.APPROVED);
+            rr.setGhnReturnTrackingCode("OLD-CODE");
+
+            ReturnRequestResponse res = service.approve(RR_ID);
+
+            assertThat(res.getGhnReturnTrackingCode()).isEqualTo("OLD-CODE");
+            verifyNoInteractions(ghnApi);
+            verify(returnRequestRepository, never()).save(any());
+        }
+
+        @Test
+        void notPending_throwsConflict() {
+            givenReturnRequest(ReturnRequestStatus.INSPECTING);
+
+            assertThatThrownBy(() -> service.approve(RR_ID))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("chờ duyệt");
+            verifyNoInteractions(ghnApi);
+        }
+
+        @Test
+        void notFound_throwsIllegalArgument() {
+            when(returnRequestRepository.findById(RR_ID)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.approve(RR_ID)).isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void ghnThrows_wrapsIntoGhnException() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.PENDING);
+            givenOrderItem();
+            when(ghnApi.createOrder(anyString(), anyString(), any(GhnCreateOrderRequest.class)))
+                    .thenThrow(new RuntimeException("boom"));
+
+            assertThatThrownBy(() -> service.approve(RR_ID))
+                    .isInstanceOf(GhnException.class)
+                    .hasMessageContaining("GHN_ERROR");
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.PENDING);
+            verify(returnRequestRepository, never()).save(any());
+        }
+
+        @Test
+        void ghnReturnsNull_throwsGhnException() {
+            givenReturnRequest(ReturnRequestStatus.PENDING);
+            givenOrderItem();
+            when(ghnApi.createOrder(anyString(), anyString(), any(GhnCreateOrderRequest.class))).thenReturn(null);
+
+            assertThatThrownBy(() -> service.approve(RR_ID)).isInstanceOf(GhnException.class);
+        }
+
+        @Test
+        void ghnReturnsNullData_throwsGhnException() {
+            givenReturnRequest(ReturnRequestStatus.PENDING);
+            givenOrderItem();
+            GhnCreateOrderResponse resp = mock(GhnCreateOrderResponse.class);
+            when(resp.getData()).thenReturn(null);
+            when(resp.getMessage()).thenReturn("error");
+            when(ghnApi.createOrder(anyString(), anyString(), any(GhnCreateOrderRequest.class))).thenReturn(resp);
+
+            assertThatThrownBy(() -> service.approve(RR_ID)).isInstanceOf(GhnException.class);
+        }
+
+        @Test
+        void ghnReturnsBlankOrderCode_throwsGhnException() {
+            givenReturnRequest(ReturnRequestStatus.PENDING);
+            givenOrderItem();
+            GhnCreateOrderResponse blankCodeResponse = ghnResponseWithCode(" ");
+            when(ghnApi.createOrder(anyString(), anyString(), any(GhnCreateOrderRequest.class)))
+                    .thenReturn(blankCodeResponse);
+
+            assertThatThrownBy(() -> service.approve(RR_ID)).isInstanceOf(GhnException.class);
+        }
+
+        @Test
+        void success_setsTrackingCodeStatusAndDeadline() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.PENDING);
+            givenOrderItem();
+            GhnCreateOrderResponse okResponse = ghnResponseWithCode("GHN123");
+            when(ghnApi.createOrder(eq(TOKEN), eq(SHOP_ID), any(GhnCreateOrderRequest.class)))
+                    .thenReturn(okResponse);
+
+            ReturnRequestResponse res = service.approve(RR_ID);
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.APPROVED);
+            assertThat(rr.getGhnReturnTrackingCode()).isEqualTo("GHN123");
+            assertThat(rr.getHandoverDeadline()).isAfter(Instant.now().plus(2, ChronoUnit.DAYS));
+            assertThat(res.getGhnReturnTrackingCode()).isEqualTo("GHN123");
+            verify(returnRequestRepository).save(rr);
+
+            ArgumentCaptor<GhnCreateOrderRequest> captor = ArgumentCaptor.forClass(GhnCreateOrderRequest.class);
+            verify(ghnApi).createOrder(eq(TOKEN), eq(SHOP_ID), captor.capture());
+            assertThat(captor.getValue().getClientOrderCode()).isEqualTo("RT-" + RR_ID);
+        }
+    }
+
+    // ------------------------------------------------------------------ reject
+
+    @Nested
+    class Reject {
+
+        @Test
+        void nullRequest_throwsBadRequest() {
+            assertThatThrownBy(() -> service.reject(RR_ID, null)).isInstanceOf(BadRequestException.class);
+        }
+
+        @Test
+        void blankReason_throwsBadRequest() {
+            assertThatThrownBy(() -> service.reject(RR_ID, rejectReq("  ")))
+                    .isInstanceOf(BadRequestException.class);
+        }
+
+        @Test
+        void notPending_throwsConflict() {
+            givenReturnRequest(ReturnRequestStatus.APPROVED);
+
+            assertThatThrownBy(() -> service.reject(RR_ID, rejectReq("no")))
+                    .isInstanceOf(ConflictException.class);
+        }
+
+        @Test
+        void withinWindow_cancelsWithoutPayout() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.PENDING);
+            when(order.getAutoCompleteDeadline()).thenReturn(Instant.now().plus(1, ChronoUnit.DAYS));
+
+            ReturnRequestResponse res = service.reject(RR_ID, rejectReq("Không đủ bằng chứng"));
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.CANCELLED);
+            assertThat(rr.getResolutionNote()).isEqualTo("Không đủ bằng chứng");
+            assertThat(rr.getResolvedAt()).isNotNull();
+            assertThat(res.getStatus()).isEqualTo("CANCELLED");
+            verify(queueService).dequeue(QueueType.RETURN, RR_ID.toString());
+            verify(orderService, never()).payoutOrder(any(), anyString());
+        }
+
+        @Test
+        void afterWindow_payoutImmediately() {
+            givenReturnRequest(ReturnRequestStatus.PENDING);
+            when(order.getAutoCompleteDeadline()).thenReturn(Instant.now().minus(1, ChronoUnit.HOURS));
+
+            service.reject(RR_ID, rejectReq("no"));
+
+            verify(orderService).payoutOrder(eq(ORDER_ID), anyString());
+        }
+
+        @Test
+        void autoCompleteDeadlineNull_noPayout() {
+            givenReturnRequest(ReturnRequestStatus.PENDING);
+            when(order.getAutoCompleteDeadline()).thenReturn(null);
+
+            service.reject(RR_ID, rejectReq("no"));
+
+            verify(orderService, never()).payoutOrder(any(), anyString());
+        }
+    }
+
+    // ------------------------------------------------------------------ confirmHandover
+
+    @Nested
+    class ConfirmHandover {
+
+        @Test
+        void accountNotFound() {
+            when(accountRepository.findByEmail("x@x.com")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.confirmHandover("x@x.com", RR_ID))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void notOwner_forbidden() {
+            givenReturnRequest(ReturnRequestStatus.APPROVED);
+            givenOtherBuyerOwnsOrder();
+
+            assertThatThrownBy(() -> service.confirmHandover(EMAIL, RR_ID))
+                    .isInstanceOf(ForbiddenException.class);
+        }
+
+        @Test
+        void alreadyShippedBack_returnsIdempotently() {
+            givenReturnRequest(ReturnRequestStatus.SHIPPED_BACK);
+
+            ReturnRequestResponse res = service.confirmHandover(EMAIL, RR_ID);
+
+            assertThat(res.getStatus()).isEqualTo("SHIPPED_BACK");
+            verify(returnRequestRepository, never()).save(any());
+        }
+
+        @Test
+        void notApproved_throwsConflict() {
+            givenReturnRequest(ReturnRequestStatus.PENDING);
+
+            assertThatThrownBy(() -> service.confirmHandover(EMAIL, RR_ID))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("chưa được duyệt");
+        }
+
+        @Test
+        void deadlinePassed_cancelsAndThrows_withPayoutWhenWindowPassed() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.APPROVED);
+            rr.setHandoverDeadline(Instant.now().minus(1, ChronoUnit.HOURS));
+            when(order.getAutoCompleteDeadline()).thenReturn(Instant.now().minus(1, ChronoUnit.DAYS));
+
+            assertThatThrownBy(() -> service.confirmHandover(EMAIL, RR_ID))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("quá hạn bàn giao");
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.CANCELLED);
+            assertThat(rr.getResolvedAt()).isNotNull();
+            verify(returnRequestRepository).save(rr);
+            verify(orderService).payoutOrder(eq(ORDER_ID), anyString());
+        }
+
+        @Test
+        void deadlinePassed_noPayoutWhenStillInReturnWindow() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.APPROVED);
+            rr.setHandoverDeadline(Instant.now().minus(1, ChronoUnit.HOURS));
+            when(order.getAutoCompleteDeadline()).thenReturn(Instant.now().plus(1, ChronoUnit.DAYS));
+
+            assertThatThrownBy(() -> service.confirmHandover(EMAIL, RR_ID))
+                    .isInstanceOf(ConflictException.class);
+
+            verify(orderService, never()).payoutOrder(any(), anyString());
+        }
+
+        @Test
+        void success_setsShippedBack() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.APPROVED);
+            rr.setHandoverDeadline(Instant.now().plus(1, ChronoUnit.DAYS));
+
+            ReturnRequestResponse res = service.confirmHandover(EMAIL, RR_ID);
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.SHIPPED_BACK);
+            assertThat(res.getStatus()).isEqualTo("SHIPPED_BACK");
+            verify(returnRequestRepository).save(rr);
+        }
+
+        @Test
+        void success_whenDeadlineNull() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.APPROVED);
+            rr.setHandoverDeadline(null);
+
+            service.confirmHandover(EMAIL, RR_ID);
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.SHIPPED_BACK);
+        }
+    }
+
+    // ------------------------------------------------------------------ startInspection
+
+    @Nested
+    class StartInspection {
+
+        @Test
+        void nullRequest_throwsBadRequest() {
+            assertThatThrownBy(() -> service.startInspection(RR_ID, null))
+                    .isInstanceOf(BadRequestException.class);
+        }
+
+        @Test
+        void blankNote_throwsBadRequest() {
+            assertThatThrownBy(() -> service.startInspection(RR_ID, inspectReq(" ", true, false, false)))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("conditionNote");
+        }
+
+        @Test
+        void wrongStatus_throwsConflict() {
+            givenReturnRequest(ReturnRequestStatus.APPROVED);
+
+            assertThatThrownBy(() -> service.startInspection(RR_ID, inspectReq("ok", true, false, false)))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("bàn giao");
+        }
+
+        @Test
+        void fromShippedBack_movesToInspecting_andStoresFields() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.SHIPPED_BACK);
+
+            ReturnRequestResponse res = service.startInspection(RR_ID, inspectReq("Trầy xước", true, true, true));
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.INSPECTING);
+            assertThat(rr.getMatchesOriginal()).isTrue();
+            assertThat(rr.getDegraded()).isTrue();
+            assertThat(rr.getCounterfeitSuspected()).isTrue();
+            assertThat(rr.getConditionNote()).isEqualTo("Trầy xước");
+            assertThat(res.getStatus()).isEqualTo("INSPECTING");
+            verify(returnRequestRepository).save(rr);
+        }
+
+        @Test
+        void fromInspecting_isAllowed_andNullCounterfeitBecomesFalse() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INSPECTING);
+
+            service.startInspection(RR_ID, inspectReq("Còn mới", true, false, null));
+
+            assertThat(rr.getCounterfeitSuspected()).isFalse();
+            assertThat(rr.getDegraded()).isFalse();
+        }
+
+        @Test
+        void notFound() {
+            when(returnRequestRepository.findById(RR_ID)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.startInspection(RR_ID, inspectReq("ok", true, false, false)))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    // ------------------------------------------------------------------ resolve
+
+    @Nested
+    class Resolve {
+
+        @Test
+        void nullRequest_throwsBadRequest() {
+            assertThatThrownBy(() -> service.resolve(moderator, RR_ID, null))
+                    .isInstanceOf(BadRequestException.class);
+        }
+
+        @Test
+        void blankResolution_throwsBadRequest() {
+            assertThatThrownBy(() -> service.resolve(moderator, RR_ID, resolveReq(" ", "RELIST", "n")))
+                    .isInstanceOf(BadRequestException.class);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"FOO", "PENDING", "LOST"})
+        void invalidResolution_throwsBadRequest(String value) {
+            assertThatThrownBy(() -> service.resolve(moderator, RR_ID, resolveReq(value, "RELIST", "n")))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("VALID hoặc INVALID");
+        }
+
+        @Test
+        void notFound() {
+            when(returnRequestRepository.findById(RR_ID)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.resolve(moderator, RR_ID, resolveReq("VALID", "RELIST", "n")))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void notInspecting_throwsConflict() {
+            givenReturnRequest(ReturnRequestStatus.SHIPPED_BACK);
+
+            assertThatThrownBy(() -> service.resolve(moderator, RR_ID, resolveReq("VALID", "RELIST", "n")))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("Chưa kiểm tra");
+        }
+
+        @Test
+        void valid_notDegraded_missingAction_throwsBadRequest() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INSPECTING);
+            rr.setDegraded(false);
+
+            assertThatThrownBy(() -> service.resolve(moderator, RR_ID, resolveReq("VALID", null, "n")))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("action");
+            verifyNoInteractions(orderService);
+        }
+
+        @Test
+        void valid_notDegraded_invalidAction_throwsBadRequest() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INSPECTING);
+            rr.setDegraded(false);
+
+            assertThatThrownBy(() -> service.resolve(moderator, RR_ID, resolveReq("VALID", "BURN", "n")))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("RELIST");
+        }
+
+        @Test
+        void valid_notDegraded_success_refundsAndAppliesAction() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INSPECTING);
+            rr.setDegraded(false);
+
+            ReturnRequestResponse res = service.resolve(moderator, RR_ID, resolveReq(" valid ", "relist", "Hợp lệ"));
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.VALID);
+            assertThat(rr.getItemAction()).isEqualTo(ReturnedItemAction.RELIST);
+            assertThat(rr.getResolutionNote()).isEqualTo("Hợp lệ");
+            assertThat(rr.getResolvedAt()).isNotNull();
+            assertThat(res.getStatus()).isEqualTo("VALID");
+
+            verify(queueService).dequeue(QueueType.RETURN, RR_ID.toString());
+            verify(orderService).refundOrderForReturn(eq(ORDER_ID), anyString());
+            verify(orderService).applyReturnedItemAction(ORDER_ID, ReturnedItemAction.RELIST);
+            verify(degradedItemCaseRepository, never()).save(any());
+        }
+
+        @Test
+        void valid_degradedNullFlag_treatedAsNotDegraded() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INSPECTING);
+            rr.setDegraded(null);
+
+            service.resolve(moderator, RR_ID, resolveReq("VALID", "DISCARD", "n"));
+
+            verify(orderService).applyReturnedItemAction(ORDER_ID, ReturnedItemAction.DISCARD);
+        }
+
+        @Test
+        void valid_degraded_opensDegradedCase_withoutAction() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INSPECTING);
+            rr.setDegraded(true);
+            OrderItem item = givenOrderItem();
+
+            service.resolve(moderator, RR_ID, resolveReq("VALID", null, "Xuống cấp"));
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.VALID);
+            assertThat(rr.getItemAction()).isNull();
+            verify(orderService).refundOrderForReturn(eq(ORDER_ID), anyString());
+            verify(orderService, never()).applyReturnedItemAction(any(), any());
+
+            ArgumentCaptor<DegradedItemCase> captor = ArgumentCaptor.forClass(DegradedItemCase.class);
+            verify(degradedItemCaseRepository).save(captor.capture());
+            // 100000 - 100000 * 0.10 = 90000 (không trừ thuế)
+            assertThat(captor.getValue().getCompensationAmount()).isEqualByComparingTo("90000");
+            assertThat(item).isNotNull();
+        }
+
+        @Test
+        void valid_degraded_orderHasNoItem_throwsIllegalState() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INSPECTING);
+            rr.setDegraded(true);
+            when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(ORDER_ID)).thenReturn(List.of());
+
+            assertThatThrownBy(() -> service.resolve(moderator, RR_ID, resolveReq("VALID", null, "n")))
+                    .isInstanceOf(IllegalStateException.class);
+        }
+
+        @Test
+        void invalid_setsPickupDeadline_paysOutAndKeepsOpen() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INSPECTING);
+
+            ReturnRequestResponse res = service.resolve(moderator, RR_ID, resolveReq("INVALID", null, "Hàng giả"));
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.INVALID);
+            assertThat(rr.getResolvedAt()).isNull();
+            assertThat(rr.getResolutionNote()).isEqualTo("Hàng giả");
+            assertThat(rr.getPickupDeadline()).isAfter(Instant.now().plus(6, ChronoUnit.DAYS));
+            assertThat(res.getStatus()).isEqualTo("INVALID");
+
+            verify(queueService).dequeue(QueueType.RETURN, RR_ID.toString());
+            verify(orderService).payoutOrder(eq(ORDER_ID), anyString());
+            verify(orderService, never()).refundOrderForReturn(any(), anyString());
+            verify(orderService, never()).applyReturnedItemAction(any(), any());
+        }
+    }
+
+    // ------------------------------------------------------------------ chooseInvalidReturn
+
+    @Nested
+    class ChooseInvalidReturn {
+
+        @Test
+        void nullRequest_throwsBadRequest() {
+            assertThatThrownBy(() -> service.chooseInvalidReturn(EMAIL, RR_ID, null))
+                    .isInstanceOf(BadRequestException.class);
+        }
+
+        @Test
+        void nullChoice_throwsBadRequest() {
+            InvalidReturnChoiceRequest req = mock(InvalidReturnChoiceRequest.class);
+            when(req.getChoice()).thenReturn(null);
+
+            assertThatThrownBy(() -> service.chooseInvalidReturn(EMAIL, RR_ID, req))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("choice");
+        }
+
+        @Test
+        void accountNotFound() throws Exception {
+            InvalidReturnChoiceRequest req = mock(InvalidReturnChoiceRequest.class);
+            stubChoice(req, "SHIP_BACK");
+            when(accountRepository.findByEmail("x@x.com")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.chooseInvalidReturn("x@x.com", RR_ID, req))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void notOwner_forbidden() throws Exception {
+            InvalidReturnChoiceRequest req = mock(InvalidReturnChoiceRequest.class);
+            stubChoice(req, "SHIP_BACK");
+            givenReturnRequest(ReturnRequestStatus.INVALID);
+            givenOtherBuyerOwnsOrder();
+
+            assertThatThrownBy(() -> service.chooseInvalidReturn(EMAIL, RR_ID, req))
+                    .isInstanceOf(ForbiddenException.class);
+        }
+
+        @Test
+        void notInvalid_throwsConflict() throws Exception {
+            InvalidReturnChoiceRequest req = mock(InvalidReturnChoiceRequest.class);
+            stubChoice(req, "SHIP_BACK");
+            givenReturnRequest(ReturnRequestStatus.INSPECTING);
+
+            assertThatThrownBy(() -> service.chooseInvalidReturn(EMAIL, RR_ID, req))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("không hợp lệ");
+        }
+
+        @Test
+        void pickupExpired_throwsConflict() throws Exception {
+            InvalidReturnChoiceRequest req = mock(InvalidReturnChoiceRequest.class);
+            stubChoice(req, "SHIP_BACK");
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INVALID);
+            rr.setPickupDeadline(Instant.now().minus(1, ChronoUnit.HOURS));
+
+            assertThatThrownBy(() -> service.chooseInvalidReturn(EMAIL, RR_ID, req))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("quá hạn");
+            verify(returnRequestRepository, never()).save(any());
+        }
+
+        @Test
+        void success_storesChoice() throws Exception {
+            InvalidReturnChoiceRequest req = mock(InvalidReturnChoiceRequest.class);
+            Object choice = stubChoice(req, "WAREHOUSE_PICKUP");
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INVALID);
+            rr.setPickupDeadline(Instant.now().plus(2, ChronoUnit.DAYS));
+
+            ReturnRequestResponse res = service.chooseInvalidReturn(EMAIL, RR_ID, req);
+
+            assertThat(rr.getInvalidReturnChoice()).isEqualTo(choice);
+            assertThat(res.getInvalidReturnChoice()).isEqualTo("WAREHOUSE_PICKUP");
+            verify(returnRequestRepository).save(rr);
+        }
+
+        @Test
+        void success_whenPickupDeadlineNull() throws Exception {
+            InvalidReturnChoiceRequest req = mock(InvalidReturnChoiceRequest.class);
+            Object choice = stubChoice(req, "SHIP_BACK");
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INVALID);
+            rr.setPickupDeadline(null);
+
+            service.chooseInvalidReturn(EMAIL, RR_ID, req);
+
+            assertThat(rr.getInvalidReturnChoice()).isEqualTo(choice);
+        }
+    }
+
+    // ------------------------------------------------------------------ applyGhnReturnStatus
+
+    @Nested
+    class ApplyGhnReturnStatus {
+
+        private static final String CODE = "GHN-RT-1";
+
+        private ReturnRequest givenByTrackingCode(ReturnRequestStatus status) {
+            ReturnRequest rr = givenReturnRequest(status);
+            when(returnRequestRepository.findByGhnReturnTrackingCode(CODE)).thenReturn(Optional.of(rr));
+            return rr;
+        }
+
+        @Test
+        void unknownTrackingCode_returnsFalse() {
+            when(returnRequestRepository.findByGhnReturnTrackingCode("nope")).thenReturn(Optional.empty());
+
+            assertThat(service.applyGhnReturnStatus("nope", "picked", null)).isFalse();
+        }
+
+        @Test
+        void picked_whenApproved_movesToShippedBack() {
+            ReturnRequest rr = givenByTrackingCode(ReturnRequestStatus.APPROVED);
+
+            assertThat(service.applyGhnReturnStatus(CODE, "PICKED", null)).isTrue();
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.SHIPPED_BACK);
+            verify(returnRequestRepository).save(rr);
+        }
+
+        @Test
+        void picked_whenNotApproved_noChange() {
+            ReturnRequest rr = givenByTrackingCode(ReturnRequestStatus.INSPECTING);
+
+            assertThat(service.applyGhnReturnStatus(CODE, "picked", null)).isTrue();
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.INSPECTING);
+            verify(returnRequestRepository, never()).save(any());
+        }
+
+        @Test
+        void delivered_whenShippedBack_movesToInspecting() {
+            ReturnRequest rr = givenByTrackingCode(ReturnRequestStatus.SHIPPED_BACK);
+
+            assertThat(service.applyGhnReturnStatus(CODE, "delivered", null)).isTrue();
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.INSPECTING);
+            verify(returnRequestRepository).save(rr);
+        }
+
+        @Test
+        void delivered_whenNotShippedBack_noChange() {
+            ReturnRequest rr = givenByTrackingCode(ReturnRequestStatus.APPROVED);
+
+            service.applyGhnReturnStatus(CODE, "delivered", null);
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.APPROVED);
+            verify(returnRequestRepository, never()).save(any());
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"lost", "damage", "scrap", "LOST"})
+        void lostStatuses_whenOpen_marksLostAndRefunds(String ghnStatus) {
+            ReturnRequest rr = givenByTrackingCode(ReturnRequestStatus.SHIPPED_BACK);
+
+            assertThat(service.applyGhnReturnStatus(CODE, ghnStatus, "Mất hàng")).isTrue();
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.LOST);
+            assertThat(rr.getResolutionNote()).isEqualTo("Mất hàng");
+            assertThat(rr.getResolvedAt()).isNotNull();
+            verify(queueService).dequeue(QueueType.RETURN, RR_ID.toString());
+            verify(orderService).refundOrderForReturn(eq(ORDER_ID), anyString());
+        }
+
+        @Test
+        void lost_withBlankReason_usesStatusAsNote() {
+            ReturnRequest rr = givenByTrackingCode(ReturnRequestStatus.APPROVED);
+
+            service.applyGhnReturnStatus(CODE, "damage", " ");
+
+            assertThat(rr.getResolutionNote()).isEqualTo("damage");
+        }
+
+        @Test
+        void lost_whenAlreadyClosed_doesNothing() {
+            ReturnRequest rr = givenByTrackingCode(ReturnRequestStatus.VALID);
+
+            assertThat(service.applyGhnReturnStatus(CODE, "lost", "x")).isTrue();
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.VALID);
+            verify(orderService, never()).refundOrderForReturn(any(), anyString());
+        }
+
+        @Test
+        void nullStatus_noChange() {
+            ReturnRequest rr = givenByTrackingCode(ReturnRequestStatus.APPROVED);
+
+            assertThat(service.applyGhnReturnStatus(CODE, null, null)).isTrue();
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.APPROVED);
+            verify(returnRequestRepository, never()).save(any());
+        }
+
+        @Test
+        void unknownStatus_noChange() {
+            ReturnRequest rr = givenByTrackingCode(ReturnRequestStatus.APPROVED);
+
+            assertThat(service.applyGhnReturnStatus(CODE, "ready_to_pick", null)).isTrue();
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.APPROVED);
+        }
+    }
+
+    // ------------------------------------------------------------------ markLost (API 89)
+
+    @Nested
+    class MarkLost {
+
+        @Test
+        void nullRequest_throwsBadRequest() {
+            assertThatThrownBy(() -> service.markLost(RR_ID, null)).isInstanceOf(BadRequestException.class);
+        }
+
+        @Test
+        void blankNote_throwsBadRequest() {
+            assertThatThrownBy(() -> service.markLost(RR_ID, lostReq(" ")))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("note");
+        }
+
+        @Test
+        void notFound() {
+            when(returnRequestRepository.findById(RR_ID)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.markLost(RR_ID, lostReq("n")))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void alreadyLost_returnsWithoutRefund() {
+            givenReturnRequest(ReturnRequestStatus.LOST);
+
+            ReturnRequestResponse res = service.markLost(RR_ID, lostReq("n"));
+
+            assertThat(res.getStatus()).isEqualTo("LOST");
+            verifyNoInteractions(orderService);
+            verify(returnRequestRepository, never()).save(any());
+        }
+
+        @Test
+        void alreadyResolved_throwsConflict() {
+            givenReturnRequest(ReturnRequestStatus.VALID);
+
+            assertThatThrownBy(() -> service.markLost(RR_ID, lostReq("n")))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("xử lý xong");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"PENDING", "APPROVED", "SHIPPED_BACK", "INSPECTING"})
+        void openStatus_marksLostAndRefunds(String statusName) {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.valueOf(statusName));
+
+            ReturnRequestResponse res = service.markLost(RR_ID, lostReq("GHN làm mất"));
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.LOST);
+            assertThat(rr.getResolutionNote()).isEqualTo("GHN làm mất");
+            assertThat(rr.getResolvedAt()).isNotNull();
+            assertThat(res.getStatus()).isEqualTo("LOST");
+            verify(returnRequestRepository).save(rr);
+            verify(queueService).dequeue(QueueType.RETURN, RR_ID.toString());
+            verify(orderService).refundOrderForReturn(eq(ORDER_ID), anyString());
+        }
     }
 }

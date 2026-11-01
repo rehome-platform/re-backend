@@ -136,6 +136,14 @@ public enum ErrorCode {
     // Nháp ký gửi ("Tủ đồ") và giới hạn yêu cầu chờ duyệt
     CONSIGNMENT_FORM_NOT_DRAFT(HttpStatus.CONFLICT, "Form này không phải bản nháp."),
     TOO_MANY_PENDING_FORMS(HttpStatus.CONFLICT, "Bạn đã đạt giới hạn yêu cầu ký gửi đang chờ duyệt. Vui lòng chờ duyệt xong rồi gửi tiếp."),
+    // Validate body POST/PUT /consignment-forms và nháp: thiếu trường bắt buộc trả 400 kèm mã riêng
+    CATEGORY_ID_REQUIRED(HttpStatus.BAD_REQUEST, "categoryId không được để trống."),
+    BRAND_ID_REQUIRED(HttpStatus.BAD_REQUEST, "brandId không được để trống."),
+    WAREHOUSE_ID_REQUIRED(HttpStatus.BAD_REQUEST, "warehouseId không được để trống."),
+    PRODUCT_NAME_REQUIRED(HttpStatus.BAD_REQUEST, "productName không được để trống."),
+    DESCRIPTION_REQUIRED(HttpStatus.BAD_REQUEST, "description không được để trống."),
+    INVALID_DESIRED_PRICE(HttpStatus.BAD_REQUEST, "desiredPrice phải lớn hơn 0."),
+    PHOTOS_REQUIRED(HttpStatus.BAD_REQUEST, "Cần ít nhất 1 ảnh."),
     // API 40 - danh sách hàng trong kho
     ACCESS_TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "Access token đã hết hạn."),
     ACCESS_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "Access token không hợp lệ."),

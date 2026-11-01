@@ -31,7 +31,7 @@ public class OrderCancelExecutor {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void cancelOrder(UUID orderId) {
-        Order order = orderRepository.findById(orderId).orElse(null);
+        Order order = orderRepository.findByIdForUpdate(orderId).orElse(null);
 
         if (order == null
                 || order.getStatus() != OrderStatus.PENDING_PAYMENT

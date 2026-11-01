@@ -32,6 +32,9 @@ public interface ProductRepository extends JpaRepository<Product, String>, JpaSp
                            Pageable pageable);
     boolean existsByConsignmentReceiptId(UUID consignmentReceiptId);
 
+    // Lấy SKU để hiện trên biên nhận sau khi đã nhập kho
+    Optional<Product> findByConsignmentReceiptId(UUID consignmentReceiptId);
+
     List<Product> findAllByNameNormalizedIsNull();
 
     @Query(value = "SELECT nextval('product_sku_seq')", nativeQuery = true)

@@ -89,7 +89,7 @@ public class ConsignmentFormController {
 
     @GetMapping
     @Operation(summary = "Danh sách form ký gửi của tôi (status=DRAFT để lấy nháp; không truyền status thì không gồm nháp)")
-    public ResponseEntity<ApiResponse<PageResponse<ConsignmentFormListItemResponse>>> getMyForms(
+    public ResponseEntity<ApiResponse<ConsignmentFormPageResponse>> getMyForms(
             @RequestParam(required = false) ConsignmentFormStatus status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,

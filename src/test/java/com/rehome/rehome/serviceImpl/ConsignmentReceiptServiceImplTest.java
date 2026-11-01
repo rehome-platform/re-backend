@@ -17,6 +17,7 @@ import com.rehome.rehome.dto.response.PdfDownload;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
 import com.rehome.rehome.entity.enums.Role;
+import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceiptPdf;
@@ -27,6 +28,8 @@ import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.ConsignmentFormRepository;
 import com.rehome.rehome.repository.ConsignmentReceiptPdfRepository;
 import com.rehome.rehome.repository.ConsignmentReceiptRepository;
+import com.rehome.rehome.repository.EndOfTermDecisionRepository;
+import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.service.ReceiptPdfService;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -69,6 +72,14 @@ class ConsignmentReceiptServiceImplTest {
     @Mock
     private AccountRepository accountRepository;
 
+    // MỚI: service giờ dùng ProductRepository (findByConsignmentReceiptId)
+    @Mock
+    private ProductRepository productRepository;
+
+    // MỚI: getMyReceipt() gọi endOfTermDecisionRepository.findByNewReceipt_Id
+    @Mock
+    private EndOfTermDecisionRepository endOfTermDecisionRepository;
+
     @Spy
     private ConsignmentProperties consignmentProperties = new ConsignmentProperties();
 
@@ -97,10 +108,22 @@ class ConsignmentReceiptServiceImplTest {
     }
 
     private ConsignmentReceipt unconfirmedReceiptOf(Account owner) {
+        // MỚI: mapper.toResponse() đọc consignmentForm.getProductName() nên form không được null
+        Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).build();
+        ConsignmentForm form = ConsignmentForm.builder()
+                .id(UUID.randomUUID())
+                .member(owner)
+                .warehouse(warehouse)
+                .productName("Áo khoác denim")
+                .brand(Brand.builder().name("Uniqlo").build())
+                .status(ConsignmentFormStatus.INSPECTING)
+                .build();
         return ConsignmentReceipt.builder()
                 .id(UUID.randomUUID())
                 .receiptNo("RC-2026-000045")
                 .member(owner)
+                .consignmentForm(form)
+                .warehouse(warehouse)
                 .agreedPrice(new BigDecimal("220000"))
                 .floorPrice(new BigDecimal("110000"))
                 .withdrawalFee(new BigDecimal("20000"))
@@ -432,7 +455,7 @@ class ConsignmentReceiptServiceImplTest {
 
     /** Chạy happy path và trả về receipt đã được truyền vào save(). */
     private ConsignmentReceipt completeAndCapture(ConsignmentForm form, CompleteInspectionRequest req) {
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
         when(consignmentReceiptRepository.existsByConsignmentFormId(form.getId())).thenReturn(false);
         when(consignmentReceiptRepository.nextReceiptSequence()).thenReturn(7L);
         when(consignmentReceiptRepository.save(any(ConsignmentReceipt.class))).thenAnswer(inv -> {
@@ -507,7 +530,7 @@ class ConsignmentReceiptServiceImplTest {
     @Test
     void completeInspection_formNotFound_throws404() {
         UUID id = UUID.randomUUID();
-        when(consignmentFormRepository.findById(id)).thenReturn(Optional.empty());
+        when(consignmentFormRepository.findByIdForUpdate(id)).thenReturn(Optional.empty());
 
         assertAppError(() -> service.completeInspection(id, completeRequest(BigDecimal.TEN, 30)),
                 ErrorCode.CONSIGNMENT_FORM_NOT_FOUND);
@@ -519,7 +542,7 @@ class ConsignmentReceiptServiceImplTest {
     @EnumSource(value = ConsignmentFormStatus.class, names = "INSPECTING", mode = EnumSource.Mode.EXCLUDE)
     void completeInspection_notInspecting_throws409(ConsignmentFormStatus status) {
         ConsignmentForm form = formWithStatus(status);
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
 
         assertAppError(() -> service.completeInspection(form.getId(), completeRequest(BigDecimal.TEN, 30)),
                 ErrorCode.CONSIGNMENT_FORM_NOT_INSPECTING);
@@ -530,7 +553,7 @@ class ConsignmentReceiptServiceImplTest {
     @Test
     void completeInspection_receiptAlreadyExists_throws409() {
         ConsignmentForm form = formWithStatus(ConsignmentFormStatus.INSPECTING);
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
         when(consignmentReceiptRepository.existsByConsignmentFormId(form.getId())).thenReturn(true);
 
         assertAppError(() -> service.completeInspection(form.getId(), completeRequest(BigDecimal.TEN, 30)),
@@ -542,7 +565,7 @@ class ConsignmentReceiptServiceImplTest {
     @Test
     void completeInspection_unknownModerator_throwsUnauthorized() {
         ConsignmentForm form = formWithStatus(ConsignmentFormStatus.INSPECTING);
-        when(consignmentFormRepository.findById(form.getId())).thenReturn(Optional.of(form));
+        when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
         when(consignmentReceiptRepository.existsByConsignmentFormId(form.getId())).thenReturn(false);
         when(consignmentReceiptRepository.nextReceiptSequence()).thenReturn(1L);   // được gọi trước currentModerator()
         SecurityContextHolder.getContext().setAuthentication(

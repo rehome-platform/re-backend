@@ -13,7 +13,14 @@ import java.util.UUID;
 
 @Repository
 public interface ConsignmentReceiptRepository extends JpaRepository<ConsignmentReceipt, UUID> {
-    Optional<ConsignmentReceipt> findByConsignmentForm_Id(UUID consignmentFormId);
+    // Một form có thể có nhiều biên nhận (lần đầu + các lần ký gửi lại): lấy biên nhận mới nhất
+    Optional<ConsignmentReceipt> findFirstByConsignmentForm_IdOrderByCreatedAtDesc(UUID consignmentFormId);
+
+    // Giữ nguyên tên cũ để các chỗ đang gọi không phải sửa
+    default Optional<ConsignmentReceipt> findByConsignmentForm_Id(UUID consignmentFormId) {
+        return findFirstByConsignmentForm_IdOrderByCreatedAtDesc(consignmentFormId);
+    }
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from ConsignmentReceipt r where r.id = :id")
     Optional<ConsignmentReceipt> findByIdForUpdate(@Param("id") UUID id);

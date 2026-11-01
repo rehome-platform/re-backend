@@ -39,6 +39,8 @@ DECLARE
     v_seller2_id     uuid;
     v_seller3_id     uuid;
     v_org_id         uuid;
+    v_org2_id        uuid; -- hồ sơ REJECTED, test API 128/137/138
+    v_org3_id        uuid; -- hồ sơ PENDING, chưa được duyệt
 
     -- Ví
     v_wallet_buyer1  uuid;
@@ -178,6 +180,16 @@ BEGIN
     VALUES (gen_random_uuid(), 'org1@rehome.test', v_pwd_hash, '0911111106', 'ORGANIZATION', 'ACTIVE', true, v_now, v_now)
     RETURNING id INTO v_org_id;
 
+    -- org2: hồ sơ REJECTED, test Moderator xem hồ sơ bị từ chối + tổ chức nộp lại (API 128/137/138)
+    INSERT INTO accounts (id, email, password_hash, phone, role, status, email_verified, created_at, updated_at)
+    VALUES (gen_random_uuid(), 'org2@rehome.test', v_pwd_hash, '0911111107', 'ORGANIZATION', 'ACTIVE', true, v_now, v_now)
+    RETURNING id INTO v_org2_id;
+
+    -- org3: hồ sơ PENDING, test hàng đợi duyệt tổ chức (GET /queues?type=..., API 137/138)
+    INSERT INTO accounts (id, email, password_hash, phone, role, status, email_verified, created_at, updated_at)
+    VALUES (gen_random_uuid(), 'org3@rehome.test', v_pwd_hash, '0911111108', 'ORGANIZATION', 'ACTIVE', true, v_now, v_now)
+    RETURNING id INTO v_org3_id;
+
     v_seller_ids := ARRAY[v_seller1_id, v_seller2_id, v_seller3_id];
 
     INSERT INTO moderator_profiles (account_id, full_name, moderator_code, warehouse_id) VALUES
@@ -217,6 +229,42 @@ BEGIN
         'Điểm nhận đồ ABC', '10 Nguyễn Huệ, Phường Bến Nghé, TP.HCM', 10.7745000, 106.7030000,
         '08:00 - 17:00 (Thứ 2 - Thứ 6)', '0911111106',
         'Hoàng Văn Đại Diện', 'Giám đốc', '079123456789', NULL, NULL
+    );
+
+    INSERT INTO organization_profiles (
+        account_id, legal_name, display_name, org_type, tax_code, operation_scope,
+        address, contact_phone, contact_email, website, description, logo_url,
+        verification_status, rejection_reason, verified_by, verified_at,
+        donation_point_name, donation_point_address, donation_point_latitude, donation_point_longitude,
+        donation_point_receiving_hours, donation_point_contact_phone,
+        full_name, position, cccd_number, cccd_front_url, cccd_back_url
+    ) VALUES (
+        v_org2_id, 'Tổ chức Thiện Nguyện XYZ', 'XYZ Charity', 'NGO', NULL, 'TP.HCM',
+        '20 Lê Lợi, Phường Bến Thành, TP.HCM', '0911111107', 'org2@rehome.test', NULL,
+        'Tổ chức thiện nguyện seed cho mục đích test hồ sơ bị từ chối.', NULL,
+        'REJECTED', 'Giấy phép hoạt động đã hết hạn, vui lòng nộp lại giấy phép còn hiệu lực.',
+        v_mod1_id, v_now - interval '2 days',
+        'Điểm nhận đồ XYZ', '20 Lê Lợi, Phường Bến Thành, TP.HCM', 10.7720000, 106.6980000,
+        '08:00 - 17:00 (Thứ 2 - Thứ 6)', '0911111107',
+        'Trần Văn Đại Diện', 'Giám đốc', '079987654321', NULL, NULL
+    );
+
+    -- org3: PENDING - chưa có Moderator kết luận nên verified_by/verified_at/rejection_reason đều NULL
+    INSERT INTO organization_profiles (
+        account_id, legal_name, display_name, org_type, tax_code, operation_scope,
+        address, contact_phone, contact_email, website, description, logo_url,
+        verification_status, rejection_reason, verified_by, verified_at,
+        donation_point_name, donation_point_address, donation_point_latitude, donation_point_longitude,
+        donation_point_receiving_hours, donation_point_contact_phone,
+        full_name, position, cccd_number, cccd_front_url, cccd_back_url
+    ) VALUES (
+        v_org3_id, 'Tổ chức Thiện Nguyện DEF', 'DEF Charity', 'NGO', NULL, 'Hà Nội',
+        '30 Tràng Tiền, Phường Cửa Nam, Hà Nội', '0911111108', 'org3@rehome.test', NULL,
+        'Tổ chức thiện nguyện seed cho mục đích test hồ sơ đang chờ duyệt.', NULL,
+        'PENDING', NULL, NULL, NULL,
+        'Điểm nhận đồ DEF', '30 Tràng Tiền, Phường Cửa Nam, Hà Nội', 21.0250000, 105.8500000,
+        '08:00 - 17:00 (Thứ 2 - Thứ 6)', '0911111108',
+        'Lê Thị Đại Diện', 'Giám đốc', '079112233445', NULL, NULL
     );
 
     ------------------------------------------------------------------
@@ -854,6 +902,8 @@ END $$;
 --   seller2@rehome.test     MEMBER  MB000904  — ví 0đ
 --   seller3@rehome.test     MEMBER  MB000905  — ví 0đ
 --   org1@rehome.test        ORGANIZATION — hồ sơ VERIFIED
+--   org2@rehome.test        ORGANIZATION — hồ sơ REJECTED, test API 128/137/138
+--   org3@rehome.test        ORGANIZATION — hồ sơ PENDING, chưa được duyệt
 --
 -- Kho:
 --   Kho Quận 7 - TP.HCM     — sản phẩm #1-10, #21-22 (SKU Q7-xx-0000NN)

@@ -18,6 +18,7 @@ import java.time.Instant;
 public class DonationResponse {
     private String id;
     private String warehouseId;
+    private String campaignId;
     private String donorName;
 
     @JsonProperty("isAnonymous") // Jackson mặc định bỏ tiền tố "is" của getter boolean -> phải ép tên field tường minh
@@ -25,5 +26,10 @@ public class DonationResponse {
 
     private String note;
     private String status;
+
+    // Mã nhân viên Moderator đã ghi nhận lượt quyên góp này (ModeratorProfile.moderatorCode)
+    private String recordedBy;
+
+    private Instant handedOverAt;
     private Instant createdAt;
 }

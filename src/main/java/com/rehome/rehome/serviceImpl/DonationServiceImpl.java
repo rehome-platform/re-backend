@@ -7,6 +7,7 @@ import com.rehome.rehome.dto.response.DonationHandoverResponse;
 import com.rehome.rehome.dto.response.DonationNoteResponse;
 import com.rehome.rehome.dto.response.DonationResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.auth.ModeratorProfile;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.DonationStatus;
 import com.rehome.rehome.entity.enums.VerificationStatus;
@@ -21,6 +22,7 @@ import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.repository.CampaignRepository;
 import com.rehome.rehome.repository.DonationNoteRepository;
 import com.rehome.rehome.repository.DonationRepository;
+import com.rehome.rehome.repository.ModeratorProfileRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.DonationService;
@@ -31,7 +33,12 @@ import org.springframework.util.StringUtils;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -48,6 +55,7 @@ public class DonationServiceImpl implements DonationService {
     private final WarehouseRepository warehouseRepository;
     private final OrganizationProfileRepository organizationProfileRepository;
     private final CampaignRepository campaignRepository;
+    private final ModeratorProfileRepository moderatorProfileRepository;
 
     @Override
     @Transactional
@@ -58,9 +66,12 @@ public class DonationServiceImpl implements DonationService {
         }
 
         Warehouse warehouse = requireOwnWarehouse(moderator, warehouseId, WAREHOUSE_NOT_FOUND);
+        Campaign campaign = requireCampaignServingWarehouse(warehouse, request.getCampaignId());
 
         Donation donation = Donation.builder()
                 .warehouse(warehouse)
+                .campaign(campaign)
+                .recordedBy(moderator)
                 // Ẩn danh thì không lưu tên, tránh giữ lại danh tính người đã chọn ẩn
                 .donorName(anonymous ? null : request.getDonorName())
                 .isAnonymous(anonymous)
@@ -69,19 +80,70 @@ public class DonationServiceImpl implements DonationService {
                 .build();
         donationRepository.save(donation);
 
-        return toResponse(donation);
+        return toResponse(donation, resolveModeratorCode(moderator.getId()));
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<DonationResponse> listDonations(Account moderator, UUID warehouseId, DonationStatus status) {
+    public List<DonationResponse> listDonations(Account moderator, UUID warehouseId, UUID campaignId,
+                                                 DonationStatus status) {
         requireOwnWarehouse(moderator, warehouseId, WAREHOUSE_NOT_FOUND);
 
-        List<Donation> donations = status == null
-                ? donationRepository.findByWarehouse_IdOrderByCreatedAtDesc(warehouseId)
-                : donationRepository.findByWarehouse_IdAndStatusOrderByCreatedAtDesc(warehouseId, status);
+        List<Donation> donations;
+        if (campaignId != null && status != null) {
+            donations = donationRepository.findByWarehouse_IdAndCampaign_IdAndStatusOrderByCreatedAtDesc(
+                    warehouseId, campaignId, status);
+        } else if (campaignId != null) {
+            donations = donationRepository.findByWarehouse_IdAndCampaign_IdOrderByCreatedAtDesc(
+                    warehouseId, campaignId);
+        } else if (status != null) {
+            donations = donationRepository.findByWarehouse_IdAndStatusOrderByCreatedAtDesc(warehouseId, status);
+        } else {
+            donations = donationRepository.findByWarehouse_IdOrderByCreatedAtDesc(warehouseId);
+        }
 
-        return donations.stream().map(DonationServiceImpl::toResponse).toList();
+        Map<UUID, ModeratorProfile> moderatorProfiles = loadModeratorProfiles(donations);
+        return donations.stream().map(d -> toResponse(d, moderatorProfiles)).toList();
+    }
+
+    // F-163: chiến dịch được chọn phải có nhận đồ tại chính kho đang ghi nhận, nếu không coi như không tồn tại
+    private Campaign requireCampaignServingWarehouse(Warehouse warehouse, String rawCampaignId) {
+        if (!StringUtils.hasText(rawCampaignId)) {
+            throw new BadRequestException("Vui lòng chọn chiến dịch.");
+        }
+        UUID campaignId;
+        try {
+            campaignId = UUID.fromString(rawCampaignId.trim());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(CAMPAIGN_NOT_FOUND);
+        }
+        Campaign campaign = campaignRepository.findById(campaignId)
+                .orElseThrow(() -> new IllegalArgumentException(CAMPAIGN_NOT_FOUND));
+        boolean servesThisWarehouse = campaign.getWarehouses().stream()
+                .anyMatch(w -> w.getId().equals(warehouse.getId()));
+        if (!servesThisWarehouse) {
+            throw new IllegalArgumentException(CAMPAIGN_NOT_FOUND);
+        }
+        return campaign;
+    }
+
+    private String resolveModeratorCode(UUID moderatorAccountId) {
+        return moderatorProfileRepository.findById(moderatorAccountId)
+                .map(ModeratorProfile::getModeratorCode)
+                .orElse(null);
+    }
+
+    private Map<UUID, ModeratorProfile> loadModeratorProfiles(List<Donation> donations) {
+        Set<UUID> ids = donations.stream()
+                .map(Donation::getRecordedBy)
+                .filter(Objects::nonNull)
+                .map(Account::getId)
+                .collect(Collectors.toSet());
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return moderatorProfileRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(ModeratorProfile::getAccountId, Function.identity(), (a, b) -> a));
     }
 
     @Override
@@ -92,11 +154,16 @@ public class DonationServiceImpl implements DonationService {
 
         requireOwnWarehouse(moderator, warehouseId, ORGANIZATION_OR_WAREHOUSE_NOT_FOUND);
         OrganizationProfile organization = requireVerifiedOrganization(request.getOrganizationId());
+        // Chiến dịch bàn giao phải thuộc đúng tổ chức đến nhận, tránh bàn giao nhầm cho tổ chức khác
+        Campaign campaign = requireOwnCampaign(organization.getAccountId(), request.getCampaignId());
 
         List<Donation> donations = donationRepository.findByIdInAndWarehouse_Id(donationIds, warehouseId);
-        // Thiếu id nào (không tồn tại hoặc thuộc kho khác), hoặc có lượt không còn chờ lấy -> không bàn giao gì cả
+        // Thiếu id nào (không tồn tại hoặc thuộc kho khác), có lượt không còn chờ lấy, hoặc có lượt
+        // thuộc chiến dịch khác -> không bàn giao gì cả (không bàn giao từng phần)
         if (donations.size() != donationIds.size()
-                || donations.stream().anyMatch(d -> d.getStatus() != DonationStatus.PENDING_PICKUP)) {
+                || donations.stream().anyMatch(d -> d.getStatus() != DonationStatus.PENDING_PICKUP)
+                || donations.stream().anyMatch(d -> d.getCampaign() == null
+                        || !d.getCampaign().getId().equals(campaign.getId()))) {
             throw new BadRequestException(INVALID_DONATION_LIST);
         }
 
@@ -164,7 +231,8 @@ public class DonationServiceImpl implements DonationService {
                             organizationAccountId, status);
         }
 
-        return donations.stream().map(DonationServiceImpl::toResponse).toList();
+        Map<UUID, ModeratorProfile> moderatorProfiles = loadModeratorProfiles(donations);
+        return donations.stream().map(d -> toResponse(d, moderatorProfiles)).toList();
     }
 
     @Override
@@ -218,6 +286,14 @@ public class DonationServiceImpl implements DonationService {
                 .orElseThrow(() -> new IllegalArgumentException(CAMPAIGN_NOT_FOUND));
     }
 
+    // F-165: giống resolveOwnCampaign nhưng campaignId là bắt buộc khi bàn giao
+    private Campaign requireOwnCampaign(UUID organizationAccountId, String rawCampaignId) {
+        if (!StringUtils.hasText(rawCampaignId)) {
+            throw new IllegalArgumentException(CAMPAIGN_NOT_FOUND);
+        }
+        return resolveOwnCampaign(organizationAccountId, rawCampaignId);
+    }
+
     // F-166: chỉ tổ chức đã xác minh mới xem được danh sách quyên góp
     private void requireVerifiedOrganizationAccount(UUID organizationAccountId) {
         organizationProfileRepository.findById(organizationAccountId)
@@ -240,14 +316,26 @@ public class DonationServiceImpl implements DonationService {
         return warehouse;
     }
 
-    private static DonationResponse toResponse(Donation donation) {
+    private static DonationResponse toResponse(Donation donation, Map<UUID, ModeratorProfile> moderatorProfiles) {
+        String moderatorCode = null;
+        if (donation.getRecordedBy() != null) {
+            ModeratorProfile profile = moderatorProfiles.get(donation.getRecordedBy().getId());
+            moderatorCode = profile != null ? profile.getModeratorCode() : null;
+        }
+        return toResponse(donation, moderatorCode);
+    }
+
+    private static DonationResponse toResponse(Donation donation, String moderatorCode) {
         return DonationResponse.builder()
                 .id(donation.getId().toString())
                 .warehouseId(donation.getWarehouse().getId().toString())
+                .campaignId(donation.getCampaign() == null ? null : donation.getCampaign().getId().toString())
                 .donorName(donation.getDonorName())
                 .isAnonymous(Boolean.TRUE.equals(donation.getIsAnonymous()))
                 .note(donation.getNote())
                 .status(donation.getStatus().name())
+                .recordedBy(moderatorCode)
+                .handedOverAt(donation.getHandedOverAt())
                 .createdAt(donation.getCreatedAt())
                 .build();
     }

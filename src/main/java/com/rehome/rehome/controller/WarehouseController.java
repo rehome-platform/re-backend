@@ -72,12 +72,13 @@ public class WarehouseController {
 
     @GetMapping("/{id}/donations")
     @PreAuthorize("hasRole('MODERATOR')")
-    @Operation(summary = "Danh sách lượt quyên góp tại điểm ký gửi, lọc theo trạng thái (F-164)")
+    @Operation(summary = "Danh sách lượt quyên góp tại điểm ký gửi, lọc theo chiến dịch và trạng thái (F-164)")
     public ResponseEntity<ApiResponse<List<DonationResponse>>> listDonations(
             @PathVariable UUID id,
+            @RequestParam(required = false) UUID campaignId,
             @RequestParam(required = false) DonationStatus status,
             @AuthenticationPrincipal Account account) {
-        List<DonationResponse> result = donationService.listDonations(account, id, status);
+        List<DonationResponse> result = donationService.listDonations(account, id, campaignId, status);
         return ResponseEntity.ok(ApiResponse.success(result, "OK"));
     }
 

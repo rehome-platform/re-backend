@@ -18,6 +18,12 @@ public interface DonationRepository extends JpaRepository<Donation, UUID> {
 
     List<Donation> findByWarehouse_IdAndStatusOrderByCreatedAtDesc(UUID warehouseId, DonationStatus status);
 
+    // Lọc theo chiến dịch (1 kho nhận cho nhiều chiến dịch của nhiều tổ chức)
+    List<Donation> findByWarehouse_IdAndCampaign_IdOrderByCreatedAtDesc(UUID warehouseId, UUID campaignId);
+
+    List<Donation> findByWarehouse_IdAndCampaign_IdAndStatusOrderByCreatedAtDesc(
+            UUID warehouseId, UUID campaignId, DonationStatus status);
+
     // Bàn giao (F-165): chỉ lấy được lượt quyên góp thuộc đúng điểm ký gửi đang thao tác
     List<Donation> findByIdInAndWarehouse_Id(Collection<UUID> ids, UUID warehouseId);
 

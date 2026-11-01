@@ -5,6 +5,7 @@ import com.rehome.rehome.dto.request.CreateProductRequest;
 import com.rehome.rehome.dto.request.PriceReductionRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.StockMovementType;
@@ -12,6 +13,8 @@ import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.entity.marketplace.Category;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
+import com.rehome.rehome.entity.marketplace.DegradedItemCase;
+import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
@@ -81,6 +84,9 @@ class ProductServiceImplTest {
     // getMyProducts / getMyProduct dùng thêm hai repository này
     @Mock ProductPriceChangeRepository productPriceChangeRepository;
     @Mock OrderItemRepository orderItemRepository;
+    // /products/mine gắn thêm yêu cầu rút đang chờ và ca hàng xuống cấp đang chờ quyết định
+    @Mock ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
+    @Mock DegradedItemCaseRepository degradedItemCaseRepository;
 
     @InjectMocks ProductServiceImpl service;
 
@@ -492,7 +498,7 @@ class ProductServiceImplTest {
         when(orderItemRepository.findActiveByProductIds(List.of("Q7-AK-000845")))
                 .thenReturn(List.of());
 
-        when(productMapper.toMyProduct(product, "https://img/a.jpg", null, null))
+        when(productMapper.toMyProduct(product, "https://img/a.jpg", null, null, null, null))
                 .thenReturn(dto);
 
         Page<MyProductResponse> result =
@@ -510,7 +516,7 @@ class ProductServiceImplTest {
                 .findMine(memberId, ProductStatus.ON_SALE, false, pageable);
 
         verify(productMapper, times(1))
-                .toMyProduct(product, "https://img/a.jpg", null, null);
+                .toMyProduct(product, "https://img/a.jpg", null, null, null, null);
     }
 
     @Test
@@ -524,8 +530,8 @@ class ProductServiceImplTest {
 
         when(productRepository.findMine(eq(memberId), isNull(), eq(false), eq(pageable)))
                 .thenReturn(repoPage);
-        when(productMapper.toMyProduct(eq(p1), any(), any(), any())).thenReturn(d1);
-        when(productMapper.toMyProduct(eq(p2), any(), any(), any())).thenReturn(d2);
+        when(productMapper.toMyProduct(eq(p1), any(), any(), any(), any(), any())).thenReturn(d1);
+        when(productMapper.toMyProduct(eq(p2), any(), any(), any(), any(), any())).thenReturn(d2);
 
         Page<MyProductResponse> result = service.getMyProducts(memberId, null, false, pageable);
 
@@ -571,7 +577,7 @@ class ProductServiceImplTest {
 
         when(productRepository.findMine(memberId, ProductStatus.RESERVED, false, page1))
                 .thenReturn(repoPage);
-        when(productMapper.toMyProduct(eq(product), any(), any(), any())).thenReturn(dto);
+        when(productMapper.toMyProduct(eq(product), any(), any(), any(), any(), any())).thenReturn(dto);
 
         Page<MyProductResponse> result =
                 service.getMyProducts(memberId, ProductStatus.RESERVED, false, page1);
@@ -599,7 +605,7 @@ class ProductServiceImplTest {
 
         service.getMyProducts(memberId, null, false, pageable);
 
-        verify(productMapper).toMyProduct(product, "first.jpg", null, null);
+        verify(productMapper).toMyProduct(product, "first.jpg", null, null, null, null);
     }
 
     @Test
@@ -617,7 +623,7 @@ class ProductServiceImplTest {
 
         service.getMyProducts(memberId, null, false, pageable);
 
-        verify(productMapper).toMyProduct(product, null, newest, null);
+        verify(productMapper).toMyProduct(product, null, newest, null, null, null);
     }
 
     @Test
@@ -636,8 +642,8 @@ class ProductServiceImplTest {
 
         service.getMyProducts(memberId, null, false, pageable);
 
-        verify(productMapper).toMyProduct(sold, null, null, soldItem);
-        verify(productMapper).toMyProduct(onSale, null, null, null);
+        verify(productMapper).toMyProduct(sold, null, null, soldItem, null, null);
+        verify(productMapper).toMyProduct(onSale, null, null, null, null, null);
     }
 
     // ==================== getMyProduct ====================
@@ -726,6 +732,8 @@ class ProductServiceImplTest {
                 eq("https://img/a.jpg"),
                 eq(decision),
                 isNull(),
+                isNull(),
+                isNull(),
                 anyList(),
                 anyList()
         )).thenReturn(dto);
@@ -741,6 +749,8 @@ class ProductServiceImplTest {
                 eq(p),
                 eq("https://img/a.jpg"),
                 eq(decision),
+                isNull(),
+                isNull(),
                 isNull(),
                 changes.capture(),
                 terms.capture()
@@ -762,7 +772,8 @@ class ProductServiceImplTest {
 
         service.getMyProduct(owner.getId(), "Q7-AK-000845");
 
-        verify(productMapper).toMyProductDetail(eq(sold), any(), any(), eq(orderItem), anyList(), anyList());
+        verify(productMapper).toMyProductDetail(
+                eq(sold), any(), any(), eq(orderItem), any(), any(), anyList(), anyList());
 
         Product onSale = ownedProduct(ProductStatus.ON_SALE, (short) 1, Instant.now());
         when(productRepository.findById("Q7-AK-000845")).thenReturn(Optional.of(onSale));
@@ -790,7 +801,8 @@ class ProductServiceImplTest {
         service.getMyProduct(owner.getId(), "Q7-AK-000845");
 
         ArgumentCaptor<List> terms = ArgumentCaptor.forClass(List.class);
-        verify(productMapper).toMyProductDetail(eq(p), any(), any(), any(), anyList(), terms.capture());
+        verify(productMapper).toMyProductDetail(
+                eq(p), any(), any(), any(), any(), any(), anyList(), terms.capture());
         List<MyProductResponse.TermInfo> history = terms.getValue();
         assertEquals(2, history.size());
         assertThat(history).extracting("price").containsExactly(agreed, reduced);
@@ -1043,5 +1055,118 @@ class ProductServiceImplTest {
         assertThat(response.getWarehouseId()).isEqualTo(warehouse.getId().toString());
         assertThat(response.getWarehouseName()).isEqualTo("Kho Quận 7");
         assertThat(response.getShippingFee()).isEqualTo(new BigDecimal("19500"));
+    }
+
+    // ------------------------------------------------------------------
+    // /products/mine: gắn yêu cầu rút đang chờ và ca hàng xuống cấp đang chờ quyết định
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("getMyProducts: gắn withdrawalRequest + degradedCase, mỗi loại một query cho cả trang")
+    void getMyProducts_attachesWithdrawalAndDegradedCase() {
+        Product p1 = buildProduct("Q7-AK-000845", ProductStatus.WITHDRAWN);
+        Product p2 = buildProduct("Q7-AK-000846", ProductStatus.ON_SALE);
+        Page<Product> repoPage = new PageImpl<>(List.of(p1, p2), pageable, 2);
+        List<String> ids = List.of("Q7-AK-000845", "Q7-AK-000846");
+
+        ItemWithdrawalRequest withdrawal = ItemWithdrawalRequest.builder()
+                .id(UUID.randomUUID())
+                .product(p1)
+                .status(ItemWithdrawalStatus.PENDING_PICKUP)
+                .pickupDeadline(Instant.parse("2026-11-08T00:00:00Z"))
+                .build();
+        DegradedItemCase degradedCase = DegradedItemCase.builder()
+                .id(UUID.randomUUID())
+                .product(p2)
+                .build();
+
+        when(productRepository.findMine(memberId, null, false, pageable)).thenReturn(repoPage);
+        when(itemWithdrawalRequestRepository.findByProductIdsAndStatus(
+                ids, ItemWithdrawalStatus.PENDING_PICKUP)).thenReturn(List.of(withdrawal));
+        when(degradedItemCaseRepository.findPendingByProductIds(ids)).thenReturn(List.of(degradedCase));
+
+        service.getMyProducts(memberId, null, false, pageable);
+
+        // Món nào có gì thì nhận đúng cái đó, món còn lại nhận null
+        verify(productMapper).toMyProduct(eq(p1), any(), any(), any(), eq(withdrawal), isNull());
+        verify(productMapper).toMyProduct(eq(p2), any(), any(), any(), isNull(), eq(degradedCase));
+
+        // Một query cho cả trang, không phải mỗi món một query
+        verify(itemWithdrawalRequestRepository, times(1))
+                .findByProductIdsAndStatus(ids, ItemWithdrawalStatus.PENDING_PICKUP);
+        verify(degradedItemCaseRepository, times(1)).findPendingByProductIds(ids);
+    }
+
+    @Test
+    @DisplayName("getMyProduct: gắn withdrawalRequest + degradedCase cho món đang xem")
+    void getMyProduct_attachesWithdrawalAndDegradedCase() {
+        Product p = ownedProduct(ProductStatus.WITHDRAWN, (short) 1, Instant.now());
+        ItemWithdrawalRequest withdrawal = ItemWithdrawalRequest.builder()
+                .id(UUID.randomUUID())
+                .product(p)
+                .status(ItemWithdrawalStatus.PENDING_PICKUP)
+                .build();
+        DegradedItemCase degradedCase = DegradedItemCase.builder()
+                .id(UUID.randomUUID())
+                .product(p)
+                .build();
+
+        when(productRepository.findById("Q7-AK-000845")).thenReturn(Optional.of(p));
+        when(itemWithdrawalRequestRepository.findByProductIdsAndStatus(
+                List.of("Q7-AK-000845"), ItemWithdrawalStatus.PENDING_PICKUP))
+                .thenReturn(List.of(withdrawal));
+        when(degradedItemCaseRepository.findPendingByProductIds(List.of("Q7-AK-000845")))
+                .thenReturn(List.of(degradedCase));
+
+        service.getMyProduct(owner.getId(), "Q7-AK-000845");
+
+        verify(productMapper).toMyProductDetail(
+                eq(p), any(), any(), any(), eq(withdrawal), eq(degradedCase), anyList(), anyList());
+    }
+
+    /** Món đủ brand/kho/biên nhận để chạy được ProductMapper thật (không mock). */
+    private Product mappableProduct() {
+        Product p = ownedProduct(ProductStatus.WITHDRAWN, (short) 1, Instant.parse("2026-09-13T08:10:00Z"));
+        p.setBrand(Brand.builder().id(UUID.randomUUID()).name("Uniqlo").build());
+        p.setWarehouse(Warehouse.builder().id(UUID.randomUUID()).name("Kho Q7").build());
+        p.setCurrentPrice(new BigDecimal("400000"));
+        return p;
+    }
+
+    @Test
+    @DisplayName("ProductMapper: withdrawalRequest/degradedCase null khi món không có gì đang chờ")
+    void mapper_nullRefs_whenNothingPending() {
+        Product p = mappableProduct();
+
+        MyProductResponse res = new ProductMapper().toMyProduct(p, null, null, null, null, null);
+
+        assertNull(res.getWithdrawalRequest());
+        assertNull(res.getDegradedCase());
+    }
+
+    @Test
+    @DisplayName("ProductMapper: map đúng id/status/pickupDeadline và decisionDeadline luôn null")
+    void mapper_mapsRefFields() {
+        Product p = mappableProduct();
+        UUID withdrawalId = UUID.randomUUID();
+        UUID caseId = UUID.randomUUID();
+        Instant deadline = Instant.parse("2026-11-08T00:00:00Z");
+
+        MyProductResponse res = new ProductMapper().toMyProduct(p, null, null, null,
+                ItemWithdrawalRequest.builder()
+                        .id(withdrawalId)
+                        .status(ItemWithdrawalStatus.PENDING_PICKUP)
+                        .pickupDeadline(deadline)
+                        .build(),
+                DegradedItemCase.builder().id(caseId).build());
+
+        assertEquals(withdrawalId, res.getWithdrawalRequest().id());
+        assertEquals("PENDING_PICKUP", res.getWithdrawalRequest().status());
+        assertEquals(deadline, res.getWithdrawalRequest().pickupDeadline());
+
+        assertEquals(caseId, res.getDegradedCase().id());
+        assertEquals("PENDING_DECISION", res.getDegradedCase().status());
+        // F-036 chưa có hạn quyết định
+        assertNull(res.getDegradedCase().decisionDeadline());
     }
 }

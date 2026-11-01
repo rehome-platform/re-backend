@@ -5,6 +5,7 @@ import com.rehome.rehome.client.VnPayApi;
 import com.rehome.rehome.dto.request.CreateItemWithdrawalRequest;
 import com.rehome.rehome.dto.request.PayItemWithdrawalFeeRequest;
 import com.rehome.rehome.dto.response.CreateMomoResponse;
+import com.rehome.rehome.dto.response.ItemWithdrawalDetailResponse;
 import com.rehome.rehome.dto.response.ItemWithdrawalResponse;
 import com.rehome.rehome.dto.response.PayItemWithdrawalFeeResponse;
 import com.rehome.rehome.entity.auth.Account;
@@ -16,6 +17,7 @@ import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.Wallet;
+import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
@@ -42,6 +44,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -49,6 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -546,5 +550,150 @@ class ItemWithdrawalRequestServiceImplTest {
         assertThat(handled).isTrue();
         assertThat(r.getFeePaymentMethod()).isNull();
         verify(itemWithdrawalRequestRepository, never()).save(any());
+    }
+
+    // ------------------------------------------------------------------
+    // Member xem yêu cầu rút hàng của mình (chi tiết + danh sách)
+    // ------------------------------------------------------------------
+
+    private Account member() {
+        return Account.builder().id(UUID.randomUUID()).role(Role.MEMBER).build();
+    }
+
+    private ItemWithdrawalRequest withdrawalFor(Account member, BigDecimal fee,
+                                                Instant feePaidAt, WithdrawalFeePaymentMethod method,
+                                                ItemWithdrawalStatus status) {
+        Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).name("Kho Q7").build();
+        Product product = Product.builder()
+                .id("Q7-AK-000845")
+                .name("Áo khoác Uniqlo")
+                .member(member)
+                .warehouse(warehouse)
+                .build();
+        return ItemWithdrawalRequest.builder()
+                .id(UUID.randomUUID())
+                .product(product)
+                .member(member)
+                .feeCharged(fee)
+                .feePaidAt(feePaidAt)
+                .feePaymentMethod(method)
+                .status(status)
+                .pickupDeadline(Instant.parse("2026-11-08T00:00:00Z"))
+                .createdAt(Instant.parse("2026-11-01T00:00:00Z"))
+                .build();
+    }
+
+    @Test
+    void getMine_returnsDetailWithProductAndWarehouseName() {
+        Account member = member();
+        ItemWithdrawalRequest withdrawal = withdrawalFor(member, new BigDecimal("30000"),
+                Instant.parse("2026-11-01T01:00:00Z"), WithdrawalFeePaymentMethod.MOMO,
+                ItemWithdrawalStatus.PENDING_PICKUP);
+        when(itemWithdrawalRequestRepository.findDetailById(withdrawal.getId()))
+                .thenReturn(Optional.of(withdrawal));
+
+        ItemWithdrawalDetailResponse res = service.getMine(member, withdrawal.getId());
+
+        assertThat(res.getId()).isEqualTo(withdrawal.getId().toString());
+        assertThat(res.getProductId()).isEqualTo("Q7-AK-000845");
+        assertThat(res.getProductName()).isEqualTo("Áo khoác Uniqlo");
+        assertThat(res.getStatus()).isEqualTo("PENDING_PICKUP");
+        assertThat(res.getFeeAmount()).isEqualByComparingTo("30000");
+        assertThat(res.isFeePaid()).isTrue();
+        assertThat(res.getPaymentMethod()).isEqualTo("MOMO");
+        assertThat(res.getPickupDeadline()).isEqualTo(Instant.parse("2026-11-08T00:00:00Z"));
+        assertThat(res.getWarehouseName()).isEqualTo("Kho Q7");
+        assertThat(res.getCreatedAt()).isEqualTo(Instant.parse("2026-11-01T00:00:00Z"));
+    }
+
+    @Test
+    void getMine_feePaidIsTrue_whenWithdrawalIsFree() {
+        Account member = member();
+        ItemWithdrawalRequest withdrawal = withdrawalFor(member, BigDecimal.ZERO, null, null,
+                ItemWithdrawalStatus.PENDING_PICKUP);
+        when(itemWithdrawalRequestRepository.findDetailById(withdrawal.getId()))
+                .thenReturn(Optional.of(withdrawal));
+
+        ItemWithdrawalDetailResponse res = service.getMine(member, withdrawal.getId());
+
+        // Rút trong cửa sổ 7 ngày miễn phí: không có gì phải trả nên app không hiện nút trả phí
+        assertThat(res.isFeePaid()).isTrue();
+        assertThat(res.getPaymentMethod()).isNull();
+    }
+
+    @Test
+    void getMine_feePaidIsFalse_whenFeeChargedButNotPaid() {
+        Account member = member();
+        ItemWithdrawalRequest withdrawal = withdrawalFor(member, new BigDecimal("30000"), null, null,
+                ItemWithdrawalStatus.PENDING_PICKUP);
+        when(itemWithdrawalRequestRepository.findDetailById(withdrawal.getId()))
+                .thenReturn(Optional.of(withdrawal));
+
+        ItemWithdrawalDetailResponse res = service.getMine(member, withdrawal.getId());
+
+        assertThat(res.isFeePaid()).isFalse();
+        assertThat(res.getPaymentMethod()).isNull();
+    }
+
+    @Test
+    void getMine_throwsNotFound_whenMissing() {
+        UUID id = UUID.randomUUID();
+        when(itemWithdrawalRequestRepository.findDetailById(id)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getMine(member(), id))
+                .isInstanceOf(AppException.class)
+                .extracting(ex -> ((AppException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.ITEM_WITHDRAWAL_NOT_FOUND);
+    }
+
+    @Test
+    void getMine_throwsForbidden_whenRequestBelongsToAnotherMember() {
+        ItemWithdrawalRequest withdrawal = withdrawalFor(member(), BigDecimal.ZERO, null, null,
+                ItemWithdrawalStatus.PENDING_PICKUP);
+        when(itemWithdrawalRequestRepository.findDetailById(withdrawal.getId()))
+                .thenReturn(Optional.of(withdrawal));
+
+        assertThatThrownBy(() -> service.getMine(member(), withdrawal.getId()))
+                .isInstanceOf(AppException.class)
+                .extracting(ex -> ((AppException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.ITEM_WITHDRAWAL_FORBIDDEN);
+    }
+
+    @Test
+    void listMine_passesNullStatus_whenFilterIsEmpty() {
+        Account member = member();
+        when(itemWithdrawalRequestRepository.findDetailsByMember(member.getId(), null))
+                .thenReturn(List.of(withdrawalFor(member, BigDecimal.ZERO, null, null,
+                        ItemWithdrawalStatus.COMPLETED)));
+
+        assertThat(service.listMine(member, null)).hasSize(1);
+        assertThat(service.listMine(member, "  ")).hasSize(1);
+
+        verify(itemWithdrawalRequestRepository, times(2)).findDetailsByMember(member.getId(), null);
+    }
+
+    @Test
+    void listMine_filtersByStatus_caseInsensitive() {
+        Account member = member();
+        when(itemWithdrawalRequestRepository.findDetailsByMember(
+                member.getId(), ItemWithdrawalStatus.PENDING_PICKUP))
+                .thenReturn(List.of(withdrawalFor(member, BigDecimal.ZERO, null, null,
+                        ItemWithdrawalStatus.PENDING_PICKUP)));
+
+        assertThat(service.listMine(member, "pending_pickup")).hasSize(1);
+
+        verify(itemWithdrawalRequestRepository)
+                .findDetailsByMember(member.getId(), ItemWithdrawalStatus.PENDING_PICKUP);
+    }
+
+    @Test
+    void listMine_throwsBadRequest_whenStatusIsUnknown() {
+        Account member = member();
+
+        assertThatThrownBy(() -> service.listMine(member, "DA_HUY"))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("status");
+
+        verify(itemWithdrawalRequestRepository, never()).findDetailsByMember(any(), any());
     }
 }

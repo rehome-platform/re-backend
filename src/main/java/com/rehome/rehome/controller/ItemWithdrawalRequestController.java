@@ -3,6 +3,7 @@ package com.rehome.rehome.controller;
 import com.rehome.rehome.dto.request.CreateItemWithdrawalRequest;
 import com.rehome.rehome.dto.request.PayItemWithdrawalFeeRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
+import com.rehome.rehome.dto.response.ItemWithdrawalDetailResponse;
 import com.rehome.rehome.dto.response.ItemWithdrawalResponse;
 import com.rehome.rehome.dto.response.PayItemWithdrawalFeeResponse;
 import com.rehome.rehome.entity.auth.Account;
@@ -14,12 +15,15 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.util.StringUtils;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -65,5 +69,27 @@ public class ItemWithdrawalRequestController {
             return forwarded.split(",")[0].trim();
         }
         return request.getRemoteAddr();
+    }
+
+    // Chi tiết một yêu cầu rút hàng của chính Member
+    @GetMapping("/{id}")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<ItemWithdrawalDetailResponse>> getMine(
+            @AuthenticationPrincipal Account account,
+            @PathVariable UUID id) {
+
+        return ResponseEntity.ok(ApiResponse.success(
+                itemWithdrawalRequestService.getMine(account, id)));
+    }
+
+    // Danh sách yêu cầu rút hàng của chính Member; status rỗng = tất cả
+    @GetMapping
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<List<ItemWithdrawalDetailResponse>>> listMine(
+            @AuthenticationPrincipal Account account,
+            @RequestParam(required = false) String status) {
+
+        return ResponseEntity.ok(ApiResponse.success(
+                itemWithdrawalRequestService.listMine(account, status)));
     }
 }

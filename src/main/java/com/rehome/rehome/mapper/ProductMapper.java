@@ -1,9 +1,12 @@
 package com.rehome.rehome.mapper;
 
 import com.rehome.rehome.dto.response.MyProductResponse;
+import com.rehome.rehome.entity.enums.DegradedItemCaseStatus;
 import com.rehome.rehome.entity.enums.EndOfTermChoice;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
+import com.rehome.rehome.entity.marketplace.DegradedItemCase;
 import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
+import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.Product;
@@ -19,29 +22,34 @@ public class ProductMapper {
 
     // Dòng của danh sách /products/mine: không có priceChanges, termHistory
     public MyProductResponse toMyProduct(Product product, String photoUrl,
-                                         EndOfTermDecision decision, OrderItem orderItem) {
+                                         EndOfTermDecision decision, OrderItem orderItem,
+                                         ItemWithdrawalRequest withdrawal, DegradedItemCase degradedCase) {
         if (product == null) {
             return null;
         }
-        return base(product, photoUrl, decision, orderItem).build();
+        return base(product, photoUrl, decision, orderItem, withdrawal, degradedCase).build();
     }
 
     // /products/mine/{id}: thêm lịch sử giảm giá và các kỳ
     public MyProductResponse toMyProductDetail(Product product, String photoUrl,
                                                EndOfTermDecision decision, OrderItem orderItem,
+                                               ItemWithdrawalRequest withdrawal,
+                                               DegradedItemCase degradedCase,
                                                List<MyProductResponse.PriceChange> priceChanges,
                                                List<MyProductResponse.TermInfo> termHistory) {
         if (product == null) {
             return null;
         }
-        return base(product, photoUrl, decision, orderItem)
+        return base(product, photoUrl, decision, orderItem, withdrawal, degradedCase)
                 .priceChanges(priceChanges)
                 .termHistory(termHistory)
                 .build();
     }
 
     private MyProductResponse.MyProductResponseBuilder base(Product p, String photoUrl,
-                                                            EndOfTermDecision d, OrderItem oi) {
+                                                            EndOfTermDecision d, OrderItem oi,
+                                                            ItemWithdrawalRequest w,
+                                                            DegradedItemCase dc) {
         ConsignmentReceipt r = p.getConsignmentReceipt();
         Order o = oi == null ? null : oi.getOrder();
         return MyProductResponse.builder()
@@ -78,6 +86,13 @@ public class ProductMapper {
                 .commissionRateTerm1(r.getCommissionRateTerm1())
                 .commissionRateTerm2(r.getCommissionRateTerm2())
                 .commissionRateTerm3(r.getCommissionRateTerm3())
+                .withdrawalRequest(w == null ? null
+                        : new MyProductResponse.WithdrawalRef(
+                        w.getId(), w.getStatus().name(), w.getPickupDeadline()))
+                // decisionDeadline để null: hệ thống chưa có hạn cho Member quyết định (F-036)
+                .degradedCase(dc == null ? null
+                        : new MyProductResponse.DegradedCaseRef(
+                        dc.getId(), DegradedItemCaseStatus.PENDING_DECISION.name(), null))
                 .receiptId(currentReceiptId(r, d));
     }
 

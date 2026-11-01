@@ -1,8 +1,10 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.dto.request.DecideDegradedItemCaseRequest;
+import com.rehome.rehome.dto.response.DegradedItemCaseDetailResponse;
 import com.rehome.rehome.dto.response.DegradedItemCaseResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.DegradedItemCaseStatus;
 import com.rehome.rehome.entity.enums.DegradedItemChoice;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.TransactionStatus;
@@ -11,6 +13,8 @@ import com.rehome.rehome.entity.enums.WalletType;
 import com.rehome.rehome.entity.marketplace.DegradedItemCase;
 import com.rehome.rehome.entity.marketplace.PlatformFund;
 import com.rehome.rehome.entity.marketplace.Product;
+import com.rehome.rehome.entity.marketplace.ReturnRequest;
+import com.rehome.rehome.entity.marketplace.ReturnRequestPhoto;
 import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.entity.marketplace.WalletTransaction;
 import com.rehome.rehome.exception.AppException;
@@ -19,6 +23,7 @@ import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.DegradedItemCaseRepository;
 import com.rehome.rehome.repository.PlatformFundRepository;
 import com.rehome.rehome.repository.ProductRepository;
+import com.rehome.rehome.repository.ReturnRequestPhotoRepository;
 import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.repository.WalletTransactionRepository;
 import com.rehome.rehome.service.DegradedItemCaseService;
@@ -32,6 +37,7 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.Year;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -45,6 +51,7 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
     private final WalletRepository walletRepository;
     private final WalletTransactionRepository walletTransactionRepository;
     private final PlatformFundRepository platformFundRepository;
+    private final ReturnRequestPhotoRepository returnRequestPhotoRepository;
 
     // API 95 (F-036): FULL_COMPENSATION -> đền đủ compensationAmount, hàng thành tài sản nền tảng;
     // PARTIAL_WITH_ITEM_BACK -> đền compensationAmount x degradedCompensationRate (snapshot biên
@@ -172,6 +179,66 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
                 .compensationAmount(degradedCase.getCompensationAmount())
                 .paidAmount(degradedCase.getPaidAmount())
                 .decidedAt(degradedCase.getDecidedAt())
+                .build();
+    }
+
+    // ---------------------------------------------------------------- Member xem ca của mình
+
+    @Override
+    public DegradedItemCaseDetailResponse getMine(Account account, UUID id) {
+        DegradedItemCase degradedCase = degradedItemCaseRepository.findDetailById(id)
+                .orElseThrow(() -> new AppException(ErrorCode.DEGRADED_ITEM_CASE_NOT_FOUND));
+
+        if (!degradedCase.getProduct().getMember().getId().equals(account.getId())) {
+            throw new AppException(ErrorCode.DEGRADED_ITEM_CASE_FORBIDDEN);
+        }
+        return toDetailResponse(degradedCase);
+    }
+
+    @Override
+    public List<DegradedItemCaseDetailResponse> listMine(Account account, String status) {
+        DegradedItemCaseStatus parsed = StringUtils.hasText(status) ? parseStatus(status) : null;
+
+        return degradedItemCaseRepository.findDetailsByMember(
+                        account.getId(),
+                        parsed == DegradedItemCaseStatus.PENDING_DECISION,
+                        parsed == DegradedItemCaseStatus.DECIDED).stream()
+                .map(this::toDetailResponse)
+                .toList();
+    }
+
+    private DegradedItemCaseStatus parseStatus(String status) {
+        try {
+            return DegradedItemCaseStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("status phải là PENDING_DECISION hoặc DECIDED.");
+        }
+    }
+
+    private DegradedItemCaseDetailResponse toDetailResponse(DegradedItemCase c) {
+        ReturnRequest returnRequest = c.getReturnRequest();
+
+        // Ảnh và lý do nằm ở yêu cầu trả hàng dẫn đến ca này; ca mở không qua trả hàng thì không có
+        List<String> photos = returnRequest == null ? List.of()
+                : returnRequestPhotoRepository
+                        .findAllByReturnRequest_IdOrderByIdAsc(returnRequest.getId()).stream()
+                        .map(ReturnRequestPhoto::getImageUrl)
+                        .toList();
+
+        return DegradedItemCaseDetailResponse.builder()
+                .id(c.getId().toString())
+                .productId(c.getProduct().getId())
+                .productName(c.getProduct().getName())
+                .photos(photos)
+                .reason(returnRequest == null ? null : returnRequest.getReason())
+                .moderatorNote(returnRequest == null ? null : returnRequest.getConditionNote())
+                .compensationAmount(c.getCompensationAmount())
+                // Chưa có hạn quyết định trong hệ thống - xem javadoc của DTO
+                .decisionDeadline(null)
+                .status(c.getChoice() == null
+                        ? DegradedItemCaseStatus.PENDING_DECISION.name()
+                        : DegradedItemCaseStatus.DECIDED.name())
+                .decision(c.getChoice() == null ? null : c.getChoice().name())
                 .build();
     }
 }

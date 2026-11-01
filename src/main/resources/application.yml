@@ -13,7 +13,7 @@ spring:
       max-file-size: ${MULTIPART_MAX_FILE_SIZE:10MB}
       max-request-size: ${MULTIPART_MAX_REQUEST_SIZE:50MB}
 
-  # ==================== EMAIL SMTP - BREVO (KHÔNG DÙNG - Render chặn port SMTP) ====================
+  # ==================== EMAIL SMTP - BREVO (KHÔNG DÙNG - PaaS thường chặn port SMTP) ====================
   # mail:
   #   host: ${MAIL_HOST:smtp-relay.brevo.com}
   #   port: ${MAIL_PORT:587}
@@ -70,7 +70,7 @@ springdoc:
 # ==================== APPLICATION CONFIG ====================
 app:
   storage:
-    # local      = ghi vào ổ đĩa server, serve qua /files/** (CHỈ dev - Render xóa sạch mỗi lần redeploy)
+    # local      = ghi vào ổ đĩa server, serve qua /files/** (CHỈ dev - Azure thay sạch wwwroot mỗi lần deploy)
     # cloudinary = upload lên Cloudinary (dùng khi deploy), cần 3 biến cloudinary.* bên dưới
     provider: ${STORAGE_PROVIDER:local}
     local-dir: ${STORAGE_LOCAL_DIR:uploads}
@@ -129,6 +129,13 @@ app:
   campaign:
     # F-102: chu kỳ job quét chiến dịch còn OPEN nhưng đã qua endTime để tự đóng
     auto-close-check-interval-ms: 60000
+
+  # Hồ sơ tổ chức
+  organization:
+    # F-139: chu kỳ job quét hồ sơ đã duyệt quá hạn giữ ảnh giấy tờ để xóa ảnh.
+    # Số ngày giữ lấy từ system_configs (legal_image_retention_days, mặc định 30) nên
+    # job chỉ cần chạy thưa; 1 giờ là đủ.
+    legal-image-cleanup-check-interval-ms: 3600000
 
 # ==================== LOGGING ====================
 logging:

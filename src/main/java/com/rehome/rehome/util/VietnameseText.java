@@ -7,7 +7,7 @@ import java.util.Locale;
 // vẫn tìm ra "Áo khoác".
 //
 // Không dùng extension unaccent của PostgreSQL: bộ test chạy trên H2 (không có unaccent) nên
-// biểu thức tìm kiếm sẽ không test được, và Postgres managed trên Render không chắc cho phép
+// biểu thức tìm kiếm sẽ không test được, và Postgres managed không chắc cho phép
 // CREATE EXTENSION. Chuẩn hóa ở tầng Java rồi so trên cột đã chuẩn hóa chạy giống nhau trên cả hai.
 public final class VietnameseText {
 

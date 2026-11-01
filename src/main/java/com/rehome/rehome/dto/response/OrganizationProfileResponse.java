@@ -3,6 +3,7 @@ package com.rehome.rehome.dto.response;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.VerificationStatus;
+import com.rehome.rehome.util.LegalFileLinks;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -107,8 +108,11 @@ public class OrganizationProfileResponse {
                         .fullName(p.getRepresentative().getFullName())
                         .position(p.getRepresentative().getPosition())
                         .cccdNumber(p.getRepresentative().getCccdNumber())
-                        .cccdFrontUrl(p.getRepresentative().getCccdFrontUrl())
-                        .cccdBackUrl(p.getRepresentative().getCccdBackUrl())
+                        // F-139: đường dẫn endpoint có kiểm quyền, không phải URL storage
+                        .cccdFrontUrl(LegalFileLinks.cccdFrontOrNull(
+                                p.getAccountId(), p.getRepresentative().getCccdFrontUrl()))
+                        .cccdBackUrl(LegalFileLinks.cccdBackOrNull(
+                                p.getAccountId(), p.getRepresentative().getCccdBackUrl()))
                         .build())
                 .documents(p.getDocuments() == null ? List.of() : p.getDocuments().stream()
                         .map(d -> DocumentInfo.builder()
@@ -116,7 +120,8 @@ public class OrganizationProfileResponse {
                                 .docNumber(d.getDocNumber())
                                 .issueDate(d.getIssueDate())
                                 .issuingAuthority(d.getIssuingAuthority())
-                                .fileUrl(d.getFileUrl())
+                                .fileUrl(LegalFileLinks.documentOrNull(
+                                        p.getAccountId(), d.getId(), d.getFileUrl()))
                                 .build())
                         .toList())
                 .build();

@@ -33,7 +33,7 @@ Swagger UI: `http://localhost:8080/swagger-ui.html`.
 
 `application.yml` drives everything through `${VAR:default}` placeholders — check it before assuming a value. Key ones: `DB_HOST/DB_PORT/DB_NAME/DB_USERNAME/DB_PASSWORD` (defaults point at local Docker Postgres), `BREVO_API_KEY` (transactional email), `JWT_SECRET`, `GOOGLE_CLIENT_ID` (Google login), `MAIL_FROM`, `STORAGE_PROVIDER` + `CLOUDINARY_CLOUD_NAME/CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET` (file storage, see below). In IntelliJ these are set per-run-config in `.idea/workspace.xml` (machine-local, not committed) — don't assume the committed defaults are what actually runs if that file overrides them (e.g. it was previously pointed at a Supabase instance instead of local Docker).
 
-CI (`.github/workflows/ci.yml`) spins up its own Postgres service container and runs `./mvnw -B clean verify`; on push to `main` it also triggers a Render deploy hook.
+CI (`.github/workflows/ci.yml`) spins up its own Postgres service container and runs `./mvnw -B clean verify`. Deployment is a separate workflow, `.github/workflows/main_rehome.yml`: on push to `main` it runs `mvn clean install` and deploys the JAR to the Azure Web App `rehome` via OIDC login. The two workflows are independent — the Azure one does not wait for CI, it runs the tests again as part of its own build.
 
 ## Git commits & PRs
 
@@ -56,7 +56,7 @@ Controller → Service (interface) → ServiceImpl → Repository (Spring Data J
 Storage is split by what the file *is* — don't move a file between these tiers without re-reading why it's there.
 
 **Images → external storage.** `FileStorageService.store(path, bytes, contentType) → public URL` / `delete(path, contentType)` is the port; pick the impl with `app.storage.provider`:
-- `local` (default) — `LocalFileStorageServiceImpl` writes to `app.storage.local-dir`, served at `/files/**` by `LocalStorageWebConfig` (GET is `permitAll` in `SecurityConfig`). **Dev only**: the Render deploy uses the `Dockerfile` with no volume, so the container filesystem is wiped on every redeploy.
+- `local` (default) — `LocalFileStorageServiceImpl` writes to `app.storage.local-dir`, served at `/files/**` by `LocalStorageWebConfig` (GET is `permitAll` in `SecurityConfig`). **Dev only**: the Azure deploy ships a JAR into `wwwroot`, which is replaced on every deploy, and `app.storage.local-dir` is a relative path so it lands there. (`Dockerfile` is no longer what gets deployed — it only runs the app in Docker locally.)
 - `cloudinary` — `CloudinaryFileStorageServiceImpl`; images go up as `resource_type=image` (extension stripped from `public_id`, Cloudinary re-adds it), PDFs as `raw` (extension kept). Needs the three `cloudinary.*` env vars. `StorageProviderWiringTest` locks the `@ConditionalOnProperty` wiring (two impls of one interface — a wrong condition means a duplicate-bean startup failure).
 
 Client uploads go through `FileUploadController` (`POST /uploads`, `POST /uploads/batch`) → `FileUploadServiceImpl`, which owns all validation: size (`app.storage.max-file-size-bytes`), MIME whitelist (jpeg/png/webp, plus PDF only for folders where `UploadFolder.pdfAllowed`), **magic-byte check against the declared content type** (the `Content-Type` header is client-controlled), and a UUID filename so the client never picks the storage path. `UploadFolder` is the whitelist of destinations — add a constant there rather than accepting a free-form path.
@@ -71,6 +71,19 @@ Path split: `/uploads` is the API (auth required), `/files/**` is local static s
 Download is `GET /consignment-receipts/{id}/pdf` (F-023) → `ConsignmentReceiptServiceImpl.getReceiptPdf`, which authorizes per request (owner Member, or MODERATOR/ADMIN) and returns binary. There is no URL field any more: `ConsignmentReceiptResponse`/`ConsignmentReceiptConfirmResponse` expose `pdfAvailable` instead of the old `pdfUrl`.
 
 `ConsignmentReceiptPdf.content` needs its explicit `length` — plain `byte[]` defaults to `varbinary(255)` and a ~40KB PDF will not insert; `@Lob` would instead give Postgres `oid` (large object), which plain `byte[]` access cannot read. `PostgresSchemaContractTest` generates the DDL with `PostgreSQLDialect` and asserts the column is `bytea`, because the normal test suite runs on H2 and would never catch either mistake.
+
+**Legal documents of organizations (F-139) → still on storage, but no public URL ever leaves the server.** CCCD photos of the representative and the licence files are the one thing `docs/OVERVIEW.md` §9 says only a Moderator may look at. They are uploaded through the normal `/uploads` route and the storage URL is kept in `cccd_front_url` / `cccd_back_url` / `organization_documents.file_url` as before — but **no API returns that URL any more**. `OrganizationVerificationResponse` (API 128) and `OrganizationProfileResponse` (`/organizations/me`) return the protected endpoint paths built by `LegalFileLinks` instead, and `OrganizationLegalFileServiceImpl.download` reads the bytes server-side and streams them from:
+
+- `GET /api/organizations/{id}/legal-files/cccd-front`
+- `GET /api/organizations/{id}/legal-files/cccd-back`
+- `GET /api/organizations/{id}/legal-files/documents/{documentId}`
+
+each authorized per request (MODERATOR, or the owning ORGANIZATION itself — Admin gets 403, matching API 128). `/files/organization-documents/**` is `denyAll` in `SecurityConfig` (ordered before the `/files/**` permitAll) so the local-dev static route cannot serve them either.
+
+Things that are load-bearing here:
+- `FileStorageService.loadByUrl(url)` returns `Optional<byte[]>` and **each impl must reject any URL it did not produce** — the URL comes out of the DB (user-submitted at registration), so accepting a foreign one turns the download endpoint into SSRF. `LocalFileStorageServiceImpl` requires the `publicBaseUrl` prefix and re-checks path traversal; `CloudinaryFileStorageServiceImpl.ownDeliveryUri` requires https + host `res.cloudinary.com` + first path segment equal to the configured `cloud_name` (so a Cloudinary CNAME would need that constant changed), and `fetch(URI)` is `protected` only so tests can exercise the URL check without network.
+- **Known residual gap of this design:** on `provider=cloudinary` the stored URL is still publicly fetchable by anyone who already holds it (the uploading organization gets it in the `/uploads` response). Closing that needs `type=authenticated` uploads plus signed delivery URLs, which is not implemented. On `provider=local` the gap is closed by the `denyAll` above. There is also no check that an organization submits *its own* file URL, since nothing records who uploaded what.
+- `OrganizationLegalImageCleanupServiceImpl` (`@Scheduled`, retention from `system_configs.legal_image_retention_days`, default 30 days after `verifiedAt`, VERIFIED profiles only) deletes the file via `deleteByUrl` and nulls the column — it clears the column even when the delete fails, because a dangling pointer to a CCCD is worse than an orphan file. `organization_documents.file_url` had to become nullable for this; `ddl-auto: update` cannot drop the old NOT NULL, so `src/main/java/com/rehome/rehome/scripts/2026-11-01_organization_documents_file_url_nullable.sql` must be run by hand on Postgres.
 
 **SKU label PDF → not stored at all.** `SkuLabelPdfServiceImpl.generate()` returns bytes; `GET /products/{id}/sku-label` streams them. It is a print-and-stick label, fully derivable from `Product`, not a document anyone has to keep.
 

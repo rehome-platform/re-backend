@@ -68,6 +68,12 @@ public class SecurityConfig {
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/warehouses").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
+                        // F-139: giấy tờ pháp lý tổ chức từng được lưu ở storage và serve công khai
+                        // tại /files/organization-documents/**. Giờ chúng nằm trong DB và chỉ ra qua
+                        // GET /api/organizations/{id}/legal-files/{fileId}; chặn hẳn đường cũ để file
+                        // còn sót lại trên đĩa dev không mở được bằng link.
+                        // Phải đứng TRƯỚC rule /files/** (permitAll).
+                        .requestMatchers("/files/organization-documents/**").denyAll()
                         // File tĩnh ở local: thẻ <img>/<a> của FE không gửi được header JWT.
                         // Chỉ GET, còn upload đi qua /uploads (phải đăng nhập).
                         .requestMatchers(HttpMethod.GET, "/files/**").permitAll()

@@ -4,25 +4,33 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.NullNode;
 import com.rehome.rehome.dto.request.CreateLegalChangeRequestRequest;
+import com.rehome.rehome.dto.request.RejectOrganizationRequest;
 import com.rehome.rehome.dto.request.UpdateOrganizationProfileRequest;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
 import com.rehome.rehome.dto.response.LegalChangeRequestResponse;
 import com.rehome.rehome.dto.response.OrganizationProfileResponse;
 import com.rehome.rehome.dto.response.OrganizationProfileUpdateResponse;
 import com.rehome.rehome.dto.response.OrganizationPublicProfileResponse;
+import com.rehome.rehome.dto.response.OrganizationRejectResponse;
+import com.rehome.rehome.dto.response.OrganizationVerificationResponse;
+import com.rehome.rehome.dto.response.OrganizationVerifyResponse;
 import com.rehome.rehome.dto.response.OrganizationResubmitResponse;
 import com.rehome.rehome.dto.response.RegisterOrganizationResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.auth.OrganizationDocument;
 import com.rehome.rehome.entity.auth.OrganizationLegalChangeRequest;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
+import com.rehome.rehome.entity.auth.OrganizationRepresentative;
 import com.rehome.rehome.entity.marketplace.Follow;
 import com.rehome.rehome.entity.enums.LegalChangeRequestStatus;
+import com.rehome.rehome.entity.enums.OrganizationType;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.VerificationStatus;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.OrganizationProfileMapper;
 import com.rehome.rehome.repository.AccountRepository;
@@ -40,6 +48,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -795,5 +805,435 @@ class OrganizationProfileServiceImplTest {
                 ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND);
 
         verifyNoInteractions(organizationLegalChangeRequestRepository, queueService);
+    }
+
+    // =====================================================================
+    // getVerificationDetail  (F-137)
+    // =====================================================================
+
+    private List<String> checklistItems(OrganizationVerificationResponse res) {
+        return res.getChecklist().stream()
+                .map(OrganizationVerificationResponse.ChecklistItem::getItem)
+                .toList();
+    }
+
+    private List<String> requiredChecklistItems(OrganizationVerificationResponse res) {
+        return res.getChecklist().stream()
+                .filter(OrganizationVerificationResponse.ChecklistItem::isRequired)
+                .map(OrganizationVerificationResponse.ChecklistItem::getItem)
+                .toList();
+    }
+
+    @Test
+    void getVerificationDetail_returnsProfileAndDocuments() {
+        UUID id = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id)
+                .orgType(OrganizationType.CHARITY_FUND.name())
+                .representative(new OrganizationRepresentative(
+                        "Nguyễn Văn B", "Giám đốc", "079123456789",
+                        "https://cdn/cccd-front.jpg", "https://cdn/cccd-back.jpg"))
+                .build();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+
+        OrganizationVerificationResponse res = service.getVerificationDetail(id);
+
+        assertThat(res.getOrgType()).isEqualTo("CHARITY_FUND");
+        assertThat(res.getLegalName()).isEqualTo("Hội Chia Sẻ");
+        assertThat(res.getTaxCode()).isEqualTo(TAX_CODE);
+        assertThat(res.getRepresentative().getFullName()).isEqualTo("Nguyễn Văn B");
+        // F-139: ảnh CCCD cần cho bước đối chiếu tên với giấy phép, nhưng response chỉ trả
+        // đường dẫn endpoint có kiểm quyền — URL storage không được lọt ra ngoài
+        assertThat(res.getRepresentative().getCccdFrontUrl())
+                .isEqualTo("/api/organizations/" + id + "/legal-files/cccd-front");
+        assertThat(res.getRepresentative().getCccdBackUrl())
+                .isEqualTo("/api/organizations/" + id + "/legal-files/cccd-back");
+        assertThat(res.getDocuments()).isEmpty();
+    }
+
+    @Test
+    void getVerificationDetail_hidesStorageUrls_andNullsLinkWhenImageAlreadyDeleted() {
+        UUID id = UUID.randomUUID();
+        UUID documentId = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id)
+                .orgType(OrganizationType.CHARITY_FUND.name())
+                // Ảnh CCCD đã bị job F-139 xóa khi hết hạn giữ, giấy tờ thì còn
+                .representative(new OrganizationRepresentative(
+                        "Nguyễn Văn B", "Giám đốc", "079123456789", null, null))
+                .build();
+        profile.setDocuments(new ArrayList<>(List.of(OrganizationDocument.builder()
+                .id(documentId)
+                .docType("FUND_LICENSE")
+                .fileUrl("https://res.cloudinary.com/demo/image/upload/v1/organization-documents/a.jpg")
+                .build())));
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+
+        OrganizationVerificationResponse res = service.getVerificationDetail(id);
+
+        assertThat(res.getRepresentative().getCccdFrontUrl()).isNull();
+        assertThat(res.getRepresentative().getCccdBackUrl()).isNull();
+        assertThat(res.getDocuments().get(0).getFileUrl())
+                .isEqualTo("/api/organizations/" + id + "/legal-files/documents/" + documentId);
+        assertThat(res.getDocuments().get(0).getFileUrl()).doesNotContain("cloudinary");
+    }
+
+    @Test
+    void getVerificationDetail_charityFund_requiresFundLicence() {
+        UUID id = UUID.randomUUID();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(
+                baseProfile(id).orgType(OrganizationType.CHARITY_FUND.name()).build()));
+
+        OrganizationVerificationResponse res = service.getVerificationDetail(id);
+
+        assertThat(checklistItems(res))
+                .contains("Giấy phép thành lập và công nhận điều lệ quỹ");
+    }
+
+    @Test
+    void getVerificationDetail_schoolClub_requiresThreeHostEntityDocuments() {
+        UUID id = UUID.randomUUID();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(
+                baseProfile(id).orgType(OrganizationType.SCHOOL_CLUB.name()).build()));
+
+        OrganizationVerificationResponse res = service.getVerificationDetail(id);
+
+        // CLB trực thuộc phải mượn pháp nhân của chủ quản (OVERVIEW mục 9)
+        assertThat(checklistItems(res)).contains(
+                "Giấy tờ pháp nhân của tổ chức chủ quản",
+                "Quyết định thành lập câu lạc bộ",
+                "Văn bản cử người phụ trách");
+    }
+
+    @Test
+    void getVerificationDetail_socialProtectionCenter_requiresTwoLicences() {
+        UUID id = UUID.randomUUID();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(
+                baseProfile(id).orgType(OrganizationType.SOCIAL_PROTECTION_CENTER.name()).build()));
+
+        OrganizationVerificationResponse res = service.getVerificationDetail(id);
+
+        assertThat(checklistItems(res)).contains(
+                "Giấy chứng nhận đăng ký thành lập",
+                "Giấy phép hoạt động");
+    }
+
+    @Test
+    void getVerificationDetail_unknownOrgType_fallsBackToGenericChecklist() {
+        UUID id = UUID.randomUUID();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(
+                baseProfile(id).orgType("MA_LA_KHONG_CO_TRONG_ENUM").build()));
+
+        OrganizationVerificationResponse res = service.getVerificationDetail(id);
+
+        // orgType lưu dạng String nên mã lạ vẫn phải ra checklist dùng được
+        assertThat(checklistItems(res)).contains("Giấy tờ thành lập do cơ quan có thẩm quyền cấp");
+    }
+
+    @Test
+    void getVerificationDetail_withTaxCode_requiresTaxLookupNotPhoneCall() {
+        UUID id = UUID.randomUUID();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(
+                baseProfile(id).orgType(OrganizationType.NGO.name()).taxCode(TAX_CODE).build()));
+
+        OrganizationVerificationResponse res = service.getVerificationDetail(id);
+
+        assertThat(requiredChecklistItems(res)).contains(
+                "Đối chiếu tên, địa chỉ, tình trạng hoạt động theo mã số thuế trên tracuunnt.gdt.gov.vn");
+        assertThat(requiredChecklistItems(res)).doesNotContain(
+                "Gọi điện hoặc gửi email tới số và địa chỉ công khai của tổ chức để xác nhận đúng họ nộp hồ sơ");
+    }
+
+    @Test
+    void getVerificationDetail_withoutTaxCode_requiresPhoneCallNotTaxLookup() {
+        UUID id = UUID.randomUUID();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(
+                baseProfile(id).orgType(OrganizationType.SCHOOL_CLUB.name()).taxCode(null).build()));
+
+        OrganizationVerificationResponse res = service.getVerificationDetail(id);
+
+        // Không có MST thì trọng số dồn sang gọi điện xác nhận (OVERVIEW mục 9, dòng 549)
+        assertThat(requiredChecklistItems(res)).contains(
+                "Gọi điện hoặc gửi email tới số và địa chỉ công khai của tổ chức để xác nhận đúng họ nộp hồ sơ");
+        assertThat(requiredChecklistItems(res)).doesNotContain(
+                "Đối chiếu tên, địa chỉ, tình trạng hoạt động theo mã số thuế trên tracuunnt.gdt.gov.vn");
+    }
+
+    @Test
+    void getVerificationDetail_mediaCheckIsOptional() {
+        UUID id = UUID.randomUUID();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(
+                baseProfile(id).orgType(OrganizationType.NGO.name()).build()));
+
+        OrganizationVerificationResponse res = service.getVerificationDetail(id);
+
+        assertThat(requiredChecklistItems(res)).doesNotContain(
+                "Tìm tên tổ chức trên báo chí và mạng xã hội xem có dấu hiệu lừa đảo");
+        assertThat(checklistItems(res)).contains(
+                "Tìm tên tổ chức trên báo chí và mạng xã hội xem có dấu hiệu lừa đảo");
+    }
+
+    @Test
+    void getVerificationDetail_notFound_throws() {
+        UUID id = UUID.randomUUID();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getVerificationDetail(id))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy tổ chức.");
+    }
+
+    // =====================================================================
+    // verifyOrganization  (F-138)
+    // =====================================================================
+
+    private OrganizationRepresentative representativeWithCccd() {
+        return new OrganizationRepresentative("Nguyễn Văn B", "Giám đốc", "079123456789",
+                "https://cdn/cccd-front.jpg", "https://cdn/cccd-back.jpg");
+    }
+
+    private List<OrganizationDocument> documents(int count) {
+        return java.util.stream.IntStream.range(0, count)
+                .mapToObj(i -> OrganizationDocument.builder()
+                        .id(UUID.randomUUID())
+                        .docType("OPERATING_LICENSE_" + i)
+                        .fileUrl("https://cdn/licence-" + i + ".pdf")
+                        .build())
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    // CHARITY_FUND cần 1 giấy tờ (OVERVIEW mục 9)
+    private OrganizationProfile completeCharityFundProfile(UUID id, VerificationStatus status) {
+        return baseProfile(id)
+                .orgType(OrganizationType.CHARITY_FUND.name())
+                .verificationStatus(status)
+                .representative(representativeWithCccd())
+                .documents(documents(1))
+                .build();
+    }
+
+    @Test
+    void verifyOrganization_completeDossier_marksVerified() {
+        UUID orgId = UUID.randomUUID();
+        UUID moderatorId = UUID.randomUUID();
+        Account moderator = account(moderatorId, Role.MODERATOR);
+        OrganizationProfile profile = completeCharityFundProfile(orgId, VerificationStatus.PENDING);
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        OrganizationVerifyResponse res = service.verifyOrganization(moderator, orgId);
+
+        assertThat(profile.getVerificationStatus()).isEqualTo(VerificationStatus.VERIFIED);
+        assertThat(profile.getVerifiedBy()).isSameAs(moderator);
+        assertThat(profile.getVerifiedAt()).isNotNull();
+
+        assertThat(res.getId()).isEqualTo(orgId.toString());
+        assertThat(res.getVerificationStatus()).isEqualTo(VerificationStatus.VERIFIED);
+        assertThat(res.getVerifiedBy()).isEqualTo(moderatorId.toString());
+        assertThat(res.getVerifiedAt()).isNotNull();
+
+        verify(organizationProfileRepository).save(profile);
+        // Đóng việc trong hàng đợi để Moderator khác không nhận lại hồ sơ
+        verify(queueService).dequeue(QueueType.ORG_VERIFICATION, orgId.toString());
+    }
+
+    @Test
+    void verifyOrganization_rejectedProfile_canBeVerifiedAndReasonCleared() {
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile profile = completeCharityFundProfile(orgId, VerificationStatus.REJECTED);
+        profile.setRejectionReason("Ảnh giấy tờ bị mờ");
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        service.verifyOrganization(account(UUID.randomUUID(), Role.MODERATOR), orgId);
+
+        assertThat(profile.getVerificationStatus()).isEqualTo(VerificationStatus.VERIFIED);
+        assertThat(profile.getRejectionReason()).isNull();
+    }
+
+    @Test
+    void verifyOrganization_alreadyVerified_keepsOriginalAuditor() {
+        UUID orgId = UUID.randomUUID();
+        UUID firstModeratorId = UUID.randomUUID();
+        Instant originalVerifiedAt = Instant.parse("2026-10-01T00:00:00Z");
+        OrganizationProfile profile = completeCharityFundProfile(orgId, VerificationStatus.VERIFIED);
+        profile.setVerifiedBy(account(firstModeratorId, Role.MODERATOR));
+        profile.setVerifiedAt(originalVerifiedAt);
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        OrganizationVerifyResponse res =
+                service.verifyOrganization(account(UUID.randomUUID(), Role.MODERATOR), orgId);
+
+        // Không đóng dấu lại: giữ nguyên ai đã kết luận và lúc nào
+        assertThat(res.getVerifiedBy()).isEqualTo(firstModeratorId.toString());
+        assertThat(res.getVerifiedAt()).isEqualTo(originalVerifiedAt);
+        verify(organizationProfileRepository, never()).save(any());
+        verifyNoInteractions(queueService);
+    }
+
+    @Test
+    void verifyOrganization_missingDocuments_throwsChecklistIncomplete() {
+        UUID orgId = UUID.randomUUID();
+        // SCHOOL_CLUB cần 3 giấy tờ nhưng chỉ nộp 1
+        OrganizationProfile profile = baseProfile(orgId)
+                .orgType(OrganizationType.SCHOOL_CLUB.name())
+                .verificationStatus(VerificationStatus.PENDING)
+                .representative(representativeWithCccd())
+                .documents(documents(1))
+                .build();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        assertThatThrownBy(() -> service.verifyOrganization(account(UUID.randomUUID(), Role.MODERATOR), orgId))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("CHECKLIST_INCOMPLETE: chưa hoàn tất checklist xác minh.")
+                .satisfies(e -> assertThat(((ConflictException) e).getCode())
+                        .isEqualTo("CHECKLIST_INCOMPLETE"));
+
+        assertThat(profile.getVerificationStatus()).isEqualTo(VerificationStatus.PENDING);
+        verify(organizationProfileRepository, never()).save(any());
+        verifyNoInteractions(queueService);
+    }
+
+    @Test
+    void verifyOrganization_noDocumentsAtAll_throwsChecklistIncomplete() {
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(orgId)
+                .orgType(OrganizationType.CHARITY_FUND.name())
+                .verificationStatus(VerificationStatus.PENDING)
+                .representative(representativeWithCccd())
+                .build();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        assertThatThrownBy(() -> service.verifyOrganization(account(UUID.randomUUID(), Role.MODERATOR), orgId))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("CHECKLIST_INCOMPLETE: chưa hoàn tất checklist xác minh.");
+    }
+
+    @Test
+    void verifyOrganization_missingCccdImages_throwsChecklistIncomplete() {
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(orgId)
+                .orgType(OrganizationType.CHARITY_FUND.name())
+                .verificationStatus(VerificationStatus.PENDING)
+                // Thiếu ảnh CCCD thì không đối chiếu được tên với giấy phép
+                .representative(new OrganizationRepresentative(
+                        "Nguyễn Văn B", "Giám đốc", "079123456789", null, null))
+                .documents(documents(1))
+                .build();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        assertThatThrownBy(() -> service.verifyOrganization(account(UUID.randomUUID(), Role.MODERATOR), orgId))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("CHECKLIST_INCOMPLETE: chưa hoàn tất checklist xác minh.");
+
+        verify(organizationProfileRepository, never()).save(any());
+    }
+
+    @Test
+    void verifyOrganization_notFound_throws() {
+        UUID orgId = UUID.randomUUID();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.verifyOrganization(account(UUID.randomUUID(), Role.MODERATOR), orgId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy tổ chức.");
+
+        verifyNoInteractions(queueService);
+    }
+
+    // =====================================================================
+    // rejectOrganization  (F-138)
+    // =====================================================================
+
+    @Test
+    void rejectOrganization_success_storesReasonAndStamps() {
+        UUID orgId = UUID.randomUUID();
+        UUID moderatorId = UUID.randomUUID();
+        Account moderator = account(moderatorId, Role.MODERATOR);
+        OrganizationProfile profile = baseProfile(orgId)
+                .verificationStatus(VerificationStatus.PENDING)
+                .build();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        OrganizationRejectResponse res = service.rejectOrganization(moderator, orgId,
+                new RejectOrganizationRequest("Giấy phép hoạt động đã hết hạn"));
+
+        assertThat(profile.getVerificationStatus()).isEqualTo(VerificationStatus.REJECTED);
+        assertThat(profile.getRejectionReason()).isEqualTo("Giấy phép hoạt động đã hết hạn");
+        // "ai kết luận, lúc nào" áp dụng cho cả từ chối
+        assertThat(profile.getVerifiedBy()).isSameAs(moderator);
+        assertThat(profile.getVerifiedAt()).isNotNull();
+
+        assertThat(res.getId()).isEqualTo(orgId.toString());
+        assertThat(res.getVerificationStatus()).isEqualTo(VerificationStatus.REJECTED);
+        assertThat(res.getRejectionReason()).isEqualTo("Giấy phép hoạt động đã hết hạn");
+
+        verify(organizationProfileRepository).save(profile);
+        verify(queueService).dequeue(QueueType.ORG_VERIFICATION, orgId.toString());
+    }
+
+    @Test
+    void rejectOrganization_doesNotNeedCompleteDossier() {
+        UUID orgId = UUID.randomUUID();
+        // Hồ sơ thiếu giấy tờ vẫn phải từ chối được — đó mới là lý do để từ chối
+        OrganizationProfile profile = baseProfile(orgId)
+                .orgType(OrganizationType.SCHOOL_CLUB.name())
+                .verificationStatus(VerificationStatus.PENDING)
+                .build();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        OrganizationRejectResponse res = service.rejectOrganization(
+                account(UUID.randomUUID(), Role.MODERATOR), orgId,
+                new RejectOrganizationRequest("Thiếu quyết định thành lập câu lạc bộ"));
+
+        assertThat(res.getVerificationStatus()).isEqualTo(VerificationStatus.REJECTED);
+    }
+
+    @Test
+    void rejectOrganization_rejectAgain_overwritesReason() {
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(orgId)
+                .verificationStatus(VerificationStatus.REJECTED)
+                .rejectionReason("Lý do cũ")
+                .build();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        service.rejectOrganization(account(UUID.randomUUID(), Role.MODERATOR), orgId,
+                new RejectOrganizationRequest("Lý do mới"));
+
+        assertThat(profile.getRejectionReason()).isEqualTo("Lý do mới");
+    }
+
+    @Test
+    void rejectOrganization_blankReason_throwsBadRequest() {
+        assertThatThrownBy(() -> service.rejectOrganization(
+                account(UUID.randomUUID(), Role.MODERATOR), UUID.randomUUID(),
+                new RejectOrganizationRequest("   ")))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("reason là bắt buộc.");
+
+        verifyNoInteractions(organizationProfileRepository, queueService);
+    }
+
+    @Test
+    void rejectOrganization_nullReason_throwsBadRequest() {
+        assertThatThrownBy(() -> service.rejectOrganization(
+                account(UUID.randomUUID(), Role.MODERATOR), UUID.randomUUID(),
+                new RejectOrganizationRequest(null)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("reason là bắt buộc.");
+
+        verifyNoInteractions(organizationProfileRepository, queueService);
+    }
+
+    @Test
+    void rejectOrganization_notFound_throws() {
+        UUID orgId = UUID.randomUUID();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.rejectOrganization(
+                account(UUID.randomUUID(), Role.MODERATOR), orgId,
+                new RejectOrganizationRequest("Giấy phép đã hết hạn")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy tổ chức.");
+
+        verify(organizationProfileRepository, never()).save(any());
+        verifyNoInteractions(queueService);
     }
 }

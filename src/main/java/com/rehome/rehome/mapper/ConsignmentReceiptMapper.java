@@ -18,6 +18,7 @@ public final class ConsignmentReceiptMapper {
         ConsignmentReceiptResponse dto = new ConsignmentReceiptResponse();
         dto.setId(r.getId());
         dto.setReceiptNo(r.getReceiptNo());
+        dto.setCreatedAt(r.getCreatedAt());
         dto.setAgreedPrice(r.getAgreedPrice());
         dto.setFloorPrice(r.getFloorPrice());
         dto.setTermLengthDays(r.getTermLengthDays());

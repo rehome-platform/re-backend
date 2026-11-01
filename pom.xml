@@ -70,7 +70,7 @@
             <version>2.0.3</version>
         </dependency>
 
-        <!-- Cloudinary - lưu ảnh/PDF cho production (Render có filesystem ephemeral) -->
+        <!-- Cloudinary - lưu ảnh/PDF cho production (Azure App Service thay sạch wwwroot mỗi lần deploy) -->
         <dependency>
             <groupId>com.cloudinary</groupId>
             <artifactId>cloudinary-http5</artifactId>

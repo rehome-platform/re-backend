@@ -40,4 +40,8 @@ public final class SystemConfigKeys {
     // Số chiến dịch đang chạy tối đa của mỗi tổ chức (F-099)
     public static final String MAX_CONCURRENT_CAMPAIGNS = "max_concurrent_campaigns";
     public static final int DEFAULT_MAX_CONCURRENT_CAMPAIGNS = 3;
+
+    // Số ngày giữ ảnh giấy tờ sau khi hồ sơ tổ chức được duyệt, hết hạn thì tự xóa (F-139)
+    public static final String LEGAL_IMAGE_RETENTION_DAYS = "legal_image_retention_days";
+    public static final int DEFAULT_LEGAL_IMAGE_RETENTION_DAYS = 30;
 }

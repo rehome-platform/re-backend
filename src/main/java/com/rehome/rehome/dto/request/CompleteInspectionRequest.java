@@ -25,4 +25,7 @@ public class CompleteInspectionRequest {
 
     @Positive(message = "termLengthDays phải lớn hơn 0.")
     private Integer termLengthDays;   // không truyền thì lấy mặc định hệ thống
+
+    // Ghi chú nội bộ của Moderator, không bắt buộc
+    private String moderatorNote;
 }

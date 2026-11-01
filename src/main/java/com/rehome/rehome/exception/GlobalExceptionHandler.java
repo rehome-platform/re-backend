@@ -153,11 +153,13 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException ex, HttpServletRequest req) {
+    public ResponseEntity<ApiResponse<?>> handleValidation(MethodArgumentNotValidException ex, HttpServletRequest req) {
         String message = ex.getBindingResult().getFieldErrors().stream()
                 .map(f -> f.getField() + ": " + f.getDefaultMessage())
                 .collect(Collectors.joining("; "));
-        return build(HttpStatus.BAD_REQUEST, message, req);
+        // Cùng shape ApiResponse với AppException/BadRequestException để mobile chỉ xử lý một format
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(400, message));
     }
 
     @ExceptionHandler(AuthenticationException.class)
@@ -167,13 +169,24 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(TokenExpiredException.class)
-    public ResponseEntity<ApiResponse<?>> handleTokenExpiredException(AuthenticationException ex, HttpServletRequest req) {
+    public ResponseEntity<ApiResponse<?>> handleTokenExpiredException(TokenExpiredException ex, HttpServletRequest req) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(ApiResponse.error(401, "Token đã hết hạn."));
     }
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ApiResponse<?>> handleAccessDeniedException(AccessDeniedException ex, HttpServletRequest req) {
+        // @PreAuthorize ném lỗi này ngay trong controller nên không tới JwtAuthenticationEntryPoint.
+        // Chưa đăng nhập (không token / token hỏng) phải là 401, chỉ đã đăng nhập mà sai quyền mới là 403.
+        org.springframework.security.core.Authentication auth =
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null
+                || auth instanceof org.springframework.security.authentication.AnonymousAuthenticationToken) {
+            Object reason = req.getAttribute(
+                    com.rehome.rehome.security.JwtAuthenticationFilter.AUTH_ERROR_ATTRIBUTE);
+            ErrorCode ec = reason instanceof ErrorCode code ? code : ErrorCode.UNAUTHORIZED;
+            return ResponseEntity.status(ec.getStatus()).body(ApiResponse.error(ec));
+        }
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(ApiResponse.error(403, "Bạn không có quyền truy cập tài nguyên này."));
     }

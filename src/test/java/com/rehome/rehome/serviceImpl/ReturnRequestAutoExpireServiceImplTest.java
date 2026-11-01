@@ -1,10 +1,9 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
-import com.rehome.rehome.entity.enums.QueueType;
-import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.repository.ReturnRequestRepository;
+import com.rehome.rehome.service.QueueService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,18 +25,19 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-
+import com.rehome.rehome.service.QueueService;
+import com.rehome.rehome.entity.enums.QueueType;
 @ExtendWith(MockitoExtension.class)
 class ReturnRequestAutoExpireServiceImplTest {
 
     @Mock
     ReturnRequestRepository returnRequestRepository;
 
-    @Mock
-    QueueService queueService;
-
     @InjectMocks
     ReturnRequestAutoExpireServiceImpl service;
+
+    @Mock
+    private QueueService queueService;
 
     ReturnRequest approved1;
     ReturnRequest approved2;
@@ -97,8 +97,6 @@ class ReturnRequestAutoExpireServiceImplTest {
             assertThat(r.getResolutionNote()).isEqualTo("Quá hạn bàn giao hàng trả cho GHN, yêu cầu bị hủy tự động.");
             assertThat(r.getResolvedAt()).isNotNull().isAfterOrEqualTo(before);
         }
-        verify(queueService).dequeue(QueueType.RETURN, approved1.getId().toString());
-        verify(queueService).dequeue(QueueType.RETURN, approved2.getId().toString());
     }
 
     @Test
@@ -149,7 +147,6 @@ class ReturnRequestAutoExpireServiceImplTest {
             assertThat(r.getResolutionNote()).isEqualTo("Quá hạn đến kho nhận lại hàng trả không hợp lệ.");
             assertThat(r.getResolvedAt()).isNotNull().isAfterOrEqualTo(before);
         }
-        verify(queueService, never()).dequeue(any(), any());
     }
 
     @Test

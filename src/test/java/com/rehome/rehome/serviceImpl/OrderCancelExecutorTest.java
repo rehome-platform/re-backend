@@ -75,7 +75,7 @@ class OrderCancelExecutorTest {
         item1 = OrderItem.builder().order(order).product(product1).build();
         item2 = OrderItem.builder().order(order).product(product2).build();
 
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
         when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1, item2));
         when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
         when(productRepository.findByIdForUpdate(product2.getId())).thenReturn(Optional.of(product2));
@@ -159,7 +159,7 @@ class OrderCancelExecutorTest {
     @Test
     @DisplayName("cancelOrder: đơn không còn tồn tại -> bỏ qua")
     void cancelOrder_orderNotFound_doesNothing() {
-        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.empty());
 
         executor.cancelOrder(orderId);
 

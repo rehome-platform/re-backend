@@ -49,7 +49,8 @@ public class WarehouseServiceImpl implements WarehouseService {
                         w.getId(), w.getName(), w.getAddress(),
                         haversine(lat, lng,
                                 w.getLatitude().doubleValue(),
-                                w.getLongitude().doubleValue())))
+                                w.getLongitude().doubleValue()),
+                        w.getOpeningHours()))
                 .sorted(Comparator.comparingDouble(WarehouseNearestResponse::distanceKm))
                 .limit(20)
                 .toList();

@@ -2,6 +2,7 @@ package com.rehome.rehome.serviceImpl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.rehome.rehome.dto.request.CreateLegalChangeRequestRequest;
+import com.rehome.rehome.dto.request.RejectLegalChangeRequest;
 import com.rehome.rehome.dto.request.RejectOrganizationRequest;
 import com.rehome.rehome.dto.request.UpdateOrganizationProfileRequest;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
@@ -22,12 +23,14 @@ import com.rehome.rehome.entity.auth.OrganizationRepresentative;
 import com.rehome.rehome.entity.marketplace.Follow;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.VerificationStatus;
+import com.rehome.rehome.entity.enums.LegalChangeRequestStatus;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.mapper.OrganizationLegalChangeMapper;
 import com.rehome.rehome.mapper.OrganizationProfileMapper;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.FollowRepository;
@@ -47,6 +50,7 @@ import java.util.UUID;
 public class OrganizationServiceImpl implements OrganizationService {
 
     private static final String ORGANIZATION_NOT_FOUND = "Không tìm thấy tổ chức.";
+    private static final String LEGAL_CHANGE_REQUEST_NOT_FOUND = "Không tìm thấy yêu cầu đổi thông tin.";
 
     private final OrganizationProfileRepository organizationProfileRepository;
     private final OrganizationProfileMapper organizationProfileMapper;
@@ -54,6 +58,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     private final QueueService queueService;
     private final FollowRepository followRepository;
     private final OrganizationLegalChangeRequestRepository organizationLegalChangeRequestRepository;
+    private final OrganizationLegalChangeMapper organizationLegalChangeMapper;
 
     @Override
     @Transactional
@@ -297,6 +302,87 @@ public class OrganizationServiceImpl implements OrganizationService {
                 .id(profile.getAccountId().toString())
                 .verificationStatus(profile.getVerificationStatus())
                 .rejectionReason(profile.getRejectionReason())
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public LegalChangeRequestResponse approveLegalChange(Account moderator, UUID requestId) {
+        OrganizationLegalChangeRequest changeRequest = requirePendingRequest(requestId);
+        OrganizationProfile profile = changeRequest.getOrganization();
+
+        boolean imagesReplaced = organizationLegalChangeMapper.apply(
+                changeRequest.getProposedChanges(), profile);
+
+        // Mã số thuế là định danh duy nhất giữa các tổ chức, đổi sang mã của tổ chức khác thì chặn
+        if (StringUtils.hasText(profile.getTaxCode())
+                && organizationProfileRepository.existsByTaxCodeAndAccountIdNot(
+                        profile.getTaxCode(), profile.getAccountId())) {
+            throw new AppException(ErrorCode.ORGANIZATION_TAX_CODE_TAKEN);
+        }
+
+        Instant now = Instant.now();
+        if (imagesReplaced) {
+            // F-139 tính thời hạn giữ ảnh từ verifiedAt. Không đặt lại mốc thì ảnh giấy tờ vừa
+            // nộp sẽ bị job dọn xóa ngay, vì mốc đang là của lần xác minh trước.
+            profile.setVerifiedBy(moderator);
+            profile.setVerifiedAt(now);
+        }
+        organizationProfileRepository.save(profile);
+
+        changeRequest.setStatus(LegalChangeRequestStatus.APPROVED);
+        changeRequest.setReviewedBy(moderator);
+        changeRequest.setReviewedAt(now);
+        organizationLegalChangeRequestRepository.save(changeRequest);
+
+        queueService.dequeue(QueueType.LEGAL_CHANGE, requestId.toString());
+
+        return toLegalChangeResponse(changeRequest);
+    }
+
+    @Override
+    @Transactional
+    public LegalChangeRequestResponse rejectLegalChange(Account moderator, UUID requestId,
+                                                       RejectLegalChangeRequest request) {
+        if (request == null || !StringUtils.hasText(request.getReason())) {
+            throw new BadRequestException("reason là bắt buộc khi từ chối.");
+        }
+
+        OrganizationLegalChangeRequest changeRequest = requirePendingRequest(requestId);
+
+        // Hồ sơ không bị đụng tới: tổ chức vẫn giữ thông tin pháp lý cũ đã được xác minh
+        changeRequest.setStatus(LegalChangeRequestStatus.REJECTED);
+        changeRequest.setRejectReason(request.getReason());
+        changeRequest.setReviewedBy(moderator);
+        changeRequest.setReviewedAt(Instant.now());
+        organizationLegalChangeRequestRepository.save(changeRequest);
+
+        queueService.dequeue(QueueType.LEGAL_CHANGE, requestId.toString());
+
+        return toLegalChangeResponse(changeRequest);
+    }
+
+    /**
+     * Yêu cầu đã kết luận thì không duyệt/từ chối lại được — nếu không, bấm hai lần sẽ áp
+     * proposedChanges lần nữa lên hồ sơ (lúc này có thể đã đổi tiếp bằng yêu cầu khác).
+     */
+    private OrganizationLegalChangeRequest requirePendingRequest(UUID requestId) {
+        OrganizationLegalChangeRequest changeRequest = organizationLegalChangeRequestRepository
+                .findById(requestId)
+                .orElseThrow(() -> new IllegalArgumentException(LEGAL_CHANGE_REQUEST_NOT_FOUND));
+
+        if (changeRequest.getStatus() != LegalChangeRequestStatus.PENDING) {
+            throw new ConflictException(
+                    "ALREADY_REVIEWED: yêu cầu đã được " + changeRequest.getStatus().name() + ".",
+                    "ALREADY_REVIEWED");
+        }
+        return changeRequest;
+    }
+
+    private static LegalChangeRequestResponse toLegalChangeResponse(OrganizationLegalChangeRequest r) {
+        return LegalChangeRequestResponse.builder()
+                .id(r.getId().toString())
+                .status(r.getStatus().name())
                 .build();
     }
 

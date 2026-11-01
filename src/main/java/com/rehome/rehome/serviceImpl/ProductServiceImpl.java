@@ -330,6 +330,11 @@ public class ProductServiceImpl implements ProductService {
         ConsignmentReceipt receipt = receiptRepository.findById(request.getReceiptId())
                 .orElseThrow(() -> new AppException(ErrorCode.RECEIPT_NOT_FOUND));          // 404
 
+        // Moderator chỉ nhập kho biên nhận thuộc kho mình phụ trách
+        if (account.getWarehouse() == null
+                || !account.getWarehouse().getId().equals(receipt.getWarehouse().getId())) {
+            throw new AppException(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);                 // 403
+        }
         if (receipt.getConfirmedAt() == null) {
             throw new AppException(ErrorCode.RECEIPT_NOT_CONFIRMED);                         // 409
         }

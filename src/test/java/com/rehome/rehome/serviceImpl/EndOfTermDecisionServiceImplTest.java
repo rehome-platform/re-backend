@@ -1,12 +1,12 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.config.ConsignmentProperties;
 import com.rehome.rehome.dto.request.DecideEndOfTermRequest;
 import com.rehome.rehome.dto.response.DecideEndOfTermResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.EndOfTermChoice;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;
-import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.exception.AppException;
@@ -18,14 +18,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
-import java.time.Year;
-import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.UUID;
@@ -45,6 +42,7 @@ class EndOfTermDecisionServiceImplTest {
     @Mock private EndOfTermDecisionRepository decisionRepository;
     @Mock private ProductRepository productRepository;
     @Mock private ConsignmentReceiptRepository consignmentReceiptRepository;
+    @Mock private ConsignmentProperties consignmentProperties;
 
     @InjectMocks private EndOfTermDecisionServiceImpl service;
 
@@ -191,7 +189,7 @@ class EndOfTermDecisionServiceImplTest {
 
         verify(decision).setDecision(EndOfTermChoice.TAKE_BACK);
         verify(decision).setDecidedAt(any(Instant.class));
-        verify(decision).setNewReceipt(null);
+        verify(decision, never()).setNewReceipt(any());
         verify(decisionRepository).save(decision);
 
         assertThat(response.getDecision()).isEqualTo(EndOfTermChoice.TAKE_BACK);
@@ -199,46 +197,26 @@ class EndOfTermDecisionServiceImplTest {
     }
 
     @Test
-    @DisplayName("RE_CONSIGN -> tạo phiếu ký gửi mới, sao chép điều khoản, chưa xác nhận, chưa có PDF")
-    void decide_reConsign_success() {
-        UUID newReceiptId = UUID.randomUUID();
-        Account member = org.mockito.Mockito.mock(Account.class);
-
-        ConsignmentReceipt oldReceipt = org.mockito.Mockito.mock(ConsignmentReceipt.class);
-        when(oldReceipt.getMember()).thenReturn(member);
-        when(product.getConsignmentReceipt()).thenReturn(oldReceipt);
-
-        ConsignmentReceipt savedReceipt = org.mockito.Mockito.mock(ConsignmentReceipt.class);
-        when(savedReceipt.getId()).thenReturn(newReceiptId);
-
-        when(consignmentReceiptRepository.nextReceiptSequence()).thenReturn(42L);
-        when(consignmentReceiptRepository.save(any(ConsignmentReceipt.class))).thenReturn(savedReceipt);
+    @DisplayName("RE_CONSIGN -> chưa tạo biên nhận, chỉ ghi nhận quyết định, chờ Moderator chốt giá")
+    void decide_reConsign_success_noReceiptYet() {
         when(request.getDecision()).thenReturn(EndOfTermChoice.RE_CONSIGN);
 
         DecideEndOfTermResponse response = service.decide(account, decisionId, request);
 
-        // Phiếu mới được build đúng
-        ArgumentCaptor<ConsignmentReceipt> captor = ArgumentCaptor.forClass(ConsignmentReceipt.class);
-        verify(consignmentReceiptRepository).save(captor.capture());
-        ConsignmentReceipt built = captor.getValue();
-
-        String expectedNo = "KG-%d-%06d".formatted(
-                Year.now(ZoneId.of("Asia/Ho_Chi_Minh")).getValue(), 42L);
-        assertThat(built.getReceiptNo()).isEqualTo(expectedNo);
-        assertThat(built.getMember()).isSameAs(member);
-        assertThat(built.getConfirmedAt()).isNull();
+        // Chưa sinh biên nhận: Moderator chốt giá và điều khoản ở setReConsignTerms
+        verifyNoInteractions(consignmentReceiptRepository);
 
         // Product không bị đổi trạng thái
         verify(product, never()).setStatus(any());
         verifyNoInteractions(productRepository);
 
-        // Decision được cập nhật
+        // Decision chỉ ghi nhận lựa chọn, newReceipt vẫn để trống
         verify(decision).setDecision(EndOfTermChoice.RE_CONSIGN);
         verify(decision).setDecidedAt(any(Instant.class));
-        verify(decision).setNewReceipt(savedReceipt);
+        verify(decision, never()).setNewReceipt(any());
         verify(decisionRepository).save(decision);
 
         assertThat(response.getDecision()).isEqualTo(EndOfTermChoice.RE_CONSIGN);
-        assertThat(response.getNewReceiptId()).isEqualTo(newReceiptId);
+        assertThat(response.getNewReceiptId()).isNull();
     }
 }

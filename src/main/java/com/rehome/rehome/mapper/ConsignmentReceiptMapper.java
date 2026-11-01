@@ -30,6 +30,7 @@ public final class ConsignmentReceiptMapper {
         dto.setWithdrawalFee(r.getWithdrawalFee());
         dto.setDegradedCompensationRate(r.getDegradedCompensationRate());
         dto.setConfirmedAt(r.getConfirmedAt());
+        dto.setCreatedAt(r.getCreatedAt());
         dto.setPdfAvailable(r.getConfirmedAt() != null);
         return dto;
     }

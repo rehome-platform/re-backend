@@ -32,6 +32,9 @@ public enum UploadFolder {
     /** Logo tổ chức - OrganizationProfile.logoUrl */
     ORGANIZATION_LOGOS("organization-logos", false),
 
+    /** Ảnh bìa chiến dịch - Campaign.coverUrl (OC-02) */
+    CAMPAIGN_COVERS("campaign-covers", false),
+
     /** Giấy tờ pháp lý của tổ chức - OrganizationDocument.fileUrl (ảnh scan hoặc PDF) */
     ORGANIZATION_DOCUMENTS("organization-documents", true);
 

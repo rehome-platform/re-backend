@@ -8,15 +8,20 @@ import com.rehome.rehome.dto.response.CampaignSummaryResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.CampaignStatus;
+import com.rehome.rehome.entity.enums.CatalogStatus;
+import com.rehome.rehome.entity.enums.DonationStatus;
 import com.rehome.rehome.entity.enums.VerificationStatus;
 import com.rehome.rehome.entity.marketplace.Campaign;
+import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.repository.CampaignRepository;
+import com.rehome.rehome.repository.DonationRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
+import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.SystemConfigReader;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,13 +34,16 @@ import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -47,46 +55,93 @@ class CampaignServiceImplTest {
 
     @Mock private CampaignRepository campaignRepository;
     @Mock private OrganizationProfileRepository organizationProfileRepository;
+    @Mock private WarehouseRepository warehouseRepository;
+    @Mock private DonationRepository donationRepository;
     @Mock private SystemConfigReader systemConfigReader;
 
     @InjectMocks private CampaignServiceImpl service;
 
+    private Warehouse warehouse(UUID id, String name) {
+        return Warehouse.builder()
+                .id(id)
+                .name(name)
+                .address("123 Lê Lợi, Q.1")
+                .openingHours("8h-17h")
+                .status(CatalogStatus.ACTIVE)
+                .build();
+    }
+
+    private OrganizationProfile organizationWithDonationPoint(UUID id) {
+        return OrganizationProfile.builder()
+                .accountId(id)
+                .verificationStatus(VerificationStatus.VERIFIED)
+                .donationPointName("Điểm nhận đồ ABC")
+                .donationPointAddress("45 Nguyễn Huệ, Q.1")
+                .donationPointLatitude(new BigDecimal("10.7769000"))
+                .donationPointLongitude(new BigDecimal("106.7009000"))
+                .donationPointReceivingHours("9h-18h")
+                .donationPointContactPhone("0900000000")
+                .build();
+    }
+
     private Campaign.CampaignBuilder baseCampaign(UUID id) {
         return Campaign.builder()
                 .id(id)
+                .title("Thu áo ấm miền núi phía Bắc")
                 .description("Thu áo ấm miền núi phía Bắc")
                 .startTime(Instant.parse("2026-10-01T00:00:00Z"))
                 .endTime(Instant.parse("2026-11-01T00:00:00Z"))
-                .locationName("Điểm nhận đồ Q.1")
-                .latitude(new BigDecimal("10.7769000"))
-                .longitude(new BigDecimal("106.7009000"));
+                .receiveAtOwnAddress(true)
+                .warehouses(new HashSet<>());
     }
 
     @Test
     void getPublicDetail_open_mapsToActiveStatus() {
         UUID id = UUID.randomUUID();
-        Campaign campaign = baseCampaign(id).status(CampaignStatus.OPEN).build();
+        UUID orgId = UUID.randomUUID();
+        Campaign campaign = baseCampaign(id)
+                .organization(organizationWithDonationPoint(orgId))
+                .status(CampaignStatus.OPEN)
+                .build();
         when(campaignRepository.findById(id)).thenReturn(Optional.of(campaign));
 
         CampaignPublicResponse res = service.getPublicDetail(id);
 
         assertThat(res.getId()).isEqualTo(id.toString());
+        assertThat(res.getTitle()).isEqualTo("Thu áo ấm miền núi phía Bắc");
         assertThat(res.getDescription()).isEqualTo("Thu áo ấm miền núi phía Bắc");
         assertThat(res.getStartTime()).isEqualTo(Instant.parse("2026-10-01T00:00:00Z"));
         assertThat(res.getEndTime()).isEqualTo(Instant.parse("2026-11-01T00:00:00Z"));
-        assertThat(res.getLocationName()).isEqualTo("Điểm nhận đồ Q.1");
         assertThat(res.getStatus()).isEqualTo("ACTIVE");
+        assertThat(res.isReceiveAtOwnAddress()).isTrue();
+        assertThat(res.getOwnAddress().getName()).isEqualTo("Điểm nhận đồ ABC");
+        assertThat(res.getOwnAddress().getAddress()).isEqualTo("45 Nguyễn Huệ, Q.1");
+        assertThat(res.getWarehouses()).isEmpty();
     }
 
     @Test
-    void getPublicDetail_closed_mapsToClosedStatus() {
+    void getPublicDetail_includesWarehousesWithPendingCount() {
         UUID id = UUID.randomUUID();
-        Campaign campaign = baseCampaign(id).status(CampaignStatus.CLOSED).build();
+        UUID orgId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+        Campaign campaign = baseCampaign(id)
+                .organization(organizationWithDonationPoint(orgId))
+                .receiveAtOwnAddress(false)
+                .warehouses(Set.of(warehouse(warehouseId, "Kho Quận 7")))
+                .status(CampaignStatus.OPEN)
+                .build();
         when(campaignRepository.findById(id)).thenReturn(Optional.of(campaign));
+        when(donationRepository.countByWarehouse_IdAndStatus(warehouseId, DonationStatus.PENDING_PICKUP))
+                .thenReturn(3L);
 
         CampaignPublicResponse res = service.getPublicDetail(id);
 
-        assertThat(res.getStatus()).isEqualTo("CLOSED");
+        assertThat(res.isReceiveAtOwnAddress()).isFalse();
+        assertThat(res.getOwnAddress()).isNull();
+        assertThat(res.getWarehouses()).hasSize(1);
+        assertThat(res.getWarehouses().get(0).getId()).isEqualTo(warehouseId.toString());
+        assertThat(res.getWarehouses().get(0).getName()).isEqualTo("Kho Quận 7");
+        assertThat(res.getWarehouses().get(0).getPendingCount()).isEqualTo(3L);
     }
 
     @Test
@@ -100,16 +155,22 @@ class CampaignServiceImplTest {
     }
 
     // =====================================================================
-    // createCampaign  (F-098/F-099)
+    // createCampaign  (F-098/F-099, OC-02)
     // =====================================================================
 
     private static final Instant START = Instant.parse("2026-10-15T00:00:00Z");
     private static final Instant END = Instant.parse("2026-11-15T00:00:00Z");
 
     private CreateCampaignRequest createRequest() {
-        return new CreateCampaignRequest(
-                "Thu áo ấm miền núi phía Bắc", START, END, "Điểm nhận đồ Q.1",
-                new BigDecimal("10.762"), new BigDecimal("106.682"), List.of("Áo ấm", "Chăn"));
+        CreateCampaignRequest request = new CreateCampaignRequest();
+        request.setTitle("Thu áo ấm miền núi phía Bắc");
+        request.setDescription("Thu áo ấm miền núi phía Bắc");
+        request.setStartTime(START);
+        request.setEndTime(END);
+        request.setCoverUrl("https://files.rehome.vn/campaign-covers/abc.jpg");
+        request.setReceiveAtOwnAddress(true);
+        request.setPreferredItemTypes(List.of("Áo ấm", "Chăn"));
+        return request;
     }
 
     private OrganizationProfile verifiedOrganization(UUID id) {
@@ -149,14 +210,97 @@ class CampaignServiceImplTest {
         verify(campaignRepository).save(captor.capture());
         Campaign saved = captor.getValue();
         assertThat(saved.getOrganization().getAccountId()).isEqualTo(orgId);
+        assertThat(saved.getTitle()).isEqualTo("Thu áo ấm miền núi phía Bắc");
         assertThat(saved.getDescription()).isEqualTo("Thu áo ấm miền núi phía Bắc");
+        assertThat(saved.getCoverUrl()).isEqualTo("https://files.rehome.vn/campaign-covers/abc.jpg");
         assertThat(saved.getStartTime()).isEqualTo(START);
         assertThat(saved.getEndTime()).isEqualTo(END);
-        assertThat(saved.getLocationName()).isEqualTo("Điểm nhận đồ Q.1");
-        assertThat(saved.getLatitude()).isEqualByComparingTo("10.762");
-        assertThat(saved.getLongitude()).isEqualByComparingTo("106.682");
+        assertThat(saved.getReceiveAtOwnAddress()).isTrue();
+        assertThat(saved.getWarehouses()).isEmpty();
         assertThat(saved.getStatus()).isEqualTo(CampaignStatus.OPEN);
         assertThat(saved.getCreatedAt()).isNotNull();
+    }
+
+    @Test
+    void createCampaign_withWarehouseIds_resolvesActiveWarehouses() {
+        UUID orgId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+        stubVerifiedOrgAndLimit(orgId, 3, 0);
+        stubSaveAssignsId();
+        when(warehouseRepository.findByIdInAndStatus(anyCollection(), eq(CatalogStatus.ACTIVE)))
+                .thenReturn(List.of(warehouse(warehouseId, "Kho Quận 7")));
+
+        CreateCampaignRequest request = createRequest();
+        request.setReceiveAtOwnAddress(false);
+        request.setWarehouseIds(List.of(warehouseId.toString()));
+        service.createCampaign(orgId, request);
+
+        ArgumentCaptor<Campaign> captor = ArgumentCaptor.forClass(Campaign.class);
+        verify(campaignRepository).save(captor.capture());
+        assertThat(captor.getValue().getWarehouses()).hasSize(1);
+        assertThat(captor.getValue().getReceiveAtOwnAddress()).isFalse();
+    }
+
+    @Test
+    void createCampaign_canChooseBothOwnAddressAndWarehouses() {
+        UUID orgId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+        stubVerifiedOrgAndLimit(orgId, 3, 0);
+        stubSaveAssignsId();
+        when(warehouseRepository.findByIdInAndStatus(anyCollection(), eq(CatalogStatus.ACTIVE)))
+                .thenReturn(List.of(warehouse(warehouseId, "Kho Quận 7")));
+
+        CreateCampaignRequest request = createRequest();
+        request.setReceiveAtOwnAddress(true);
+        request.setWarehouseIds(List.of(warehouseId.toString()));
+        service.createCampaign(orgId, request);
+
+        ArgumentCaptor<Campaign> captor = ArgumentCaptor.forClass(Campaign.class);
+        verify(campaignRepository).save(captor.capture());
+        assertThat(captor.getValue().getReceiveAtOwnAddress()).isTrue();
+        assertThat(captor.getValue().getWarehouses()).hasSize(1);
+    }
+
+    @Test
+    void createCampaign_neitherOwnAddressNorWarehouses_throwsBadRequest() {
+        CreateCampaignRequest request = createRequest();
+        request.setReceiveAtOwnAddress(false);
+
+        assertThatThrownBy(() -> service.createCampaign(UUID.randomUUID(), request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Phải chọn nhận tại địa chỉ riêng hoặc chọn ít nhất 1 kho.");
+
+        verifyNoInteractions(organizationProfileRepository, campaignRepository);
+    }
+
+    @Test
+    void createCampaign_warehouseIdNotFoundOrNotActive_throwsBadRequest() {
+        UUID warehouseId = UUID.randomUUID();
+        when(warehouseRepository.findByIdInAndStatus(anyCollection(), eq(CatalogStatus.ACTIVE)))
+                .thenReturn(List.of());
+
+        CreateCampaignRequest request = createRequest();
+        request.setReceiveAtOwnAddress(false);
+        request.setWarehouseIds(List.of(warehouseId.toString()));
+
+        assertThatThrownBy(() -> service.createCampaign(UUID.randomUUID(), request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("warehouseIds không hợp lệ.");
+
+        verifyNoInteractions(organizationProfileRepository, campaignRepository);
+    }
+
+    @Test
+    void createCampaign_malformedWarehouseId_throwsBadRequest() {
+        CreateCampaignRequest request = createRequest();
+        request.setReceiveAtOwnAddress(false);
+        request.setWarehouseIds(List.of("not-a-uuid"));
+
+        assertThatThrownBy(() -> service.createCampaign(UUID.randomUUID(), request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("warehouseIds không hợp lệ.");
+
+        verifyNoInteractions(organizationProfileRepository, campaignRepository, warehouseRepository);
     }
 
     @Test
@@ -227,13 +371,25 @@ class CampaignServiceImplTest {
     }
 
     @Test
+    void createCampaign_missingTitle_throwsBadRequest() {
+        CreateCampaignRequest request = createRequest();
+        request.setTitle("  ");
+
+        assertThatThrownBy(() -> service.createCampaign(UUID.randomUUID(), request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("title, description, startTime, endTime là bắt buộc.");
+
+        verifyNoInteractions(organizationProfileRepository, campaignRepository, systemConfigReader);
+    }
+
+    @Test
     void createCampaign_missingDescription_throwsBadRequest() {
         CreateCampaignRequest request = createRequest();
         request.setDescription("  ");
 
         assertThatThrownBy(() -> service.createCampaign(UUID.randomUUID(), request))
                 .isInstanceOf(BadRequestException.class)
-                .hasMessage("description, startTime, endTime là bắt buộc.");
+                .hasMessage("title, description, startTime, endTime là bắt buộc.");
 
         verifyNoInteractions(organizationProfileRepository, campaignRepository, systemConfigReader);
     }
@@ -245,19 +401,7 @@ class CampaignServiceImplTest {
 
         assertThatThrownBy(() -> service.createCampaign(UUID.randomUUID(), request))
                 .isInstanceOf(BadRequestException.class)
-                .hasMessage("description, startTime, endTime là bắt buộc.");
-    }
-
-    @Test
-    void createCampaign_missingLocation_throwsBadRequest() {
-        CreateCampaignRequest request = createRequest();
-        request.setLatitude(null);
-
-        assertThatThrownBy(() -> service.createCampaign(UUID.randomUUID(), request))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessage("locationName, latitude, longitude là bắt buộc.");
-
-        verifyNoInteractions(organizationProfileRepository, campaignRepository);
+                .hasMessage("title, description, startTime, endTime là bắt buộc.");
     }
 
     @Test
@@ -300,19 +444,22 @@ class CampaignServiceImplTest {
     }
 
     // =====================================================================
-    // updateCampaign / closeCampaign  (F-100, F-101)
+    // updateCampaign / closeCampaign  (F-100, F-101, OC-02)
     // =====================================================================
 
     private Campaign ownedCampaign(UUID campaignId, UUID orgId, CampaignStatus status) {
         return baseCampaign(campaignId)
-                .organization(OrganizationProfile.builder().accountId(orgId).build())
+                .organization(organizationWithDonationPoint(orgId))
                 .status(status)
                 .build();
     }
 
     // Chỉ gửi description + endTime, giống sample của API 120
     private CreateCampaignRequest partialUpdate(String description, Instant endTime) {
-        return new CreateCampaignRequest(description, null, endTime, null, null, null, null);
+        CreateCampaignRequest request = new CreateCampaignRequest();
+        request.setDescription(description);
+        request.setEndTime(endTime);
+        return request;
     }
 
     @Test
@@ -328,10 +475,10 @@ class CampaignServiceImplTest {
 
         assertThat(campaign.getDescription()).isEqualTo("Thu áo ấm miền núi phía Bắc (mở rộng)");
         assertThat(campaign.getEndTime()).isEqualTo(newEnd);
-        // Không gửi thì giữ nguyên — PUT toàn phần sẽ xoá mất các cột NOT NULL này
+        // Không gửi thì giữ nguyên — PUT toàn phần sẽ xoá mất title/startTime (NOT NULL ở app) này
+        assertThat(campaign.getTitle()).isEqualTo("Thu áo ấm miền núi phía Bắc");
         assertThat(campaign.getStartTime()).isEqualTo(Instant.parse("2026-10-01T00:00:00Z"));
-        assertThat(campaign.getLocationName()).isEqualTo("Điểm nhận đồ Q.1");
-        assertThat(campaign.getLatitude()).isEqualByComparingTo("10.7769000");
+        assertThat(campaign.getReceiveAtOwnAddress()).isTrue();
 
         assertThat(res.getId()).isEqualTo(campaignId.toString());
         assertThat(res.getEndTime()).isEqualTo(newEnd);
@@ -351,6 +498,86 @@ class CampaignServiceImplTest {
         service.updateCampaign(orgId, campaignId, request);
 
         assertThat(campaign.getPreferredItemTypes()).isEqualTo("Áo khoác, Giày");
+    }
+
+    @Test
+    void updateCampaign_addsWarehouses() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+        Campaign campaign = ownedCampaign(campaignId, orgId, CampaignStatus.OPEN);
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(campaign));
+        when(warehouseRepository.findByIdInAndStatus(anyCollection(), eq(CatalogStatus.ACTIVE)))
+                .thenReturn(List.of(warehouse(warehouseId, "Kho Quận 7")));
+
+        CreateCampaignRequest request = partialUpdate(null, null);
+        request.setWarehouseIds(List.of(warehouseId.toString()));
+        service.updateCampaign(orgId, campaignId, request);
+
+        assertThat(campaign.getWarehouses()).hasSize(1);
+    }
+
+    @Test
+    void updateCampaign_removesWarehouseWithoutPendingPickup_succeeds() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+        Campaign campaign = ownedCampaign(campaignId, orgId, CampaignStatus.OPEN);
+        campaign.setReceiveAtOwnAddress(true);
+        campaign.setWarehouses(Set.of(warehouse(warehouseId, "Kho Quận 7")));
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(campaign));
+        when(donationRepository.countByWarehouse_IdAndStatus(warehouseId, DonationStatus.PENDING_PICKUP))
+                .thenReturn(0L);
+
+        CreateCampaignRequest request = partialUpdate(null, null);
+        request.setWarehouseIds(List.of());
+        service.updateCampaign(orgId, campaignId, request);
+
+        assertThat(campaign.getWarehouses()).isEmpty();
+    }
+
+    @Test
+    void updateCampaign_removesWarehouseWithPendingPickup_throwsConflictWithCode() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+        Campaign campaign = ownedCampaign(campaignId, orgId, CampaignStatus.OPEN);
+        campaign.setReceiveAtOwnAddress(true);
+        campaign.setWarehouses(Set.of(warehouse(warehouseId, "Kho Quận 7")));
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(campaign));
+        when(donationRepository.countByWarehouse_IdAndStatus(warehouseId, DonationStatus.PENDING_PICKUP))
+                .thenReturn(2L);
+
+        CreateCampaignRequest request = partialUpdate(null, null);
+        request.setWarehouseIds(List.of());
+
+        assertThatThrownBy(() -> service.updateCampaign(orgId, campaignId, request))
+                .isInstanceOf(ConflictException.class)
+                .satisfies(e -> assertThat(((ConflictException) e).getCode())
+                        .isEqualTo("WAREHOUSE_HAS_PENDING_PICKUP"));
+
+        verify(campaignRepository, never()).save(any());
+        // Kho vẫn còn trong chiến dịch vì không bị xoá
+        assertThat(campaign.getWarehouses()).hasSize(1);
+    }
+
+    @Test
+    void updateCampaign_clearingBothReceiveWays_throwsBadRequest() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        Campaign campaign = ownedCampaign(campaignId, orgId, CampaignStatus.OPEN);
+        campaign.setReceiveAtOwnAddress(true);
+        campaign.setWarehouses(new HashSet<>());
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(campaign));
+
+        CreateCampaignRequest request = partialUpdate(null, null);
+        request.setReceiveAtOwnAddress(false);
+
+        assertThatThrownBy(() -> service.updateCampaign(orgId, campaignId, request))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Phải chọn nhận tại địa chỉ riêng hoặc chọn ít nhất 1 kho.");
+
+        verify(campaignRepository, never()).save(any());
     }
 
     @Test
@@ -460,7 +687,7 @@ class CampaignServiceImplTest {
     }
 
     // =====================================================================
-    // listMyCampaigns  (F-103)
+    // listMyCampaigns  (F-103, OC-03)
     // =====================================================================
 
     @Test
@@ -477,11 +704,30 @@ class CampaignServiceImplTest {
 
         assertThat(result.getContent()).hasSize(2);
         assertThat(result.getContent().get(0).getId()).isEqualTo(openId.toString());
-        assertThat(result.getContent().get(0).getDescription()).isEqualTo("Thu áo ấm miền núi phía Bắc");
+        assertThat(result.getContent().get(0).getTitle()).isEqualTo("Thu áo ấm miền núi phía Bắc");
         assertThat(result.getContent().get(0).getStatus()).isEqualTo("ACTIVE");
         assertThat(result.getContent().get(1).getStatus()).isEqualTo("CLOSED");
         verify(campaignRepository, never())
                 .findByOrganization_AccountIdAndStatus(any(), any(), any());
+    }
+
+    @Test
+    void listMyCampaigns_includesWarehousePendingCount() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+        Campaign campaign = ownedCampaign(campaignId, orgId, CampaignStatus.OPEN);
+        campaign.setReceiveAtOwnAddress(false);
+        campaign.setWarehouses(Set.of(warehouse(warehouseId, "Kho Quận 7")));
+        when(campaignRepository.findByOrganization_AccountId(eq(orgId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(campaign)));
+        when(donationRepository.countByWarehouse_IdAndStatus(warehouseId, DonationStatus.PENDING_PICKUP))
+                .thenReturn(5L);
+
+        PageResponse<CampaignSummaryResponse> result = service.listMyCampaigns(orgId, null, 0, 20);
+
+        assertThat(result.getContent().get(0).getWarehouses()).hasSize(1);
+        assertThat(result.getContent().get(0).getWarehouses().get(0).getPendingCount()).isEqualTo(5L);
     }
 
     @Test

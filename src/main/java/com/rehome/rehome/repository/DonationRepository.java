@@ -34,4 +34,7 @@ public interface DonationRepository extends JpaRepository<Donation, UUID> {
 
     List<Donation> findByHandedOverToOrganization_AccountIdAndStatusOrderByCreatedAtDesc(
             UUID organizationId, DonationStatus status);
+
+    // OC-02/OC-03: "n chờ lấy" hiển thị cho từng kho mà chiến dịch đã chọn
+    long countByWarehouse_IdAndStatus(UUID warehouseId, DonationStatus status);
 }

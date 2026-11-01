@@ -103,6 +103,7 @@ public enum ErrorCode {
     MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy Member."),
     // API 28, 29, 30 - hàng đợi
     INVALID_QUEUE_TYPE(HttpStatus.BAD_REQUEST, "type không hợp lệ."),
+    INVALID_FORM_STAGE(HttpStatus.BAD_REQUEST, "stage không hợp lệ. Giá trị hợp lệ: PENDING, APPROVED, INSPECTING, STOCKED_TODAY."),
     QUEUE_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy việc."),
     QUEUE_ITEM_ALREADY_CLAIMED(HttpStatus.CONFLICT, "ALREADY_CLAIMED: việc này đã được người khác nhận."),
     QUEUE_ITEM_NOT_CLAIMED_BY_YOU(HttpStatus.FORBIDDEN, "Bạn không phải người đang nhận việc này."),
@@ -170,6 +171,11 @@ public enum ErrorCode {
     TOO_MANY_FILES(HttpStatus.BAD_REQUEST, "Vượt quá số file cho phép trong một lần upload."),
     FILE_UPLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể lưu file. Vui lòng thử lại."),
     FILE_DELETE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể xóa file."),
+    FILE_READ_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể đọc file. Vui lòng thử lại."),
+
+    // F-139: ảnh giấy tờ pháp lý chỉ ra qua endpoint có phân quyền, không qua URL công khai
+    LEGAL_FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy tệp giấy tờ."),
+    LEGAL_FILE_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền xem tệp giấy tờ này."),
 
     // API 90 - F-032: Member yêu cầu rút lại hàng ký gửi giữa kỳ
     PRODUCT_ALREADY_ORDERED(HttpStatus.CONFLICT, "PRODUCT_ALREADY_ORDERED: sản phẩm đã có đơn mua, không thể rút."),

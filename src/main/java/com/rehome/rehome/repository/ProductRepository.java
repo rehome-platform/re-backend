@@ -8,6 +8,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -34,6 +35,9 @@ public interface ProductRepository extends JpaRepository<Product, String>, JpaSp
 
     // Lấy SKU để hiện trên biên nhận sau khi đã nhập kho
     Optional<Product> findByConsignmentReceiptId(UUID consignmentReceiptId);
+
+    // Moderator: lấy sản phẩm của nhiều biên nhận trong một query
+    List<Product> findByConsignmentReceipt_IdIn(Collection<UUID> receiptIds);
 
     List<Product> findAllByNameNormalizedIsNull();
 

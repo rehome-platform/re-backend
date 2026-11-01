@@ -5,6 +5,7 @@ import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.marketplace.QueueItem;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -25,6 +26,12 @@ public interface QueueItemRepository extends JpaRepository<QueueItem, String> {
     List<QueueItem> findAllVisible(@Param("warehouse") Warehouse warehouse);
 
     Optional<QueueItem> findByTypeAndRefId(QueueType type, String refId);
+
+    // Moderator: lấy thông tin claim của nhiều việc cùng lúc (kèm người nhận, không N+1)
+    @Query("select q from QueueItem q left join fetch q.claimedBy "
+            + "where q.type in :types and q.refId in :refIds")
+    List<QueueItem> findByTypesAndRefIds(@Param("types") Collection<QueueType> types,
+                                         @Param("refIds") Collection<String> refIds);
 
     // Claim an toàn khi 2 Moderator bấm cùng lúc: chỉ 1 người update được dòng claimed_by IS NULL
     @Modifying(clearAutomatically = true, flushAutomatically = true)

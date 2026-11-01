@@ -19,14 +19,6 @@ public class TestController {
         return Map.of("status", "UP");
     }
 
-    @GetMapping("/api/account/me")
-    public Map<String, String> me(Authentication authentication) {
-        return Map.of(
-                "email", authentication.getName(),
-                "authorities", authentication.getAuthorities().toString()
-        );
-    }
-
     @GetMapping("/api/admin/dashboard")
     public Map<String, String> adminDashboard() {
         return Map.of("message", "Chỉ ADMIN mới thấy được nội dung này");

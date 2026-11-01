@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.NullNode;
 import com.rehome.rehome.dto.request.CreateLegalChangeRequestRequest;
+import com.rehome.rehome.dto.request.RejectLegalChangeRequest;
 import com.rehome.rehome.dto.request.RejectOrganizationRequest;
 import com.rehome.rehome.dto.request.UpdateOrganizationProfileRequest;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
@@ -32,6 +33,7 @@ import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.mapper.OrganizationLegalChangeMapper;
 import com.rehome.rehome.mapper.OrganizationProfileMapper;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.FollowRepository;
@@ -71,6 +73,7 @@ class OrganizationProfileServiceImplTest {
     @Mock private QueueService queueService;
     @Mock private FollowRepository followRepository;
     @Mock private OrganizationLegalChangeRequestRepository organizationLegalChangeRequestRepository;
+    @Mock private OrganizationLegalChangeMapper organizationLegalChangeMapper;
 
     @InjectMocks private OrganizationServiceImpl service;
 
@@ -1234,6 +1237,255 @@ class OrganizationProfileServiceImplTest {
                 .hasMessage("Không tìm thấy tổ chức.");
 
         verify(organizationProfileRepository, never()).save(any());
+        verifyNoInteractions(queueService);
+    }
+
+    // ------------------------------------------------------------------
+    // API 131 (F-140): Moderator duyệt / từ chối yêu cầu đổi thông tin pháp lý
+    // ------------------------------------------------------------------
+
+    private Account moderator() {
+        return Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR).build();
+    }
+
+    private OrganizationLegalChangeRequest pendingChangeRequest(UUID requestId, OrganizationProfile profile) {
+        return OrganizationLegalChangeRequest.builder()
+                .id(requestId)
+                .organization(profile)
+                .proposedChanges(JsonNodeFactory.instance.objectNode().put("legalName", "Quỹ Chia Sẻ"))
+                .status(LegalChangeRequestStatus.PENDING)
+                .build();
+    }
+
+    @Test
+    void approveLegalChange_appliesChangesAndClosesQueueItem() {
+        UUID requestId = UUID.randomUUID();
+        UUID orgId = UUID.randomUUID();
+        Account moderator = moderator();
+        OrganizationProfile profile = baseProfile(orgId).taxCode(null).build();
+        OrganizationLegalChangeRequest changeRequest = pendingChangeRequest(requestId, profile);
+        when(organizationLegalChangeRequestRepository.findById(requestId))
+                .thenReturn(Optional.of(changeRequest));
+        when(organizationLegalChangeMapper.apply(changeRequest.getProposedChanges(), profile))
+                .thenReturn(false);
+
+        Instant before = Instant.now();
+        LegalChangeRequestResponse res = service.approveLegalChange(moderator, requestId);
+
+        assertThat(res.getId()).isEqualTo(requestId.toString());
+        assertThat(res.getStatus()).isEqualTo("APPROVED");
+        assertThat(changeRequest.getStatus()).isEqualTo(LegalChangeRequestStatus.APPROVED);
+        assertThat(changeRequest.getReviewedBy()).isSameAs(moderator);
+        assertThat(changeRequest.getReviewedAt()).isAfterOrEqualTo(before);
+        assertThat(changeRequest.getRejectReason()).isNull();
+
+        verify(organizationProfileRepository).save(profile);
+        verify(organizationLegalChangeRequestRepository).save(changeRequest);
+        // Việc đã kết luận thì rời hàng đợi
+        verify(queueService).dequeue(QueueType.LEGAL_CHANGE, requestId.toString());
+    }
+
+    @Test
+    void approveLegalChange_resetsRetentionClock_whenChangeBringsNewLegalImages() {
+        UUID requestId = UUID.randomUUID();
+        Account moderator = moderator();
+        Instant oldVerifiedAt = Instant.parse("2026-01-01T00:00:00Z");
+        OrganizationProfile profile = baseProfile(UUID.randomUUID())
+                .taxCode(null)
+                .verificationStatus(VerificationStatus.VERIFIED)
+                .verifiedAt(oldVerifiedAt)
+                .build();
+        OrganizationLegalChangeRequest changeRequest = pendingChangeRequest(requestId, profile);
+        when(organizationLegalChangeRequestRepository.findById(requestId))
+                .thenReturn(Optional.of(changeRequest));
+        when(organizationLegalChangeMapper.apply(any(), any())).thenReturn(true);
+
+        Instant before = Instant.now();
+        service.approveLegalChange(moderator, requestId);
+
+        // Không đặt lại mốc thì job F-139 xóa ngay ảnh vừa nộp, vì mốc cũ đã quá hạn giữ
+        assertThat(profile.getVerifiedAt()).isAfterOrEqualTo(before);
+        assertThat(profile.getVerifiedBy()).isSameAs(moderator);
+        // Đổi thông tin pháp lý đã qua duyệt nên hồ sơ vẫn là VERIFIED
+        assertThat(profile.getVerificationStatus()).isEqualTo(VerificationStatus.VERIFIED);
+    }
+
+    @Test
+    void approveLegalChange_keepsVerifiedAt_whenNoNewImages() {
+        UUID requestId = UUID.randomUUID();
+        Instant oldVerifiedAt = Instant.parse("2026-01-01T00:00:00Z");
+        Account verifier = Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR).build();
+        OrganizationProfile profile = baseProfile(UUID.randomUUID())
+                .taxCode(null)
+                .verifiedBy(verifier)
+                .verifiedAt(oldVerifiedAt)
+                .build();
+        OrganizationLegalChangeRequest changeRequest = pendingChangeRequest(requestId, profile);
+        when(organizationLegalChangeRequestRepository.findById(requestId))
+                .thenReturn(Optional.of(changeRequest));
+        when(organizationLegalChangeMapper.apply(any(), any())).thenReturn(false);
+
+        service.approveLegalChange(moderator(), requestId);
+
+        // Đổi tên không mang ảnh mới -> không được kéo dài thời hạn giữ ảnh cũ
+        assertThat(profile.getVerifiedAt()).isEqualTo(oldVerifiedAt);
+        assertThat(profile.getVerifiedBy()).isSameAs(verifier);
+    }
+
+    @Test
+    void approveLegalChange_throwsConflict_whenNewTaxCodeBelongsToAnotherOrganization() {
+        UUID requestId = UUID.randomUUID();
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(orgId).build();
+        OrganizationLegalChangeRequest changeRequest = pendingChangeRequest(requestId, profile);
+        when(organizationLegalChangeRequestRepository.findById(requestId))
+                .thenReturn(Optional.of(changeRequest));
+        when(organizationLegalChangeMapper.apply(any(), any())).thenReturn(false);
+        when(organizationProfileRepository.existsByTaxCodeAndAccountIdNot(TAX_CODE, orgId))
+                .thenReturn(true);
+
+        assertThatThrownBy(() -> service.approveLegalChange(moderator(), requestId))
+                .isInstanceOf(AppException.class)
+                .extracting(ex -> ((AppException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.ORGANIZATION_TAX_CODE_TAKEN);
+
+        verify(organizationProfileRepository, never()).save(any());
+        verifyNoInteractions(queueService);
+    }
+
+    @Test
+    void approveLegalChange_throwsNotFound_whenRequestMissing() {
+        UUID requestId = UUID.randomUUID();
+        when(organizationLegalChangeRequestRepository.findById(requestId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.approveLegalChange(moderator(), requestId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy yêu cầu đổi thông tin.");
+
+        verifyNoInteractions(organizationLegalChangeMapper);
+        verifyNoInteractions(queueService);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = LegalChangeRequestStatus.class, names = {"APPROVED", "REJECTED"})
+    void approveLegalChange_throwsConflict_whenAlreadyReviewed(LegalChangeRequestStatus status) {
+        UUID requestId = UUID.randomUUID();
+        OrganizationLegalChangeRequest changeRequest =
+                pendingChangeRequest(requestId, baseProfile(UUID.randomUUID()).build());
+        changeRequest.setStatus(status);
+        when(organizationLegalChangeRequestRepository.findById(requestId))
+                .thenReturn(Optional.of(changeRequest));
+
+        // Bấm duyệt lần nữa sẽ áp proposedChanges lên hồ sơ đã đổi tiếp bằng yêu cầu khác
+        assertThatThrownBy(() -> service.approveLegalChange(moderator(), requestId))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("ALREADY_REVIEWED");
+
+        verifyNoInteractions(organizationLegalChangeMapper);
+        verify(organizationProfileRepository, never()).save(any());
+        verifyNoInteractions(queueService);
+    }
+
+    @Test
+    void approveLegalChange_doesNotTouchProfile_whenProposedChangesAreInvalid() {
+        UUID requestId = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(UUID.randomUUID()).build();
+        OrganizationLegalChangeRequest changeRequest = pendingChangeRequest(requestId, profile);
+        when(organizationLegalChangeRequestRepository.findById(requestId))
+                .thenReturn(Optional.of(changeRequest));
+        when(organizationLegalChangeMapper.apply(any(), any()))
+                .thenThrow(new BadRequestException("proposedChanges có trường không được phép đổi: logoUrl"));
+
+        assertThatThrownBy(() -> service.approveLegalChange(moderator(), requestId))
+                .isInstanceOf(BadRequestException.class);
+
+        assertThat(changeRequest.getStatus()).isEqualTo(LegalChangeRequestStatus.PENDING);
+        verify(organizationProfileRepository, never()).save(any());
+        verify(organizationLegalChangeRequestRepository, never()).save(any());
+        verifyNoInteractions(queueService);
+    }
+
+    @Test
+    void rejectLegalChange_storesReasonAndLeavesProfileUntouched() {
+        UUID requestId = UUID.randomUUID();
+        Account moderator = moderator();
+        OrganizationProfile profile = baseProfile(UUID.randomUUID()).legalName("Hội Chia Sẻ").build();
+        OrganizationLegalChangeRequest changeRequest = pendingChangeRequest(requestId, profile);
+        when(organizationLegalChangeRequestRepository.findById(requestId))
+                .thenReturn(Optional.of(changeRequest));
+
+        Instant before = Instant.now();
+        LegalChangeRequestResponse res = service.rejectLegalChange(moderator, requestId,
+                new RejectLegalChangeRequest("Tên mới chưa khớp giấy phép đính kèm"));
+
+        assertThat(res.getId()).isEqualTo(requestId.toString());
+        assertThat(res.getStatus()).isEqualTo("REJECTED");
+        assertThat(changeRequest.getStatus()).isEqualTo(LegalChangeRequestStatus.REJECTED);
+        assertThat(changeRequest.getRejectReason()).isEqualTo("Tên mới chưa khớp giấy phép đính kèm");
+        assertThat(changeRequest.getReviewedBy()).isSameAs(moderator);
+        assertThat(changeRequest.getReviewedAt()).isAfterOrEqualTo(before);
+
+        // Hồ sơ giữ nguyên thông tin pháp lý cũ đã được xác minh
+        assertThat(profile.getLegalName()).isEqualTo("Hội Chia Sẻ");
+        verifyNoInteractions(organizationLegalChangeMapper);
+        verify(organizationProfileRepository, never()).save(any());
+
+        verify(organizationLegalChangeRequestRepository).save(changeRequest);
+        verify(queueService).dequeue(QueueType.LEGAL_CHANGE, requestId.toString());
+    }
+
+    @Test
+    void rejectLegalChange_throwsBadRequest_whenReasonMissing() {
+        UUID requestId = UUID.randomUUID();
+
+        for (RejectLegalChangeRequest request : List.of(
+                new RejectLegalChangeRequest(null),
+                new RejectLegalChangeRequest("   "))) {
+            assertThatThrownBy(() -> service.rejectLegalChange(moderator(), requestId, request))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessage("reason là bắt buộc khi từ chối.");
+        }
+
+        verifyNoInteractions(organizationLegalChangeRequestRepository);
+        verifyNoInteractions(queueService);
+    }
+
+    @Test
+    void rejectLegalChange_throwsBadRequest_whenBodyMissing() {
+        // @RequestBody(required = false): body rỗng phải ra đúng 400 của spec
+        assertThatThrownBy(() -> service.rejectLegalChange(moderator(), UUID.randomUUID(), null))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("reason là bắt buộc khi từ chối.");
+    }
+
+    @Test
+    void rejectLegalChange_throwsNotFound_whenRequestMissing() {
+        UUID requestId = UUID.randomUUID();
+        when(organizationLegalChangeRequestRepository.findById(requestId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.rejectLegalChange(moderator(), requestId,
+                new RejectLegalChangeRequest("Giấy phép mờ")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy yêu cầu đổi thông tin.");
+
+        verifyNoInteractions(queueService);
+    }
+
+    @Test
+    void rejectLegalChange_throwsConflict_whenAlreadyReviewed() {
+        UUID requestId = UUID.randomUUID();
+        OrganizationLegalChangeRequest changeRequest =
+                pendingChangeRequest(requestId, baseProfile(UUID.randomUUID()).build());
+        changeRequest.setStatus(LegalChangeRequestStatus.APPROVED);
+        when(organizationLegalChangeRequestRepository.findById(requestId))
+                .thenReturn(Optional.of(changeRequest));
+
+        assertThatThrownBy(() -> service.rejectLegalChange(moderator(), requestId,
+                new RejectLegalChangeRequest("Giấy phép mờ")))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("ALREADY_REVIEWED");
+
+        verify(organizationLegalChangeRequestRepository, never()).save(any());
         verifyNoInteractions(queueService);
     }
 }

@@ -1,6 +1,7 @@
 package com.rehome.rehome.service;
 
 import com.rehome.rehome.dto.request.CreateLegalChangeRequestRequest;
+import com.rehome.rehome.dto.request.RejectLegalChangeRequest;
 import com.rehome.rehome.dto.request.RejectOrganizationRequest;
 import com.rehome.rehome.dto.request.UpdateOrganizationProfileRequest;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
@@ -47,4 +48,11 @@ public interface OrganizationService {
     // F-138: Moderator từ chối hồ sơ kèm lý do để tổ chức sửa và nộp lại.
     OrganizationRejectResponse rejectOrganization(Account moderator, UUID organizationId,
                                                    RejectOrganizationRequest request);
+
+    // F-140: Moderator duyệt yêu cầu đổi thông tin pháp lý -> áp thẳng vào hồ sơ.
+    LegalChangeRequestResponse approveLegalChange(Account moderator, UUID requestId);
+
+    // F-140: Moderator từ chối yêu cầu đổi thông tin pháp lý kèm lý do; hồ sơ giữ nguyên.
+    LegalChangeRequestResponse rejectLegalChange(Account moderator, UUID requestId,
+                                                 RejectLegalChangeRequest request);
 }

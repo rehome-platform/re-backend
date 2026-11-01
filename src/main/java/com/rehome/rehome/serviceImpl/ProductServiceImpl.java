@@ -176,17 +176,18 @@ public class ProductServiceImpl implements ProductService {
                         d -> d,
                         (first, second) -> first));
 
-        Map<String, Order> orders = orderItemRepository.findActiveByProductIds(ids).stream()
+        // Giữ cả OrderItem (không chỉ Order) vì hoa hồng chốt và kỳ đặt nằm ở dòng đơn
+        Map<String, OrderItem> orderItems = orderItemRepository.findActiveByProductIds(ids).stream()
                 .collect(Collectors.toMap(
                         oi -> oi.getProduct().getId(),
-                        OrderItem::getOrder,
+                        oi -> oi,
                         (first, second) -> first));
 
         return page.map(p -> productMapper.toMyProduct(
                 p,
                 photos.get(p.getId()),
                 decisions.get(p.getId()),
-                hasOrderToShow(p.getStatus()) ? orders.get(p.getId()) : null));
+                hasOrderToShow(p.getStatus()) ? orderItems.get(p.getId()) : null));
     }
 
     @Override
@@ -210,13 +211,13 @@ public class ProductServiceImpl implements ProductService {
         EndOfTermDecision decision = endOfTermDecisionRepository.findByProductIds(List.of(id)).stream()
                 .findFirst().orElse(null);
 
-        Order order = hasOrderToShow(product.getStatus())
+        OrderItem orderItem = hasOrderToShow(product.getStatus())
                 ? orderItemRepository.findActiveByProductIds(List.of(id)).stream()
-                .map(OrderItem::getOrder).findFirst().orElse(null)
+                .findFirst().orElse(null)
                 : null;
 
         return productMapper.toMyProductDetail(
-                product, photo, decision, order,
+                product, photo, decision, orderItem,
                 changes.stream()
                         .map(c -> new MyProductResponse.PriceChange(
                                 c.getChangedAt(), c.getOldPrice(), c.getNewPrice()))

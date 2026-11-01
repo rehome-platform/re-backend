@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.dto.request.DecideDegradedItemCaseRequest;
+import com.rehome.rehome.dto.response.DegradedItemCaseDetailResponse;
 import com.rehome.rehome.dto.response.DegradedItemCaseResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.DegradedItemChoice;
@@ -9,6 +10,8 @@ import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.DegradedItemCase;
 import com.rehome.rehome.entity.marketplace.Product;
+import com.rehome.rehome.entity.marketplace.ReturnRequest;
+import com.rehome.rehome.entity.marketplace.ReturnRequestPhoto;
 import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
@@ -16,6 +19,7 @@ import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.DegradedItemCaseRepository;
 import com.rehome.rehome.repository.PlatformFundRepository;
 import com.rehome.rehome.repository.ProductRepository;
+import com.rehome.rehome.repository.ReturnRequestPhotoRepository;
 import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.repository.WalletTransactionRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,13 +34,16 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -45,6 +52,7 @@ import static org.mockito.Mockito.when;
 class DegradedItemCaseServiceImplTest {
 
     @Mock DegradedItemCaseRepository degradedItemCaseRepository;
+    @Mock ReturnRequestPhotoRepository returnRequestPhotoRepository;
     @Mock ProductRepository productRepository;
     @Mock WalletRepository walletRepository;
     @Mock WalletTransactionRepository walletTransactionRepository;
@@ -223,5 +231,163 @@ class DegradedItemCaseServiceImplTest {
         com.rehome.rehome.entity.marketplace.WalletTransaction platformTx = captor.getAllValues().get(1);
         assertThat(platformTx.getAmount()).isEqualByComparingTo(new BigDecimal("-270000"));
         assertThat(platformTx.getCounterpartTransaction()).isEqualTo(memberTx);
+    }
+
+    // ------------------------------------------------------------------
+    // Member xem ca hàng xuống cấp của mình (chi tiết + danh sách)
+    // ------------------------------------------------------------------
+
+    private Account someMember() {
+        return Account.builder().id(UUID.randomUUID()).role(Role.MEMBER).build();
+    }
+
+    private DegradedItemCase caseFor(Account seller, ReturnRequest returnRequest,
+                                     DegradedItemChoice choice) {
+        Product item = Product.builder()
+                .id("Q7-AK-000845")
+                .name("Áo khoác Uniqlo")
+                .member(seller)
+                .build();
+        return DegradedItemCase.builder()
+                .id(UUID.randomUUID())
+                .product(item)
+                .returnRequest(returnRequest)
+                .choice(choice)
+                .compensationAmount(new BigDecimal("360000"))
+                .build();
+    }
+
+    private ReturnRequest returnRequestWith(String reason, String conditionNote) {
+        return ReturnRequest.builder()
+                .id(UUID.randomUUID())
+                .reason(reason)
+                .conditionNote(conditionNote)
+                .build();
+    }
+
+    @Test
+    void getMine_returnsPhotosReasonAndModeratorNote() {
+        Account seller = someMember();
+        ReturnRequest returnRequest = returnRequestWith("Áo bị rộng", "Về kho bị bung chỉ vai phải");
+        DegradedItemCase degradedCase = caseFor(seller, returnRequest, null);
+        when(degradedItemCaseRepository.findDetailById(degradedCase.getId()))
+                .thenReturn(Optional.of(degradedCase));
+        when(returnRequestPhotoRepository.findAllByReturnRequest_IdOrderByIdAsc(returnRequest.getId()))
+                .thenReturn(List.of(
+                        ReturnRequestPhoto.builder().imageUrl("https://cdn/1.jpg").build(),
+                        ReturnRequestPhoto.builder().imageUrl("https://cdn/2.jpg").build()));
+
+        DegradedItemCaseDetailResponse res = service.getMine(seller, degradedCase.getId());
+
+        assertThat(res.getId()).isEqualTo(degradedCase.getId().toString());
+        assertThat(res.getProductId()).isEqualTo("Q7-AK-000845");
+        assertThat(res.getProductName()).isEqualTo("Áo khoác Uniqlo");
+        assertThat(res.getPhotos()).containsExactly("https://cdn/1.jpg", "https://cdn/2.jpg");
+        assertThat(res.getReason()).isEqualTo("Áo bị rộng");
+        assertThat(res.getModeratorNote()).isEqualTo("Về kho bị bung chỉ vai phải");
+        assertThat(res.getCompensationAmount()).isEqualByComparingTo("360000");
+        assertThat(res.getStatus()).isEqualTo("PENDING_DECISION");
+        assertThat(res.getDecision()).isNull();
+        // Hệ thống chưa có hạn quyết định cho F-036
+        assertThat(res.getDecisionDeadline()).isNull();
+    }
+
+    @Test
+    void getMine_returnsDecidedStatus_afterMemberChose() {
+        Account seller = someMember();
+        DegradedItemCase degradedCase = caseFor(seller, returnRequestWith("x", "y"),
+                DegradedItemChoice.PARTIAL_WITH_ITEM_BACK);
+        when(degradedItemCaseRepository.findDetailById(degradedCase.getId()))
+                .thenReturn(Optional.of(degradedCase));
+
+        DegradedItemCaseDetailResponse res = service.getMine(seller, degradedCase.getId());
+
+        assertThat(res.getStatus()).isEqualTo("DECIDED");
+        assertThat(res.getDecision()).isEqualTo("PARTIAL_WITH_ITEM_BACK");
+    }
+
+    @Test
+    void getMine_handlesCaseWithoutReturnRequest() {
+        Account seller = someMember();
+        DegradedItemCase degradedCase = caseFor(seller, null, null);
+        when(degradedItemCaseRepository.findDetailById(degradedCase.getId()))
+                .thenReturn(Optional.of(degradedCase));
+
+        DegradedItemCaseDetailResponse res = service.getMine(seller, degradedCase.getId());
+
+        // Không có yêu cầu trả hàng thì không có ảnh và không có lý do để hiện
+        assertThat(res.getPhotos()).isEmpty();
+        assertThat(res.getReason()).isNull();
+        assertThat(res.getModeratorNote()).isNull();
+        verify(returnRequestPhotoRepository, never()).findAllByReturnRequest_IdOrderByIdAsc(any());
+    }
+
+    @Test
+    void getMine_throwsNotFound_whenMissing() {
+        UUID id = UUID.randomUUID();
+        when(degradedItemCaseRepository.findDetailById(id)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getMine(someMember(), id))
+                .isInstanceOf(AppException.class)
+                .extracting(ex -> ((AppException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.DEGRADED_ITEM_CASE_NOT_FOUND);
+    }
+
+    @Test
+    void getMine_throwsForbidden_whenCaseBelongsToAnotherMember() {
+        DegradedItemCase degradedCase = caseFor(someMember(), null, null);
+        when(degradedItemCaseRepository.findDetailById(degradedCase.getId()))
+                .thenReturn(Optional.of(degradedCase));
+
+        assertThatThrownBy(() -> service.getMine(someMember(), degradedCase.getId()))
+                .isInstanceOf(AppException.class)
+                .extracting(ex -> ((AppException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.DEGRADED_ITEM_CASE_FORBIDDEN);
+    }
+
+    @Test
+    void listMine_noFilter_asksForEverything() {
+        Account seller = someMember();
+        when(degradedItemCaseRepository.findDetailsByMember(seller.getId(), false, false))
+                .thenReturn(List.of(caseFor(seller, null, DegradedItemChoice.FULL_COMPENSATION)));
+
+        assertThat(service.listMine(seller, null)).hasSize(1);
+        assertThat(service.listMine(seller, "   ")).hasSize(1);
+
+        verify(degradedItemCaseRepository, times(2)).findDetailsByMember(seller.getId(), false, false);
+    }
+
+    @Test
+    void listMine_pendingDecision_onlyAsksForUndecidedCases() {
+        Account seller = someMember();
+        when(degradedItemCaseRepository.findDetailsByMember(seller.getId(), true, false))
+                .thenReturn(List.of(caseFor(seller, null, null)));
+
+        // Đây là cái app dùng để hiện dải nhắc ở tab Ký gửi
+        assertThat(service.listMine(seller, "pending_decision")).hasSize(1);
+
+        verify(degradedItemCaseRepository).findDetailsByMember(seller.getId(), true, false);
+    }
+
+    @Test
+    void listMine_decided_onlyAsksForDecidedCases() {
+        Account seller = someMember();
+        when(degradedItemCaseRepository.findDetailsByMember(seller.getId(), false, true))
+                .thenReturn(List.of(caseFor(seller, null, DegradedItemChoice.FULL_COMPENSATION)));
+
+        assertThat(service.listMine(seller, "DECIDED")).hasSize(1);
+
+        verify(degradedItemCaseRepository).findDetailsByMember(seller.getId(), false, true);
+    }
+
+    @Test
+    void listMine_throwsBadRequest_whenStatusIsUnknown() {
+        Account seller = someMember();
+
+        assertThatThrownBy(() -> service.listMine(seller, "CHO_DUYET"))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("status");
+
+        verify(degradedItemCaseRepository, never()).findDetailsByMember(any(), anyBoolean(), anyBoolean());
     }
 }

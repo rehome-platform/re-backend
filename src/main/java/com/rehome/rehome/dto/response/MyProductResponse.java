@@ -36,6 +36,11 @@ public class MyProductResponse {
     private Instant lastPriceChangedAt;
     private EndOfTermDecisionInfo endOfTermDecision;   // null khi chưa tới cuối kỳ
     private OrderRef order;                            // null khi chưa bán
+
+    // null khi món không có yêu cầu rút đang chờ nhận hàng (F-032)
+    private WithdrawalRef withdrawalRequest;
+    // null khi món không có ca hàng xuống cấp đang chờ Member quyết định (F-036)
+    private DegradedCaseRef degradedCase;
     private BigDecimal expectedPayout;
 
     // Điều khoản kỳ ký gửi, lấy từ biên nhận của món (mục 22)
@@ -63,6 +68,10 @@ public class MyProductResponse {
     public record OrderRef(UUID id, String orderNo, OrderStatus status,
                            BigDecimal commissionRateApplied, Short orderedTerm, Instant orderedAt,
                            Instant payoutDueAt, Instant payoutAt) {}
+    // status luôn PENDING_PICKUP ở đây: chỉ gắn yêu cầu đang chờ Member đến kho nhận hàng
+    public record WithdrawalRef(UUID id, String status, Instant pickupDeadline) {}
+    // status luôn PENDING_DECISION ở đây; decisionDeadline luôn null vì F-036 chưa có hạn
+    public record DegradedCaseRef(UUID id, String status, Instant decisionDeadline) {}
     public record PriceChange(Instant changedAt, BigDecimal oldPrice, BigDecimal newPrice) {}
     public record TermInfo(int term, BigDecimal price, BigDecimal commissionRate) {}
 }

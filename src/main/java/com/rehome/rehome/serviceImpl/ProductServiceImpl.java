@@ -6,6 +6,7 @@ import com.rehome.rehome.dto.request.PriceReductionRequest;
 import com.rehome.rehome.dto.request.UpdateShelfLocationRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.StockMovementType;
@@ -51,6 +52,8 @@ public class ProductServiceImpl implements ProductService {
     private final ProductPriceChangeRepository productPriceChangeRepository;
     private final ProductMapper productMapper;
     private final EndOfTermDecisionRepository endOfTermDecisionRepository;
+    private final ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
+    private final DegradedItemCaseRepository degradedItemCaseRepository;
     private final ConsignmentReceiptRepository receiptRepository;
     private final OrderItemRepository orderItemRepository;
     private final StockMovementLogRepository stockMovementLogRepository;
@@ -183,11 +186,29 @@ public class ProductServiceImpl implements ProductService {
                         oi -> oi,
                         (first, second) -> first));
 
+        // Yêu cầu rút đang chờ nhận hàng và ca hàng xuống cấp đang chờ quyết định, để app
+        // hiện được "món này đang chờ rút / chờ bạn quyết định" ngay trên danh sách
+        Map<String, ItemWithdrawalRequest> withdrawals = itemWithdrawalRequestRepository
+                .findByProductIdsAndStatus(ids, ItemWithdrawalStatus.PENDING_PICKUP).stream()
+                .collect(Collectors.toMap(
+                        w -> w.getProduct().getId(),
+                        w -> w,
+                        (first, second) -> first));
+
+        Map<String, DegradedItemCase> degradedCases = degradedItemCaseRepository
+                .findPendingByProductIds(ids).stream()
+                .collect(Collectors.toMap(
+                        c -> c.getProduct().getId(),
+                        c -> c,
+                        (first, second) -> first));
+
         return page.map(p -> productMapper.toMyProduct(
                 p,
                 photos.get(p.getId()),
                 decisions.get(p.getId()),
-                hasOrderToShow(p.getStatus()) ? orderItems.get(p.getId()) : null));
+                hasOrderToShow(p.getStatus()) ? orderItems.get(p.getId()) : null,
+                withdrawals.get(p.getId()),
+                degradedCases.get(p.getId())));
     }
 
     @Override
@@ -216,8 +237,16 @@ public class ProductServiceImpl implements ProductService {
                 .findFirst().orElse(null)
                 : null;
 
+        ItemWithdrawalRequest withdrawal = itemWithdrawalRequestRepository
+                .findByProductIdsAndStatus(List.of(id), ItemWithdrawalStatus.PENDING_PICKUP).stream()
+                .findFirst().orElse(null);
+
+        DegradedItemCase degradedCase = degradedItemCaseRepository
+                .findPendingByProductIds(List.of(id)).stream()
+                .findFirst().orElse(null);
+
         return productMapper.toMyProductDetail(
-                product, photo, decision, orderItem,
+                product, photo, decision, orderItem, withdrawal, degradedCase,
                 changes.stream()
                         .map(c -> new MyProductResponse.PriceChange(
                                 c.getChangedAt(), c.getOldPrice(), c.getNewPrice()))

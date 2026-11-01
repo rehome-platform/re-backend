@@ -5,6 +5,8 @@ import com.rehome.rehome.entity.enums.CampaignStatus;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 import lombok.*;
 import org.hibernate.annotations.ColumnDefault;
@@ -28,6 +30,15 @@ public class Campaign {
     @JoinColumn(name = "organization_id", nullable = false)
     private OrganizationProfile organization;
 
+    // Tên chiến dịch (OC-02). Cột để nullable vì ddl-auto=update không backfill được
+    // NOT NULL cho các chiến dịch đã tồn tại trước field này; bắt buộc ở tầng validate request.
+    @Column(name = "title", nullable = true, length = 255)
+    private String title;
+
+    // Ảnh bìa chiến dịch, upload qua /uploads (UploadFolder.CAMPAIGN_COVERS); không bắt buộc
+    @Column(name = "cover_url", nullable = true, length = 2048)
+    private String coverUrl;
+
     // Mô tả chiến dịch cho người quyên góp đọc
     @Column(name = "description", nullable = false, columnDefinition = "text")
     private String description;
@@ -40,16 +51,32 @@ public class Campaign {
     @Column(name = "end_time", nullable = false)
     private Instant endTime;
 
-    // Tên địa điểm nhận đồ
-    @Column(name = "location_name", nullable = false, length = 255)
+    // Cách nhận đồ (OC-02): phải chọn ít nhất 1 trong 2 - nhận tại địa chỉ riêng (địa chỉ
+    // lấy từ OrganizationProfile.donationPoint*, không nhập tay nữa) và/hoặc chọn kho bên dưới.
+    // Có thể chọn cả hai, nhiều kho, kho nào cũng được.
+    @Column(name = "receive_at_own_address", nullable = false)
+    @ColumnDefault("false")
+    @Builder.Default
+    private Boolean receiveAtOwnAddress = false;
+
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(name = "campaign_warehouses",
+            joinColumns = @JoinColumn(name = "campaign_id"),
+            inverseJoinColumns = @JoinColumn(name = "warehouse_id"))
+    @Builder.Default
+    private Set<Warehouse> warehouses = new HashSet<>();
+
+    // Tên địa điểm nhận đồ - không còn nhập tay (xem receiveAtOwnAddress/warehouses ở trên).
+    // Cột giữ nullable để các chiến dịch tạo trước khi đổi sang warehouses vẫn đọc được.
+    @Column(name = "location_name", nullable = true, length = 255)
     private String locationName;
 
-    // Vĩ độ, để ghim lên bản đồ
-    @Column(name = "latitude", nullable = false, precision = 10, scale = 7)
+    // Vĩ độ, để ghim lên bản đồ - không còn nhập tay, xem comment ở locationName
+    @Column(name = "latitude", nullable = true, precision = 10, scale = 7)
     private BigDecimal latitude;
 
-    // Kinh độ, để ghim lên bản đồ
-    @Column(name = "longitude", nullable = false, precision = 10, scale = 7)
+    // Kinh độ, để ghim lên bản đồ - không còn nhập tay, xem comment ở locationName
+    @Column(name = "longitude", nullable = true, precision = 10, scale = 7)
     private BigDecimal longitude;
 
     // Loại đồ tổ chức ưu tiên nhận

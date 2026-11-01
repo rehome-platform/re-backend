@@ -10,7 +10,8 @@ public record WarehouseNearestResponse(
         UUID id,
         String name,
         String address,
-        double distanceKm
+        double distanceKm,
+        String openingHours
 ) {
     // Compact constructor: tự làm tròn 1 chữ số thập phân (1.84 -> 1.8)
     public WarehouseNearestResponse {

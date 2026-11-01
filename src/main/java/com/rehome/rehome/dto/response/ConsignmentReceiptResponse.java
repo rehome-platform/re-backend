@@ -14,6 +14,7 @@ import java.util.UUID;
 public class ConsignmentReceiptResponse {
     private UUID id;
     private String receiptNo;
+    private Instant createdAt;
     private String productName;
     private String brandName;
     private String size;

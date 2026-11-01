@@ -636,7 +636,7 @@ class ProductServiceImplTest {
 
         service.getMyProducts(memberId, null, false, pageable);
 
-        verify(productMapper).toMyProduct(sold, null, null, order);
+        verify(productMapper).toMyProduct(sold, null, null, soldItem);
         verify(productMapper).toMyProduct(onSale, null, null, null);
     }
 
@@ -755,13 +755,14 @@ class ProductServiceImplTest {
     void getMyProduct_orderOnlyWhenSold() {
         Product sold = ownedProduct(ProductStatus.SOLD, (short) 1, Instant.now());
         Order order = Order.builder().id(UUID.randomUUID()).orderNo("OD-2026-000012").build();
+        OrderItem orderItem = OrderItem.builder().product(sold).order(order).build();   // MỚI: tách ra biến
         when(productRepository.findById("Q7-AK-000845")).thenReturn(Optional.of(sold));
         when(orderItemRepository.findActiveByProductIds(List.of("Q7-AK-000845")))
-                .thenReturn(List.of(OrderItem.builder().product(sold).order(order).build()));
+                .thenReturn(List.of(orderItem));
 
         service.getMyProduct(owner.getId(), "Q7-AK-000845");
 
-        verify(productMapper).toMyProductDetail(eq(sold), any(), any(), eq(order), anyList(), anyList());
+        verify(productMapper).toMyProductDetail(eq(sold), any(), any(), eq(orderItem), anyList(), anyList());
 
         Product onSale = ownedProduct(ProductStatus.ON_SALE, (short) 1, Instant.now());
         when(productRepository.findById("Q7-AK-000845")).thenReturn(Optional.of(onSale));

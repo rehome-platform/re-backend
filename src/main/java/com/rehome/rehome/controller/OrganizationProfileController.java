@@ -62,10 +62,10 @@ public class OrganizationProfileController {
 
     @GetMapping("/me")
     @PreAuthorize("hasRole('ORGANIZATION')")
-    public ResponseEntity<OrganizationProfileResponse> getMyProfile(
+    public ResponseEntity<ApiResponse<OrganizationProfileResponse>> getMyProfile(
             @AuthenticationPrincipal Account account
     ) {
-        return ResponseEntity.ok(organizationService.getMyProfile(account.getId()));
+        return ResponseEntity.ok(ApiResponse.success(organizationService.getMyProfile(account.getId())));
     }
 
     @PatchMapping("/me")

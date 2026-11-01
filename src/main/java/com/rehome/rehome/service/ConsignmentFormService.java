@@ -13,7 +13,7 @@ import java.util.UUID;
 public interface ConsignmentFormService {
     ConsignmentFormResponse create(ConsignmentFormRequest request, Account account);
 
-    PageResponse<ConsignmentFormListItemResponse> getMyForms(
+    ConsignmentFormPageResponse getMyForms(
             Account account, ConsignmentFormStatus status, int page, int size);
 
     ConsignmentFormDetailResponse getMyForm(Account account, UUID id);

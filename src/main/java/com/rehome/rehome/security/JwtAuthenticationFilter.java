@@ -35,6 +35,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String HEADER_NAME = "Authorization";
     private static final String PREFIX = "Bearer ";
 
+    // Lý do token bị từ chối, để JwtAuthenticationEntryPoint trả đúng mã lỗi khi endpoint cần đăng nhập
+    public static final String AUTH_ERROR_ATTRIBUTE = "jwt.auth.error";
+
     private final JwtService jwtService;
     private final AccountDetailsServiceImpl userDetailsService;
     private final ObjectMapper objectMapper;
@@ -72,13 +75,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 }
             }
         } catch (ExpiredJwtException ex) {
+            // Không chặn ngay: endpoint public (xem sàn) vẫn phải mở được với token cũ.
+            // Endpoint cần đăng nhập sẽ trả 401 ACCESS_TOKEN_EXPIRED qua JwtAuthenticationEntryPoint.
             SecurityContextHolder.clearContext();
-            writeError(response, ErrorCode.ACCESS_TOKEN_EXPIRED);
-            return;
+            request.setAttribute(AUTH_ERROR_ATTRIBUTE, ErrorCode.ACCESS_TOKEN_EXPIRED);
         } catch (JwtException | IllegalArgumentException | UsernameNotFoundException ex) {
             SecurityContextHolder.clearContext();
-            writeError(response, ErrorCode.ACCESS_TOKEN_INVALID);
-            return;
+            request.setAttribute(AUTH_ERROR_ATTRIBUTE, ErrorCode.ACCESS_TOKEN_INVALID);
         }
 
         if (banned) {
@@ -97,14 +100,5 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         ApiResponse<AccountBannedResult> body = new ApiResponse<>(
                 new AccountBannedResult(reason), false, ec.getStatus().value(), ec.name(), ec.getDefaultMessage());
         objectMapper.writeValue(response.getWriter(), body);
-    }
-
-    private void writeError(HttpServletResponse response, ErrorCode ec) throws IOException {
-        response.setStatus(ec.getStatus().value());
-        response.setContentType("application/json;charset=UTF-8");
-        String body = String.format(
-                "{\"result\":null,\"isSuccess\":false,\"statusCode\":%d,\"code\":\"%s\",\"message\":\"%s\"}",
-                ec.getStatus().value(), ec.name(), ec.getDefaultMessage());
-        response.getWriter().write(body);
     }
 }

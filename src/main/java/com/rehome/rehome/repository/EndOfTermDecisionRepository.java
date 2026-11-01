@@ -17,6 +17,9 @@ public interface EndOfTermDecisionRepository extends JpaRepository<EndOfTermDeci
     // Dòng đang chờ Member chọn (decision null). Lấy dòng có hạn mới nhất phòng khi sản phẩm từng ký gửi lại.
     Optional<EndOfTermDecision> findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc(String productId);
 
+    // Quyết định đã sinh ra biên nhận ký gửi lại này (để lấy sản phẩm cũ và giá trước đó)
+    Optional<EndOfTermDecision> findByNewReceipt_Id(UUID receiptId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select d from EndOfTermDecision d where d.id = :id")
     Optional<EndOfTermDecision> findByIdForUpdate(@Param("id") UUID id);

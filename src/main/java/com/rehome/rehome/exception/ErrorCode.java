@@ -144,6 +144,10 @@ public enum ErrorCode {
     DESCRIPTION_REQUIRED(HttpStatus.BAD_REQUEST, "description không được để trống."),
     INVALID_DESIRED_PRICE(HttpStatus.BAD_REQUEST, "desiredPrice phải lớn hơn 0."),
     PHOTOS_REQUIRED(HttpStatus.BAD_REQUEST, "Cần ít nhất 1 ảnh."),
+    // Ký gửi lại cuối kỳ: Moderator chốt giá và điều khoản
+    RE_CONSIGN_NOT_REQUESTED(HttpStatus.CONFLICT, "Member chưa chọn ký gửi lại cho sản phẩm này."),
+    RE_CONSIGN_TERMS_ALREADY_SET(HttpStatus.CONFLICT, "Giá và điều khoản ký gửi lại đã được chốt."),
+    INVALID_FLOOR_PRICE(HttpStatus.BAD_REQUEST, "Giá sàn phải lớn hơn 0 và không vượt quá giá thỏa thuận."),
     // API 40 - danh sách hàng trong kho
     ACCESS_TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "Access token đã hết hạn."),
     ACCESS_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "Access token không hợp lệ."),

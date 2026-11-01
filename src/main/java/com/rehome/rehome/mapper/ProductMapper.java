@@ -63,12 +63,13 @@ public class ProductMapper {
                 .lastPriceChangedAt(p.getLastPriceChangedAt())
                 .endOfTermDecision(d == null ? null
                         : new MyProductResponse.EndOfTermDecisionInfo(
-                        d.getId(), d.getDeadline(), d.getDecision()))
+                        d.getId(), d.getDeadline(), d.getDecision(),
+                        d.getNewReceipt() == null ? null : d.getNewReceipt().getId()))
                 .order(o == null ? null
                         : new MyProductResponse.OrderRef(
-                                o.getId(), o.getOrderNo(), o.getStatus(),
-                                oi.getCommissionRateApplied(), oi.getTermApplied(), o.getCreatedAt(),
-                                o.getAutoCompleteDeadline(), o.getPayoutAt()))
+                        o.getId(), o.getOrderNo(), o.getStatus(),
+                        oi.getCommissionRateApplied(), oi.getTermApplied(), o.getCreatedAt(),
+                        o.getAutoCompleteDeadline(), o.getPayoutAt()))
                 .expectedPayout(ConsignmentCommission.payout(
                         p.getCurrentPrice(),
                         ConsignmentCommission.rateForTerm(r, p.getCurrentTerm())))

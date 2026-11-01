@@ -16,6 +16,6 @@ public class DecideEndOfTermResponse {
 
     private EndOfTermChoice decision;
 
-    // null nếu TAKE_BACK
+    // Luôn null ở bước Member chọn: biên nhận ký gửi lại do Moderator tạo sau khi chốt giá và điều khoản
     private UUID newReceiptId;
 }

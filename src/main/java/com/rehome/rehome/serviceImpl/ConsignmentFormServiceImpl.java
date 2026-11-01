@@ -107,7 +107,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
         Page<ConsignmentForm> result = (status == null)
                 ? consignmentFormRepository.findByMemberIdAndStatusNot(
-                account.getId(), ConsignmentFormStatus.DRAFT, pageable)
+                        account.getId(), ConsignmentFormStatus.DRAFT, pageable)
                 : consignmentFormRepository.findByMemberIdAndStatus(account.getId(), status, pageable);
 
         // Một query lấy ảnh đầu của cả trang, tránh N+1
@@ -134,9 +134,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         ConsignmentForm form = consignmentFormRepository.findWithDetailsById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));
 
-        if (!form.getMember().getId().equals(account.getId())) {
-            throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
-        }
+        authorizeRead(account, form);
 
         return buildDetail(form);
     }
@@ -331,9 +329,10 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
     @Override
     @Transactional
-    public ConsignmentFormResponse approve(UUID id) {
+    public ConsignmentFormResponse approve(UUID id, Account moderator) {
         ConsignmentForm form = consignmentFormRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));   // 404
+        assertModeratorOwnsWarehouse(moderator, form);
 
         if (form.getStatus() != ConsignmentFormStatus.PENDING) {
             throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_PENDING);                    // 409
@@ -350,9 +349,10 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
     @Override
     @Transactional
-    public void startInspection(UUID id) {
+    public void startInspection(UUID id, Account moderator) {
         ConsignmentForm form = consignmentFormRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));   // 404
+        assertModeratorOwnsWarehouse(moderator, form);
 
         if (form.getStatus() != ConsignmentFormStatus.APPROVED) {
             throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_APPROVED);                   // 409
@@ -365,9 +365,10 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
     @Override
     @Transactional
-    public ConsignmentFormStatusResponse reject(UUID id, RejectConsignmentFormRequest request) {
+    public ConsignmentFormStatusResponse reject(UUID id, RejectConsignmentFormRequest request, Account moderator) {
         ConsignmentForm form = consignmentFormRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));   // 404
+        assertModeratorOwnsWarehouse(moderator, form);
 
         if (form.getStatus() != ConsignmentFormStatus.PENDING) {
             throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_PENDING);                    // 409
@@ -384,9 +385,10 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
     @Override
     @Transactional
-    public ConsignmentFormStatusResponse returnOnsite(UUID id, ReturnOnsiteRequest request) {
+    public ConsignmentFormStatusResponse returnOnsite(UUID id, ReturnOnsiteRequest request, Account moderator) {
         ConsignmentForm form = consignmentFormRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));   // 404
+        assertModeratorOwnsWarehouse(moderator, form);
 
         if (form.getStatus() != ConsignmentFormStatus.INSPECTING) {
             throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_INSPECTING);                 // 409
@@ -402,6 +404,40 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     }
 
     // --------------------------------------------------------------- helpers
+
+    // Moderator chỉ thao tác trên form thuộc kho mình phụ trách
+    private void assertModeratorOwnsWarehouse(Account moderator, ConsignmentForm form) {
+        if (moderator == null || moderator.getWarehouse() == null) {
+            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);                          // 403
+        }
+        Warehouse formWarehouse = form.getWarehouse();
+        if (formWarehouse == null
+                || !formWarehouse.getId().equals(moderator.getWarehouse().getId())) {
+            throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);                      // 403
+        }
+    }
+
+    // Quyền đọc form: Member chỉ form của mình; Moderator form thuộc kho mình (không gồm nháp);
+    // Admin đọc mọi form
+    private void authorizeRead(Account account, ConsignmentForm form) {
+        switch (account.getRole()) {
+            case ADMIN -> {
+                // được đọc theo quyền quản trị
+            }
+            case MODERATOR -> {
+                if (form.getStatus() == ConsignmentFormStatus.DRAFT) {
+                    throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);              // 403
+                }
+                assertModeratorOwnsWarehouse(account, form);
+            }
+            case MEMBER -> {
+                if (!form.getMember().getId().equals(account.getId())) {
+                    throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);              // 403
+                }
+            }
+            default -> throw new AppException(ErrorCode.NOT_MEMBER_ACCOUNT);
+        }
+    }
 
     private void lockMember(Account account) {
         accountRepository.findByIdForUpdate(account.getId())

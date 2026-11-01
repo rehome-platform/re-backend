@@ -14,7 +14,6 @@ import java.util.UUID;
 public class ConsignmentReceiptResponse {
     private UUID id;
     private String receiptNo;
-    private Instant createdAt;
     private String productName;
     private String brandName;
     private String size;
@@ -23,6 +22,7 @@ public class ConsignmentReceiptResponse {
     private String conditionNote;
     private String warehouseName;
     private String moderatorNote;
+    private Instant createdAt;
     // Chỉ có với biên nhận ký gửi lại (sinh từ quyết định RE_CONSIGN cuối kỳ), còn lại null
     private String productId;
     private BigDecimal previousPrice;

@@ -1119,6 +1119,21 @@ class ConsignmentFormServiceImplTest {
     @Nested
     class Moderator {
 
+        // Moderator phụ trách đúng kho `warehouse`; form của test này cũng thuộc kho đó
+        private Account moderator() {
+            Account m = mock(Account.class);
+            when(m.getId()).thenReturn(UUID.randomUUID());
+            when(m.getRole()).thenReturn(Role.MODERATOR);
+            when(m.getWarehouse()).thenReturn(warehouse);
+            return m;
+        }
+
+        private ConsignmentForm givenWarehouseForm(ConsignmentFormStatus status) {
+            ConsignmentForm f = givenForm(status);
+            f.setWarehouse(warehouse);
+            return f;
+        }
+
         private RejectConsignmentFormRequest rejectReq(String reason) {
             RejectConsignmentFormRequest r = mock(RejectConsignmentFormRequest.class);
             when(r.getReason()).thenReturn(reason);
@@ -1138,25 +1153,25 @@ class ConsignmentFormServiceImplTest {
             UUID id = UUID.randomUUID();
             when(consignmentFormRepository.findByIdForUpdate(id)).thenReturn(Optional.empty());
 
-            assertAppError(() -> service.approve(id), ErrorCode.CONSIGNMENT_FORM_NOT_FOUND);
+            assertAppError(() -> service.approve(id, moderator()), ErrorCode.CONSIGNMENT_FORM_NOT_FOUND);
         }
 
         @Test
         void approve_notPending() {
-            ConsignmentForm f = givenForm(ConsignmentFormStatus.APPROVED);
+            ConsignmentForm f = givenWarehouseForm(ConsignmentFormStatus.APPROVED);
 
-            assertAppError(() -> service.approve(f.getId()), ErrorCode.CONSIGNMENT_FORM_NOT_PENDING);
+            assertAppError(() -> service.approve(f.getId(), moderator()), ErrorCode.CONSIGNMENT_FORM_NOT_PENDING);
             verify(queueService, never()).dequeue(any(), any());
         }
 
         @Test
         void approve_success_setsDeadlineAndDequeues() {
-            ConsignmentForm f = givenForm(ConsignmentFormStatus.PENDING);
+            ConsignmentForm f = givenWarehouseForm(ConsignmentFormStatus.PENDING);
             f.setRejectReason("cũ");
             ConsignmentFormResponse expected = mock(ConsignmentFormResponse.class);
             when(consignmentFormMapper.toResponse(f)).thenReturn(expected);
 
-            ConsignmentFormResponse res = service.approve(f.getId());
+            ConsignmentFormResponse res = service.approve(f.getId(), moderator());
 
             assertThat(res).isSameAs(expected);
             assertThat(f.getStatus()).isEqualTo(ConsignmentFormStatus.APPROVED);
@@ -1173,23 +1188,22 @@ class ConsignmentFormServiceImplTest {
             UUID id = UUID.randomUUID();
             when(consignmentFormRepository.findByIdForUpdate(id)).thenReturn(Optional.empty());
 
-            assertAppError(() -> service.startInspection(id), ErrorCode.CONSIGNMENT_FORM_NOT_FOUND);
+            assertAppError(() -> service.startInspection(id, moderator()), ErrorCode.CONSIGNMENT_FORM_NOT_FOUND);
         }
 
         @Test
         void startInspection_notApproved() {
-            ConsignmentForm f = givenForm(ConsignmentFormStatus.PENDING);
+            ConsignmentForm f = givenWarehouseForm(ConsignmentFormStatus.PENDING);
 
-            assertAppError(() -> service.startInspection(f.getId()), ErrorCode.CONSIGNMENT_FORM_NOT_APPROVED);
+            assertAppError(() -> service.startInspection(f.getId(), moderator()), ErrorCode.CONSIGNMENT_FORM_NOT_APPROVED);
             verify(queueService, never()).enqueue(any(), any(), any());
         }
 
         @Test
         void startInspection_success_enqueuesInspection() {
-            ConsignmentForm f = givenForm(ConsignmentFormStatus.APPROVED);
-            f.setWarehouse(warehouse);
+            ConsignmentForm f = givenWarehouseForm(ConsignmentFormStatus.APPROVED);
 
-            service.startInspection(f.getId());
+            service.startInspection(f.getId(), moderator());
 
             assertThat(f.getStatus()).isEqualTo(ConsignmentFormStatus.INSPECTING);
             verify(consignmentFormRepository).save(f);
@@ -1203,23 +1217,23 @@ class ConsignmentFormServiceImplTest {
             UUID id = UUID.randomUUID();
             when(consignmentFormRepository.findByIdForUpdate(id)).thenReturn(Optional.empty());
 
-            assertAppError(() -> service.reject(id, rejectReq("x")), ErrorCode.CONSIGNMENT_FORM_NOT_FOUND);
+            assertAppError(() -> service.reject(id, rejectReq("x"), moderator()), ErrorCode.CONSIGNMENT_FORM_NOT_FOUND);
         }
 
         @Test
         void reject_notPending() {
-            ConsignmentForm f = givenForm(ConsignmentFormStatus.INSPECTING);
+            ConsignmentForm f = givenWarehouseForm(ConsignmentFormStatus.INSPECTING);
 
-            assertAppError(() -> service.reject(f.getId(), rejectReq("x")),
+            assertAppError(() -> service.reject(f.getId(), rejectReq("x"), moderator()),
                     ErrorCode.CONSIGNMENT_FORM_NOT_PENDING);
         }
 
         @Test
         void reject_success_trimsReason() {
-            ConsignmentForm f = givenForm(ConsignmentFormStatus.PENDING);
+            ConsignmentForm f = givenWarehouseForm(ConsignmentFormStatus.PENDING);
             f.setBringInDeadline(LocalDate.now());
 
-            ConsignmentFormStatusResponse res = service.reject(f.getId(), rejectReq("  Ảnh mờ  "));
+            ConsignmentFormStatusResponse res = service.reject(f.getId(), rejectReq("  Ảnh mờ  "), moderator());
 
             assertThat(f.getStatus()).isEqualTo(ConsignmentFormStatus.REJECTED);
             assertThat(f.getRejectReason()).isEqualTo("Ảnh mờ");
@@ -1236,23 +1250,23 @@ class ConsignmentFormServiceImplTest {
             UUID id = UUID.randomUUID();
             when(consignmentFormRepository.findByIdForUpdate(id)).thenReturn(Optional.empty());
 
-            assertAppError(() -> service.returnOnsite(id, onsiteReq("x")), ErrorCode.CONSIGNMENT_FORM_NOT_FOUND);
+            assertAppError(() -> service.returnOnsite(id, onsiteReq("x"), moderator()), ErrorCode.CONSIGNMENT_FORM_NOT_FOUND);
         }
 
         @Test
         void returnOnsite_notInspecting() {
-            ConsignmentForm f = givenForm(ConsignmentFormStatus.APPROVED);
+            ConsignmentForm f = givenWarehouseForm(ConsignmentFormStatus.APPROVED);
 
-            assertAppError(() -> service.returnOnsite(f.getId(), onsiteReq("x")),
+            assertAppError(() -> service.returnOnsite(f.getId(), onsiteReq("x"), moderator()),
                     ErrorCode.CONSIGNMENT_FORM_NOT_INSPECTING);
         }
 
         @Test
         void returnOnsite_success_trimsReasonAndDequeuesInspection() {
-            ConsignmentForm f = givenForm(ConsignmentFormStatus.INSPECTING);
+            ConsignmentForm f = givenWarehouseForm(ConsignmentFormStatus.INSPECTING);
             f.setBringInDeadline(LocalDate.now());
 
-            ConsignmentFormStatusResponse res = service.returnOnsite(f.getId(), onsiteReq("  Hàng giả  "));
+            ConsignmentFormStatusResponse res = service.returnOnsite(f.getId(), onsiteReq("  Hàng giả  "), moderator());
 
             assertThat(f.getStatus()).isEqualTo(ConsignmentFormStatus.REJECTED);
             assertThat(f.getRejectReason()).isEqualTo("Hàng giả");
@@ -1260,6 +1274,94 @@ class ConsignmentFormServiceImplTest {
             assertThat(res).hasFieldOrPropertyWithValue("status", ConsignmentFormStatus.REJECTED);
             verify(queueService).dequeue(QueueType.INSPECTION, f.getId().toString());
             verify(consignmentFormRepository).save(f);
+        }
+
+        // ---- quyền đọc form (getMyForm) theo Role
+
+        private Account roleAccount(Role role, Warehouse wh) {
+            Account a = mock(Account.class);
+            when(a.getId()).thenReturn(UUID.randomUUID());
+            when(a.getRole()).thenReturn(role);
+            when(a.getWarehouse()).thenReturn(wh);
+            return a;
+        }
+
+        @Test
+        void read_moderatorCungKho_thanhCong() {
+            ConsignmentForm f = givenWarehouseForm(ConsignmentFormStatus.PENDING);
+            givenDetailMapping();
+
+            assertThat(service.getMyForm(roleAccount(Role.MODERATOR, warehouse), f.getId())).isNotNull();
+        }
+
+        @Test
+        void read_moderatorKhacKho_biTuChoi() {
+            ConsignmentForm f = givenWarehouseForm(ConsignmentFormStatus.PENDING);
+            Warehouse other = mock(Warehouse.class);
+            stubAuto(other, "getId");
+
+            assertAppError(() -> service.getMyForm(roleAccount(Role.MODERATOR, other), f.getId()),
+                    ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
+        }
+
+        @Test
+        void read_moderatorKhongDocDuocFormNhap() {
+            ConsignmentForm f = givenWarehouseForm(ConsignmentFormStatus.DRAFT);
+
+            assertAppError(() -> service.getMyForm(roleAccount(Role.MODERATOR, warehouse), f.getId()),
+                    ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
+        }
+
+        @Test
+        void read_moderatorChuaGanKho_biTuChoi() {
+            ConsignmentForm f = givenWarehouseForm(ConsignmentFormStatus.PENDING);
+
+            assertAppError(() -> service.getMyForm(roleAccount(Role.MODERATOR, null), f.getId()),
+                    ErrorCode.MODERATOR_NO_WAREHOUSE);
+        }
+
+        @Test
+        void read_adminDocMoiForm() {
+            ConsignmentForm f = givenWarehouseForm(ConsignmentFormStatus.PENDING);
+            givenDetailMapping();
+
+            assertThat(service.getMyForm(roleAccount(Role.ADMIN, null), f.getId())).isNotNull();
+        }
+
+        // ---- Moderator khác kho không thao tác được
+
+        @Test
+        void approve_moderatorKhacKho_biTuChoi() {
+            ConsignmentForm f = givenWarehouseForm(ConsignmentFormStatus.PENDING);
+            Warehouse other = mock(Warehouse.class);
+            stubAuto(other, "getId");
+
+            assertAppError(() -> service.approve(f.getId(), roleAccount(Role.MODERATOR, other)),
+                    ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
+            assertThat(f.getStatus()).isEqualTo(ConsignmentFormStatus.PENDING);
+            verify(queueService, never()).dequeue(any(), any());
+        }
+
+        @Test
+        void approve_moderatorChuaGanKho_biTuChoi() {
+            ConsignmentForm f = givenWarehouseForm(ConsignmentFormStatus.PENDING);
+
+            assertAppError(() -> service.approve(f.getId(), roleAccount(Role.MODERATOR, null)),
+                    ErrorCode.MODERATOR_NO_WAREHOUSE);
+        }
+
+        @Test
+        void reject_startInspection_returnOnsite_moderatorKhacKho_biTuChoi() {
+            Warehouse other = mock(Warehouse.class);
+            stubAuto(other, "getId");
+            Account stranger = roleAccount(Role.MODERATOR, other);
+
+            ConsignmentForm a = givenWarehouseForm(ConsignmentFormStatus.PENDING);
+            assertAppError(() -> service.reject(a.getId(), rejectReq("x"), stranger), ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
+            ConsignmentForm b = givenWarehouseForm(ConsignmentFormStatus.APPROVED);
+            assertAppError(() -> service.startInspection(b.getId(), stranger), ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
+            ConsignmentForm c = givenWarehouseForm(ConsignmentFormStatus.INSPECTING);
+            assertAppError(() -> service.returnOnsite(c.getId(), onsiteReq("x"), stranger), ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
         }
     }
 }

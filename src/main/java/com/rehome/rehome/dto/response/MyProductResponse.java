@@ -54,7 +54,9 @@ public class MyProductResponse {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private List<TermInfo> termHistory;
 
-    public record EndOfTermDecisionInfo(UUID id, Instant deadline, EndOfTermChoice decision) {}
+    // newReceiptId: null = chờ Moderator chốt giá (khi decision = RE_CONSIGN) hoặc chưa chọn;
+    // có giá trị = biên nhận ký gửi lại đã sẵn sàng, chờ Member xác nhận
+    public record EndOfTermDecisionInfo(UUID id, Instant deadline, EndOfTermChoice decision, UUID newReceiptId) {}
     // payoutDueAt = mốc dự kiến tiền vào ví (deliveredAt + hạn trả hàng), payoutAt = đã trả lúc
     // nào, null nếu chưa trả. App hiện "Tiền vào ví sau dd/MM HH:mm" dựa trên 2 mốc này.
     // status/commissionRateApplied/orderedTerm/orderedAt: tiến trình đơn và hoa hồng đã chốt lúc đặt (mục 23)

@@ -1,5 +1,6 @@
 package com.rehome.rehome.controller;
 
+import com.rehome.rehome.dto.request.CreateTryOnImageRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.TryOnImageResponse;
@@ -7,6 +8,7 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.service.TryOnService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -21,6 +23,21 @@ import java.util.UUID;
 public class TryOnController {
 
     private final TryOnService tryOnService;
+
+    // API 97 (F-072..F-079): sinh ảnh thử đồ. Gọi đồng bộ, có thể mất vài chục giây vì chờ AI.
+    @PostMapping
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<TryOnImageResponse>> createImage(
+            @Valid @RequestBody CreateTryOnImageRequest request,
+            @AuthenticationPrincipal Account account) {
+
+        if (account == null) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+        TryOnImageResponse created = tryOnService.createImage(account, request);
+        return ResponseEntity.status(201)
+                .body(ApiResponse.success(created, 201, "Đã tạo ảnh thử đồ"));
+    }
 
     // F-080: xem bộ sưu tập ảnh thử đồ
     @GetMapping

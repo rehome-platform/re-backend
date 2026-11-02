@@ -527,6 +527,203 @@ BEGIN
     INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
     VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
 
+    -- #25: CG, seller2, vẫn ON_SALE nhưng đã hết kỳ 90 ngày (end_of_term_deadline đã qua 5 ngày) —
+    --      mô phỏng đúng trạng thái end_of_term_decisions.decision = NULL mà ProductInitializer tạo
+    --      cho sản phẩm mẫu Q7-AK-000849 (xem initializer), chỉ khác là qua đường seed SQL.
+    --      Test: GET /products/mine/{id} (seller2) -> endOfTermDecision khác null,
+    --      POST /end-of-term-decisions/{id}/decide {"decision":"TAKE_BACK"} hoặc "RE_CONSIGN".
+    v_confirmed_at := v_now - interval '95 days';
+    v_product_id   := 'CG-DM-000025';
+    INSERT INTO consignment_forms (id, member_id, warehouse_id, category_id, brand_id,
+                                    product_name, description, desired_price, status,
+                                    reject_reason, bring_in_deadline, created_at, updated_at)
+    VALUES (gen_random_uuid(), v_seller2_id, v_wh2_id, v_cat_ids[5], v_brand_ids[5],
+            'Đầm Adidas năng động', 'Hàng còn mới, ít sử dụng (seed data)', 400000, 'APPROVED',
+            NULL, (v_confirmed_at - interval '1 day')::date + 7,
+            v_confirmed_at - interval '1 day', v_confirmed_at - interval '1 day')
+    RETURNING id INTO v_form_id;
+    INSERT INTO consignment_receipts (id, receipt_no, consignment_form_id, member_id, moderator_id,
+                                       warehouse_id, agreed_price, floor_price, term_length_days,
+                                       max_renewals, free_withdrawal_window_days,
+                                       commission_rate_term1, commission_rate_term2, commission_rate_term3,
+                                       withdrawal_fee, degraded_compensation_rate, confirmed_at,
+                                       condition_note, created_at)
+    VALUES (gen_random_uuid(), 'KG-2026-SEED25', v_form_id, v_seller2_id, v_mod3_id,
+            v_wh2_id, 400000, 200000, 30, 2, 7,
+            0.10, 0.15, 0.20, 50000, 0.50, v_confirmed_at,
+            'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.', v_confirmed_at)
+    RETURNING id INTO v_receipt_id;
+    -- current_term = 3 (kỳ cuối), term_started_at = lúc kỳ 3 bắt đầu (confirmed_at + 60 ngày),
+    -- end_of_term_deadline = confirmed_at + 90 ngày = đã qua 5 ngày trước
+    INSERT INTO products (id, consignment_receipt_id, member_id, warehouse_id, category_id, brand_id,
+                           name, size, condition_note, current_price, status, current_term,
+                           term_started_at, end_of_term_deadline, unclaimed_decision_deadline,
+                           shelf_location, created_at, updated_at)
+    VALUES (v_product_id, v_receipt_id, v_seller2_id, v_wh2_id, v_cat_ids[5], v_brand_ids[5],
+            'Đầm Adidas năng động', 'M', 'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.',
+            400000, 'ON_SALE', 3, v_confirmed_at + interval '60 days', v_confirmed_at + interval '90 days', NULL,
+            'A1-25', v_confirmed_at, v_now);
+    INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
+    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+
+    -- Hạn 30 ngày Member phải chọn TAKE_BACK/RE_CONSIGN tính từ lúc hết kỳ (end_of_term_deadline),
+    -- không phải từ lúc chạy script — còn 25/30 ngày vì deadline đã qua 5 ngày.
+    INSERT INTO end_of_term_decisions (id, product_id, decision, new_receipt_id, decided_at, deadline, taken_back_at)
+    VALUES (gen_random_uuid(), v_product_id, NULL, NULL, NULL,
+            v_confirmed_at + interval '90 days' + interval '30 days', NULL);
+
+    -- #26: Q7, seller1, giống #25 (ON_SALE, chờ Member chọn, decision = NULL) nhưng ở kho Quận 7
+    --      để test cùng lúc 2 kho / 2 moderator khác nhau.
+    v_confirmed_at := v_now - interval '93 days';
+    v_product_id   := 'Q7-AK-000026';
+    INSERT INTO consignment_forms (id, member_id, warehouse_id, category_id, brand_id,
+                                    product_name, description, desired_price, status,
+                                    reject_reason, bring_in_deadline, created_at, updated_at)
+    VALUES (gen_random_uuid(), v_seller1_id, v_wh1_id, v_cat_ids[1], v_brand_ids[1],
+            'Áo khoác dạ Uniqlo cổ lọ', 'Hàng còn mới, ít sử dụng (seed data)', 420000, 'APPROVED',
+            NULL, (v_confirmed_at - interval '1 day')::date + 7,
+            v_confirmed_at - interval '1 day', v_confirmed_at - interval '1 day')
+    RETURNING id INTO v_form_id;
+    INSERT INTO consignment_receipts (id, receipt_no, consignment_form_id, member_id, moderator_id,
+                                       warehouse_id, agreed_price, floor_price, term_length_days,
+                                       max_renewals, free_withdrawal_window_days,
+                                       commission_rate_term1, commission_rate_term2, commission_rate_term3,
+                                       withdrawal_fee, degraded_compensation_rate, confirmed_at,
+                                       condition_note, created_at)
+    VALUES (gen_random_uuid(), 'KG-2026-SEED26', v_form_id, v_seller1_id, v_mod1_id,
+            v_wh1_id, 420000, 210000, 30, 2, 7,
+            0.10, 0.15, 0.20, 50000, 0.50, v_confirmed_at,
+            'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.', v_confirmed_at)
+    RETURNING id INTO v_receipt_id;
+    INSERT INTO products (id, consignment_receipt_id, member_id, warehouse_id, category_id, brand_id,
+                           name, size, condition_note, current_price, status, current_term,
+                           term_started_at, end_of_term_deadline, unclaimed_decision_deadline,
+                           shelf_location, created_at, updated_at)
+    VALUES (v_product_id, v_receipt_id, v_seller1_id, v_wh1_id, v_cat_ids[1], v_brand_ids[1],
+            'Áo khoác dạ Uniqlo cổ lọ', 'M', 'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.',
+            420000, 'ON_SALE', 3, v_confirmed_at + interval '60 days', v_confirmed_at + interval '90 days', NULL,
+            'A1-26', v_confirmed_at, v_now);
+    INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
+    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+    INSERT INTO end_of_term_decisions (id, product_id, decision, new_receipt_id, decided_at, deadline, taken_back_at)
+    VALUES (gen_random_uuid(), v_product_id, NULL, NULL, NULL,
+            v_confirmed_at + interval '90 days' + interval '30 days', NULL);
+
+    -- #27: Q7, seller3, Member ĐÃ chọn RE_CONSIGN (API /end-of-term-decisions/{id}/decide xong) nhưng
+    --      Moderator chưa chốt giá/điều khoản — test GET /end-of-term-decisions/pending-pricing (mod1/mod2)
+    --      rồi POST /end-of-term-decisions/{id}/re-consign-terms. new_receipt_id còn NULL vì chưa chốt.
+    v_confirmed_at := v_now - interval '100 days';
+    v_product_id   := 'Q7-QJ-000027';
+    INSERT INTO consignment_forms (id, member_id, warehouse_id, category_id, brand_id,
+                                    product_name, description, desired_price, status,
+                                    reject_reason, bring_in_deadline, created_at, updated_at)
+    VALUES (gen_random_uuid(), v_seller3_id, v_wh1_id, v_cat_ids[3], v_brand_ids[3],
+            'Quần jean H&M rách gối seed', 'Hàng còn mới, ít sử dụng (seed data)', 330000, 'APPROVED',
+            NULL, (v_confirmed_at - interval '1 day')::date + 7,
+            v_confirmed_at - interval '1 day', v_confirmed_at - interval '1 day')
+    RETURNING id INTO v_form_id;
+    INSERT INTO consignment_receipts (id, receipt_no, consignment_form_id, member_id, moderator_id,
+                                       warehouse_id, agreed_price, floor_price, term_length_days,
+                                       max_renewals, free_withdrawal_window_days,
+                                       commission_rate_term1, commission_rate_term2, commission_rate_term3,
+                                       withdrawal_fee, degraded_compensation_rate, confirmed_at,
+                                       condition_note, created_at)
+    VALUES (gen_random_uuid(), 'KG-2026-SEED27', v_form_id, v_seller3_id, v_mod2_id,
+            v_wh1_id, 330000, 165000, 30, 2, 7,
+            0.10, 0.15, 0.20, 50000, 0.50, v_confirmed_at,
+            'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.', v_confirmed_at)
+    RETURNING id INTO v_receipt_id;
+    INSERT INTO products (id, consignment_receipt_id, member_id, warehouse_id, category_id, brand_id,
+                           name, size, condition_note, current_price, status, current_term,
+                           term_started_at, end_of_term_deadline, unclaimed_decision_deadline,
+                           shelf_location, created_at, updated_at)
+    VALUES (v_product_id, v_receipt_id, v_seller3_id, v_wh1_id, v_cat_ids[3], v_brand_ids[3],
+            'Quần jean H&M rách gối seed', 'M', 'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.',
+            330000, 'ON_SALE', 3, v_confirmed_at + interval '60 days', v_confirmed_at + interval '90 days', NULL,
+            'A1-27', v_confirmed_at, v_now);
+    INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
+    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+    INSERT INTO end_of_term_decisions (id, product_id, decision, new_receipt_id, decided_at, deadline, taken_back_at)
+    VALUES (gen_random_uuid(), v_product_id, 'RE_CONSIGN', NULL, v_now - interval '2 days',
+            v_confirmed_at + interval '90 days' + interval '30 days', NULL);
+
+    -- #28: CG, seller1, Member ĐÃ chọn TAKE_BACK -> product đã WITHDRAWN (giống nhánh TAKE_BACK trong
+    --      EndOfTermDecisionServiceImpl.decide) nhưng chưa ra quầy nhận hàng (taken_back_at = NULL) —
+    --      test POST /counter/handover với context=END_OF_TERM_TAKE_BACK (role MODERATOR, kho Cầu Giấy).
+    v_confirmed_at := v_now - interval '110 days';
+    v_product_id   := 'CG-CV-000028';
+    INSERT INTO consignment_forms (id, member_id, warehouse_id, category_id, brand_id,
+                                    product_name, description, desired_price, status,
+                                    reject_reason, bring_in_deadline, created_at, updated_at)
+    VALUES (gen_random_uuid(), v_seller1_id, v_wh2_id, v_cat_ids[4], v_brand_ids[4],
+            'Chân váy Nike dáng dài seed', 'Hàng còn mới, ít sử dụng (seed data)', 290000, 'APPROVED',
+            NULL, (v_confirmed_at - interval '1 day')::date + 7,
+            v_confirmed_at - interval '1 day', v_confirmed_at - interval '1 day')
+    RETURNING id INTO v_form_id;
+    INSERT INTO consignment_receipts (id, receipt_no, consignment_form_id, member_id, moderator_id,
+                                       warehouse_id, agreed_price, floor_price, term_length_days,
+                                       max_renewals, free_withdrawal_window_days,
+                                       commission_rate_term1, commission_rate_term2, commission_rate_term3,
+                                       withdrawal_fee, degraded_compensation_rate, confirmed_at,
+                                       condition_note, created_at)
+    VALUES (gen_random_uuid(), 'KG-2026-SEED28', v_form_id, v_seller1_id, v_mod3_id,
+            v_wh2_id, 290000, 145000, 30, 2, 7,
+            0.10, 0.15, 0.20, 50000, 0.50, v_confirmed_at,
+            'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.', v_confirmed_at)
+    RETURNING id INTO v_receipt_id;
+    INSERT INTO products (id, consignment_receipt_id, member_id, warehouse_id, category_id, brand_id,
+                           name, size, condition_note, current_price, status, current_term,
+                           term_started_at, end_of_term_deadline, unclaimed_decision_deadline,
+                           shelf_location, created_at, updated_at)
+    VALUES (v_product_id, v_receipt_id, v_seller1_id, v_wh2_id, v_cat_ids[4], v_brand_ids[4],
+            'Chân váy Nike dáng dài seed', 'M', 'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.',
+            290000, 'WITHDRAWN', 3, v_confirmed_at + interval '60 days', v_confirmed_at + interval '90 days', NULL,
+            'A1-28', v_confirmed_at, v_now);
+    INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
+    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+    INSERT INTO end_of_term_decisions (id, product_id, decision, new_receipt_id, decided_at, deadline, taken_back_at)
+    VALUES (gen_random_uuid(), v_product_id, 'TAKE_BACK', NULL, v_now - interval '5 days',
+            v_confirmed_at + interval '90 days' + interval '30 days', NULL);
+
+    -- #29: Q7, seller2, Member KHÔNG chọn trong hạn 30 ngày -> job (chưa triển khai, xem
+    --      EndOfTermDecisionServiceImpl.decide dòng kiểm tra decision = UNCLAIMED) đã tự đánh dấu
+    --      vô thừa nhận; product chuyển ProductStatus.UNCLAIMED, decided_at NULL vì Member không
+    --      tự chọn. Test: Moderator xem hàng vô thừa nhận chờ xử lý (tiêu hủy/thanh lý, F-xxx).
+    v_confirmed_at := v_now - interval '130 days';
+    v_product_id   := 'Q7-AT-000029';
+    INSERT INTO consignment_forms (id, member_id, warehouse_id, category_id, brand_id,
+                                    product_name, description, desired_price, status,
+                                    reject_reason, bring_in_deadline, created_at, updated_at)
+    VALUES (gen_random_uuid(), v_seller2_id, v_wh1_id, v_cat_ids[2], v_brand_ids[2],
+            'Áo thun Zara oversize seed', 'Hàng còn mới, ít sử dụng (seed data)', 210000, 'APPROVED',
+            NULL, (v_confirmed_at - interval '1 day')::date + 7,
+            v_confirmed_at - interval '1 day', v_confirmed_at - interval '1 day')
+    RETURNING id INTO v_form_id;
+    INSERT INTO consignment_receipts (id, receipt_no, consignment_form_id, member_id, moderator_id,
+                                       warehouse_id, agreed_price, floor_price, term_length_days,
+                                       max_renewals, free_withdrawal_window_days,
+                                       commission_rate_term1, commission_rate_term2, commission_rate_term3,
+                                       withdrawal_fee, degraded_compensation_rate, confirmed_at,
+                                       condition_note, created_at)
+    VALUES (gen_random_uuid(), 'KG-2026-SEED29', v_form_id, v_seller2_id, v_mod1_id,
+            v_wh1_id, 210000, 105000, 30, 2, 7,
+            0.10, 0.15, 0.20, 50000, 0.50, v_confirmed_at,
+            'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.', v_confirmed_at)
+    RETURNING id INTO v_receipt_id;
+    INSERT INTO products (id, consignment_receipt_id, member_id, warehouse_id, category_id, brand_id,
+                           name, size, condition_note, current_price, status, current_term,
+                           term_started_at, end_of_term_deadline, unclaimed_decision_deadline,
+                           shelf_location, created_at, updated_at)
+    VALUES (v_product_id, v_receipt_id, v_seller2_id, v_wh1_id, v_cat_ids[2], v_brand_ids[2],
+            'Áo thun Zara oversize seed', 'M', 'Hàng đã qua kiểm định tại kho, tình trạng 85-95%, không lỗi, không phai màu.',
+            210000, 'UNCLAIMED', 3, v_confirmed_at + interval '60 days', v_confirmed_at + interval '90 days', NULL,
+            'A1-29', v_confirmed_at, v_now);
+    INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
+    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+    INSERT INTO end_of_term_decisions (id, product_id, decision, new_receipt_id, decided_at, deadline, taken_back_at)
+    VALUES (gen_random_uuid(), v_product_id, 'UNCLAIMED', NULL, NULL,
+            v_confirmed_at + interval '90 days' + interval '30 days', NULL);
+
     -- name_normalized là cột GET /products?search= so khớp (gõ "ao khoac" ra "Áo khoác").
     -- App tự sinh cột này trong @PrePersist/@PreUpdate của entity Product, nhưng seed ghi
     -- thẳng vào DB nên không chạy qua Hibernate -> phải tự điền, nếu không 20 sản phẩm seed
@@ -942,4 +1139,19 @@ END $$;
 -- Sản phẩm ON_SALE còn trống để test thêm giỏ hàng / đặt đơn mới: tất cả trừ
 -- Q7-AK-000001 (SOLD), Q7-AT-000002 (RESERVED), Q7-QJ-000003 (RESERVED), CG-AK-000011 (RESERVED),
 -- và 4 sản phẩm #21-24 (RETURNED, xem trên).
+--
+-- Sản phẩm đã hết kỳ 90 ngày (end_of_term_deadline đã qua) — 5 sản phẩm #25-29, mỗi sản phẩm ở
+-- một bước khác nhau của luồng end_of_term_decisions (API 71/72/73, EndOfTermDecisionServiceImpl):
+--   CG-DM-000025 (seller2, kho CG)  decision = NULL         — chờ Member chọn, còn 25/30 ngày
+--   Q7-AK-000026 (seller1, kho Q7)  decision = NULL         — chờ Member chọn, còn 27/30 ngày
+--     -> test GET /products/mine/{id} (endOfTermDecision khác null) rồi
+--        POST /end-of-term-decisions/{id}/decide {"decision":"TAKE_BACK"|"RE_CONSIGN"}
+--   Q7-QJ-000027 (seller3, kho Q7)  decision = RE_CONSIGN, new_receipt_id = NULL
+--     -> test GET /end-of-term-decisions/pending-pricing (role MODERATOR, mod1/mod2) rồi
+--        POST /end-of-term-decisions/{id}/re-consign-terms
+--   CG-CV-000028 (seller1, kho CG)  decision = TAKE_BACK, product đã WITHDRAWN, taken_back_at = NULL
+--     -> test POST /counter/handover {"context":"END_OF_TERM_TAKE_BACK", "accountId":"<seller1_id>",
+--        "refId":"<decision_id>"} (role MODERATOR, kho Cầu Giấy)
+--   Q7-AT-000029 (seller2, kho Q7)  decision = UNCLAIMED, product đã UNCLAIMED, decided_at NULL
+--     -> mô phỏng Member bỏ qua hạn 30 ngày, hàng vô thừa nhận chờ Moderator xử lý tiếp
 -- ============================================================================

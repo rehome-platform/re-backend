@@ -6,7 +6,6 @@ import com.rehome.rehome.dto.request.PriceReductionRequest;
 import com.rehome.rehome.dto.request.UpdateShelfLocationRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
-import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;

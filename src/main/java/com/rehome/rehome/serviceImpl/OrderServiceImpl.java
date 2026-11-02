@@ -34,6 +34,7 @@ import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
 import com.rehome.rehome.entity.enums.ReturnedItemAction;
+import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.TransactionStatus;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
 import com.rehome.rehome.entity.enums.WalletType;
@@ -533,13 +534,14 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public OrderDetailResponse getOrderDetail(String email, UUID orderId) {
 
-        Account buyer = accountRepository.findByEmail(email)
+        Account caller = accountRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
 
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
 
-        if (!order.getBuyer().getId().equals(buyer.getId())) {
+        boolean staff = caller.getRole() == Role.MODERATOR;
+        if (!staff && !order.getBuyer().getId().equals(caller.getId())) {
             throw new ForbiddenException("Bạn không có quyền xem đơn này.");
         }
 

@@ -191,3 +191,15 @@ ghn:
     length-cm: ${GHN_DEFAULT_LENGTH_CM:30}
     width-cm: ${GHN_DEFAULT_WIDTH_CM:20}
     height-cm: ${GHN_DEFAULT_HEIGHT_CM:10}
+
+
+# ==================== AI TRY-ON (CatVTON) - F-078 ====================
+# AI server tự host (FastAPI). Thiếu base-url/api-key thì POST /tryon/images trả 502.
+# api-key là X-API-Key của AI server (TRYON_API_KEY bên đó): PHẢI set qua env var, không commit.
+tryon:
+  ai:
+    base-url: ${TRYON_AI_BASE_URL:}
+    api-key: ${TRYON_AI_API_KEY:}
+    connect-timeout-seconds: ${TRYON_AI_CONNECT_TIMEOUT_SECONDS:5}
+    # AI chạy đồng bộ 2 bước diffusion (áo rồi quần), lần đầu còn nạp model: để dư
+    read-timeout-seconds: ${TRYON_AI_READ_TIMEOUT_SECONDS:120}

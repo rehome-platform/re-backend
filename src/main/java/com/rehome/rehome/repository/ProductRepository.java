@@ -15,6 +15,10 @@ import java.util.UUID;
 
 public interface ProductRepository extends JpaRepository<Product, String>, JpaSpecificationExecutor<Product> {
 
+    // API 97: nạp luôn category (cần tryonSlot) để service kiểm slot mà không phụ thuộc session
+    @EntityGraph(attributePaths = {"category"})
+    List<Product> findWithCategoryByIdIn(Collection<String> ids);
+
     // Khóa dòng để 2 request checkout cùng sản phẩm không cùng vượt qua kiểm tra ON_SALE
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Product p " +

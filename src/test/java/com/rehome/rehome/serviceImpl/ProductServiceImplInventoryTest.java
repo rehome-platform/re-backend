@@ -3,14 +3,21 @@ package com.rehome.rehome.serviceImpl;
 import com.rehome.rehome.dto.request.UpdateShelfLocationRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.StockMovementType;
+import com.rehome.rehome.entity.marketplace.Brand;
+import com.rehome.rehome.entity.marketplace.Category;
+import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Product;
+import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.StockMovementLog;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.repository.MemberProfileRepository;
+import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.StockMovementLogRepository;
 import com.rehome.rehome.service.SkuLabelPdfService;
@@ -25,6 +32,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 
+import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -42,6 +51,8 @@ class ProductServiceImplInventoryTest {
 
     @Mock private ProductRepository productRepository;
     @Mock private StockMovementLogRepository stockMovementLogRepository;
+    @Mock private ProductPhotoRepository productPhotoRepository;
+    @Mock private MemberProfileRepository memberProfileRepository;
     @Mock private SkuLabelPdfService skuLabelPdfService;
 
     // Các dependency còn lại của ProductServiceImpl không dùng trong test này, Mockito truyền null
@@ -52,6 +63,8 @@ class ProductServiceImplInventoryTest {
     private Warehouse otherWarehouse;
     private Account moderator;
     private Product product;
+    private Account member;
+    private Instant createdAt;
 
     @BeforeEach
     void setUp() {
@@ -64,12 +77,30 @@ class ProductServiceImplInventoryTest {
                 .warehouse(warehouse)
                 .build();
 
+        member = Account.builder().id(UUID.randomUUID()).role(Role.MEMBER).build();
+        createdAt = Instant.now().minus(Duration.ofDays(10));
+
+        ConsignmentReceipt receipt = ConsignmentReceipt.builder()
+                .agreedPrice(new BigDecimal("500000"))
+                .floorPrice(new BigDecimal("300000"))
+                .build();
+
         product = Product.builder()
                 .id(SKU)
                 .name("Áo sơ mi Zara trắng")
                 .warehouse(warehouse)
                 .status(ProductStatus.ON_SALE)
                 .shelfLocation("A1-03")
+                .brand(Brand.builder().name("Zara").build())
+                .category(Category.builder().name("Áo sơ mi").build())
+                .member(member)
+                .consignmentReceipt(receipt)
+                .size("M")
+                .conditionNote("Còn mới 95%")
+                .currentPrice(new BigDecimal("450000"))
+                .currentTerm((short) 2)
+                .termStartedAt(Instant.now().minus(Duration.ofDays(5)))
+                .createdAt(createdAt)
                 .build();
     }
 
@@ -80,9 +111,16 @@ class ProductServiceImplInventoryTest {
     // ==================== API 41: getBySku ====================
 
     @Test
-    @DisplayName("getBySku: cùng kho -> trả đúng thông tin")
+    @DisplayName("getBySku: cùng kho -> trả đủ thông tin chi tiết")
     void getBySku_success() {
+        MemberProfile profile = MemberProfile.builder()
+                .accountId(member.getId()).fullName("Nguyễn Văn A").memberCode("MB-000123").build();
+        ProductPhoto p1 = ProductPhoto.builder().imageUrl("https://img/1.jpg").displayOrder(0).build();
+        ProductPhoto p2 = ProductPhoto.builder().imageUrl("https://img/2.jpg").displayOrder(1).build();
+
         when(productRepository.findById(SKU)).thenReturn(Optional.of(product));
+        when(productPhotoRepository.findByProduct_IdOrderByDisplayOrderAscIdAsc(SKU)).thenReturn(List.of(p1, p2));
+        when(memberProfileRepository.findByAccountId(member.getId())).thenReturn(Optional.of(profile));
 
         ProductSkuLookupResponse res = productService.getBySku(moderator, SKU);
 
@@ -90,6 +128,35 @@ class ProductServiceImplInventoryTest {
         assertEquals("Áo sơ mi Zara trắng", res.getName());
         assertEquals("A1-03", res.getShelfLocation());
         assertEquals(ProductStatus.ON_SALE, res.getStatus());
+        assertEquals("Zara", res.getBrandName());
+        assertEquals("Áo sơ mi", res.getCategoryName());
+        assertEquals("M", res.getSize());
+        assertEquals("Còn mới 95%", res.getConditionNote());
+        assertEquals(new BigDecimal("450000"), res.getCurrentPrice());
+        assertEquals(new BigDecimal("500000"), res.getOriginalPrice());
+        assertEquals(new BigDecimal("300000"), res.getFloorPrice());
+        assertEquals((short) 2, res.getCurrentTerm());
+        assertEquals(5, res.getDaysIntoTerm());
+        assertEquals("MB-000123", res.getMemberCode());
+        assertEquals("Nguyễn Văn A", res.getMemberFullName());
+        assertEquals(createdAt, res.getStockInDate());
+        assertEquals(List.of("https://img/1.jpg", "https://img/2.jpg"), res.getPhotos());
+    }
+
+    @Test
+    @DisplayName("getBySku: vừa bắt đầu kỳ (< 1 ngày) -> daysIntoTerm tối thiểu là 1")
+    void getBySku_daysIntoTermMinimumOne() {
+        product.setTermStartedAt(Instant.now());
+        when(productRepository.findById(SKU)).thenReturn(Optional.of(product));
+        when(productPhotoRepository.findByProduct_IdOrderByDisplayOrderAscIdAsc(SKU)).thenReturn(List.of());
+        when(memberProfileRepository.findByAccountId(member.getId())).thenReturn(Optional.empty());
+
+        ProductSkuLookupResponse res = productService.getBySku(moderator, SKU);
+
+        assertEquals(1, res.getDaysIntoTerm());
+        assertTrue(res.getPhotos().isEmpty());
+        assertNull(res.getMemberCode());
+        assertNull(res.getMemberFullName());
     }
 
     @Test

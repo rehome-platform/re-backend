@@ -35,6 +35,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +50,7 @@ public class ProductServiceImpl implements ProductService {
 
     private final ProductRepository productRepository;
     private final ProductPhotoRepository productPhotoRepository;
+    private final MemberProfileRepository memberProfileRepository;
     private final ProductPriceChangeRepository productPriceChangeRepository;
     private final ProductMapper productMapper;
     private final EndOfTermDecisionRepository endOfTermDecisionRepository;
@@ -486,8 +488,41 @@ public class ProductServiceImpl implements ProductService {
 
         assertSameWarehouse(account, product);                                        // 403
 
-        return new ProductSkuLookupResponse(product.getId(), product.getName(),
-                product.getShelfLocation(), product.getStatus());
+        List<String> photos = productPhotoRepository
+                .findByProduct_IdOrderByDisplayOrderAscIdAsc(product.getId())
+                .stream()
+                .map(ProductPhoto::getImageUrl)
+                .toList();
+
+        ConsignmentReceipt receipt = product.getConsignmentReceipt();
+
+        // Mã Member và họ tên nằm ở MemberProfile (Account không giữ)
+        Account member = product.getMember();
+        MemberProfile profile = member == null ? null
+                : memberProfileRepository.findByAccountId(member.getId()).orElse(null);
+
+        int daysIntoTerm = Math.max(1, (int) ChronoUnit.DAYS.between(
+                product.getTermStartedAt(), Instant.now()));
+
+        return ProductSkuLookupResponse.builder()
+                .id(product.getId())
+                .name(product.getName())
+                .shelfLocation(product.getShelfLocation())
+                .status(product.getStatus())
+                .brandName(product.getBrand().getName())
+                .categoryName(product.getCategory().getName())
+                .size(product.getSize())
+                .conditionNote(product.getConditionNote())
+                .currentPrice(product.getCurrentPrice())
+                .originalPrice(receipt.getAgreedPrice())
+                .floorPrice(receipt.getFloorPrice())
+                .currentTerm(product.getCurrentTerm())
+                .daysIntoTerm(daysIntoTerm)
+                .memberCode(profile != null ? profile.getMemberCode() : null)
+                .memberFullName(profile != null ? profile.getFullName() : null)
+                .stockInDate(product.getCreatedAt())
+                .photos(photos)
+                .build();
     }
 
     @Override

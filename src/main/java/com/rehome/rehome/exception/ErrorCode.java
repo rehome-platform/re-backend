@@ -188,7 +188,19 @@ public enum ErrorCode {
     // API 95 - F-036: Member quyết định cách xử lý hàng xuống cấp
     DEGRADED_ITEM_CASE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy ca xử lý hàng xuống cấp."),
     DEGRADED_ITEM_CASE_FORBIDDEN(HttpStatus.FORBIDDEN, "Ca xử lý hàng xuống cấp này không thuộc về bạn."),
-    DEGRADED_ITEM_CASE_ALREADY_DECIDED(HttpStatus.CONFLICT, "Ca này đã được quyết định.");
+    DEGRADED_ITEM_CASE_ALREADY_DECIDED(HttpStatus.CONFLICT, "Ca này đã được quyết định."),
+
+
+    // F-080, F-081 - bộ sưu tập ảnh thử đồ
+    TRYON_IMAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy ảnh thử đồ."),
+    TRYON_IMAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "Ảnh thử đồ này không thuộc về bạn."),
+
+    // API 97 - F-077, F-078: sinh ảnh thử đồ
+    INCOMPLETE_OUTFIT(HttpStatus.CONFLICT, "INCOMPLETE_OUTFIT: cần đúng một bộ áo+quần hoặc đầm."),
+    DRESS_NOT_SUPPORTED_FOR_MALE(HttpStatus.BAD_REQUEST, "Người mẫu nam chưa hỗ trợ thử đầm."),
+    TRYON_SLOT_MISMATCH(HttpStatus.BAD_REQUEST, "Sản phẩm không đúng vị trí thử đồ (áo, quần hoặc đầm)."),
+    TRYON_PRODUCT_NOT_AVAILABLE(HttpStatus.CONFLICT, "Sản phẩm không thể dùng để thử đồ (không còn bán hoặc thiếu ảnh)."),
+    TRYON_GENERATION_FAILED(HttpStatus.BAD_GATEWAY, "Không thể sinh ảnh thử đồ lúc này, vui lòng thử lại sau.");
 
     private final HttpStatus status;
     private final String defaultMessage;

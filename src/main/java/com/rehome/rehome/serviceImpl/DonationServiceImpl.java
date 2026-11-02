@@ -1,15 +1,19 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.dto.request.CreateCampaignDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateDonationRequest;
 import com.rehome.rehome.dto.request.HandoverDonationsRequest;
 import com.rehome.rehome.dto.response.DonationHandoverResponse;
 import com.rehome.rehome.dto.response.DonationNoteResponse;
 import com.rehome.rehome.dto.response.DonationResponse;
+import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.ModeratorProfile;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.DonationStatus;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.entity.enums.VerificationStatus;
 import com.rehome.rehome.entity.marketplace.Campaign;
 import com.rehome.rehome.entity.marketplace.Donation;
@@ -26,7 +30,12 @@ import com.rehome.rehome.repository.ModeratorProfileRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.DonationService;
+import com.rehome.rehome.service.NotificationService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -49,6 +58,7 @@ public class DonationServiceImpl implements DonationService {
     private static final String ORGANIZATION_OR_WAREHOUSE_NOT_FOUND =
             "Không tìm thấy tổ chức hoặc điểm ký gửi.";
     private static final String INVALID_DONATION_LIST = "Danh sách quyên góp không hợp lệ.";
+    private static final int MAX_PAGE_SIZE = 50;
 
     private final DonationRepository donationRepository;
     private final DonationNoteRepository donationNoteRepository;
@@ -56,6 +66,7 @@ public class DonationServiceImpl implements DonationService {
     private final OrganizationProfileRepository organizationProfileRepository;
     private final CampaignRepository campaignRepository;
     private final ModeratorProfileRepository moderatorProfileRepository;
+    private final NotificationService notificationService;
 
     @Override
     @Transactional
@@ -79,6 +90,17 @@ public class DonationServiceImpl implements DonationService {
                 .createdAt(Instant.now())
                 .build();
         donationRepository.save(donation);
+
+        // Báo cho tổ chức sở hữu chiến dịch, kèm deep-link mở đúng màn chờ lấy của kho này (OC-07)
+        notificationService.notify(
+                campaign.getOrganization().getAccount(),
+                NotificationType.DONATION_RECORDED,
+                "Có lượt quyên góp mới",
+                "Điểm ký gửi \"" + warehouse.getName()
+                        + "\" vừa ghi nhận 1 lượt quyên góp cho chiến dịch của bạn, đang chờ bạn đến lấy.",
+                NotificationTargetType.CAMPAIGN,
+                campaign.getId(),
+                warehouse.getId());
 
         return toResponse(donation, resolveModeratorCode(moderator.getId()));
     }
@@ -214,48 +236,83 @@ public class DonationServiceImpl implements DonationService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<DonationResponse> listOrganizationDonations(UUID organizationAccountId, DonationStatus status) {
+    public PageResponse<DonationResponse> listOrganizationDonations(UUID organizationAccountId, UUID campaignId,
+                                                                     UUID warehouseId, DonationStatus status,
+                                                                     int page, int size) {
         requireVerifiedOrganizationAccount(organizationAccountId);
+
+        Pageable pageable = PageRequest.of(
+                Math.max(page, 0),
+                Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
 
         // PENDING_PICKUP luôn thuộc "pool chung" nên lọc theo status là chọn 1 nửa của phạm vi:
         // đang chờ lấy (mọi kho) hoặc lịch sử đã nhận của chính tổ chức này
-        List<Donation> donations;
+        Page<Donation> donations;
         if (status == null) {
             donations = donationRepository.findVisibleForOrganization(
-                    organizationAccountId, DonationStatus.PENDING_PICKUP);
+                    organizationAccountId, DonationStatus.PENDING_PICKUP, campaignId, warehouseId, pageable);
         } else if (status == DonationStatus.PENDING_PICKUP) {
-            donations = donationRepository.findByStatusOrderByCreatedAtDesc(DonationStatus.PENDING_PICKUP);
+            donations = donationRepository.findByStatusWithFilters(
+                    DonationStatus.PENDING_PICKUP, campaignId, warehouseId, pageable);
         } else {
-            donations = donationRepository
-                    .findByHandedOverToOrganization_AccountIdAndStatusOrderByCreatedAtDesc(
-                            organizationAccountId, status);
+            donations = donationRepository.findHandedOverForOrganization(
+                    organizationAccountId, status, campaignId, warehouseId, pageable);
         }
 
-        Map<UUID, ModeratorProfile> moderatorProfiles = loadModeratorProfiles(donations);
-        return donations.stream().map(d -> toResponse(d, moderatorProfiles)).toList();
+        Map<UUID, ModeratorProfile> moderatorProfiles = loadModeratorProfiles(donations.getContent());
+        return PageResponse.from(donations.map(d -> toResponse(d, moderatorProfiles)));
     }
 
     @Override
     @Transactional
     public DonationNoteResponse createDonationNote(UUID organizationAccountId,
                                                    CreateDonationNoteRequest request) {
-        boolean anonymous = Boolean.TRUE.equals(request.getIsAnonymous());
-        if (!anonymous && !StringUtils.hasText(request.getDonorName())) {
-            throw new BadRequestException("Vui lòng nhập tên người quyên góp hoặc chọn ẩn danh.");
-        }
+        boolean anonymous = requireDonorNameOrAnonymous(request.getIsAnonymous(), request.getDonorName());
 
         OrganizationProfile organization = organizationProfileRepository.findById(organizationAccountId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND));
         // campaignId để trống nghĩa là nhận đồ ngoài chiến dịch nào
         Campaign campaign = resolveOwnCampaign(organizationAccountId, request.getCampaignId());
 
+        return saveDonationNote(organization, campaign, request.getDonorName(), anonymous, request.getNote());
+    }
+
+    @Override
+    @Transactional
+    public DonationNoteResponse createCampaignDonationNote(UUID organizationAccountId, UUID campaignId,
+                                                            CreateCampaignDonationNoteRequest request) {
+        boolean anonymous = requireDonorNameOrAnonymous(request.getIsAnonymous(), request.getDonorName());
+
+        OrganizationProfile organization = organizationProfileRepository.findById(organizationAccountId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND));
+        // OC-08: khác F-167 ở chỗ campaignId bắt buộc (lấy từ path) và phải thuộc đúng tổ chức này
+        Campaign campaign = campaignRepository.findById(campaignId)
+                .filter(c -> c.getOrganization().getAccountId().equals(organizationAccountId))
+                .orElseThrow(() -> new IllegalArgumentException(CAMPAIGN_NOT_FOUND));
+
+        return saveDonationNote(organization, campaign, request.getDonorName(), anonymous, request.getNote());
+    }
+
+    // Chưa có tên người quyên góp mà cũng không tích ẩn danh thì không hợp lệ, dùng chung
+    // cho cả F-167 và OC-08
+    private boolean requireDonorNameOrAnonymous(Boolean isAnonymousFlag, String donorName) {
+        boolean anonymous = Boolean.TRUE.equals(isAnonymousFlag);
+        if (!anonymous && !StringUtils.hasText(donorName)) {
+            throw new BadRequestException("Vui lòng nhập tên người quyên góp hoặc chọn ẩn danh.");
+        }
+        return anonymous;
+    }
+
+    private DonationNoteResponse saveDonationNote(OrganizationProfile organization, Campaign campaign,
+                                                   String donorName, boolean anonymous, String note) {
         DonationNote donationNote = DonationNote.builder()
                 .organization(organization)
                 .campaign(campaign)
                 // Ẩn danh thì không lưu tên, giống F-163
-                .donorName(anonymous ? null : request.getDonorName())
+                .donorName(anonymous ? null : donorName)
                 .isAnonymous(anonymous)
-                .note(request.getNote())
+                .note(note)
                 .createdAt(Instant.now())
                 .build();
         donationNoteRepository.save(donationNote);
@@ -329,6 +386,7 @@ public class DonationServiceImpl implements DonationService {
         return DonationResponse.builder()
                 .id(donation.getId().toString())
                 .warehouseId(donation.getWarehouse().getId().toString())
+                .warehouseName(donation.getWarehouse().getName())
                 .campaignId(donation.getCampaign() == null ? null : donation.getCampaign().getId().toString())
                 .donorName(donation.getDonorName())
                 .isAnonymous(Boolean.TRUE.equals(donation.getIsAnonymous()))

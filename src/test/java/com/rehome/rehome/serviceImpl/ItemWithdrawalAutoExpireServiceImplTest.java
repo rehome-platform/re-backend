@@ -67,6 +67,10 @@ class ItemWithdrawalAutoExpireServiceImplTest {
 
         when(productRepository.findByIdForUpdate(PRODUCT_ID)).thenReturn(Optional.of(product));
         when(productRepository.findByIdForUpdate(PRODUCT_ID_2)).thenReturn(Optional.of(product2));
+
+        // Mặc định không có gì quá hạn phí, trừ khi test tự stub lại
+        when(itemWithdrawalRequestRepository.findAllByStatusAndFeePaymentOverdue(
+                eq(ItemWithdrawalStatus.PENDING_PICKUP), any(Instant.class))).thenReturn(List.of());
     }
 
     @Test
@@ -133,5 +137,43 @@ class ItemWithdrawalAutoExpireServiceImplTest {
         verify(itemWithdrawalRequestRepository).findAllByStatusAndPickupDeadlineBefore(
                 eq(ItemWithdrawalStatus.PENDING_PICKUP), instantCaptor.capture());
         assertThat(instantCaptor.getValue()).isBetween(before, after);
+    }
+
+    @Test
+    @DisplayName("quá hạn trả phí (chưa trả) -> EXPIRED, sản phẩm WITHDRAWN -> ON_SALE, " +
+            "không chờ hết pickupDeadline 7 ngày")
+    void feePaymentOverdue_areClosedAndProductRelisted() {
+        when(itemWithdrawalRequestRepository.findAllByStatusAndPickupDeadlineBefore(
+                eq(ItemWithdrawalStatus.PENDING_PICKUP), any(Instant.class))).thenReturn(List.of());
+        ItemWithdrawalRequest feeOverdue = ItemWithdrawalRequest.builder().id(UUID.randomUUID())
+                .product(product)
+                .status(ItemWithdrawalStatus.PENDING_PICKUP)
+                .pickupDeadline(Instant.now().plus(6, ChronoUnit.DAYS)) // còn 6 ngày nữa mới tới hạn lấy hàng
+                .feePaymentDeadline(Instant.now().minus(1, ChronoUnit.MINUTES))
+                .build();
+        when(itemWithdrawalRequestRepository.findAllByStatusAndFeePaymentOverdue(
+                eq(ItemWithdrawalStatus.PENDING_PICKUP), any(Instant.class))).thenReturn(List.of(feeOverdue));
+
+        service.expireUncollectedWithdrawals();
+
+        assertThat(feeOverdue.getStatus()).isEqualTo(ItemWithdrawalStatus.EXPIRED);
+        verify(itemWithdrawalRequestRepository).save(feeOverdue);
+        assertThat(product.getStatus()).isEqualTo(ProductStatus.ON_SALE);
+        verify(productRepository).save(product);
+    }
+
+    @Test
+    @DisplayName("quét cả hai mốc (hết hạn lấy hàng và hết hạn trả phí) trong một lần chạy")
+    void scansBothPickupAndFeeDeadlines() {
+        when(itemWithdrawalRequestRepository.findAllByStatusAndPickupDeadlineBefore(
+                eq(ItemWithdrawalStatus.PENDING_PICKUP), any(Instant.class))).thenReturn(List.of(expired1));
+        when(itemWithdrawalRequestRepository.findAllByStatusAndFeePaymentOverdue(
+                eq(ItemWithdrawalStatus.PENDING_PICKUP), any(Instant.class))).thenReturn(List.of(expired2));
+
+        service.expireUncollectedWithdrawals();
+
+        assertThat(expired1.getStatus()).isEqualTo(ItemWithdrawalStatus.EXPIRED);
+        assertThat(expired2.getStatus()).isEqualTo(ItemWithdrawalStatus.EXPIRED);
+        verify(itemWithdrawalRequestRepository, times(2)).save(any());
     }
 }

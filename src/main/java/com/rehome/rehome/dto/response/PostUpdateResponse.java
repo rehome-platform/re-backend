@@ -5,8 +5,10 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 /**
- * Bài viết sau khi sửa nội dung (F-105).
+ * Bài viết sau khi sửa (F-105/OB-03).
  */
 @Data
 @NoArgsConstructor
@@ -15,4 +17,7 @@ import lombok.NoArgsConstructor;
 public class PostUpdateResponse {
     private String id;
     private String content;
+    private List<String> photoUrls;
+    private String campaignId;
+    private String campaignTitle;
 }

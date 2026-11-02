@@ -49,6 +49,12 @@ public class ItemWithdrawalRequest {
     @Column(name = "fee_paid_at", nullable = true)
     private Instant feePaidAt;
 
+    // Hạn trả phí rút hàng, mặc định 15 phút kể từ lúc tạo yêu cầu; null khi feeCharged = 0
+    // (không có gì phải trả). Quá hạn mà feePaidAt vẫn null -> ItemWithdrawalAutoExpireServiceImpl
+    // hủy sớm, không chờ hết pickupDeadline (7 ngày) mới đăng bán lại sản phẩm.
+    @Column(name = "fee_payment_deadline", nullable = true)
+    private Instant feePaymentDeadline;
+
     // orderId gửi cho MoMo lúc tạo giao dịch trả phí rút hàng, dùng map IPN về đúng yêu cầu này
     @Column(name = "momo_order_id", nullable = true, length = 255)
     private String momoOrderId;

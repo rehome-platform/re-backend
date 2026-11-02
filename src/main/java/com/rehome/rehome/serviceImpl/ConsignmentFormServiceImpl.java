@@ -13,6 +13,7 @@ import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.ConsignmentFormPhoto;
+import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
@@ -30,10 +31,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -112,9 +115,12 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
         // Một query lấy ảnh đầu của cả trang, tránh N+1
         Map<UUID, String> thumbnails = loadThumbnails(result.getContent());
+        // Biên nhận mới nhất của từng form, để mobile biết form nào đang chờ xác nhận biên nhận
+        // (vẫn INSPECTING) hoặc đã xác nhận (ẩn khỏi "đang xử lý", trùng với sản phẩm trong kho)
+        Map<UUID, ConsignmentReceipt> latestReceipts = loadLatestReceipts(result.getContent());
 
         PageResponse<ConsignmentFormListItemResponse> p = PageResponse.of(result.map(
-                f -> consignmentFormMapper.toListItem(f, thumbnails.get(f.getId()))));
+                f -> consignmentFormMapper.toListItem(f, thumbnails.get(f.getId()), latestReceipts.get(f.getId()))));
 
         // pendingCount + maxPending để mobile hiện "3/5 form chờ"
         return ConsignmentFormPageResponse.builder()
@@ -501,6 +507,26 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
                         p -> p.getForm().getId(),
                         ConsignmentFormPhoto::getImageUrl,
                         (first, second) -> first));
+    }
+
+    // Cùng một quy tắc "biên nhận mới nhất" với buildDetail/ModeratorConsignmentFormServiceImpl:
+    // createdAt lớn nhất, hòa thì id lớn hơn - để danh sách và chi tiết luôn khớp nhau
+    private static final Comparator<ConsignmentReceipt> NEWER_RECEIPT = Comparator
+            .comparing(ConsignmentReceipt::getCreatedAt, Comparator.nullsFirst(Comparator.naturalOrder()))
+            .thenComparing(ConsignmentReceipt::getId, Comparator.nullsFirst(Comparator.naturalOrder()));
+
+    // Biên nhận mới nhất của mỗi form (1 form có thể có nhiều biên nhận do ký gửi lại),
+    // lấy bằng một query cho cả trang
+    private Map<UUID, ConsignmentReceipt> loadLatestReceipts(List<ConsignmentForm> forms) {
+        if (forms.isEmpty()) {
+            return Map.of();
+        }
+        List<UUID> ids = forms.stream().map(ConsignmentForm::getId).toList();
+        return consignmentReceiptRepository.findLatestByFormIds(ids).stream()
+                .collect(Collectors.toMap(
+                        r -> r.getConsignmentForm().getId(),
+                        Function.identity(),
+                        (a, b) -> NEWER_RECEIPT.compare(a, b) >= 0 ? a : b));
     }
 
     // Phải gọi trong transaction vì đọc các quan hệ lazy của form

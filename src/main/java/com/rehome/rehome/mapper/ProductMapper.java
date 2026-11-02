@@ -92,8 +92,11 @@ public class ProductMapper {
                 // decisionDeadline để null: hệ thống chưa có hạn cho Member quyết định (F-036)
                 .degradedCase(dc == null ? null
                         : new MyProductResponse.DegradedCaseRef(
-                        dc.getId(), DegradedItemCaseStatus.PENDING_DECISION.name(), null))
-                .receiptId(currentReceiptId(r, d));
+                        dc.getId(), DegradedItemCaseStatus.PENDING_DECISION.name(), null,
+                        dc.getChoice() == null ? null : dc.getChoice().name()))
+                .receiptId(currentReceiptId(r, d))
+                .freeWithdrawalWindowDays(r.getFreeWithdrawalWindowDays())
+                .withdrawalFee(r.getWithdrawalFee());
     }
 
     // Biên nhận đang áp dụng = biên nhận mới nhất đã xác nhận. Món đã ký gửi lại (RE_CONSIGN)

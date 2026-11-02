@@ -23,5 +23,12 @@ public class NotificationResponse {
     @JsonProperty("isRead") // Jackson mặc định bỏ tiền tố "is" của getter boolean -> phải ép tên field tường minh
     private boolean isRead;
 
+    // Deep-link để app mở đúng màn hình; null khi thông báo không có đích cụ thể
+    private String targetType;
+    private String targetId;
+
+    // DONATION_RECORDED: kho đã ghi nhận lượt quyên góp (OC-07)
+    private String warehouseId;
+
     private Instant createdAt;
 }

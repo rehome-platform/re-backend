@@ -23,4 +23,9 @@ public class ConsignmentFormListItemResponse {
     private LocalDate bringInDeadline;
     private String rejectReason;
     private Instant createdAt;
+
+    // Giống API chi tiết: null khi form chưa có biên nhận (chưa qua kiểm định/lập biên nhận).
+    // Có giá trị nhưng receiptConfirmed=false -> đang chờ Member xác nhận biên nhận (vẫn INSPECTING).
+    private UUID receiptId;
+    private boolean receiptConfirmed;
 }

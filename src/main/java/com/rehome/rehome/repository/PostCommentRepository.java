@@ -1,6 +1,5 @@
 package com.rehome.rehome.repository;
 
-import com.rehome.rehome.entity.enums.ContentStatus;
 import com.rehome.rehome.entity.marketplace.PostComment;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -16,12 +15,11 @@ import java.util.UUID;
 @Repository
 public interface PostCommentRepository extends JpaRepository<PostComment, UUID> {
 
-    long countByPost_IdAndStatus(UUID postId, ContentStatus status);
-    Page<PostComment> findByPost_IdAndStatus(UUID postId, ContentStatus status, Pageable pageable);
+    // Mọi bình luận của 1 bài, kể cả REMOVED (vẫn trả về, chỉ bỏ content ở tầng response - OB-05)
+    long countByPost_Id(UUID postId);
+    Page<PostComment> findByPost_Id(UUID postId, Pageable pageable);
 
-    // F-107: số bình luận còn hiển thị của từng bài, gom 1 query để tránh N+1
-    @Query("select pc.post.id, count(pc) from PostComment pc "
-            + "where pc.post.id in :postIds and pc.status = :status group by pc.post.id")
-    List<Object[]> countByPostIdsAndStatus(@Param("postIds") Collection<UUID> postIds,
-                                           @Param("status") ContentStatus status);
+    // F-107: số bình luận của từng bài, gom 1 query để tránh N+1
+    @Query("select pc.post.id, count(pc) from PostComment pc where pc.post.id in :postIds group by pc.post.id")
+    List<Object[]> countByPostIds(@Param("postIds") Collection<UUID> postIds);
 }

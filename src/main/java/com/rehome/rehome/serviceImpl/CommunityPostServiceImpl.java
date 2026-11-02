@@ -3,17 +3,27 @@ package com.rehome.rehome.serviceImpl;
 import com.rehome.rehome.dto.request.CreateCommentRequest;
 import com.rehome.rehome.dto.request.CreatePostRequest;
 import com.rehome.rehome.dto.request.UpdatePostRequest;
+import com.rehome.rehome.dto.response.CommentAuthorResponse;
 import com.rehome.rehome.dto.response.CommentResponse;
 import com.rehome.rehome.dto.response.MyPostResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.PostCreateResponse;
 import com.rehome.rehome.dto.response.PostDetailResponse;
+import com.rehome.rehome.dto.response.PostOrganizationSummaryResponse;
 import com.rehome.rehome.dto.response.PostSummaryResponse;
 import com.rehome.rehome.dto.response.PostUpdateResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
+import com.rehome.rehome.entity.enums.CampaignStatus;
 import com.rehome.rehome.entity.enums.ContentStatus;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.VerificationStatus;
+import com.rehome.rehome.entity.enums.ViolationReportStatus;
+import com.rehome.rehome.entity.enums.ViolationTargetType;
+import com.rehome.rehome.entity.marketplace.Campaign;
 import com.rehome.rehome.entity.marketplace.CommunityPost;
 import com.rehome.rehome.entity.marketplace.CommunityPostPhoto;
 import com.rehome.rehome.entity.marketplace.PostComment;
@@ -24,13 +34,17 @@ import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.exception.UnauthorizedException;
 import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.repository.CampaignRepository;
 import com.rehome.rehome.repository.CommunityPostPhotoRepository;
 import com.rehome.rehome.repository.CommunityPostRepository;
 import com.rehome.rehome.repository.FollowRepository;
+import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.PostCommentRepository;
 import com.rehome.rehome.repository.PostLikeRepository;
+import com.rehome.rehome.repository.ViolationReportRepository;
 import com.rehome.rehome.service.CommunityPostService;
+import com.rehome.rehome.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -40,8 +54,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -50,6 +68,11 @@ import java.util.stream.Collectors;
 public class CommunityPostServiceImpl implements CommunityPostService {
 
     private static final int MAX_PAGE_SIZE = 50;
+    private static final int MAX_CONTENT_LENGTH = 2000;
+    private static final int MAX_PHOTOS = 5;
+    private static final int MAX_COMMENT_LENGTH = 500;
+    private static final String CAMPAIGN_NOT_FOUND = "Không tìm thấy chiến dịch.";
+    private static final String COMMENT_NOT_FOUND = "Không tìm thấy bình luận.";
 
     private final CommunityPostRepository communityPostRepository;
     private final FollowRepository followRepository;
@@ -58,6 +81,10 @@ public class CommunityPostServiceImpl implements CommunityPostService {
     private final AccountRepository accountRepository;
     private final OrganizationProfileRepository organizationProfileRepository;
     private final CommunityPostPhotoRepository communityPostPhotoRepository;
+    private final CampaignRepository campaignRepository;
+    private final MemberProfileRepository memberProfileRepository;
+    private final ViolationReportRepository violationReportRepository;
+    private final NotificationService notificationService;
 
     @Override
     @Transactional(readOnly = true)
@@ -93,12 +120,28 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy bài viết."));
 
         long likeCount = postLikeRepository.countByPost_Id(postId);
-        long commentCount = postCommentRepository.countByPost_IdAndStatus(postId, ContentStatus.VISIBLE);
+        // Bình luận REMOVED vẫn chiếm 1 dòng trong danh sách (content null), nên vẫn tính vào tổng
+        long commentCount = postCommentRepository.countByPost_Id(postId);
         boolean likedByMe = viewerId != null && postLikeRepository.existsByPost_IdAndMember_Id(postId, viewerId);
+
+        List<String> photoUrls = communityPostPhotoRepository.findByPost_Id(postId).stream()
+                .map(CommunityPostPhoto::getImageUrl)
+                .toList();
+        Campaign campaign = post.getCampaign();
+        OrganizationProfile organization = post.getOrganization();
 
         return PostDetailResponse.builder()
                 .id(post.getId().toString())
                 .content(post.getContent())
+                .photoUrls(photoUrls)
+                .createdAt(post.getCreatedAt())
+                .campaignId(campaign == null ? null : campaign.getId().toString())
+                .campaignTitle(campaign == null ? null : campaign.getTitle())
+                .organization(PostOrganizationSummaryResponse.builder()
+                        .id(organization.getAccountId().toString())
+                        .displayName(organization.getDisplayName())
+                        .logoUrl(organization.getLogoUrl())
+                        .build())
                 .likeCount(likeCount)
                 .commentCount(commentCount)
                 .likedByMe(likedByMe)
@@ -107,25 +150,25 @@ public class CommunityPostServiceImpl implements CommunityPostService {
 
     @Override
     @Transactional
-    public void like(UUID memberId, UUID postId) {
+    public void like(UUID accountId, UUID postId) {
         CommunityPost post = communityPostRepository.findById(postId)
                 .filter(p -> p.getStatus() == ContentStatus.VISIBLE)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy bài viết."));
 
-        if (!postLikeRepository.existsByPost_IdAndMember_Id(postId, memberId)) {
-            Account member = accountRepository.findById(memberId)
+        if (!postLikeRepository.existsByPost_IdAndMember_Id(postId, accountId)) {
+            Account account = accountRepository.findById(accountId)
                     .orElseThrow(() -> new AppException(ErrorCode.UNAUTHORIZED));
-            postLikeRepository.save(PostLike.builder().post(post).member(member).build());
+            postLikeRepository.save(PostLike.builder().post(post).member(account).build());
         }
     }
 
     @Override
     @Transactional
-    public void unlike(UUID memberId, UUID postId) {
+    public void unlike(UUID accountId, UUID postId) {
         if (!communityPostRepository.existsById(postId)) {
             throw new IllegalArgumentException("Không tìm thấy bài viết.");
         }
-        postLikeRepository.findByPost_IdAndMember_Id(postId, memberId)
+        postLikeRepository.findByPost_IdAndMember_Id(postId, accountId)
                 .ifPresent(postLikeRepository::delete);
     }
 
@@ -141,31 +184,133 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                 Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
                 Sort.by(Sort.Direction.DESC, "createdAt"));
 
-        Page<PostComment> result = postCommentRepository.findByPost_IdAndStatus(postId, ContentStatus.VISIBLE, pageable);
-        return PageResponse.from(result.map(CommunityPostServiceImpl::toCommentResponse));
+        // Trả cả REMOVED (content bỏ ở tầng response) - mobile tự xếp nhóm theo parentId (OB-05)
+        Page<PostComment> result = postCommentRepository.findByPost_Id(postId, pageable);
+        Map<UUID, AuthorInfo> authorInfoByAccountId = loadAuthorInfoMap(result.getContent());
+        return PageResponse.from(result.map(c -> toCommentResponse(c, authorInfoByAccountId)));
     }
 
     @Override
     @Transactional
-    public CommentResponse createComment(UUID memberId, UUID postId, CreateCommentRequest request) {
+    public CommentResponse createComment(UUID authorId, UUID postId, CreateCommentRequest request) {
         if (!StringUtils.hasText(request.getContent())) {
             throw new BadRequestException("content là bắt buộc.");
+        }
+        if (request.getContent().length() > MAX_COMMENT_LENGTH) {
+            throw new AppException(ErrorCode.COMMENT_CONTENT_TOO_LONG);
         }
 
         CommunityPost post = communityPostRepository.findById(postId)
                 .filter(p -> p.getStatus() == ContentStatus.VISIBLE)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy bài viết."));
-        Account member = accountRepository.findById(memberId)
+        Account author = accountRepository.findById(authorId)
                 .orElseThrow(() -> new AppException(ErrorCode.UNAUTHORIZED));
+
+        // ORGANIZATION chỉ được bình luận/trả lời trên bài của chính mình; Member không giới hạn
+        if (author.getRole() == Role.ORGANIZATION
+                && !post.getOrganization().getAccountId().equals(authorId)) {
+            throw new ForbiddenException("Bạn không có quyền bình luận trên bài viết này.");
+        }
+
+        PostComment parent = resolveRootParentOrNull(postId, request.getParentId());
 
         PostComment comment = PostComment.builder()
                 .post(post)
-                .member(member)
+                .author(author)
+                .parent(parent)
                 .content(request.getContent())
                 .build();
         postCommentRepository.save(comment);
 
-        return toCommentResponse(comment);
+        notifyAboutComment(post, author, parent);
+
+        AuthorInfo authorInfo = loadAuthorInfo(author);
+        return toCommentResponse(comment, Collections.singletonMap(authorId, authorInfo));
+    }
+
+    // Chỉ trả lời 1 cấp: trả lời vào 1 reply thì gắn vào bình luận gốc của chính reply đó
+    private PostComment resolveRootParentOrNull(UUID postId, String rawParentId) {
+        if (!StringUtils.hasText(rawParentId)) {
+            return null;
+        }
+        UUID parentId;
+        try {
+            parentId = UUID.fromString(rawParentId.trim());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(COMMENT_NOT_FOUND);
+        }
+        PostComment parent = postCommentRepository.findById(parentId)
+                .filter(c -> c.getPost().getId().equals(postId))
+                .orElseThrow(() -> new IllegalArgumentException(COMMENT_NOT_FOUND));
+        return parent.getParent() != null ? parent.getParent() : parent;
+    }
+
+    // COMMENT_REPLIED: tổ chức trả lời -> báo cho tác giả bình luận gốc (luôn là Member, vì chỉ
+    // tổ chức sở hữu bài mới bình luận được nên bình luận gốc không thể của tổ chức khác).
+    // POST_COMMENTED: Member bình luận/trả lời -> báo cho tổ chức sở hữu bài.
+    private void notifyAboutComment(CommunityPost post, Account author, PostComment parent) {
+        if (author.getRole() == Role.ORGANIZATION) {
+            if (parent != null && !parent.getAuthor().getId().equals(author.getId())) {
+                notificationService.notify(parent.getAuthor(), NotificationType.COMMENT_REPLIED,
+                        "Bình luận của bạn có phản hồi",
+                        "Tổ chức đã trả lời bình luận của bạn trên một bài viết.",
+                        NotificationTargetType.POST, post.getId(), null);
+            }
+        } else {
+            Account organizationAccount = post.getOrganization().getAccount();
+            if (!organizationAccount.getId().equals(author.getId())) {
+                notificationService.notify(organizationAccount, NotificationType.POST_COMMENTED,
+                        "Có bình luận mới",
+                        "Bài viết của bạn có bình luận mới.",
+                        NotificationTargetType.POST, post.getId(), null);
+            }
+        }
+    }
+
+    // type/name/avatarUrl nhúng trong CommentAuthorResponse; MEMBER đọc MemberProfile,
+    // ORGANIZATION đọc OrganizationProfile (tên/logo)
+    private record AuthorInfo(String type, String name, String avatarUrl) {
+    }
+
+    private AuthorInfo loadAuthorInfo(Account account) {
+        if (account.getRole() == Role.ORGANIZATION) {
+            OrganizationProfile profile = organizationProfileRepository.findById(account.getId()).orElse(null);
+            return new AuthorInfo(Role.ORGANIZATION.name(),
+                    profile == null ? null : profile.getDisplayName(),
+                    profile == null ? null : profile.getLogoUrl());
+        }
+        MemberProfile profile = memberProfileRepository.findByAccountId(account.getId()).orElse(null);
+        return new AuthorInfo(Role.MEMBER.name(),
+                profile == null ? null : profile.getFullName(),
+                profile == null ? null : profile.getAvatarUrl());
+    }
+
+    private Map<UUID, AuthorInfo> loadAuthorInfoMap(List<PostComment> comments) {
+        Set<UUID> memberIds = new HashSet<>();
+        Set<UUID> organizationIds = new HashSet<>();
+        for (PostComment comment : comments) {
+            Account author = comment.getAuthor();
+            if (author.getRole() == Role.ORGANIZATION) {
+                organizationIds.add(author.getId());
+            } else {
+                memberIds.add(author.getId());
+            }
+        }
+
+        Map<UUID, AuthorInfo> result = new HashMap<>();
+        if (!memberIds.isEmpty()) {
+            for (MemberProfile profile : memberProfileRepository.findAllById(memberIds)) {
+                result.put(profile.getAccountId(),
+                        new AuthorInfo(Role.MEMBER.name(), profile.getFullName(), profile.getAvatarUrl()));
+            }
+        }
+        if (!organizationIds.isEmpty()) {
+            for (OrganizationProfile profile : organizationProfileRepository.findAllById(organizationIds)) {
+                result.put(profile.getAccountId(),
+                        new AuthorInfo(Role.ORGANIZATION.name(), profile.getDisplayName(), profile.getLogoUrl()));
+            }
+        }
+        return result;
     }
 
     @Override
@@ -174,6 +319,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         if (!StringUtils.hasText(request.getContent())) {
             throw new BadRequestException("content là bắt buộc.");
         }
+        validateContentAndPhotos(request.getContent(), request.getPhotoUrls());
 
         OrganizationProfile organization = organizationProfileRepository.findById(organizationAccountId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND));
@@ -181,18 +327,18 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         if (organization.getVerificationStatus() != VerificationStatus.VERIFIED) {
             throw new ForbiddenException("Hồ sơ tổ chức chưa được xác minh.");
         }
+        // OB-02: campaignId không bắt buộc; nếu có thì chỉ chấp nhận chiến dịch đang OPEN của
+        // chính tổ chức này, ngoài phạm vi đó coi như không tìm thấy (giống DonationServiceImpl)
+        Campaign campaign = resolveOwnOpenCampaignOrNull(organizationAccountId, request.getCampaignId());
 
         CommunityPost post = CommunityPost.builder()
                 .organization(organization)
                 .content(request.getContent())
+                .campaign(campaign)
                 .build();
         communityPostRepository.save(post);
 
-        List<String> photoUrls = request.getPhotoUrls() == null ? List.of() : request.getPhotoUrls();
-        List<CommunityPostPhoto> photos = photoUrls.stream()
-                .filter(StringUtils::hasText)
-                .map(url -> CommunityPostPhoto.builder().post(post).imageUrl(url.trim()).build())
-                .toList();
+        List<CommunityPostPhoto> photos = toPhotoEntities(post, request.getPhotoUrls());
         if (!photos.isEmpty()) {
             communityPostPhotoRepository.saveAll(photos);
         }
@@ -209,16 +355,70 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         if (!StringUtils.hasText(request.getContent())) {
             throw new BadRequestException("content là bắt buộc.");
         }
+        validateContentAndPhotos(request.getContent(), request.getPhotoUrls());
 
         CommunityPost post = requireOwnPost(organizationAccountId, postId,
                 "Bạn không có quyền sửa bài viết này.");
+        Campaign campaign = resolveOwnOpenCampaignOrNull(organizationAccountId, request.getCampaignId());
+
         post.setContent(request.getContent());
+        post.setCampaign(campaign);
         communityPostRepository.save(post);
+
+        // OB-03: danh sách ảnh mới thay thế hẳn danh sách cũ, không patch từng ảnh
+        communityPostPhotoRepository.deleteByPost_Id(postId);
+        List<CommunityPostPhoto> photos = toPhotoEntities(post, request.getPhotoUrls());
+        if (!photos.isEmpty()) {
+            communityPostPhotoRepository.saveAll(photos);
+        }
 
         return PostUpdateResponse.builder()
                 .id(post.getId().toString())
                 .content(post.getContent())
+                .photoUrls(photos.stream().map(CommunityPostPhoto::getImageUrl).toList())
+                .campaignId(campaign == null ? null : campaign.getId().toString())
+                .campaignTitle(campaign == null ? null : campaign.getTitle())
                 .build();
+    }
+
+    // Giới hạn mobile đang áp (content <= 2000 ký tự, tối đa 5 ảnh) — BE trước đây không kiểm,
+    // giờ chặn luôn ở tầng service và trả AppException để FE phân biệt bằng code (xem ErrorCode)
+    private void validateContentAndPhotos(String content, List<String> photoUrls) {
+        if (content != null && content.length() > MAX_CONTENT_LENGTH) {
+            throw new AppException(ErrorCode.POST_CONTENT_TOO_LONG);
+        }
+        long photoCount = photoUrls == null ? 0 : photoUrls.stream().filter(StringUtils::hasText).count();
+        if (photoCount > MAX_PHOTOS) {
+            throw new AppException(ErrorCode.POST_TOO_MANY_PHOTOS);
+        }
+    }
+
+    private List<CommunityPostPhoto> toPhotoEntities(CommunityPost post, List<String> photoUrls) {
+        if (photoUrls == null) {
+            return List.of();
+        }
+        return photoUrls.stream()
+                .filter(StringUtils::hasText)
+                .map(url -> CommunityPostPhoto.builder().post(post).imageUrl(url.trim()).build())
+                .toList();
+    }
+
+    // OB-02/OB-03: campaignId rỗng -> không gắn/gỡ chiến dịch; có giá trị thì chiến dịch phải
+    // đang OPEN và thuộc đúng tổ chức này, ngoài phạm vi đó coi như không tìm thấy
+    private Campaign resolveOwnOpenCampaignOrNull(UUID organizationAccountId, String rawCampaignId) {
+        if (!StringUtils.hasText(rawCampaignId)) {
+            return null;
+        }
+        UUID campaignId;
+        try {
+            campaignId = UUID.fromString(rawCampaignId.trim());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(CAMPAIGN_NOT_FOUND);
+        }
+        return campaignRepository.findById(campaignId)
+                .filter(c -> c.getOrganization().getAccountId().equals(organizationAccountId))
+                .filter(c -> c.getStatus() == CampaignStatus.OPEN)
+                .orElseThrow(() -> new IllegalArgumentException(CAMPAIGN_NOT_FOUND));
     }
 
     @Override
@@ -251,15 +451,31 @@ public class CommunityPostServiceImpl implements CommunityPostService {
 
         List<UUID> postIds = result.getContent().stream().map(CommunityPost::getId).toList();
         Map<UUID, Long> likeCounts = toCountMap(postLikeRepository.countByPostIds(postIds));
-        Map<UUID, Long> commentCounts = toCountMap(
-                postCommentRepository.countByPostIdsAndStatus(postIds, ContentStatus.VISIBLE));
+        // Bình luận REMOVED vẫn chiếm 1 dòng trong danh sách (content null), nên vẫn tính vào tổng
+        Map<UUID, Long> commentCounts = toCountMap(postCommentRepository.countByPostIds(postIds));
+        Map<UUID, Long> reportCounts = toCountMap(violationReportRepository.countByTargetTypeAndTargetIdInAndStatus(
+                ViolationTargetType.POST, postIds, ViolationReportStatus.PENDING));
+        Map<UUID, List<String>> photoUrlsByPost = communityPostPhotoRepository.findUrlsByPostIds(postIds).stream()
+                .collect(Collectors.groupingBy(row -> (UUID) row[0],
+                        Collectors.mapping(row -> (String) row[1], Collectors.toList())));
+        Set<UUID> likedByMePostIds = Set.copyOf(
+                postLikeRepository.findLikedPostIds(postIds, organizationAccountId));
 
-        return PageResponse.from(result.map(post -> MyPostResponse.builder()
-                .id(post.getId().toString())
-                .content(post.getContent())
-                .likeCount(likeCounts.getOrDefault(post.getId(), 0L))
-                .commentCount(commentCounts.getOrDefault(post.getId(), 0L))
-                .build()));
+        return PageResponse.from(result.map(post -> {
+            Campaign campaign = post.getCampaign();
+            return MyPostResponse.builder()
+                    .id(post.getId().toString())
+                    .content(post.getContent())
+                    .photoUrls(photoUrlsByPost.getOrDefault(post.getId(), List.of()))
+                    .createdAt(post.getCreatedAt())
+                    .campaignId(campaign == null ? null : campaign.getId().toString())
+                    .campaignTitle(campaign == null ? null : campaign.getTitle())
+                    .likeCount(likeCounts.getOrDefault(post.getId(), 0L))
+                    .commentCount(commentCounts.getOrDefault(post.getId(), 0L))
+                    .reportCount(reportCounts.getOrDefault(post.getId(), 0L))
+                    .likedByMe(likedByMePostIds.contains(post.getId()))
+                    .build();
+        }));
     }
 
     private CommunityPost requireOwnPost(UUID organizationAccountId, UUID postId, String forbiddenMessage) {
@@ -284,11 +500,24 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                 .build();
     }
 
-    private static CommentResponse toCommentResponse(PostComment comment) {
+    private static CommentResponse toCommentResponse(PostComment comment, Map<UUID, AuthorInfo> authorInfoByAccountId) {
+        boolean removed = comment.getStatus() == ContentStatus.REMOVED;
+        Account authorAccount = comment.getAuthor();
+        AuthorInfo authorInfo = authorInfoByAccountId.get(authorAccount.getId());
+
         return CommentResponse.builder()
                 .id(comment.getId().toString())
-                .content(comment.getContent())
+                .parentId(comment.getParent() == null ? null : comment.getParent().getId().toString())
+                // REMOVED: Moderator đã ẩn -> bỏ nội dung, dòng vẫn trả về (OB-05)
+                .content(removed ? null : comment.getContent())
                 .status(comment.getStatus().name())
+                .author(CommentAuthorResponse.builder()
+                        .id(authorAccount.getId().toString())
+                        .type(authorInfo != null ? authorInfo.type() : authorAccount.getRole().name())
+                        .name(authorInfo == null ? null : authorInfo.name())
+                        .avatarUrl(authorInfo == null ? null : authorInfo.avatarUrl())
+                        .build())
+                .createdAt(comment.getCreatedAt())
                 .build();
     }
 }

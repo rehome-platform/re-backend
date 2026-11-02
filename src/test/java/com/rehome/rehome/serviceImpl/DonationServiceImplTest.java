@@ -1,11 +1,13 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.dto.request.CreateCampaignDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateDonationRequest;
 import com.rehome.rehome.dto.request.HandoverDonationsRequest;
 import com.rehome.rehome.dto.response.DonationHandoverResponse;
 import com.rehome.rehome.dto.response.DonationNoteResponse;
 import com.rehome.rehome.dto.response.DonationResponse;
+import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.ModeratorProfile;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
@@ -16,6 +18,8 @@ import com.rehome.rehome.entity.marketplace.Campaign;
 import com.rehome.rehome.entity.marketplace.Donation;
 import com.rehome.rehome.entity.marketplace.DonationNote;
 import com.rehome.rehome.entity.marketplace.Warehouse;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ErrorCode;
@@ -26,12 +30,17 @@ import com.rehome.rehome.repository.DonationRepository;
 import com.rehome.rehome.repository.ModeratorProfileRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
+import com.rehome.rehome.service.NotificationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
 import java.util.List;
@@ -42,6 +51,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -56,6 +66,7 @@ class DonationServiceImplTest {
     @Mock private OrganizationProfileRepository organizationProfileRepository;
     @Mock private CampaignRepository campaignRepository;
     @Mock private ModeratorProfileRepository moderatorProfileRepository;
+    @Mock private NotificationService notificationService;
 
     @InjectMocks private DonationServiceImpl service;
 
@@ -75,11 +86,17 @@ class DonationServiceImplTest {
         });
     }
 
-    // Chiến dịch có chọn warehouseId này để nhận đồ (xem Campaign.warehouses, OC-02)
+    // Chiến dịch có chọn warehouseId này để nhận đồ (xem Campaign.warehouses, OC-02).
+    // Tổ chức sở hữu phải có account vì recordDonation báo DONATION_RECORDED cho account đó.
     private Campaign campaignServingWarehouse(UUID campaignId, UUID warehouseId) {
+        UUID organizationId = UUID.randomUUID();
         return Campaign.builder()
                 .id(campaignId)
                 .warehouses(Set.of(Warehouse.builder().id(warehouseId).build()))
+                .organization(OrganizationProfile.builder()
+                        .accountId(organizationId)
+                        .account(Account.builder().id(organizationId).build())
+                        .build())
                 .build();
     }
 
@@ -120,6 +137,31 @@ class DonationServiceImplTest {
         assertThat(captor.getValue().getDonorName()).isEqualTo("Nguyễn Văn A");
         assertThat(captor.getValue().getCampaign().getId()).isEqualTo(campaignId);
         assertThat(captor.getValue().getRecordedBy()).isSameAs(moderatorAccount);
+    }
+
+    @Test
+    void recordDonation_notifiesCampaignOrganizationWithCampaignAndWarehouseTarget() {
+        UUID warehouseId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        Warehouse warehouse = Warehouse.builder().id(warehouseId).name("Kho Quận 7").build();
+        Account moderatorAccount = moderator(warehouseId);
+        Campaign campaign = campaignServingWarehouse(campaignId, warehouseId);
+
+        when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(campaign));
+        stubSaveAssignsId();
+
+        service.recordDonation(moderatorAccount, warehouseId,
+                new CreateDonationRequest(campaignId.toString(), "Nguyễn Văn A", false, null));
+
+        verify(notificationService).notify(
+                eq(campaign.getOrganization().getAccount()),
+                eq(NotificationType.DONATION_RECORDED),
+                any(),
+                any(),
+                eq(NotificationTargetType.CAMPAIGN),
+                eq(campaignId),
+                eq(warehouseId));
     }
 
     @Test
@@ -740,40 +782,45 @@ class DonationServiceImplTest {
         return donation;
     }
 
+    private static final Pageable FIRST_PAGE_OF_20 = PageRequest.of(0, 20,
+            org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "createdAt"));
+
     @Test
     void listOrganizationDonations_noFilter_returnsPendingPoolPlusOwnHistory() {
         UUID orgId = UUID.randomUUID();
         UUID warehouseId = UUID.randomUUID();
         stubVerifiedOrganization(orgId);
-        when(donationRepository.findVisibleForOrganization(orgId, DonationStatus.PENDING_PICKUP))
-                .thenReturn(List.of(
+        when(donationRepository.findVisibleForOrganization(
+                orgId, DonationStatus.PENDING_PICKUP, null, null, FIRST_PAGE_OF_20))
+                .thenReturn(new PageImpl<>(List.of(
                         donation(warehouseId, "Nguyễn Văn A", false),
-                        handedOverDonation(warehouseId, orgId)));
+                        handedOverDonation(warehouseId, orgId))));
 
-        List<DonationResponse> result = service.listOrganizationDonations(orgId, null);
+        PageResponse<DonationResponse> result =
+                service.listOrganizationDonations(orgId, null, null, null, 0, 20);
 
-        assertThat(result).hasSize(2);
-        assertThat(result.get(0).getWarehouseId()).isEqualTo(warehouseId.toString());
-        assertThat(result.get(0).getDonorName()).isEqualTo("Nguyễn Văn A");
-        assertThat(result.get(0).getStatus()).isEqualTo("PENDING_PICKUP");
-        assertThat(result.get(1).getStatus()).isEqualTo("HANDED_OVER");
+        assertThat(result.getContent()).hasSize(2);
+        assertThat(result.getContent().get(0).getWarehouseId()).isEqualTo(warehouseId.toString());
+        assertThat(result.getContent().get(0).getDonorName()).isEqualTo("Nguyễn Văn A");
+        assertThat(result.getContent().get(0).getStatus()).isEqualTo("PENDING_PICKUP");
+        assertThat(result.getContent().get(1).getStatus()).isEqualTo("HANDED_OVER");
     }
 
     @Test
     void listOrganizationDonations_filterPendingPickup_readsSharedPool() {
         UUID orgId = UUID.randomUUID();
         stubVerifiedOrganization(orgId);
-        when(donationRepository.findByStatusOrderByCreatedAtDesc(DonationStatus.PENDING_PICKUP))
-                .thenReturn(List.of(donation(UUID.randomUUID(), "Nguyễn Văn A", false)));
+        when(donationRepository.findByStatusWithFilters(
+                DonationStatus.PENDING_PICKUP, null, null, FIRST_PAGE_OF_20))
+                .thenReturn(new PageImpl<>(List.of(donation(UUID.randomUUID(), "Nguyễn Văn A", false))));
 
-        List<DonationResponse> result =
-                service.listOrganizationDonations(orgId, DonationStatus.PENDING_PICKUP);
+        PageResponse<DonationResponse> result = service.listOrganizationDonations(
+                orgId, null, null, DonationStatus.PENDING_PICKUP, 0, 20);
 
-        assertThat(result).hasSize(1);
+        assertThat(result.getContent()).hasSize(1);
         // Lượt chờ lấy là pool chung nên không giới hạn theo tổ chức
-        verify(donationRepository, never()).findVisibleForOrganization(any(), any());
-        verify(donationRepository, never())
-                .findByHandedOverToOrganization_AccountIdAndStatusOrderByCreatedAtDesc(any(), any());
+        verify(donationRepository, never()).findVisibleForOrganization(any(), any(), any(), any(), any());
+        verify(donationRepository, never()).findHandedOverForOrganization(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -781,42 +828,96 @@ class DonationServiceImplTest {
         UUID orgId = UUID.randomUUID();
         UUID warehouseId = UUID.randomUUID();
         stubVerifiedOrganization(orgId);
-        when(donationRepository.findByHandedOverToOrganization_AccountIdAndStatusOrderByCreatedAtDesc(
-                orgId, DonationStatus.HANDED_OVER))
-                .thenReturn(List.of(handedOverDonation(warehouseId, orgId)));
+        when(donationRepository.findHandedOverForOrganization(
+                orgId, DonationStatus.HANDED_OVER, null, null, FIRST_PAGE_OF_20))
+                .thenReturn(new PageImpl<>(List.of(handedOverDonation(warehouseId, orgId))));
 
-        List<DonationResponse> result =
-                service.listOrganizationDonations(orgId, DonationStatus.HANDED_OVER);
+        PageResponse<DonationResponse> result = service.listOrganizationDonations(
+                orgId, null, null, DonationStatus.HANDED_OVER, 0, 20);
 
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).getStatus()).isEqualTo("HANDED_OVER");
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getStatus()).isEqualTo("HANDED_OVER");
         // Không lọt lịch sử của tổ chức khác
-        verify(donationRepository).findByHandedOverToOrganization_AccountIdAndStatusOrderByCreatedAtDesc(
-                orgId, DonationStatus.HANDED_OVER);
-        verify(donationRepository, never()).findByStatusOrderByCreatedAtDesc(any());
+        verify(donationRepository).findHandedOverForOrganization(
+                orgId, DonationStatus.HANDED_OVER, null, null, FIRST_PAGE_OF_20);
+        verify(donationRepository, never()).findByStatusWithFilters(any(), any(), any(), any());
+    }
+
+    @Test
+    void listOrganizationDonations_filtersByCampaignAndWarehouse() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        when(donationRepository.findVisibleForOrganization(
+                orgId, DonationStatus.PENDING_PICKUP, campaignId, warehouseId, FIRST_PAGE_OF_20))
+                .thenReturn(new PageImpl<>(List.of(donation(warehouseId, "Nguyễn Văn A", false))));
+
+        PageResponse<DonationResponse> result =
+                service.listOrganizationDonations(orgId, campaignId, warehouseId, null, 0, 20);
+
+        assertThat(result.getContent()).hasSize(1);
+        verify(donationRepository).findVisibleForOrganization(
+                orgId, DonationStatus.PENDING_PICKUP, campaignId, warehouseId, FIRST_PAGE_OF_20);
+    }
+
+    @Test
+    void listOrganizationDonations_includesWarehouseName() {
+        UUID orgId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        Donation withNamedWarehouse = donation(warehouseId, "Nguyễn Văn A", false);
+        withNamedWarehouse.setWarehouse(Warehouse.builder().id(warehouseId).name("Kho Quận 7").build());
+        when(donationRepository.findVisibleForOrganization(
+                orgId, DonationStatus.PENDING_PICKUP, null, null, FIRST_PAGE_OF_20))
+                .thenReturn(new PageImpl<>(List.of(withNamedWarehouse)));
+
+        PageResponse<DonationResponse> result =
+                service.listOrganizationDonations(orgId, null, null, null, 0, 20);
+
+        assertThat(result.getContent().get(0).getWarehouseName()).isEqualTo("Kho Quận 7");
+    }
+
+    @Test
+    void listOrganizationDonations_pageAndSize_clampedAndForwarded() {
+        UUID orgId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        Pageable expected = PageRequest.of(2, 10,
+                org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "createdAt"));
+        when(donationRepository.findVisibleForOrganization(
+                orgId, DonationStatus.PENDING_PICKUP, null, null, expected))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        service.listOrganizationDonations(orgId, null, null, null, 2, 10);
+
+        verify(donationRepository).findVisibleForOrganization(
+                orgId, DonationStatus.PENDING_PICKUP, null, null, expected);
     }
 
     @Test
     void listOrganizationDonations_anonymousDonation_hidesDonorName() {
         UUID orgId = UUID.randomUUID();
         stubVerifiedOrganization(orgId);
-        when(donationRepository.findVisibleForOrganization(orgId, DonationStatus.PENDING_PICKUP))
-                .thenReturn(List.of(donation(UUID.randomUUID(), null, true)));
+        when(donationRepository.findVisibleForOrganization(
+                orgId, DonationStatus.PENDING_PICKUP, null, null, FIRST_PAGE_OF_20))
+                .thenReturn(new PageImpl<>(List.of(donation(UUID.randomUUID(), null, true))));
 
-        List<DonationResponse> result = service.listOrganizationDonations(orgId, null);
+        PageResponse<DonationResponse> result =
+                service.listOrganizationDonations(orgId, null, null, null, 0, 20);
 
-        assertThat(result.get(0).isAnonymous()).isTrue();
-        assertThat(result.get(0).getDonorName()).isNull();
+        assertThat(result.getContent().get(0).isAnonymous()).isTrue();
+        assertThat(result.getContent().get(0).getDonorName()).isNull();
     }
 
     @Test
-    void listOrganizationDonations_empty_returnsEmptyList() {
+    void listOrganizationDonations_empty_returnsEmptyPage() {
         UUID orgId = UUID.randomUUID();
         stubVerifiedOrganization(orgId);
-        when(donationRepository.findVisibleForOrganization(orgId, DonationStatus.PENDING_PICKUP))
-                .thenReturn(List.of());
+        when(donationRepository.findVisibleForOrganization(
+                orgId, DonationStatus.PENDING_PICKUP, null, null, FIRST_PAGE_OF_20))
+                .thenReturn(new PageImpl<>(List.of()));
 
-        assertThat(service.listOrganizationDonations(orgId, null)).isEmpty();
+        assertThat(service.listOrganizationDonations(orgId, null, null, null, 0, 20).getContent()).isEmpty();
     }
 
     @Test
@@ -824,7 +925,7 @@ class DonationServiceImplTest {
         UUID orgId = UUID.randomUUID();
         when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.listOrganizationDonations(orgId, null))
+        assertThatThrownBy(() -> service.listOrganizationDonations(orgId, null, null, null, 0, 20))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessage("Bạn không có quyền truy cập.");
 
@@ -838,7 +939,7 @@ class DonationServiceImplTest {
                 OrganizationProfile.builder().accountId(orgId)
                         .verificationStatus(VerificationStatus.PENDING).build()));
 
-        assertThatThrownBy(() -> service.listOrganizationDonations(orgId, null))
+        assertThatThrownBy(() -> service.listOrganizationDonations(orgId, null, null, null, 0, 20))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessage("Bạn không có quyền truy cập.");
 
@@ -981,6 +1082,126 @@ class DonationServiceImplTest {
 
         assertThatThrownBy(() -> service.createDonationNote(orgId,
                 new CreateDonationNoteRequest(null, "Trần Thị B", false, null)))
+                .isInstanceOf(AppException.class)
+                .satisfies(e -> assertThat(((AppException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND));
+
+        verify(donationNoteRepository, never()).save(any());
+    }
+
+    // =====================================================================
+    // createCampaignDonationNote  (OC-08)
+    // =====================================================================
+
+    @Test
+    void createCampaignDonationNote_named_success() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(campaignOf(campaignId, orgId)));
+        stubNoteSaveAssignsId();
+
+        DonationNoteResponse res = service.createCampaignDonationNote(orgId, campaignId,
+                new CreateCampaignDonationNoteRequest("Trần Thị B", false, "1 túi quần áo trẻ em"));
+
+        assertThat(res.getId()).isNotNull();
+        assertThat(res.getCampaignId()).isEqualTo(campaignId.toString());
+        assertThat(res.getDonorName()).isEqualTo("Trần Thị B");
+        assertThat(res.isAnonymous()).isFalse();
+        assertThat(res.getNote()).isEqualTo("1 túi quần áo trẻ em");
+        assertThat(res.getCreatedAt()).isNotNull();
+
+        ArgumentCaptor<DonationNote> captor = ArgumentCaptor.forClass(DonationNote.class);
+        verify(donationNoteRepository).save(captor.capture());
+        assertThat(captor.getValue().getOrganization().getAccountId()).isEqualTo(orgId);
+        assertThat(captor.getValue().getCampaign().getId()).isEqualTo(campaignId);
+    }
+
+    @Test
+    void createCampaignDonationNote_anonymous_doesNotStoreDonorName() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(campaignOf(campaignId, orgId)));
+        stubNoteSaveAssignsId();
+
+        DonationNoteResponse res = service.createCampaignDonationNote(orgId, campaignId,
+                new CreateCampaignDonationNoteRequest("Trần Thị B", true, "1 túi quần áo"));
+
+        assertThat(res.isAnonymous()).isTrue();
+        assertThat(res.getDonorName()).isNull();
+
+        ArgumentCaptor<DonationNote> captor = ArgumentCaptor.forClass(DonationNote.class);
+        verify(donationNoteRepository).save(captor.capture());
+        assertThat(captor.getValue().getDonorName()).isNull();
+    }
+
+    @Test
+    void createCampaignDonationNote_blankDonorNameAndNotAnonymous_throwsBadRequest() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> service.createCampaignDonationNote(orgId, campaignId,
+                new CreateCampaignDonationNoteRequest("  ", false, "ghi chú")))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Vui lòng nhập tên người quyên góp hoặc chọn ẩn danh.");
+
+        verifyNoInteractions(organizationProfileRepository, campaignRepository, donationNoteRepository);
+    }
+
+    @Test
+    void createCampaignDonationNote_missingIsAnonymousTreatedAsFalse_requiresDonorName() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> service.createCampaignDonationNote(orgId, campaignId,
+                new CreateCampaignDonationNoteRequest(null, null, "ghi chú")))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Vui lòng nhập tên người quyên góp hoặc chọn ẩn danh.");
+
+        verifyNoInteractions(organizationProfileRepository, campaignRepository, donationNoteRepository);
+    }
+
+    @Test
+    void createCampaignDonationNote_campaignNotFound_throwsNotFound() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.createCampaignDonationNote(orgId, campaignId,
+                new CreateCampaignDonationNoteRequest("Trần Thị B", false, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy chiến dịch.");
+
+        verify(donationNoteRepository, never()).save(any());
+    }
+
+    @Test
+    void createCampaignDonationNote_otherOrganizationCampaign_treatedAsNotFound() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        // Chiến dịch của tổ chức khác
+        when(campaignRepository.findById(campaignId))
+                .thenReturn(Optional.of(campaignOf(campaignId, UUID.randomUUID())));
+
+        assertThatThrownBy(() -> service.createCampaignDonationNote(orgId, campaignId,
+                new CreateCampaignDonationNoteRequest("Trần Thị B", false, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy chiến dịch.");
+
+        verify(donationNoteRepository, never()).save(any());
+    }
+
+    @Test
+    void createCampaignDonationNote_organizationProfileNotFound_throws() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.createCampaignDonationNote(orgId, campaignId,
+                new CreateCampaignDonationNoteRequest("Trần Thị B", false, null)))
                 .isInstanceOf(AppException.class)
                 .satisfies(e -> assertThat(((AppException) e).getErrorCode())
                         .isEqualTo(ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND));

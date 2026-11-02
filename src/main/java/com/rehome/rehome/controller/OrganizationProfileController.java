@@ -102,6 +102,15 @@ public class OrganizationProfileController {
                 .body(ApiResponse.success(result, 201, "Đã gởi yêu cầu, chờ duyệt"));
     }
 
+    @GetMapping("/me/legal-change-requests/latest")
+    @PreAuthorize("hasRole('ORGANIZATION')")
+    @Operation(summary = "Trạng thái yêu cầu đổi thông tin pháp lý gần nhất của chính tổ chức (OP-05)")
+    public ResponseEntity<ApiResponse<LegalChangeRequestDetailResponse>> getLatestLegalChangeRequest(
+            @AuthenticationPrincipal Account account) {
+        return ResponseEntity.ok(ApiResponse.success(
+                organizationService.getLatestLegalChangeRequest(account.getId())));
+    }
+
     @GetMapping("/me/campaigns")
     @PreAuthorize("hasRole('ORGANIZATION')")
     @Operation(summary = "Danh sách chiến dịch của chính tổ chức, mọi trạng thái (F-103)")
@@ -127,12 +136,16 @@ public class OrganizationProfileController {
 
     @GetMapping("/me/donations")
     @PreAuthorize("hasRole('ORGANIZATION')")
-    @Operation(summary = "Lượt quyên góp đang chờ lấy và lượt tổ chức đã nhận (F-166)")
-    public ResponseEntity<ApiResponse<List<DonationResponse>>> listMyDonations(
+    @Operation(summary = "Lượt quyên góp đang chờ lấy và lượt tổ chức đã nhận, có phân trang (F-166/OC-07)")
+    public ResponseEntity<ApiResponse<PageResponse<DonationResponse>>> listMyDonations(
             @AuthenticationPrincipal Account account,
-            @RequestParam(required = false) DonationStatus status) {
-        List<DonationResponse> result =
-                donationService.listOrganizationDonations(account.getId(), status);
+            @RequestParam(required = false) UUID campaignId,
+            @RequestParam(required = false) UUID warehouseId,
+            @RequestParam(required = false) DonationStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        PageResponse<DonationResponse> result = donationService.listOrganizationDonations(
+                account.getId(), campaignId, warehouseId, status, page, size);
         return ResponseEntity.ok(ApiResponse.success(result, "OK"));
     }
 

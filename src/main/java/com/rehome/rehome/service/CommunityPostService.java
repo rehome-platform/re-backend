@@ -21,15 +21,17 @@ public interface CommunityPostService {
     // F-086: chi tiết 1 bài viết, kèm likeCount/commentCount/likedByMe.
     PostDetailResponse getDetail(UUID postId, UUID viewerId);
 
-    // F-087: thích / bỏ thích 1 bài viết. Cả 2 đều idempotent (gọi lại không báo lỗi).
-    void like(UUID memberId, UUID postId);
-    void unlike(UUID memberId, UUID postId);
+    // F-087: thích / bỏ thích 1 bài viết, Member hoặc ORGANIZATION (ít nhất trên bài của mình).
+    // Cả 2 đều idempotent (gọi lại không báo lỗi).
+    void like(UUID accountId, UUID postId);
+    void unlike(UUID accountId, UUID postId);
 
-    // F-087: danh sách bình luận còn hiển thị của 1 bài viết.
+    // F-087: toàn bộ bình luận của 1 bài, kể cả bị ẩn (REMOVED, content null) - mobile tự
+    // xếp nhóm theo parentId.
     PageResponse<CommentResponse> listComments(UUID postId, int page, int size);
 
-    // F-087: Member bình luận vào 1 bài viết.
-    CommentResponse createComment(UUID memberId, UUID postId, CreateCommentRequest request);
+    // F-087: Member hoặc ORGANIZATION (chỉ trên bài của chính mình) bình luận/trả lời 1 bài viết.
+    CommentResponse createComment(UUID authorId, UUID postId, CreateCommentRequest request);
 
     // F-104: tổ chức đăng bài viết mới.
     PostCreateResponse createPost(UUID organizationAccountId, CreatePostRequest request);

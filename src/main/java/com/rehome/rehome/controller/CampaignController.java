@@ -1,12 +1,16 @@
 package com.rehome.rehome.controller;
 
+import com.rehome.rehome.dto.request.CreateCampaignDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateCampaignRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.CampaignPublicResponse;
 import com.rehome.rehome.dto.response.CampaignStatusResponse;
+import com.rehome.rehome.dto.response.DonationNoteResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.CampaignService;
+import com.rehome.rehome.service.DonationService;
 import io.swagger.v3.oas.annotations.Operation;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -27,6 +31,7 @@ import java.util.UUID;
 public class CampaignController {
 
     private final CampaignService campaignService;
+    private final DonationService donationService;
 
     @GetMapping("/{id}")
     @Operation(summary = "Xem chi tiết công khai 1 chiến dịch (F-083)")
@@ -64,5 +69,17 @@ public class CampaignController {
             @AuthenticationPrincipal Account account) {
         CampaignStatusResponse result = campaignService.closeCampaign(account.getId(), id);
         return ResponseEntity.ok(ApiResponse.success(result, "Đã đóng chiến dịch"));
+    }
+
+    @PostMapping("/{id}/donation-notes")
+    @PreAuthorize("hasRole('ORGANIZATION')")
+    @Operation(summary = "Tổ chức ghi note quyên góp tại địa chỉ riêng, gắn với chiến dịch (OC-08)")
+    public ResponseEntity<ApiResponse<DonationNoteResponse>> createDonationNote(
+            @PathVariable UUID id,
+            @Valid @RequestBody CreateCampaignDonationNoteRequest request,
+            @AuthenticationPrincipal Account account) {
+        DonationNoteResponse result = donationService.createCampaignDonationNote(account.getId(), id, request);
+        return ResponseEntity.status(201)
+                .body(ApiResponse.success(result, 201, "Đã ghi nhận note quyên góp"));
     }
 }

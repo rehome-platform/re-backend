@@ -233,6 +233,9 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
                 .reason(returnRequest == null ? null : returnRequest.getReason())
                 .moderatorNote(returnRequest == null ? null : returnRequest.getConditionNote())
                 .compensationAmount(c.getCompensationAmount())
+                .degradedCompensationRate(c.getProduct().getConsignmentReceipt().getDegradedCompensationRate())
+                .paidAmount(c.getPaidAmount())
+                .decidedAt(c.getDecidedAt())
                 // Chưa có hạn quyết định trong hệ thống - xem javadoc của DTO
                 .decisionDeadline(null)
                 .status(c.getChoice() == null

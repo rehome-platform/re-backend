@@ -188,7 +188,12 @@ public enum ErrorCode {
     // API 95 - F-036: Member quyết định cách xử lý hàng xuống cấp
     DEGRADED_ITEM_CASE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy ca xử lý hàng xuống cấp."),
     DEGRADED_ITEM_CASE_FORBIDDEN(HttpStatus.FORBIDDEN, "Ca xử lý hàng xuống cấp này không thuộc về bạn."),
-    DEGRADED_ITEM_CASE_ALREADY_DECIDED(HttpStatus.CONFLICT, "Ca này đã được quyết định.");
+    DEGRADED_ITEM_CASE_ALREADY_DECIDED(HttpStatus.CONFLICT, "Ca này đã được quyết định."),
+
+
+    // F-080, F-081 - bộ sưu tập ảnh thử đồ
+    TRYON_IMAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy ảnh thử đồ."),
+    TRYON_IMAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "Ảnh thử đồ này không thuộc về bạn.");
 
     private final HttpStatus status;
     private final String defaultMessage;

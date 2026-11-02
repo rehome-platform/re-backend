@@ -31,6 +31,12 @@ public class CommunityPost {
     @Column(name = "content", nullable = false, columnDefinition = "text")
     private String content;
 
+    // Chiến dịch gắn kèm bài viết (OB-02/OB-03); null khi không gắn chiến dịch nào.
+    // Chỉ validate "đang mở + của chính tổ chức" lúc gắn, không tự gỡ khi chiến dịch đóng sau đó.
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "campaign_id", nullable = true)
+    private Campaign campaign;
+
     // VISIBLE / REMOVED — Moderator gỡ bài thì chuyển REMOVED, không xóa dữ liệu
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)

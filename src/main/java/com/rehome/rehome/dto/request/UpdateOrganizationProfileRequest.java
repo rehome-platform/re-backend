@@ -13,6 +13,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UpdateOrganizationProfileRequest {
+    // OP-02: tên hiển thị, khác legalName (pháp lý, phải đi qua F-097) - sửa ngay không cần duyệt
+    private String displayName;
     private String logoUrl;
     private String description;
     private String contactPhone;

@@ -36,6 +36,21 @@ public class ItemWithdrawalDetailResponse {
     private String paymentMethod;
 
     private Instant pickupDeadline;
+
+    /** Hạn trả phí (feeCharged > 0); null khi miễn phí hoặc đã trả */
+    private Instant feePaymentDeadline;
+
     private String warehouseName;
+
+    /** Mobile đang tạm ghép địa chỉ theo tên kho - trả thẳng để khỏi phải ghép nữa */
+    private String warehouseAddress;
+    private String warehouseOpeningHours;
+
+    /** Ảnh đại diện của sản phẩm (displayOrder nhỏ nhất); null nếu sản phẩm chưa có ảnh */
+    private String photoUrl;
+
     private Instant createdAt;
+
+    /** Thời điểm Moderator bàn giao hàng tại quầy; null khi chưa hoàn tất (F-034) */
+    private Instant completedAt;
 }

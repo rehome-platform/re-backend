@@ -39,6 +39,7 @@ import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.FollowRepository;
 import com.rehome.rehome.repository.OrganizationLegalChangeRequestRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -620,7 +621,7 @@ class OrganizationProfileServiceImplTest {
         when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
 
         OrganizationProfileUpdateResponse res = service.updateMyProfile(id,
-                new UpdateOrganizationProfileRequest(null, "Mô tả mới", null, null));
+                new UpdateOrganizationProfileRequest(null, null, "Mô tả mới", null, null));
 
         assertThat(profile.getDescription()).isEqualTo("Mô tả mới");
         // Các field không truyền phải giữ nguyên
@@ -640,13 +641,40 @@ class OrganizationProfileServiceImplTest {
         when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
 
         OrganizationProfileUpdateResponse res = service.updateMyProfile(id,
-                new UpdateOrganizationProfileRequest(
+                new UpdateOrganizationProfileRequest("Hội Chia Sẻ Mới",
                         "https://cdn/logo-v2.png", "Mô tả mới", "0988888888", "9:00-18:00 T2-T7"));
 
+        assertThat(res.getDisplayName()).isEqualTo("Hội Chia Sẻ Mới");
         assertThat(res.getLogoUrl()).isEqualTo("https://cdn/logo-v2.png");
         assertThat(res.getDescription()).isEqualTo("Mô tả mới");
         assertThat(res.getContactPhone()).isEqualTo("0988888888");
         assertThat(res.getDonationPointReceivingHours()).isEqualTo("9:00-18:00 T2-T7");
+    }
+
+    @Test
+    @DisplayName("OP-02: sửa displayName áp dụng ngay, không cần Moderator duyệt")
+    void updateMyProfile_displayName_appliedImmediately() {
+        UUID id = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id).build();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+
+        service.updateMyProfile(id,
+                new UpdateOrganizationProfileRequest("Tên hiển thị mới", null, null, null, null));
+
+        assertThat(profile.getDisplayName()).isEqualTo("Tên hiển thị mới");
+        verify(organizationProfileRepository).save(profile);
+    }
+
+    @Test
+    void updateMyProfile_blankDisplayName_doesNotOverwrite() {
+        UUID id = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id).build();
+        String originalDisplayName = profile.getDisplayName();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+
+        service.updateMyProfile(id, new UpdateOrganizationProfileRequest("   ", null, null, null, null));
+
+        assertThat(profile.getDisplayName()).isEqualTo(originalDisplayName);
     }
 
     @Test
@@ -656,7 +684,7 @@ class OrganizationProfileServiceImplTest {
         when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
 
         // description/contactPhone/giờ nhận là NOT NULL -> chuỗi rỗng coi như không truyền
-        service.updateMyProfile(id, new UpdateOrganizationProfileRequest("  ", "", "   ", ""));
+        service.updateMyProfile(id, new UpdateOrganizationProfileRequest("  ", "  ", "", "   ", ""));
 
         assertThat(profile.getDescription()).isEqualTo("Tổ chức thiện nguyện");
         assertThat(profile.getContactPhone()).isEqualTo("0900000000");
@@ -671,7 +699,7 @@ class OrganizationProfileServiceImplTest {
         when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
 
         OrganizationProfileUpdateResponse res = service.updateMyProfile(id,
-                new UpdateOrganizationProfileRequest(null, null, null, null));
+                new UpdateOrganizationProfileRequest(null, null, null, null, null));
 
         assertThat(res.getDescription()).isEqualTo("Tổ chức thiện nguyện");
         assertThat(res.getContactPhone()).isEqualTo("0900000000");
@@ -685,7 +713,7 @@ class OrganizationProfileServiceImplTest {
                 .build();
         when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
 
-        service.updateMyProfile(id, new UpdateOrganizationProfileRequest(null, "Mô tả mới", null, null));
+        service.updateMyProfile(id, new UpdateOrganizationProfileRequest(null, null, "Mô tả mới", null, null));
 
         // Thông tin pháp lý đi qua luồng duyệt riêng (F-097), không đổi ở đây
         assertThat(profile.getLegalName()).isEqualTo("Hội Chia Sẻ");
@@ -699,7 +727,7 @@ class OrganizationProfileServiceImplTest {
         when(organizationProfileRepository.findById(id)).thenReturn(Optional.empty());
 
         assertAppError(() -> service.updateMyProfile(id,
-                        new UpdateOrganizationProfileRequest(null, "Mô tả mới", null, null)),
+                        new UpdateOrganizationProfileRequest(null, null, "Mô tả mới", null, null)),
                 ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND);
 
         verify(organizationProfileRepository, never()).save(any());
@@ -807,7 +835,84 @@ class OrganizationProfileServiceImplTest {
                         new CreateLegalChangeRequestRequest(proposedChanges())),
                 ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND);
 
-        verifyNoInteractions(organizationLegalChangeRequestRepository, queueService);
+        verify(organizationLegalChangeRequestRepository, never()).save(any());
+        verifyNoInteractions(queueService);
+    }
+
+    @Test
+    @DisplayName("OP-05: đang có 1 yêu cầu PENDING -> 409 có code, không tạo thêm")
+    void requestLegalChange_alreadyPending_throwsConflictWithCode() {
+        UUID id = UUID.randomUUID();
+        when(organizationLegalChangeRequestRepository.existsByOrganization_AccountIdAndStatus(
+                id, LegalChangeRequestStatus.PENDING)).thenReturn(true);
+
+        assertAppError(() -> service.requestLegalChange(id,
+                        new CreateLegalChangeRequestRequest(proposedChanges())),
+                ErrorCode.LEGAL_CHANGE_REQUEST_ALREADY_PENDING);
+
+        verifyNoInteractions(organizationProfileRepository, queueService);
+        verify(organizationLegalChangeRequestRepository, never()).save(any());
+    }
+
+    // =====================================================================
+    // getLatestLegalChangeRequest  (OP-05)
+    // =====================================================================
+
+    @Test
+    void getLatestLegalChangeRequest_returnsMostRecentWithDecidedAt() {
+        UUID id = UUID.randomUUID();
+        OrganizationLegalChangeRequest r = OrganizationLegalChangeRequest.builder()
+                .id(UUID.randomUUID())
+                .proposedChanges(proposedChanges())
+                .status(LegalChangeRequestStatus.REJECTED)
+                .rejectReason("Ảnh CCCD mờ, chụp lại")
+                .createdAt(Instant.parse("2026-11-01T00:00:00Z"))
+                .reviewedAt(Instant.parse("2026-11-02T00:00:00Z"))
+                .build();
+        when(organizationLegalChangeRequestRepository
+                .findFirstByOrganization_AccountIdOrderByCreatedAtDesc(id))
+                .thenReturn(Optional.of(r));
+
+        var res = service.getLatestLegalChangeRequest(id);
+
+        assertThat(res.getId()).isEqualTo(r.getId().toString());
+        assertThat(res.getStatus()).isEqualTo("REJECTED");
+        assertThat(res.getProposedChanges()).isSameAs(r.getProposedChanges());
+        assertThat(res.getRejectReason()).isEqualTo("Ảnh CCCD mờ, chụp lại");
+        assertThat(res.getCreatedAt()).isEqualTo(Instant.parse("2026-11-01T00:00:00Z"));
+        assertThat(res.getDecidedAt()).isEqualTo(Instant.parse("2026-11-02T00:00:00Z"));
+    }
+
+    @Test
+    void getLatestLegalChangeRequest_pending_decidedAtIsNull() {
+        UUID id = UUID.randomUUID();
+        OrganizationLegalChangeRequest r = OrganizationLegalChangeRequest.builder()
+                .id(UUID.randomUUID())
+                .proposedChanges(proposedChanges())
+                .status(LegalChangeRequestStatus.PENDING)
+                .createdAt(Instant.parse("2026-11-01T00:00:00Z"))
+                .build();
+        when(organizationLegalChangeRequestRepository
+                .findFirstByOrganization_AccountIdOrderByCreatedAtDesc(id))
+                .thenReturn(Optional.of(r));
+
+        var res = service.getLatestLegalChangeRequest(id);
+
+        assertThat(res.getStatus()).isEqualTo("PENDING");
+        assertThat(res.getDecidedAt()).isNull();
+        assertThat(res.getRejectReason()).isNull();
+    }
+
+    @Test
+    void getLatestLegalChangeRequest_noneExists_throwsNotFound() {
+        UUID id = UUID.randomUUID();
+        when(organizationLegalChangeRequestRepository
+                .findFirstByOrganization_AccountIdOrderByCreatedAtDesc(id))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getLatestLegalChangeRequest(id))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy yêu cầu đổi thông tin.");
     }
 
     // =====================================================================

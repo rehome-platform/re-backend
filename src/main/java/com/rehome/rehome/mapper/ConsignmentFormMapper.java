@@ -7,6 +7,7 @@ import com.rehome.rehome.dto.response.ConsignmentFormResponse;
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.ConsignmentFormPhoto;
+import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import org.springframework.stereotype.Component;
 
@@ -83,7 +84,8 @@ public class ConsignmentFormMapper {
         return photos;
     }
 
-    public ConsignmentFormListItemResponse toListItem(ConsignmentForm form, String thumbnailUrl) {
+    public ConsignmentFormListItemResponse toListItem(ConsignmentForm form, String thumbnailUrl,
+                                                       ConsignmentReceipt latestReceipt) {
         if (form == null) return null;
         return ConsignmentFormListItemResponse.builder()
                 .id(form.getId())
@@ -95,6 +97,8 @@ public class ConsignmentFormMapper {
                 .bringInDeadline(form.getBringInDeadline())
                 .rejectReason(form.getRejectReason())
                 .createdAt(form.getCreatedAt())
+                .receiptId(latestReceipt != null ? latestReceipt.getId() : null)
+                .receiptConfirmed(latestReceipt != null && latestReceipt.getConfirmedAt() != null)
                 .build();
     }
 

@@ -26,6 +26,14 @@ public interface ItemWithdrawalRequestRepository extends JpaRepository<ItemWithd
     List<ItemWithdrawalRequest> findAllByStatusAndPickupDeadlineBefore(
             ItemWithdrawalStatus status, Instant deadline);
 
+    // F-035: job quét yêu cầu quá hạn trả phí (ngắn hơn pickupDeadline) - chưa trả phí và đã
+    // qua feePaymentDeadline. feePaymentDeadline null (miễn phí) thì không bao giờ khớp.
+    @Query("select r from ItemWithdrawalRequest r "
+            + "where r.status = :status and r.feePaidAt is null "
+            + "and r.feePaymentDeadline is not null and r.feePaymentDeadline < :now")
+    List<ItemWithdrawalRequest> findAllByStatusAndFeePaymentOverdue(
+            @Param("status") ItemWithdrawalStatus status, @Param("now") Instant now);
+
     // Màn chi tiết của Member: fetch sẵn product + warehouse vì response có tên món và tên kho
     @Query("select r from ItemWithdrawalRequest r "
             + "join fetch r.product p join fetch p.warehouse "

@@ -34,6 +34,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -243,10 +244,13 @@ class DegradedItemCaseServiceImplTest {
 
     private DegradedItemCase caseFor(Account seller, ReturnRequest returnRequest,
                                      DegradedItemChoice choice) {
+        ConsignmentReceipt itemReceipt = ConsignmentReceipt.builder()
+                .degradedCompensationRate(new BigDecimal("0.50")).build();
         Product item = Product.builder()
                 .id("Q7-AK-000845")
                 .name("Áo khoác Uniqlo")
                 .member(seller)
+                .consignmentReceipt(itemReceipt)
                 .build();
         return DegradedItemCase.builder()
                 .id(UUID.randomUUID())
@@ -290,6 +294,9 @@ class DegradedItemCaseServiceImplTest {
         assertThat(res.getDecision()).isNull();
         // Hệ thống chưa có hạn quyết định cho F-036
         assertThat(res.getDecisionDeadline()).isNull();
+        assertThat(res.getDegradedCompensationRate()).isEqualByComparingTo("0.50");
+        assertThat(res.getPaidAmount()).isNull();
+        assertThat(res.getDecidedAt()).isNull();
     }
 
     @Test
@@ -297,6 +304,8 @@ class DegradedItemCaseServiceImplTest {
         Account seller = someMember();
         DegradedItemCase degradedCase = caseFor(seller, returnRequestWith("x", "y"),
                 DegradedItemChoice.PARTIAL_WITH_ITEM_BACK);
+        degradedCase.setPaidAmount(new BigDecimal("180000"));
+        degradedCase.setDecidedAt(Instant.parse("2026-11-01T00:00:00Z"));
         when(degradedItemCaseRepository.findDetailById(degradedCase.getId()))
                 .thenReturn(Optional.of(degradedCase));
 
@@ -304,6 +313,8 @@ class DegradedItemCaseServiceImplTest {
 
         assertThat(res.getStatus()).isEqualTo("DECIDED");
         assertThat(res.getDecision()).isEqualTo("PARTIAL_WITH_ITEM_BACK");
+        assertThat(res.getPaidAmount()).isEqualByComparingTo("180000");
+        assertThat(res.getDecidedAt()).isEqualTo(Instant.parse("2026-11-01T00:00:00Z"));
     }
 
     @Test

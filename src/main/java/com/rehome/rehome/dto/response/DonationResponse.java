@@ -18,6 +18,7 @@ import java.time.Instant;
 public class DonationResponse {
     private String id;
     private String warehouseId;
+    private String warehouseName;
     private String campaignId;
     private String donorName;
 

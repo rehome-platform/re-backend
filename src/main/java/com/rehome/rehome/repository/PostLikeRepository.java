@@ -22,4 +22,8 @@ public interface PostLikeRepository extends JpaRepository<PostLike, UUID> {
     // F-107: số like của từng bài, gom 1 query để tránh N+1 khi dựng danh sách bài viết
     @Query("select pl.post.id, count(pl) from PostLike pl where pl.post.id in :postIds group by pl.post.id")
     List<Object[]> countByPostIds(@Param("postIds") Collection<UUID> postIds);
+
+    // OB: likedByMe cho /me/posts, gom 1 query để tránh N+1 (chỉ cần biết đã thích hay chưa)
+    @Query("select pl.post.id from PostLike pl where pl.post.id in :postIds and pl.member.id = :accountId")
+    List<UUID> findLikedPostIds(@Param("postIds") Collection<UUID> postIds, @Param("accountId") UUID accountId);
 }

@@ -2,7 +2,9 @@ package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.dto.response.NotificationResponse;
 import com.rehome.rehome.dto.response.PageResponse;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.chat.Notification;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
 import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.repository.NotificationRepository;
 import org.junit.jupiter.api.Test;
@@ -126,5 +128,72 @@ class NotificationServiceImplTest {
 
         assertThat(result.getContent()).isEmpty();
         assertThat(result.getTotalElements()).isZero();
+    }
+
+    // =====================================================================
+    // notify
+    // =====================================================================
+
+    @Test
+    void notify_withTarget_savesNotificationWithTargetAndWarehouse() {
+        Account recipient = Account.builder().id(UUID.randomUUID()).build();
+        UUID campaignId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+
+        service.notify(recipient, NotificationType.DONATION_RECORDED, "Có lượt quyên góp mới",
+                "Điểm ký gửi \"Kho Quận 7\" vừa ghi nhận 1 lượt quyên góp cho chiến dịch của bạn.",
+                NotificationTargetType.CAMPAIGN, campaignId, warehouseId);
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository).save(captor.capture());
+        Notification saved = captor.getValue();
+        assertThat(saved.getRecipientAccount()).isSameAs(recipient);
+        assertThat(saved.getType()).isEqualTo(NotificationType.DONATION_RECORDED);
+        assertThat(saved.getTargetType()).isEqualTo(NotificationTargetType.CAMPAIGN);
+        assertThat(saved.getTargetId()).isEqualTo(campaignId);
+        assertThat(saved.getWarehouseId()).isEqualTo(warehouseId);
+        assertThat(saved.getCreatedAt()).isNotNull();
+    }
+
+    @Test
+    void notify_withoutTarget_savesNotificationWithNullTargetFields() {
+        Account recipient = Account.builder().id(UUID.randomUUID()).build();
+
+        service.notify(recipient, NotificationType.ORDER_UPDATE, "Đơn hàng", "Đơn của bạn đang được giao",
+                null, null, null);
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository).save(captor.capture());
+        Notification saved = captor.getValue();
+        assertThat(saved.getTargetType()).isNull();
+        assertThat(saved.getTargetId()).isNull();
+        assertThat(saved.getWarehouseId()).isNull();
+    }
+
+    @Test
+    void listNotifications_mapsTargetAndWarehouseFields() {
+        UUID accountId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+        Notification donationNotification = Notification.builder()
+                .id(UUID.randomUUID())
+                .type(NotificationType.DONATION_RECORDED)
+                .title("Có lượt quyên góp mới")
+                .body("Điểm ký gửi \"Kho Quận 7\" vừa ghi nhận 1 lượt quyên góp cho chiến dịch của bạn.")
+                .isRead(false)
+                .targetType(NotificationTargetType.CAMPAIGN)
+                .targetId(campaignId)
+                .warehouseId(warehouseId)
+                .createdAt(Instant.now())
+                .build();
+        when(notificationRepository.findByRecipientAccount_Id(eq(accountId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(donationNotification)));
+
+        NotificationResponse res = service.listNotifications(accountId, 0, 20).getContent().get(0);
+
+        assertThat(res.getType()).isEqualTo("DONATION_RECORDED");
+        assertThat(res.getTargetType()).isEqualTo("CAMPAIGN");
+        assertThat(res.getTargetId()).isEqualTo(campaignId.toString());
+        assertThat(res.getWarehouseId()).isEqualTo(warehouseId.toString());
     }
 }

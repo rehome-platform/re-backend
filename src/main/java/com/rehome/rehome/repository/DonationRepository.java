@@ -2,6 +2,8 @@ package com.rehome.rehome.repository;
 
 import com.rehome.rehome.entity.enums.DonationStatus;
 import com.rehome.rehome.entity.marketplace.Donation;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -27,19 +29,43 @@ public interface DonationRepository extends JpaRepository<Donation, UUID> {
     // Bàn giao (F-165): chỉ lấy được lượt quyên góp thuộc đúng điểm ký gửi đang thao tác
     List<Donation> findByIdInAndWarehouse_Id(Collection<UUID> ids, UUID warehouseId);
 
-    // F-166: tổ chức thấy lượt đang chờ lấy ở mọi kho (ai đến cũng nhận được) cộng với
-    // lịch sử những lượt chính họ đã nhận — không thấy lịch sử của tổ chức khác
+    // F-166/OC-07: tổ chức thấy lượt đang chờ lấy ở mọi kho (ai đến cũng nhận được) cộng với
+    // lịch sử những lượt chính họ đã nhận — không thấy lịch sử của tổ chức khác.
+    // campaignId/warehouseId null thì không lọc theo tiêu chí đó.
     @Query("select d from Donation d "
-            + "where d.status = :pendingStatus "
-            + "or d.handedOverToOrganization.accountId = :organizationId "
+            + "where (d.status = :pendingStatus or d.handedOverToOrganization.accountId = :organizationId) "
+            + "and (:campaignId is null or d.campaign.id = :campaignId) "
+            + "and (:warehouseId is null or d.warehouse.id = :warehouseId) "
             + "order by d.createdAt desc")
-    List<Donation> findVisibleForOrganization(@Param("organizationId") UUID organizationId,
-                                              @Param("pendingStatus") DonationStatus pendingStatus);
+    Page<Donation> findVisibleForOrganization(@Param("organizationId") UUID organizationId,
+                                              @Param("pendingStatus") DonationStatus pendingStatus,
+                                              @Param("campaignId") UUID campaignId,
+                                              @Param("warehouseId") UUID warehouseId,
+                                              Pageable pageable);
 
-    List<Donation> findByStatusOrderByCreatedAtDesc(DonationStatus status);
+    // status == PENDING_PICKUP: pool chung, không giới hạn theo tổ chức
+    @Query("select d from Donation d "
+            + "where d.status = :status "
+            + "and (:campaignId is null or d.campaign.id = :campaignId) "
+            + "and (:warehouseId is null or d.warehouse.id = :warehouseId) "
+            + "order by d.createdAt desc")
+    Page<Donation> findByStatusWithFilters(@Param("status") DonationStatus status,
+                                           @Param("campaignId") UUID campaignId,
+                                           @Param("warehouseId") UUID warehouseId,
+                                           Pageable pageable);
 
-    List<Donation> findByHandedOverToOrganization_AccountIdAndStatusOrderByCreatedAtDesc(
-            UUID organizationId, DonationStatus status);
+    // status == HANDED_OVER: chỉ lịch sử của chính tổ chức đang gọi
+    @Query("select d from Donation d "
+            + "where d.handedOverToOrganization.accountId = :organizationId "
+            + "and d.status = :status "
+            + "and (:campaignId is null or d.campaign.id = :campaignId) "
+            + "and (:warehouseId is null or d.warehouse.id = :warehouseId) "
+            + "order by d.createdAt desc")
+    Page<Donation> findHandedOverForOrganization(@Param("organizationId") UUID organizationId,
+                                                 @Param("status") DonationStatus status,
+                                                 @Param("campaignId") UUID campaignId,
+                                                 @Param("warehouseId") UUID warehouseId,
+                                                 Pageable pageable);
 
     // OC-02/OC-03: "n chờ lấy" hiển thị cho từng kho mà chiến dịch đã chọn
     long countByWarehouse_IdAndStatus(UUID warehouseId, DonationStatus status);

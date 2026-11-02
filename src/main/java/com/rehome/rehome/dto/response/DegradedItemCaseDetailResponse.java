@@ -39,6 +39,16 @@ public class DegradedItemCaseDetailResponse {
     /** Mức đền đủ, snapshot lúc mở ca. Nhận lại hàng thì chỉ được một phần số này */
     private BigDecimal compensationAmount;
 
+    /** Tỷ lệ áp dụng khi chọn PARTIAL_WITH_ITEM_BACK, snapshot trên biên nhận - để mobile tính
+     * trước paidAmount dự kiến (= compensationAmount x rate) trước khi Member quyết định */
+    private BigDecimal degradedCompensationRate;
+
+    /** Số tiền thực tế đã cộng vào ví; null khi chưa quyết định */
+    private BigDecimal paidAmount;
+
+    /** Thời điểm Member quyết định; null khi chưa quyết định */
+    private Instant decidedAt;
+
     /**
      * LUÔN null: hệ thống chưa có hạn cho Member quyết định (F-036 không quy định hạn,
      * không có cột trong DB và không có job đóng ca quá hạn). Giữ field để app không phải

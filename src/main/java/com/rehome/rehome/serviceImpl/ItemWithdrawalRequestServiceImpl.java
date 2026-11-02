@@ -20,14 +20,17 @@ import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.marketplace.PlatformFund;
 import com.rehome.rehome.entity.marketplace.Product;
+import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.entity.marketplace.WalletTransaction;
+import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.ItemWithdrawalRequestRepository;
 import com.rehome.rehome.repository.PlatformFundRepository;
+import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.repository.WalletTransactionRepository;
@@ -58,6 +61,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -66,6 +70,7 @@ import java.util.UUID;
 public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestService {
 
     private final ProductRepository productRepository;
+    private final ProductPhotoRepository productPhotoRepository;
     private final ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
     private final WalletRepository walletRepository;
     private final WalletTransactionRepository walletTransactionRepository;
@@ -75,6 +80,9 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
 
     @Value("${app.item-withdrawal.pickup-deadline-days}")
     private long pickupDeadlineDays;
+
+    @Value("${app.item-withdrawal.fee-payment-deadline-minutes}")
+    private long feePaymentDeadlineMinutes;
 
     @Value("${momo.partner-code}")
     private String momoPartnerCode;
@@ -133,12 +141,18 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
             throw new AppException(ErrorCode.ITEM_WITHDRAWAL_ALREADY_PENDING);
         }
 
+        BigDecimal fee = computeFee(product);
+
         ItemWithdrawalRequest withdrawal = ItemWithdrawalRequest.builder()
                 .product(product)
                 .member(account)
-                .feeCharged(computeFee(product))
+                .feeCharged(fee)
                 .status(ItemWithdrawalStatus.PENDING_PICKUP)
                 .pickupDeadline(Instant.now().plus(pickupDeadlineDays, ChronoUnit.DAYS))
+                // Chỉ đặt hạn khi có gì phải trả; miễn phí thì không có gì để hết hạn
+                .feePaymentDeadline(fee.compareTo(BigDecimal.ZERO) > 0
+                        ? Instant.now().plus(feePaymentDeadlineMinutes, ChronoUnit.MINUTES)
+                        : null)
                 .build();
 
         itemWithdrawalRequestRepository.save(withdrawal);
@@ -176,6 +190,12 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
 
         if (!withdrawal.getMember().getId().equals(account.getId())) {
             throw new AppException(ErrorCode.ITEM_WITHDRAWAL_FORBIDDEN);
+        }
+
+        // Đã bị ItemWithdrawalAutoExpireServiceImpl hủy (quá hạn lấy hàng hoặc quá hạn trả phí) ->
+        // sản phẩm có thể đã ON_SALE/bán lại, không cho trả phí vào yêu cầu đã chết
+        if (withdrawal.getStatus() != ItemWithdrawalStatus.PENDING_PICKUP) {
+            throw new AppException(ErrorCode.ITEM_WITHDRAWAL_NOT_PENDING);
         }
 
         // Miễn phí hoặc đã thanh toán xong trước đó -> không cần làm gì thêm
@@ -507,16 +527,32 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         if (!withdrawal.getMember().getId().equals(account.getId())) {
             throw new AppException(ErrorCode.ITEM_WITHDRAWAL_FORBIDDEN);
         }
-        return toDetailResponse(withdrawal);
+        String photoUrl = productPhotoRepository
+                .findByProduct_IdOrderByDisplayOrderAscIdAsc(withdrawal.getProduct().getId()).stream()
+                .map(ProductPhoto::getImageUrl)
+                .findFirst().orElse(null);
+        return toDetailResponse(withdrawal, photoUrl);
     }
 
     @Override
     public List<ItemWithdrawalDetailResponse> listMine(Account account, String status) {
         ItemWithdrawalStatus parsed = StringUtils.hasText(status) ? parseStatus(status) : null;
 
-        return itemWithdrawalRequestRepository
-                .findDetailsByMember(account.getId(), parsed).stream()
-                .map(ItemWithdrawalRequestServiceImpl::toDetailResponse)
+        List<ItemWithdrawalRequest> withdrawals = itemWithdrawalRequestRepository
+                .findDetailsByMember(account.getId(), parsed);
+        if (withdrawals.isEmpty()) {
+            return List.of();
+        }
+
+        // Ảnh đại diện của cả trang bằng một query, tránh N+1
+        List<String> productIds = withdrawals.stream().map(w -> w.getProduct().getId()).toList();
+        Map<String, String> photosByProduct = productPhotoRepository
+                .findByProduct_IdInOrderByDisplayOrderAscIdAsc(productIds).stream()
+                .collect(Collectors.toMap(
+                        ph -> ph.getProduct().getId(), ProductPhoto::getImageUrl, (first, second) -> first));
+
+        return withdrawals.stream()
+                .map(w -> toDetailResponse(w, photosByProduct.get(w.getProduct().getId())))
                 .toList();
     }
 
@@ -528,8 +564,9 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         }
     }
 
-    private static ItemWithdrawalDetailResponse toDetailResponse(ItemWithdrawalRequest w) {
+    private static ItemWithdrawalDetailResponse toDetailResponse(ItemWithdrawalRequest w, String photoUrl) {
         Product product = w.getProduct();
+        Warehouse warehouse = product.getWarehouse();
         return ItemWithdrawalDetailResponse.builder()
                 .id(w.getId().toString())
                 .productId(product.getId())
@@ -540,8 +577,13 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 .feePaid(w.getFeeCharged().compareTo(BigDecimal.ZERO) == 0 || w.getFeePaidAt() != null)
                 .paymentMethod(w.getFeePaymentMethod() == null ? null : w.getFeePaymentMethod().name())
                 .pickupDeadline(w.getPickupDeadline())
-                .warehouseName(product.getWarehouse().getName())
+                .feePaymentDeadline(w.getFeePaidAt() == null ? w.getFeePaymentDeadline() : null)
+                .warehouseName(warehouse.getName())
+                .warehouseAddress(warehouse.getAddress())
+                .warehouseOpeningHours(warehouse.getOpeningHours())
+                .photoUrl(photoUrl)
                 .createdAt(w.getCreatedAt())
+                .completedAt(w.getCompletedAt())
                 .build();
     }
 
@@ -552,6 +594,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 .feeCharged(withdrawal.getFeeCharged())
                 .status(withdrawal.getStatus().name())
                 .pickupDeadline(withdrawal.getPickupDeadline())
+                .feePaymentDeadline(withdrawal.getFeePaymentDeadline())
                 .build();
     }
 }

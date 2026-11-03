@@ -28,6 +28,7 @@ public class OrganizationProfileResponse {
 
     private VerificationStatus verificationStatus;
     private String rejectionReason;
+    private Instant rejectedAt;
     private String displayName;
     private String logoUrl;
 
@@ -79,12 +80,15 @@ public class OrganizationProfileResponse {
         private LocalDate issueDate;
         private String issuingAuthority;
         private String fileUrl;
+        // Kết luận của Moderator cho riêng giấy tờ này ở lần từ chối gần nhất; null = chưa chấm
+        private Boolean accepted;
     }
 
     public static OrganizationProfileResponse from(OrganizationProfile p) {
         return OrganizationProfileResponse.builder()
                 .verificationStatus(p.getVerificationStatus())
                 .rejectionReason(p.getRejectionReason())
+                .rejectedAt(p.getRejectedAt())
                 .displayName(p.getDisplayName())
                 .logoUrl(p.getLogoUrl())
                 .legalName(p.getLegalName())
@@ -122,6 +126,7 @@ public class OrganizationProfileResponse {
                                 .issuingAuthority(d.getIssuingAuthority())
                                 .fileUrl(LegalFileLinks.documentOrNull(
                                         p.getAccountId(), d.getId(), d.getFileUrl()))
+                                .accepted(d.getAccepted())
                                 .build())
                         .toList())
                 .build();

@@ -8,10 +8,14 @@ import com.rehome.rehome.dto.response.RegisterOrganizationResponse;
 import com.rehome.rehome.entity.auth.OrganizationDocument;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.auth.OrganizationRepresentative;
+import com.rehome.rehome.util.LegalFileLinks;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Component
 public class OrganizationProfileMapper {
@@ -30,11 +34,33 @@ public class OrganizationProfileMapper {
     /**
      * API 4: ghi đè dữ liệu request vào hồ sơ đã có (nộp lại sau khi bị từ chối).
      * Không đụng vào account và verificationStatus, service tự xử lý hai field này.
+     *
+     * F-003: /me trả cccdFrontUrl/cccdBackUrl/documents[].fileUrl là link bảo vệ
+     * (/api/organizations/{id}/legal-files/...), không phải URL storage. Nếu mobile không đổi
+     * ảnh thì gửi lại nguyên văn link đó để giữ tệp cũ - lưu thẳng link này làm fileUrl sẽ làm
+     * mất tệp thật, nên phải nhận diện và giữ nguyên giá trị đang lưu trong trường hợp này.
      */
     public void updateEntity(RegisterOrganizationRequest request, OrganizationProfile profile) {
         applyFields(request, profile);
-        profile.setRepresentative(toRepresentative(request.getRepresentative()));
+
+        OrganizationRepresentative existingRepresentative = profile.getRepresentative();
+        OrganizationRepresentative newRepresentative = toRepresentative(request.getRepresentative());
+        keepEchoedRepresentativeFiles(profile.getAccountId(), existingRepresentative, newRepresentative);
+        profile.setRepresentative(newRepresentative);
+
         replaceDocuments(request.getDocuments(), profile);
+    }
+
+    private void keepEchoedRepresentativeFiles(UUID organizationId, OrganizationRepresentative existing,
+                                               OrganizationRepresentative updated) {
+        String existingFrontUrl = existing == null ? null : existing.getCccdFrontUrl();
+        String existingBackUrl = existing == null ? null : existing.getCccdBackUrl();
+        if (LegalFileLinks.isCccdFrontLink(organizationId, updated.getCccdFrontUrl())) {
+            updated.setCccdFrontUrl(existingFrontUrl);
+        }
+        if (LegalFileLinks.isCccdBackLink(organizationId, updated.getCccdBackUrl())) {
+            updated.setCccdBackUrl(existingBackUrl);
+        }
     }
 
     public RegisterOrganizationResponse toResponse(OrganizationProfile org) {
@@ -74,6 +100,11 @@ public class OrganizationProfileMapper {
 
     /** Tạo danh sách giấy tờ mới, gán quan hệ 2 chiều document -> organization. */
     private List<OrganizationDocument> buildDocuments(List<DocumentRequest> requests, OrganizationProfile org) {
+        return buildDocuments(requests, org, Map.of());
+    }
+
+    private List<OrganizationDocument> buildDocuments(List<DocumentRequest> requests, OrganizationProfile org,
+                                                       Map<UUID, String> existingFileUrlById) {
         List<OrganizationDocument> documents = new ArrayList<>();
         for (DocumentRequest d : requests) {
             OrganizationDocument doc = new OrganizationDocument();
@@ -81,7 +112,7 @@ public class OrganizationProfileMapper {
             doc.setDocNumber(d.getDocNumber());
             doc.setIssueDate(d.getIssueDate());
             doc.setIssuingAuthority(d.getIssuingAuthority());
-            doc.setFileUrl(d.getFileUrl());
+            doc.setFileUrl(resolveEchoedDocumentFileUrl(org.getAccountId(), d.getFileUrl(), existingFileUrlById));
             doc.setOrganization(org);
             documents.add(doc);
         }
@@ -99,8 +130,23 @@ public class OrganizationProfileMapper {
             org.setDocuments(buildDocuments(requests, org));
             return;
         }
+
+        Map<UUID, String> existingFileUrlById = current.stream()
+                .collect(Collectors.toMap(OrganizationDocument::getId, OrganizationDocument::getFileUrl));
+
         current.clear();
-        current.addAll(buildDocuments(requests, org));
+        current.addAll(buildDocuments(requests, org, existingFileUrlById));
+    }
+
+    // F-003: gửi lại đúng link bảo vệ của giấy tờ cũ (thay vì URL storage thật) nghĩa là
+    // "giữ nguyên tệp này" - tra theo documentId trong link để lấy lại URL thật đang lưu.
+    private String resolveEchoedDocumentFileUrl(UUID organizationId, String requestedFileUrl,
+                                                Map<UUID, String> existingFileUrlById) {
+        UUID echoedDocumentId = LegalFileLinks.documentIdFromLinkOrNull(organizationId, requestedFileUrl);
+        if (echoedDocumentId == null) {
+            return requestedFileUrl;
+        }
+        return existingFileUrlById.getOrDefault(echoedDocumentId, requestedFileUrl);
     }
 
     private OrganizationRepresentative toRepresentative(RepresentativeRequest r) {

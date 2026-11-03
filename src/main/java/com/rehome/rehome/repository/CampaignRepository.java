@@ -25,4 +25,7 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
 
     Page<Campaign> findByOrganization_AccountIdAndStatus(UUID organizationId, CampaignStatus status,
                                                          Pageable pageable);
+
+    // Duyệt công khai xuyên tổ chức (GET /campaigns?status=ACTIVE)
+    Page<Campaign> findByStatus(CampaignStatus status, Pageable pageable);
 }

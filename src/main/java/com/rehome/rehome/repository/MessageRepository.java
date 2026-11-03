@@ -20,8 +20,9 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
     Page<Message> findByConversation_Id(UUID conversationId, Pageable pageable);
 
     // Tin cuối của từng hội thoại, gom 1 query để tránh N+1 khi dựng danh sách hội thoại.
-    // Trả về [conversationId, content]; sentAt trùng nhau có thể cho 2 dòng cùng 1 hội thoại -> service giữ dòng đầu.
-    @Query("select m.conversation.id, m.content from Message m "
+    // Trả về [conversationId, content, sentAt, senderAccountId]; sentAt trùng nhau có thể cho
+    // 2 dòng cùng 1 hội thoại -> service giữ dòng đầu.
+    @Query("select m.conversation.id, m.content, m.sentAt, m.senderAccount.id from Message m "
             + "where m.conversation.id in :conversationIds "
             + "and m.sentAt = (select max(m2.sentAt) from Message m2 where m2.conversation.id = m.conversation.id)")
     List<Object[]> findLastMessageByConversationIds(@Param("conversationIds") Collection<UUID> conversationIds);

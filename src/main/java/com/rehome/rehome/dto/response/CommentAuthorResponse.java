@@ -16,6 +16,6 @@ import lombok.NoArgsConstructor;
 public class CommentAuthorResponse {
     private String id;
     private String type;
-    private String name;
+    private String displayName;
     private String avatarUrl;
 }

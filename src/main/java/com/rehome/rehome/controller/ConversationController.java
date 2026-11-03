@@ -40,6 +40,15 @@ public class ConversationController {
         return ResponseEntity.ok(ApiResponse.success(conversationService.listConversations(account)));
     }
 
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MEMBER','ORGANIZATION','MODERATOR')")
+    @Operation(summary = "Mở thẳng 1 hội thoại theo id, ví dụ từ thông báo đẩy")
+    public ResponseEntity<ApiResponse<ConversationSummaryResponse>> getConversation(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal Account account) {
+        return ResponseEntity.ok(ApiResponse.success(conversationService.getConversation(account, id)));
+    }
+
     @PostMapping
     @PreAuthorize("hasRole('MEMBER')")
     @Operation(summary = "Mở hội thoại với 1 tổ chức hoặc kho; đã có thì trả về hội thoại cũ (F-089/F-090)")

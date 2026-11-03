@@ -26,4 +26,6 @@ public class CampaignSummaryResponse {
     private boolean receiveAtOwnAddress;
     private CampaignOwnAddressResponse ownAddress;
     private List<CampaignWarehouseResponse> warehouses;
+    private List<String> preferredItemTypes;
+    private Instant createdAt;
 }

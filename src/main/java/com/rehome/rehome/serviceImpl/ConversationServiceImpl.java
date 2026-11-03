@@ -33,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,34 +58,71 @@ public class ConversationServiceImpl implements ConversationService {
     @Override
     @Transactional(readOnly = true)
     public List<ConversationSummaryResponse> listConversations(Account viewer) {
-        List<Conversation> conversations = findInbox(viewer);
+        return buildSummaries(findInbox(viewer), viewer);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ConversationSummaryResponse getConversation(Account viewer, UUID conversationId) {
+        Conversation conversation = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new IllegalArgumentException(CONVERSATION_NOT_FOUND));
+        requireParticipant(viewer, conversation);
+        return buildSummaries(List.of(conversation), viewer).get(0);
+    }
+
+    // Tin cuối của 1 hội thoại: content/thời điểm/người gửi, để FE không cần tự tra ngược
+    // bằng cách mở lịch sử tin nhắn chỉ để hiển thị preview.
+    private record LastMessageInfo(String content, Instant createdAt, UUID senderId) {
+    }
+
+    private List<ConversationSummaryResponse> buildSummaries(List<Conversation> conversations, Account viewer) {
         if (conversations.isEmpty()) {
             return List.of();
         }
 
         List<UUID> conversationIds = conversations.stream().map(Conversation::getId).toList();
 
-        Map<UUID, String> lastMessageByConversationId = messageRepository
+        Map<UUID, LastMessageInfo> lastMessageByConversationId = messageRepository
                 .findLastMessageByConversationIds(conversationIds).stream()
-                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (String) row[1], (first, second) -> first));
+                .collect(Collectors.toMap(row -> (UUID) row[0],
+                        row -> new LastMessageInfo((String) row[1], (Instant) row[2], (UUID) row[3]),
+                        (first, second) -> first));
         Map<UUID, Long> unreadByConversationId = messageRepository
                 .countUnreadByConversationIds(conversationIds, viewer.getId()).stream()
                 .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
-        Map<UUID, String> counterpartNames = resolveCounterpartNames(conversations, viewer.getRole());
+        Map<UUID, CounterpartDisplay> counterpartDisplays = resolveCounterpartDisplays(conversations, viewer.getRole());
 
-        return conversations.stream().map(conversation -> {
-            UUID counterpartId = counterpartIdFor(conversation, viewer.getRole());
-            return ConversationSummaryResponse.builder()
-                    .id(conversation.getId().toString())
-                    .type(conversation.getType().name())
-                    .counterpart(ConversationSummaryResponse.CounterpartInfo.builder()
-                            .id(counterpartId.toString())
-                            .displayName(counterpartNames.get(counterpartId))
-                            .build())
-                    .lastMessage(lastMessageByConversationId.get(conversation.getId()))
-                    .unreadCount(unreadByConversationId.getOrDefault(conversation.getId(), 0L))
-                    .build();
-        }).toList();
+        // Sắp theo thời điểm hoạt động gần nhất (tin cuối), không phải lúc tạo hội thoại;
+        // hội thoại chưa có tin nhắn nào thì dùng lúc tạo làm mốc
+        return conversations.stream()
+                .sorted(Comparator.comparing(
+                        (Conversation c) -> lastActivityAt(c, lastMessageByConversationId.get(c.getId())),
+                        Comparator.reverseOrder()))
+                .map(conversation -> {
+                    UUID counterpartId = counterpartIdFor(conversation, viewer.getRole());
+                    CounterpartDisplay display = counterpartDisplays.get(counterpartId);
+                    LastMessageInfo lastMessage = lastMessageByConversationId.get(conversation.getId());
+                    return ConversationSummaryResponse.builder()
+                            .id(conversation.getId().toString())
+                            .type(conversation.getType().name())
+                            .counterpart(ConversationSummaryResponse.CounterpartInfo.builder()
+                                    .id(counterpartId.toString())
+                                    .displayName(display == null ? null : display.displayName())
+                                    .avatarUrl(display == null ? null : display.avatarUrl())
+                                    .build())
+                            .lastMessage(lastMessage == null ? null : ConversationSummaryResponse.LastMessageInfo
+                                    .builder()
+                                    .content(lastMessage.content())
+                                    .createdAt(lastMessage.createdAt())
+                                    .senderId(lastMessage.senderId().toString())
+                                    .build())
+                            .unreadCount(unreadByConversationId.getOrDefault(conversation.getId(), 0L))
+                            .build();
+                }).toList();
+    }
+
+    private static Instant lastActivityAt(Conversation conversation, LastMessageInfo lastMessage) {
+        return lastMessage != null ? lastMessage.createdAt() : conversation.getCreatedAt();
     }
 
     @Override
@@ -141,7 +179,7 @@ public class ConversationServiceImpl implements ConversationService {
                 Sort.by(Sort.Direction.DESC, "sentAt"));
         Page<Message> result = messageRepository.findByConversation_Id(conversationId, pageable);
 
-        return PageResponse.from(result.map(ConversationServiceImpl::toMessageResponse));
+        return PageResponse.from(result.map(m -> toMessageResponse(m, viewer.getId())));
     }
 
     @Override
@@ -166,7 +204,7 @@ public class ConversationServiceImpl implements ConversationService {
                 .build();
         messageRepository.save(message);
 
-        return toMessageResponse(message);
+        return toMessageResponse(message, viewer.getId());
     }
 
     // Hộp thư theo vai trò: Moderator thấy hộp thư chung của kho mình, không phân theo từng người (F-091)
@@ -206,15 +244,21 @@ public class ConversationServiceImpl implements ConversationService {
         };
     }
 
-    private Map<UUID, String> resolveCounterpartNames(List<Conversation> conversations, Role viewerRole) {
-        Map<UUID, String> names = new HashMap<>();
+    // Tên + ảnh đại diện hiển thị cho phía đối diện; Warehouse không có ảnh nên avatarUrl null.
+    private record CounterpartDisplay(String displayName, String avatarUrl) {
+    }
+
+    private Map<UUID, CounterpartDisplay> resolveCounterpartDisplays(List<Conversation> conversations,
+                                                                      Role viewerRole) {
+        Map<UUID, CounterpartDisplay> displays = new HashMap<>();
 
         if (viewerRole != Role.MEMBER) {
             // Organization / Moderator: phía đối diện là Member
             List<UUID> memberIds = conversations.stream().map(c -> c.getMember().getId()).distinct().toList();
             memberProfileRepository.findAllById(memberIds)
-                    .forEach(profile -> names.put(profile.getAccountId(), profile.getFullName()));
-            return names;
+                    .forEach(profile -> displays.put(profile.getAccountId(),
+                            new CounterpartDisplay(profile.getFullName(), profile.getAvatarUrl())));
+            return displays;
         }
 
         List<UUID> organizationIds = conversations.stream()
@@ -226,13 +270,15 @@ public class ConversationServiceImpl implements ConversationService {
 
         if (!organizationIds.isEmpty()) {
             organizationProfileRepository.findAllById(organizationIds)
-                    .forEach(org -> names.put(org.getAccountId(), org.getDisplayName()));
+                    .forEach(org -> displays.put(org.getAccountId(),
+                            new CounterpartDisplay(org.getDisplayName(), org.getLogoUrl())));
         }
         if (!warehouseIds.isEmpty()) {
             warehouseRepository.findAllById(warehouseIds)
-                    .forEach(warehouse -> names.put(warehouse.getId(), warehouse.getName()));
+                    .forEach(warehouse -> displays.put(warehouse.getId(),
+                            new CounterpartDisplay(warehouse.getName(), null)));
         }
-        return names;
+        return displays;
     }
 
     private static UUID counterpartIdFor(Conversation conversation, Role viewerRole) {
@@ -246,12 +292,13 @@ public class ConversationServiceImpl implements ConversationService {
         return moderator.getWarehouse().getId();
     }
 
-    private static MessageResponse toMessageResponse(Message message) {
+    private static MessageResponse toMessageResponse(Message message, UUID viewerId) {
         return MessageResponse.builder()
                 .id(message.getId().toString())
                 .senderId(message.getSenderAccount().getId().toString())
                 .content(message.getContent())
                 .createdAt(message.getSentAt())
+                .isMine(message.getSenderAccount().getId().equals(viewerId))
                 .build();
     }
 }

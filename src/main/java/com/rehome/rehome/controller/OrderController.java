@@ -89,7 +89,7 @@ public class OrderController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('MEMBER', 'MODERATOR')")
+    @PreAuthorize("hasAnyRole('MEMBER', 'MODERATOR', 'ADMIN')")
     public ResponseEntity<ApiResponse<OrderDetailResponse>> getOrderDetail(
             Authentication authentication,
             @PathVariable UUID id) {

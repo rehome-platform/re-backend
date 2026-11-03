@@ -34,7 +34,6 @@ import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
 import com.rehome.rehome.entity.enums.ReturnedItemAction;
-import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.TransactionStatus;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
 import com.rehome.rehome.entity.enums.WalletType;
@@ -50,6 +49,7 @@ import com.rehome.rehome.entity.marketplace.Payment;
 import com.rehome.rehome.entity.marketplace.PlatformFund;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
+import com.rehome.rehome.entity.marketplace.QueueItem;
 import com.rehome.rehome.entity.marketplace.ShippingAddress;
 import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.entity.marketplace.WalletTransaction;
@@ -68,6 +68,7 @@ import com.rehome.rehome.repository.PaymentRepository;
 import com.rehome.rehome.repository.PlatformFundRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
+import com.rehome.rehome.repository.QueueItemRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.repository.ShippingAddressRepository;
 import com.rehome.rehome.repository.WalletRepository;
@@ -134,6 +135,7 @@ public class OrderServiceImpl implements OrderService {
     private final WalletTransactionRepository walletTransactionRepository;
     private final PlatformFundRepository platformFundRepository;
     private final QueueService queueService;
+    private final QueueItemRepository queueItemRepository;
     private final GhnApi ghnApi;
     private final GhnShippingFeeCalculator ghnShippingFeeCalculator;
 
@@ -269,6 +271,7 @@ public class OrderServiceImpl implements OrderService {
                     .paymentMethod(OrderPaymentMethod.WALLET)
                     .status(OrderStatus.PENDING_PAYMENT)
                     .paymentDeadline(paymentDeadline)
+                    .buyerNote(request.getBuyerNote())
                     .build();
             orderRepository.save(order);
 
@@ -540,10 +543,7 @@ public class OrderServiceImpl implements OrderService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
 
-        boolean staff = caller.getRole() == Role.MODERATOR;
-        if (!staff && !order.getBuyer().getId().equals(caller.getId())) {
-            throw new ForbiddenException("Bạn không có quyền xem đơn này.");
-        }
+        authorizeOrderDetailAccess(caller, order);
 
         List<OrderItem> orderItems = orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId);
 
@@ -567,6 +567,8 @@ public class OrderServiceImpl implements OrderService {
                             .brandName(product.getBrand().getName())
                             .condition(product.getConditionNote())
                             .priceAtOrder(oi.getPriceAtOrder())
+                            .shelfLocation(product.getShelfLocation())
+                            .scanned(oi.getScanned())
                             .build();
                 })
                 .toList();
@@ -579,6 +581,21 @@ public class OrderServiceImpl implements OrderService {
                 .findFirstByOrder_IdOrderByCreatedAtDesc(orderId)
                 .map(returnRequest -> returnRequest.getId().toString())
                 .orElse(null);
+
+        List<String> scannedProductIds = orderItems.stream()
+                .filter(oi -> Boolean.TRUE.equals(oi.getScanned()))
+                .map(oi -> oi.getProduct().getId())
+                .toList();
+
+        int totalCount = orderItems.size();
+        int scannedCount = order.getScannedCount() == null ? 0 : order.getScannedCount();
+
+        String claimedBy = queueItemRepository.findByTypeAndRefId(QueueType.PACKING, orderId.toString())
+                .map(QueueItem::getClaimedBy)
+                .map(account -> account.getId().toString())
+                .orElse(null);
+
+        List<String> allowedActions = packingAllowedActions(order, scannedCount, totalCount);
 
         return OrderDetailResponse.builder()
                 .id(order.getId().toString())
@@ -612,7 +629,51 @@ public class OrderServiceImpl implements OrderService {
                 .refundAmount(order.getRefundAmount())
                 .completedAt(order.getCompletedAt())
                 .ratingComment(order.getRatingComment())
+                .scannedProductIds(scannedProductIds)
+                .scannedCount(scannedCount)
+                .totalCount(totalCount)
+                .allowedActions(allowedActions)
+                .claimedBy(claimedBy)
+                .buyerNote(order.getBuyerNote())
                 .build();
+    }
+
+    // Quyền xem chi tiết đơn: Member chỉ đơn của mình; Moderator chỉ đơn thuộc kho được phân
+    // công; Admin xem mọi đơn theo cơ chế quản trị hiện tại.
+    private void authorizeOrderDetailAccess(Account caller, Order order) {
+        switch (caller.getRole()) {
+            case ADMIN -> {
+                // được đọc theo quyền quản trị
+            }
+            case MODERATOR -> {
+                if (caller.getWarehouse() == null
+                        || !order.getWarehouse().getId().equals(caller.getWarehouse().getId())) {
+                    throw new ForbiddenException("Bạn không có quyền xem đơn này.");
+                }
+            }
+            case MEMBER -> {
+                if (!order.getBuyer().getId().equals(caller.getId())) {
+                    throw new ForbiddenException("Bạn không có quyền xem đơn này.");
+                }
+            }
+            default -> throw new ForbiddenException("Bạn không có quyền xem đơn này.");
+        }
+    }
+
+    // Chỉ cho SCAN khi đơn đang đóng gói (PAID/PACKING) và chưa quét đủ; chỉ cho
+    // CREATE_SHIPMENT khi đã quét đủ và chưa có mã vận đơn - DG-01
+    private List<String> packingAllowedActions(Order order, int scannedCount, int totalCount) {
+        List<String> allowedActions = new ArrayList<>();
+        boolean packableStatus = order.getStatus() == OrderStatus.PAID || order.getStatus() == OrderStatus.PACKING;
+        if (!packableStatus || totalCount == 0) {
+            return allowedActions;
+        }
+        if (scannedCount < totalCount) {
+            allowedActions.add("SCAN");
+        } else if (!StringUtils.hasText(order.getGhnTrackingCode())) {
+            allowedActions.add("CREATE_SHIPMENT");
+        }
+        return allowedActions;
     }
 
     // Cùng công thức với ReturnRequestServiceImpl khi chặn RETURN_WINDOW_EXPIRED - nếu lệch nhau

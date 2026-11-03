@@ -14,4 +14,7 @@ public class CreateOrderRequest {
 
     // Bỏ trống = lấy cả giỏ hàng; truyền đúng 1 id = "Mua ngay", bỏ qua giỏ
     private List<String> productIds;
+
+    // Ghi chú cho kho đóng gói (vd: giao giờ hành chính, gói kỹ...) - tùy chọn, hiển thị ở DG-01
+    private String buyerNote;
 }

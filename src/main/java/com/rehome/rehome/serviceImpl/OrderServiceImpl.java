@@ -27,6 +27,7 @@ import com.rehome.rehome.dto.response.PayOrdersResponse;
 import com.rehome.rehome.dto.response.SoldOrderItemResponse;
 import com.rehome.rehome.dto.response.SoldOrderListResponse;
 import com.rehome.rehome.dto.response.SoldOrderResponse;
+import com.rehome.rehome.dto.response.WrongItemDetail;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.CancelReason;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
@@ -34,7 +35,6 @@ import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
 import com.rehome.rehome.entity.enums.ReturnedItemAction;
-import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.TransactionStatus;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
 import com.rehome.rehome.entity.enums.WalletType;
@@ -50,6 +50,7 @@ import com.rehome.rehome.entity.marketplace.Payment;
 import com.rehome.rehome.entity.marketplace.PlatformFund;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
+import com.rehome.rehome.entity.marketplace.QueueItem;
 import com.rehome.rehome.entity.marketplace.ShippingAddress;
 import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.entity.marketplace.WalletTransaction;
@@ -68,6 +69,7 @@ import com.rehome.rehome.repository.PaymentRepository;
 import com.rehome.rehome.repository.PlatformFundRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
+import com.rehome.rehome.repository.QueueItemRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.repository.ShippingAddressRepository;
 import com.rehome.rehome.repository.WalletRepository;
@@ -96,6 +98,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -134,6 +137,7 @@ public class OrderServiceImpl implements OrderService {
     private final WalletTransactionRepository walletTransactionRepository;
     private final PlatformFundRepository platformFundRepository;
     private final QueueService queueService;
+    private final QueueItemRepository queueItemRepository;
     private final GhnApi ghnApi;
     private final GhnShippingFeeCalculator ghnShippingFeeCalculator;
 
@@ -269,6 +273,7 @@ public class OrderServiceImpl implements OrderService {
                     .paymentMethod(OrderPaymentMethod.WALLET)
                     .status(OrderStatus.PENDING_PAYMENT)
                     .paymentDeadline(paymentDeadline)
+                    .buyerNote(request.getBuyerNote())
                     .build();
             orderRepository.save(order);
 
@@ -540,10 +545,7 @@ public class OrderServiceImpl implements OrderService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
 
-        boolean staff = caller.getRole() == Role.MODERATOR;
-        if (!staff && !order.getBuyer().getId().equals(caller.getId())) {
-            throw new ForbiddenException("Bạn không có quyền xem đơn này.");
-        }
+        authorizeOrderDetailAccess(caller, order);
 
         List<OrderItem> orderItems = orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId);
 
@@ -567,6 +569,8 @@ public class OrderServiceImpl implements OrderService {
                             .brandName(product.getBrand().getName())
                             .condition(product.getConditionNote())
                             .priceAtOrder(oi.getPriceAtOrder())
+                            .shelfLocation(product.getShelfLocation())
+                            .scanned(oi.getScanned())
                             .build();
                 })
                 .toList();
@@ -579,6 +583,21 @@ public class OrderServiceImpl implements OrderService {
                 .findFirstByOrder_IdOrderByCreatedAtDesc(orderId)
                 .map(returnRequest -> returnRequest.getId().toString())
                 .orElse(null);
+
+        List<String> scannedProductIds = orderItems.stream()
+                .filter(oi -> Boolean.TRUE.equals(oi.getScanned()))
+                .map(oi -> oi.getProduct().getId())
+                .toList();
+
+        int totalCount = orderItems.size();
+        int scannedCount = order.getScannedCount() == null ? 0 : order.getScannedCount();
+
+        String claimedBy = queueItemRepository.findByTypeAndRefId(QueueType.PACKING, orderId.toString())
+                .map(QueueItem::getClaimedBy)
+                .map(account -> account.getId().toString())
+                .orElse(null);
+
+        List<String> allowedActions = packingAllowedActions(order, scannedCount, totalCount);
 
         return OrderDetailResponse.builder()
                 .id(order.getId().toString())
@@ -612,7 +631,51 @@ public class OrderServiceImpl implements OrderService {
                 .refundAmount(order.getRefundAmount())
                 .completedAt(order.getCompletedAt())
                 .ratingComment(order.getRatingComment())
+                .scannedProductIds(scannedProductIds)
+                .scannedCount(scannedCount)
+                .totalCount(totalCount)
+                .allowedActions(allowedActions)
+                .claimedBy(claimedBy)
+                .buyerNote(order.getBuyerNote())
                 .build();
+    }
+
+    // Quyền xem chi tiết đơn: Member chỉ đơn của mình; Moderator chỉ đơn thuộc kho được phân
+    // công; Admin xem mọi đơn theo cơ chế quản trị hiện tại.
+    private void authorizeOrderDetailAccess(Account caller, Order order) {
+        switch (caller.getRole()) {
+            case ADMIN -> {
+                // được đọc theo quyền quản trị
+            }
+            case MODERATOR -> {
+                if (caller.getWarehouse() == null
+                        || !order.getWarehouse().getId().equals(caller.getWarehouse().getId())) {
+                    throw new ForbiddenException("Bạn không có quyền xem đơn này.");
+                }
+            }
+            case MEMBER -> {
+                if (!order.getBuyer().getId().equals(caller.getId())) {
+                    throw new ForbiddenException("Bạn không có quyền xem đơn này.");
+                }
+            }
+            default -> throw new ForbiddenException("Bạn không có quyền xem đơn này.");
+        }
+    }
+
+    // Chỉ cho SCAN khi đơn đang đóng gói (PAID/PACKING) và chưa quét đủ; chỉ cho
+    // CREATE_SHIPMENT khi đã quét đủ và chưa có mã vận đơn - DG-01
+    private List<String> packingAllowedActions(Order order, int scannedCount, int totalCount) {
+        List<String> allowedActions = new ArrayList<>();
+        boolean packableStatus = order.getStatus() == OrderStatus.PAID || order.getStatus() == OrderStatus.PACKING;
+        if (!packableStatus || totalCount == 0) {
+            return allowedActions;
+        }
+        if (scannedCount < totalCount) {
+            allowedActions.add("SCAN");
+        } else if (!StringUtils.hasText(order.getGhnTrackingCode())) {
+            allowedActions.add("CREATE_SHIPMENT");
+        }
+        return allowedActions;
     }
 
     // Cùng công thức với ReturnRequestServiceImpl khi chặn RETURN_WINDOW_EXPIRED - nếu lệch nhau
@@ -995,33 +1058,46 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional
-    public PackScanResponse packScan(UUID orderId, PackScanRequest request) {
+    public PackScanResponse packScan(String email, UUID orderId, PackScanRequest request) {
+
+        Account moderator = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
 
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
 
+        if (moderator.getWarehouse() == null
+                || !order.getWarehouse().getId().equals(moderator.getWarehouse().getId())) {
+            throw new ForbiddenException("Bạn không có quyền quét đơn này.");
+        }
+
         if (!StringUtils.hasText(request.getProductId())) {
-            throw new BadRequestException("Sản phẩm không thuộc đơn hàng này.");
+            throw new BadRequestException("productId là bắt buộc.");
         }
 
         List<OrderItem> items = orderItemRepository.findAllByOrder_Id(orderId);
         int totalCount = items.size();
 
-        OrderItem matchedItem = items.stream()
+        Optional<OrderItem> matchedItem = items.stream()
                 .filter(i -> i.getProduct().getId().equals(request.getProductId()))
-                .findFirst()
-                .orElseThrow(() -> new BadRequestException("Sản phẩm không thuộc đơn hàng này."));
+                .findFirst();
 
-        if (Boolean.TRUE.equals(matchedItem.getScanned())) {
+        if (matchedItem.isEmpty()) {
+            return wrongSkuResponse(request.getProductId(), order.getScannedCount(), totalCount, moderator);
+        }
+
+        OrderItem item = matchedItem.get();
+        if (Boolean.TRUE.equals(item.getScanned())) {
             return PackScanResponse.builder()
                     .matched(true)
                     .scannedCount(order.getScannedCount())
                     .totalCount(totalCount)
+                    .scannedProductId(item.getProduct().getId())
                     .build();
         }
 
-        matchedItem.setScanned(true);
-        orderItemRepository.save(matchedItem);
+        item.setScanned(true);
+        orderItemRepository.save(item);
 
         int newScannedCount = order.getScannedCount() + 1;
         order.setScannedCount(newScannedCount);
@@ -1034,6 +1110,54 @@ public class OrderServiceImpl implements OrderService {
                 .matched(true)
                 .scannedCount(newScannedCount)
                 .totalCount(totalCount)
+                .scannedProductId(item.getProduct().getId())
+                .build();
+    }
+
+    // Quét sai SKU (không thuộc đơn đang xử lý): không đổi tiến độ quét, chỉ trả hướng dẫn
+    // đưa sản phẩm về đúng chỗ. Không lộ thông tin sản phẩm thuộc kho khác - DG-01/F-127.
+    private PackScanResponse wrongSkuResponse(String productId, int scannedCount, int totalCount, Account moderator) {
+        Product product = productRepository.findById(productId).orElse(null);
+
+        if (product == null) {
+            throw new BadRequestException("Không tìm thấy sản phẩm với mã này.");
+        }
+
+        if (!product.getWarehouse().getId().equals(moderator.getWarehouse().getId())) {
+            return PackScanResponse.builder()
+                    .matched(false)
+                    .scannedCount(scannedCount)
+                    .totalCount(totalCount)
+                    .wrongItem(WrongItemDetail.builder()
+                            .instructions("Sản phẩm không thuộc kho của bạn, không được xử lý tại đây.")
+                            .build())
+                    .build();
+        }
+
+        String belongsToOrderNo = orderItemRepository.findActiveByProductIds(List.of(productId)).stream()
+                .findFirst()
+                .map(oi -> oi.getOrder().getOrderNo())
+                .orElse(null);
+
+        String instructions = StringUtils.hasText(product.getShelfLocation())
+                ? "Sản phẩm không thuộc đơn này. Vui lòng đặt lại vào kệ " + product.getShelfLocation() + "."
+                : "Sản phẩm không thuộc đơn này. Vui lòng đặt lại đúng vị trí trong kho.";
+
+        WrongItemDetail wrongItem = WrongItemDetail.builder()
+                .productId(product.getId())
+                .name(product.getName())
+                .brandName(product.getBrand().getName())
+                .size(product.getSize())
+                .shelfLocation(product.getShelfLocation())
+                .belongsToOrderNo(belongsToOrderNo)
+                .instructions(instructions)
+                .build();
+
+        return PackScanResponse.builder()
+                .matched(false)
+                .scannedCount(scannedCount)
+                .totalCount(totalCount)
+                .wrongItem(wrongItem)
                 .build();
     }
 

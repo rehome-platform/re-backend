@@ -89,7 +89,7 @@ public class OrderController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('MEMBER', 'MODERATOR')")
+    @PreAuthorize("hasAnyRole('MEMBER', 'MODERATOR', 'ADMIN')")
     public ResponseEntity<ApiResponse<OrderDetailResponse>> getOrderDetail(
             Authentication authentication,
             @PathVariable UUID id) {
@@ -157,10 +157,12 @@ public class OrderController {
     @PostMapping("/{id}/pack/scan")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<PackScanResponse>> packScan(
+            Authentication authentication,
             @PathVariable UUID id,
             @RequestBody PackScanRequest request) {
 
-        PackScanResponse result = orderService.packScan(id, request);
+        String email = authentication.getName();
+        PackScanResponse result = orderService.packScan(email, id, request);
 
         return ResponseEntity.ok(ApiResponse.success(result));
     }

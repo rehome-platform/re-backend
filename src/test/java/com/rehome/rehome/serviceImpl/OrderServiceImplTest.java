@@ -3,6 +3,7 @@ package com.rehome.rehome.serviceImpl;
 import com.rehome.rehome.client.GhnApi;
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.dto.request.CreateOrderRequest;
+import com.rehome.rehome.dto.request.PackScanRequest;
 import com.rehome.rehome.dto.request.PayOrdersRequest;
 import com.rehome.rehome.dto.request.RateOrderRequest;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
@@ -13,9 +14,11 @@ import com.rehome.rehome.dto.response.OrderRatingResponse;
 import com.rehome.rehome.dto.response.OrderResponse;
 import com.rehome.rehome.dto.response.OrderSummaryResponse;
 import com.rehome.rehome.dto.response.OrderTrackingResponse;
+import com.rehome.rehome.dto.response.PackScanResponse;
 import com.rehome.rehome.dto.response.PayOrdersResponse;
 import com.rehome.rehome.dto.response.SoldOrderListResponse;
 import com.rehome.rehome.dto.response.SoldOrderResponse;
+import com.rehome.rehome.dto.response.WrongItemDetail;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.CancelReason;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
@@ -2386,5 +2389,195 @@ class OrderServiceImplTest {
 
         assertThat(product1.getStatus()).isEqualTo(ProductStatus.SOLD);
         verify(productRepository, never()).save(any());
+    }
+
+    // ---- packScan (API 69, F-127) ----
+
+    private Account moderatorWithWarehouse(Warehouse warehouse) {
+        return Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR).warehouse(warehouse).build();
+    }
+
+    @Test
+    void packScan_throwsNotFound_whenAccountDoesNotExist() {
+        UUID orderId = UUID.randomUUID();
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.packScan(
+                "mod@example.com", orderId, new PackScanRequest(product1.getId())))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Account không tồn tại");
+    }
+
+    @Test
+    void packScan_throwsNotFound_whenOrderDoesNotExist() {
+        UUID orderId = UUID.randomUUID();
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.packScan(
+                "mod@example.com", orderId, new PackScanRequest(product1.getId())))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy đơn hàng.");
+    }
+
+    @Test
+    void packScan_throwsForbidden_whenModeratorHasNoWarehouse() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).build();
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(null)));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.packScan(
+                "mod@example.com", orderId, new PackScanRequest(product1.getId())))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("Bạn không có quyền quét đơn này.");
+    }
+
+    @Test
+    void packScan_throwsForbidden_whenOrderBelongsToAnotherWarehouse() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).build();
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(warehouse2)));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.packScan(
+                "mod@example.com", orderId, new PackScanRequest(product1.getId())))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("Bạn không có quyền quét đơn này.");
+
+        verify(orderItemRepository, never()).findAllByOrder_Id(any());
+    }
+
+    @Test
+    void packScan_throwsBadRequest_whenProductIdBlank() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).build();
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.packScan("mod@example.com", orderId, new PackScanRequest("  ")))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("productId là bắt buộc.");
+    }
+
+    @Test
+    void packScan_correctSku_firstScan_incrementsCountAndMovesToPacking() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.PAID).scannedCount(0).build();
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).scanned(false).build();
+        OrderItem item2 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product2).scanned(false).build();
+
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1, item2));
+
+        PackScanResponse result = orderService.packScan(
+                "mod@example.com", orderId, new PackScanRequest(product1.getId()));
+
+        assertThat(result.getMatched()).isTrue();
+        assertThat(result.getScannedCount()).isEqualTo(1);
+        assertThat(result.getTotalCount()).isEqualTo(2);
+        assertThat(result.getScannedProductId()).isEqualTo(product1.getId());
+        assertThat(item1.getScanned()).isTrue();
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PACKING);
+        verify(orderItemRepository).save(item1);
+        verify(orderRepository).save(order);
+    }
+
+    @Test
+    void packScan_correctSku_alreadyScanned_doesNotIncrementAgain() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.PACKING).scannedCount(1).build();
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).scanned(true).build();
+
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+
+        PackScanResponse result = orderService.packScan(
+                "mod@example.com", orderId, new PackScanRequest(product1.getId()));
+
+        assertThat(result.getMatched()).isTrue();
+        assertThat(result.getScannedCount()).isEqualTo(1);
+        verify(orderItemRepository, never()).save(any());
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void packScan_wrongSku_productNotFoundAnywhere_throwsBadRequest() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).scannedCount(0).build();
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).scanned(false).build();
+
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+        when(productRepository.findById("NOT-A-SKU")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.packScan("mod@example.com", orderId, new PackScanRequest("NOT-A-SKU")))
+                .isInstanceOf(BadRequestException.class);
+        verify(orderItemRepository, never()).save(any());
+    }
+
+    @Test
+    void packScan_wrongSku_belongsToAnotherOrderSameWarehouse_returnsGuidanceWithoutChangingProgress() {
+        UUID orderId = UUID.randomUUID();
+        UUID otherOrderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).scannedCount(0).build();
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).scanned(false).build();
+
+        product2.setWarehouse(warehouse1);
+        product2.setName("Quần B");
+        product2.setShelfLocation("B-02");
+        product2.setBrand(Brand.builder().id(UUID.randomUUID()).name("Adidas").build());
+        Order otherOrder = Order.builder().id(otherOrderId).orderNo("OD-2026-000777").warehouse(warehouse1).build();
+        OrderItem otherOrderItem = OrderItem.builder().id(UUID.randomUUID()).order(otherOrder).product(product2).build();
+
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+        when(productRepository.findById(product2.getId())).thenReturn(Optional.of(product2));
+        when(orderItemRepository.findActiveByProductIds(List.of(product2.getId()))).thenReturn(List.of(otherOrderItem));
+
+        PackScanResponse result = orderService.packScan(
+                "mod@example.com", orderId, new PackScanRequest(product2.getId()));
+
+        assertThat(result.getMatched()).isFalse();
+        assertThat(result.getScannedCount()).isZero();
+        assertThat(result.getTotalCount()).isEqualTo(1);
+        WrongItemDetail wrongItem = result.getWrongItem();
+        assertThat(wrongItem.getProductId()).isEqualTo(product2.getId());
+        assertThat(wrongItem.getName()).isEqualTo("Quần B");
+        assertThat(wrongItem.getBrandName()).isEqualTo("Adidas");
+        assertThat(wrongItem.getShelfLocation()).isEqualTo("B-02");
+        assertThat(wrongItem.getBelongsToOrderNo()).isEqualTo("OD-2026-000777");
+        assertThat(wrongItem.getInstructions()).contains("B-02");
+        assertThat(item1.getScanned()).isFalse();
+        verify(orderItemRepository, never()).save(any());
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void packScan_wrongSku_fromAnotherWarehouse_doesNotLeakProductDetails() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).scannedCount(0).build();
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).scanned(false).build();
+
+        // product2 thuộc warehouse2 - khác kho của moderator (warehouse1)
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+        when(productRepository.findById(product2.getId())).thenReturn(Optional.of(product2));
+
+        PackScanResponse result = orderService.packScan(
+                "mod@example.com", orderId, new PackScanRequest(product2.getId()));
+
+        assertThat(result.getMatched()).isFalse();
+        assertThat(result.getWrongItem().getProductId()).isNull();
+        assertThat(result.getWrongItem().getName()).isNull();
+        assertThat(result.getWrongItem().getShelfLocation()).isNull();
+        assertThat(result.getWrongItem().getBelongsToOrderNo()).isNull();
+        verify(orderItemRepository, never()).findActiveByProductIds(any());
+        verify(orderItemRepository, never()).save(any());
     }
 }

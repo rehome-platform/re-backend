@@ -52,8 +52,8 @@ public interface OrderService {
 
     OrderRatingResponse rateOrder(String email, UUID orderId, RateOrderRequest request);
 
-    // API 69 (F-127) - Moderator quét SKU đối chiếu trước khi tạo vận đơn
-    PackScanResponse packScan(UUID orderId, PackScanRequest request);
+    // API 69 (F-127) - Moderator quét SKU đối chiếu trước khi tạo vận đơn, chỉ cho đơn thuộc kho mình
+    PackScanResponse packScan(String email, UUID orderId, PackScanRequest request);
 
     // API 70 (F-127) - Moderator tạo vận đơn GHN sau khi đã quét đủ món
     CreateShipmentResponse createShipment(UUID orderId);

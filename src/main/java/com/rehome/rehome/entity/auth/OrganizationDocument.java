@@ -45,4 +45,9 @@ public class OrganizationDocument {
     // xem scripts/2026-11-01_organization_documents_file_url_nullable.sql
     @Column(name = "file_url", nullable = true, length = 2048)
     private String fileUrl;
+
+    // Kết luận của Moderator cho riêng giấy tờ này khi từ chối hồ sơ.
+    // null = chưa được chấm (hồ sơ mới nộp hoặc đang chờ xét), true/false = đạt / chưa đạt.
+    @Column(name = "accepted", nullable = true)
+    private Boolean accepted;
 }

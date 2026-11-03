@@ -101,14 +101,17 @@ class ConversationServiceImplTest {
         UUID convId = UUID.randomUUID();
         Conversation conv = conversation(convId, memberId, ConversationType.MEMBER_ORGANIZATION, orgId);
 
+        UUID senderId = UUID.randomUUID();
+        Instant lastMessageAt = Instant.parse("2026-10-30T09:00:00Z");
         when(conversationRepository.findByMember_IdOrderByCreatedAtDesc(memberId)).thenReturn(List.of(conv));
         when(messageRepository.findLastMessageByConversationIds(List.of(convId)))
-                .thenReturn(List.<Object[]>of(new Object[]{convId, "Cảm ơn bạn!"}));
+                .thenReturn(List.<Object[]>of(new Object[]{convId, "Cảm ơn bạn!", lastMessageAt, senderId}));
         when(messageRepository.countUnreadByConversationIds(List.of(convId), memberId))
                 .thenReturn(List.<Object[]>of(new Object[]{convId, 2L}));
         when(organizationProfileRepository.findAllById(List.of(orgId)))
                 .thenReturn(List.of(OrganizationProfile.builder()
-                        .accountId(orgId).displayName("Chia Sẻ Yêu Thương").build()));
+                        .accountId(orgId).displayName("Chia Sẻ Yêu Thương")
+                        .logoUrl("https://cdn/org-logo.png").build()));
 
         List<ConversationSummaryResponse> result = service.listConversations(account(memberId, Role.MEMBER));
 
@@ -118,7 +121,10 @@ class ConversationServiceImplTest {
         assertThat(res.getType()).isEqualTo("MEMBER_ORGANIZATION");
         assertThat(res.getCounterpart().getId()).isEqualTo(orgId.toString());
         assertThat(res.getCounterpart().getDisplayName()).isEqualTo("Chia Sẻ Yêu Thương");
-        assertThat(res.getLastMessage()).isEqualTo("Cảm ơn bạn!");
+        assertThat(res.getCounterpart().getAvatarUrl()).isEqualTo("https://cdn/org-logo.png");
+        assertThat(res.getLastMessage().getContent()).isEqualTo("Cảm ơn bạn!");
+        assertThat(res.getLastMessage().getCreatedAt()).isEqualTo(lastMessageAt);
+        assertThat(res.getLastMessage().getSenderId()).isEqualTo(senderId.toString());
         assertThat(res.getUnreadCount()).isEqualTo(2L);
         verifyNoInteractions(memberProfileRepository);
     }
@@ -152,13 +158,15 @@ class ConversationServiceImplTest {
         when(conversationRepository.findByTypeAndCounterpartIdOrderByCreatedAtDesc(
                 ConversationType.MEMBER_ORGANIZATION, orgAccountId)).thenReturn(List.of(conv));
         when(memberProfileRepository.findAllById(List.of(memberId)))
-                .thenReturn(List.of(MemberProfile.builder().accountId(memberId).fullName("Ngọc Anh").build()));
+                .thenReturn(List.of(MemberProfile.builder().accountId(memberId).fullName("Ngọc Anh")
+                        .avatarUrl("https://cdn/member-avatar.png").build()));
 
         List<ConversationSummaryResponse> result =
                 service.listConversations(account(orgAccountId, Role.ORGANIZATION));
 
         assertThat(result.get(0).getCounterpart().getId()).isEqualTo(memberId.toString());
         assertThat(result.get(0).getCounterpart().getDisplayName()).isEqualTo("Ngọc Anh");
+        assertThat(result.get(0).getCounterpart().getAvatarUrl()).isEqualTo("https://cdn/member-avatar.png");
     }
 
     @Test
@@ -198,6 +206,77 @@ class ConversationServiceImplTest {
 
         verifyNoInteractions(messageRepository, organizationProfileRepository,
                 warehouseRepository, memberProfileRepository);
+    }
+
+    @Test
+    void listConversations_sortedByLastMessageTime_notCreationTime() {
+        UUID memberId = UUID.randomUUID();
+        UUID oldConvRecentMessageId = UUID.randomUUID();
+        UUID newConvNoMessageId = UUID.randomUUID();
+        UUID orgId1 = UUID.randomUUID();
+        UUID orgId2 = UUID.randomUUID();
+        // Hội thoại A: tạo trước nhưng mới có tin lúc 2026-11-01 -> phải lên đầu
+        Conversation olderButRecentlyActive = conversation(oldConvRecentMessageId, memberId,
+                ConversationType.MEMBER_ORGANIZATION, orgId1);
+        // Hội thoại B: tạo sau (2026-11-02) nhưng chưa có tin nào -> xếp sau vì mốc dùng createdAt cũ hơn mốc tin của A
+        Conversation newerNoMessage = conversation(newConvNoMessageId, memberId,
+                ConversationType.MEMBER_ORGANIZATION, orgId2);
+        newerNoMessage.setCreatedAt(Instant.parse("2026-11-02T00:00:00Z"));
+        olderButRecentlyActive.setCreatedAt(Instant.parse("2026-10-01T00:00:00Z"));
+
+        when(conversationRepository.findByMember_IdOrderByCreatedAtDesc(memberId))
+                .thenReturn(List.of(newerNoMessage, olderButRecentlyActive));
+        when(messageRepository.findLastMessageByConversationIds(any()))
+                .thenReturn(List.<Object[]>of(new Object[]{
+                        oldConvRecentMessageId, "Tin mới nhất", Instant.parse("2026-11-03T00:00:00Z"),
+                        UUID.randomUUID()}));
+        when(organizationProfileRepository.findAllById(any())).thenReturn(List.of());
+
+        List<ConversationSummaryResponse> result = service.listConversations(account(memberId, Role.MEMBER));
+
+        assertThat(result).extracting(ConversationSummaryResponse::getId)
+                .containsExactly(oldConvRecentMessageId.toString(), newConvNoMessageId.toString());
+    }
+
+    // =====================================================================
+    // getConversation (mở thẳng 1 hội thoại)
+    // =====================================================================
+
+    @Test
+    void getConversation_participant_returnsSummary() {
+        UUID memberId = UUID.randomUUID();
+        UUID orgId = UUID.randomUUID();
+        UUID convId = UUID.randomUUID();
+        Conversation conv = conversation(convId, memberId, ConversationType.MEMBER_ORGANIZATION, orgId);
+        when(conversationRepository.findById(convId)).thenReturn(Optional.of(conv));
+        when(organizationProfileRepository.findAllById(List.of(orgId))).thenReturn(List.of(
+                OrganizationProfile.builder().accountId(orgId).displayName("Chia Sẻ Yêu Thương").build()));
+
+        ConversationSummaryResponse res = service.getConversation(account(memberId, Role.MEMBER), convId);
+
+        assertThat(res.getId()).isEqualTo(convId.toString());
+        assertThat(res.getCounterpart().getDisplayName()).isEqualTo("Chia Sẻ Yêu Thương");
+    }
+
+    @Test
+    void getConversation_notFound_throws() {
+        UUID convId = UUID.randomUUID();
+        when(conversationRepository.findById(convId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getConversation(account(UUID.randomUUID(), Role.MEMBER), convId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy hội thoại.");
+    }
+
+    @Test
+    void getConversation_notAParticipant_throwsForbidden() {
+        UUID convId = UUID.randomUUID();
+        when(conversationRepository.findById(convId)).thenReturn(Optional.of(
+                conversation(convId, UUID.randomUUID(), ConversationType.MEMBER_ORGANIZATION, UUID.randomUUID())));
+
+        assertThatThrownBy(() -> service.getConversation(account(UUID.randomUUID(), Role.MEMBER), convId))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("Bạn không thuộc hội thoại này.");
     }
 
     // =====================================================================
@@ -363,6 +442,8 @@ class ConversationServiceImplTest {
         assertThat(res.getSenderId()).isEqualTo(senderId.toString());
         assertThat(res.getContent()).isEqualTo("Cảm ơn bạn!");
         assertThat(res.getCreatedAt()).isEqualTo(sentAt);
+        // Người gửi không phải chính viewer (memberId) đang xem
+        assertThat(res.isMine()).isFalse();
 
         verify(messageRepository).markAsReadByConversationId(eq(convId), eq(memberId), any(Instant.class));
     }
@@ -478,6 +559,8 @@ class ConversationServiceImplTest {
         assertThat(res.getContent()).isEqualTo("Đơn hàng OD-2026-000123 đã giao chưa?");
         assertThat(res.getSenderId()).isEqualTo(memberId.toString());
         assertThat(res.getCreatedAt()).isNotNull();
+        // Chính người gửi đang xem lại tin của mình
+        assertThat(res.isMine()).isTrue();
 
         ArgumentCaptor<Message> captor = ArgumentCaptor.forClass(Message.class);
         verify(messageRepository).save(captor.capture());

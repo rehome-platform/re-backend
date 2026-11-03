@@ -41,4 +41,31 @@ public final class LegalFileLinks {
     public static String documentOrNull(UUID organizationId, UUID documentId, String storedUrl) {
         return storedUrl == null || storedUrl.isBlank() ? null : document(organizationId, documentId);
     }
+
+    // F-003: mobile đọc link bảo vệ từ /me rồi gửi lại nguyên văn khi nộp lại hồ sơ để giữ
+    // tệp cũ (không bắt tổ chức upload lại). Các hàm dưới đây nhận diện đúng link đó, để tầng
+    // ghi phân biệt được "đây là link server trả, không phải URL storage thật" và giữ tệp cũ.
+    public static boolean isCccdFrontLink(UUID organizationId, String value) {
+        return value != null && value.equals(cccdFront(organizationId));
+    }
+
+    public static boolean isCccdBackLink(UUID organizationId, String value) {
+        return value != null && value.equals(cccdBack(organizationId));
+    }
+
+    /** documentId trong link nếu value đúng là link bảo vệ của 1 giấy tờ thuộc tổ chức này. */
+    public static UUID documentIdFromLinkOrNull(UUID organizationId, String value) {
+        if (value == null) {
+            return null;
+        }
+        String prefix = BASE + organizationId + SEGMENT + "documents/";
+        if (!value.startsWith(prefix)) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value.substring(prefix.length()));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
 }

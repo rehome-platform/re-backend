@@ -19,4 +19,7 @@ public interface CommunityPostRepository extends JpaRepository<CommunityPost, UU
 
     // F-107: bài viết của chính tổ chức đang đăng nhập
     Page<CommunityPost> findByOrganization_AccountId(UUID organizationId, Pageable pageable);
+
+    // scope=ALL (newsfeed xuyên tổ chức, Guest xem được)
+    Page<CommunityPost> findByStatus(ContentStatus status, Pageable pageable);
 }

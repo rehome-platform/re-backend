@@ -29,4 +29,7 @@ public class CampaignPublicResponse {
     // null khi receiveAtOwnAddress = false
     private CampaignOwnAddressResponse ownAddress;
     private List<CampaignWarehouseResponse> warehouses;
+    private List<String> preferredItemTypes;
+    private Instant createdAt;
+    private CampaignOrganizationSummaryResponse organization;
 }

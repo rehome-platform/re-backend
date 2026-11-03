@@ -4,23 +4,37 @@ import com.rehome.rehome.dto.response.QueueClaimResponse;
 import com.rehome.rehome.dto.response.QueueItemResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.QueueType;
+import com.rehome.rehome.entity.marketplace.Order;
+import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.QueueItem;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.repository.OrderItemRepository;
+import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.QueueItemRepository;
 import com.rehome.rehome.service.QueueService;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
 public class QueueServiceImpl implements QueueService {
 
     private final QueueItemRepository queueItemRepository;
+    private final OrderRepository orderRepository;
+    private final OrderItemRepository orderItemRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -33,7 +47,56 @@ public class QueueServiceImpl implements QueueService {
         } else {
             items = queueItemRepository.findVisibleByType(parseType(type), warehouse);
         }
-        return items.stream().map(QueueItemResponse::from).toList();
+        return toResponses(items);
+    }
+
+    // DG-01: QueueItemResponse của PACKING cần kèm dữ liệu đơn hàng (mã đơn, người nhận,
+    // số món, vị trí kệ, thời gian chờ); các loại việc khác giữ nguyên QueueItemResponse.from.
+    private List<QueueItemResponse> toResponses(List<QueueItem> items) {
+        List<UUID> packingOrderIds = items.stream()
+                .filter(i -> i.getType() == QueueType.PACKING)
+                .map(i -> parseOrderId(i.getRefId()))
+                .filter(Objects::nonNull)
+                .toList();
+
+        Map<UUID, Order> ordersById = new HashMap<>();
+        Map<UUID, List<OrderItem>> orderItemsByOrderId = new HashMap<>();
+
+        if (!packingOrderIds.isEmpty()) {
+            orderRepository.findAllById(packingOrderIds).forEach(o -> ordersById.put(o.getId(), o));
+            orderItemRepository.findAllByOrder_IdInOrderByIdAsc(packingOrderIds)
+                    .forEach(oi -> orderItemsByOrderId
+                            .computeIfAbsent(oi.getOrder().getId(), k -> new ArrayList<>())
+                            .add(oi));
+        }
+
+        Instant now = Instant.now();
+        return items.stream().map(q -> {
+            if (q.getType() != QueueType.PACKING) {
+                return QueueItemResponse.from(q);
+            }
+            UUID orderId = parseOrderId(q.getRefId());
+            Order order = orderId == null ? null : ordersById.get(orderId);
+            if (order == null) {
+                return QueueItemResponse.from(q);
+            }
+            List<OrderItem> orderItems = orderItemsByOrderId.getOrDefault(orderId, List.of());
+            String shelfLocations = orderItems.stream()
+                    .map(oi -> oi.getProduct().getShelfLocation())
+                    .filter(StringUtils::hasText)
+                    .distinct()
+                    .collect(Collectors.joining(", "));
+            long waitingMinutes = Duration.between(order.getCreatedAt(), now).toMinutes();
+            return QueueItemResponse.fromPacking(q, order, orderItems.size(), shelfLocations, waitingMinutes);
+        }).toList();
+    }
+
+    private UUID parseOrderId(String refId) {
+        try {
+            return UUID.fromString(refId);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     @Override

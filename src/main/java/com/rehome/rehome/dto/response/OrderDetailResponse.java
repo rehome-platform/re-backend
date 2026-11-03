@@ -62,4 +62,18 @@ public class OrderDetailResponse {
     // Hạn cuối còn được gửi yêu cầu trả hàng (giao hàng + số ngày cho phép).
     // null khi đơn chưa giao, vì lúc đó chưa tính được mốc.
     private Instant returnDeadline;
+
+    // Các món đã được quét SKU đối chiếu, phục vụ phiếu gom hàng DG-01
+    private List<String> scannedProductIds;
+    private Integer scannedCount;
+    private Integer totalCount;
+
+    // Thao tác hợp lệ ở trạng thái/tiến độ quét hiện tại: "SCAN", "CREATE_SHIPMENT"
+    private List<String> allowedActions;
+
+    // Moderator đang giữ việc đóng gói đơn này (từ QueueItem loại PACKING), null nếu chưa ai nhận
+    private String claimedBy;
+
+    // Ghi chú của người mua lúc đặt hàng
+    private String buyerNote;
 }

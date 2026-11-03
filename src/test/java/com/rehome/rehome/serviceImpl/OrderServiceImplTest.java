@@ -21,6 +21,7 @@ import com.rehome.rehome.entity.enums.CancelReason;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.ReturnedItemAction;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
 import com.rehome.rehome.entity.enums.WalletType;
@@ -37,6 +38,7 @@ import com.rehome.rehome.entity.marketplace.Payment;
 import com.rehome.rehome.entity.marketplace.PlatformFund;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
+import com.rehome.rehome.entity.marketplace.QueueItem;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.entity.marketplace.ShippingAddress;
 import com.rehome.rehome.entity.marketplace.Wallet;
@@ -55,6 +57,7 @@ import com.rehome.rehome.repository.PaymentRepository;
 import com.rehome.rehome.repository.PlatformFundRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
+import com.rehome.rehome.repository.QueueItemRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.repository.ShippingAddressRepository;
 import com.rehome.rehome.repository.WalletRepository;
@@ -110,6 +113,7 @@ class OrderServiceImplTest {
     @Mock WalletTransactionRepository walletTransactionRepository;
     @Mock PlatformFundRepository platformFundRepository;
     @Mock QueueService queueService;
+    @Mock QueueItemRepository queueItemRepository;
     @Mock GhnApi ghnApi;
     @Mock GhnShippingFeeCalculator ghnShippingFeeCalculator;
 
@@ -184,7 +188,7 @@ class OrderServiceImplTest {
 
     @Test
     void createOrders_throwsBadRequest_whenShippingAddressIdIsBlank() {
-        CreateOrderRequest request = new CreateOrderRequest("  ", List.of("Q7-AK-000845"));
+        CreateOrderRequest request = new CreateOrderRequest("  ", List.of("Q7-AK-000845"), null);
 
         assertThatThrownBy(() -> orderService.createOrders(email, request))
                 .isInstanceOf(BadRequestException.class)
@@ -195,7 +199,7 @@ class OrderServiceImplTest {
 
     @Test
     void createOrders_throwsBadRequest_whenShippingAddressIdIsNotValidUuid() {
-        CreateOrderRequest request = new CreateOrderRequest("addr-001", List.of("Q7-AK-000845"));
+        CreateOrderRequest request = new CreateOrderRequest("addr-001", List.of("Q7-AK-000845"), null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
 
@@ -208,7 +212,7 @@ class OrderServiceImplTest {
 
     @Test
     void createOrders_throwsNotFound_whenAccountDoesNotExist() {
-        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"));
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"), null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
 
@@ -221,7 +225,7 @@ class OrderServiceImplTest {
     void createOrders_throwsNotFound_whenShippingAddressDoesNotBelongToMember() {
         Account anotherMember = Account.builder().id(UUID.randomUUID()).email("other@example.com").build();
         ShippingAddress othersAddress = ShippingAddress.builder().id(address.getId()).member(anotherMember).build();
-        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"));
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"), null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(othersAddress));
@@ -235,7 +239,7 @@ class OrderServiceImplTest {
 
     @Test
     void createOrders_throwsBadRequest_whenNoProductIdsGiven_andMemberHasNoCart() {
-        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of());
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of(), null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
@@ -249,7 +253,7 @@ class OrderServiceImplTest {
     @Test
     void createOrders_throwsBadRequest_whenCartHasNoItems() {
         Cart cart = Cart.builder().id(UUID.randomUUID()).member(member).build();
-        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), null);
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), null, null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
@@ -263,7 +267,7 @@ class OrderServiceImplTest {
 
     @Test
     void createOrders_throwsNotFound_whenBuyNowProductDoesNotExist() {
-        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("P-404"));
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("P-404"), null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
@@ -279,7 +283,7 @@ class OrderServiceImplTest {
     @Test
     void createOrders_throwsConflict_whenBuyNowProductIsNotOnSale() {
         product1.setStatus(ProductStatus.RESERVED);
-        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"));
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"), null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
@@ -296,7 +300,7 @@ class OrderServiceImplTest {
     @Test
     void createOrders_throwsConflict_whenBuyNowProductIsOwnedByBuyer() {
         product1.setMember(member);
-        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"));
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"), null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
@@ -312,7 +316,7 @@ class OrderServiceImplTest {
 
     @Test
     void createOrders_createsSingleOrder_forBuyNowFlow_andReservesProduct() {
-        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"));
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"), null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
@@ -353,7 +357,7 @@ class OrderServiceImplTest {
         Cart cart = Cart.builder().id(UUID.randomUUID()).member(member).build();
         CartItem item1 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(product1).build();
         CartItem item2 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(product2).build();
-        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"));
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"), null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
@@ -374,7 +378,7 @@ class OrderServiceImplTest {
     void createOrders_buyNow_doesNotTouchCart_whenOrderedProductNotInCart() {
         Cart cart = Cart.builder().id(UUID.randomUUID()).member(member).build();
         CartItem item2 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(product2).build();
-        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"));
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"), null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
@@ -392,7 +396,7 @@ class OrderServiceImplTest {
     @Test
     void createOrders_usesCommissionRateOfCurrentTerm() {
         product1.setCurrentTerm((short) 2);
-        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"));
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), List.of("Q7-AK-000845"), null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
@@ -413,7 +417,7 @@ class OrderServiceImplTest {
         Cart cart = Cart.builder().id(UUID.randomUUID()).member(member).build();
         CartItem item1 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(product1).build();
         CartItem item2 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(product2).build();
-        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), null);
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), null, null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
@@ -443,7 +447,7 @@ class OrderServiceImplTest {
         Cart cart = Cart.builder().id(UUID.randomUUID()).member(member).build();
         product1.setStatus(ProductStatus.SOLD);
         CartItem item1 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(product1).build();
-        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), null);
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), null, null);
 
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
@@ -638,6 +642,70 @@ class OrderServiceImplTest {
     }
 
     @Test
+    void getOrderDetail_moderator_throwsForbidden_whenHasNoWarehouse() {
+        UUID orderId = UUID.randomUUID();
+        Account moderator = Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR).warehouse(null).build();
+        Order order = Order.builder().id(orderId).buyer(member).warehouse(warehouse1).build();
+
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderator));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.getOrderDetail("mod@example.com", orderId))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("Bạn không có quyền xem đơn này.");
+    }
+
+    @Test
+    void getOrderDetail_moderator_throwsForbidden_whenOrderBelongsToAnotherWarehouse() {
+        UUID orderId = UUID.randomUUID();
+        Account moderator = Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR).warehouse(warehouse2).build();
+        Order order = Order.builder().id(orderId).buyer(member).warehouse(warehouse1).build();
+
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderator));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.getOrderDetail("mod@example.com", orderId))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("Bạn không có quyền xem đơn này.");
+    }
+
+    @Test
+    void getOrderDetail_moderator_allowed_whenSameWarehouse() {
+        UUID orderId = UUID.randomUUID();
+        Account moderator = Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR).warehouse(warehouse1).build();
+        Order order = Order.builder().id(orderId).buyer(member).warehouse(warehouse1)
+                .paymentMethod(OrderPaymentMethod.WALLET).build();
+
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderator));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId)).thenReturn(List.of());
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(any())).thenReturn(List.of());
+        when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.empty());
+
+        OrderDetailResponse result = orderService.getOrderDetail("mod@example.com", orderId);
+
+        assertThat(result.getId()).isEqualTo(orderId.toString());
+    }
+
+    @Test
+    void getOrderDetail_admin_allowed_regardlessOfWarehouse() {
+        UUID orderId = UUID.randomUUID();
+        Account admin = Account.builder().id(UUID.randomUUID()).role(Role.ADMIN).build();
+        Order order = Order.builder().id(orderId).buyer(member).warehouse(warehouse1)
+                .paymentMethod(OrderPaymentMethod.WALLET).build();
+
+        when(accountRepository.findByEmail("admin@example.com")).thenReturn(Optional.of(admin));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId)).thenReturn(List.of());
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(any())).thenReturn(List.of());
+        when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.empty());
+
+        OrderDetailResponse result = orderService.getOrderDetail("admin@example.com", orderId);
+
+        assertThat(result.getId()).isEqualTo(orderId.toString());
+    }
+
+    @Test
     void getOrderDetail_mapsAllFields_withItemsAndPaidAt() {
         UUID orderId = UUID.randomUUID();
         Instant createdAt = Instant.parse("2026-01-01T00:00:00Z");
@@ -672,12 +740,17 @@ class OrderServiceImplTest {
                 .autoCompleteDeadline(autoCompleteDeadline)
                 .serviceRating((short) 5)
                 .ratedAt(ratedAt)
+                .buyerNote("Giao giờ hành chính")
+                .scannedCount(1)
                 .build();
 
+        product1.setShelfLocation("A-01");
+        product2.setShelfLocation("A-02");
+
         OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order)
-                .product(product1).priceAtOrder(new BigDecimal("220000")).build();
+                .product(product1).priceAtOrder(new BigDecimal("220000")).scanned(true).build();
         OrderItem item2 = OrderItem.builder().id(UUID.randomUUID()).order(order)
-                .product(product2).priceAtOrder(new BigDecimal("380000")).build();
+                .product(product2).priceAtOrder(new BigDecimal("380000")).scanned(false).build();
 
         Payment payment = Payment.builder().id(UUID.randomUUID()).order(order)
                 .amount(new BigDecimal("625000")).paidAt(paidAt).build();
@@ -720,7 +793,122 @@ class OrderServiceImplTest {
         assertThat(result.getItems().get(0).getThumbnailUrl()).isEqualTo("ao-a.jpg");
         assertThat(result.getItems().get(0).getBrandName()).isEqualTo("Nike");
         assertThat(result.getItems().get(0).getPriceAtOrder()).isEqualTo(new BigDecimal("220000"));
+        assertThat(result.getItems().get(0).getShelfLocation()).isEqualTo("A-01");
+        assertThat(result.getItems().get(0).getScanned()).isTrue();
         assertThat(result.getItems().get(1).getBrandName()).isEqualTo("Adidas");
+        assertThat(result.getItems().get(1).getShelfLocation()).isEqualTo("A-02");
+        assertThat(result.getItems().get(1).getScanned()).isFalse();
+
+        assertThat(result.getBuyerNote()).isEqualTo("Giao giờ hành chính");
+        assertThat(result.getScannedProductIds()).containsExactly(product1.getId());
+        assertThat(result.getScannedCount()).isEqualTo(1);
+        assertThat(result.getTotalCount()).isEqualTo(2);
+        // DELIVERED không phải trạng thái đóng gói nên không có SCAN/CREATE_SHIPMENT
+        assertThat(result.getAllowedActions()).isEmpty();
+        assertThat(result.getClaimedBy()).isNull();
+    }
+
+    @Test
+    void getOrderDetail_allowedActions_scan_whenPackingAndNotFullyScanned() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder()
+                .id(orderId).buyer(member).warehouse(warehouse1)
+                .status(OrderStatus.PACKING)
+                .paymentMethod(OrderPaymentMethod.WALLET)
+                .scannedCount(1)
+                .build();
+        product1.setBrand(Brand.builder().id(UUID.randomUUID()).name("Nike").build());
+        product2.setBrand(Brand.builder().id(UUID.randomUUID()).name("Adidas").build());
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order)
+                .product(product1).priceAtOrder(BigDecimal.ZERO).scanned(true).build();
+        OrderItem item2 = OrderItem.builder().id(UUID.randomUUID()).order(order)
+                .product(product2).priceAtOrder(BigDecimal.ZERO).scanned(false).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId))
+                .thenReturn(List.of(item1, item2));
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(any())).thenReturn(List.of());
+        when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.empty());
+
+        OrderDetailResponse result = orderService.getOrderDetail(email, orderId);
+
+        assertThat(result.getAllowedActions()).containsExactly("SCAN");
+    }
+
+    @Test
+    void getOrderDetail_allowedActions_createShipment_whenFullyScannedAndNoTrackingCode() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder()
+                .id(orderId).buyer(member).warehouse(warehouse1)
+                .status(OrderStatus.PACKING)
+                .paymentMethod(OrderPaymentMethod.WALLET)
+                .scannedCount(1)
+                .build();
+        product1.setBrand(Brand.builder().id(UUID.randomUUID()).name("Nike").build());
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order)
+                .product(product1).priceAtOrder(BigDecimal.ZERO).scanned(true).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId))
+                .thenReturn(List.of(item1));
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(any())).thenReturn(List.of());
+        when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.empty());
+
+        OrderDetailResponse result = orderService.getOrderDetail(email, orderId);
+
+        assertThat(result.getAllowedActions()).containsExactly("CREATE_SHIPMENT");
+    }
+
+    @Test
+    void getOrderDetail_allowedActions_empty_whenFullyScannedButAlreadyHasTrackingCode() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder()
+                .id(orderId).buyer(member).warehouse(warehouse1)
+                .status(OrderStatus.PACKING)
+                .paymentMethod(OrderPaymentMethod.WALLET)
+                .scannedCount(1)
+                .ghnTrackingCode("GHN123")
+                .build();
+        product1.setBrand(Brand.builder().id(UUID.randomUUID()).name("Nike").build());
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order)
+                .product(product1).priceAtOrder(BigDecimal.ZERO).scanned(true).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId))
+                .thenReturn(List.of(item1));
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(any())).thenReturn(List.of());
+        when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.empty());
+
+        OrderDetailResponse result = orderService.getOrderDetail(email, orderId);
+
+        assertThat(result.getAllowedActions()).isEmpty();
+    }
+
+    @Test
+    void getOrderDetail_claimedBy_fromPackingQueueItem() {
+        UUID orderId = UUID.randomUUID();
+        Account moderator = Account.builder().id(UUID.randomUUID()).build();
+        Order order = Order.builder()
+                .id(orderId).buyer(member).warehouse(warehouse1)
+                .status(OrderStatus.PACKING)
+                .paymentMethod(OrderPaymentMethod.WALLET)
+                .build();
+        QueueItem queueItem = QueueItem.builder().id("q-1").claimedBy(moderator).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId)).thenReturn(List.of());
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(any())).thenReturn(List.of());
+        when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.empty());
+        when(queueItemRepository.findByTypeAndRefId(QueueType.PACKING, orderId.toString()))
+                .thenReturn(Optional.of(queueItem));
+
+        OrderDetailResponse result = orderService.getOrderDetail(email, orderId);
+
+        assertThat(result.getClaimedBy()).isEqualTo(moderator.getId().toString());
     }
 
     @Test

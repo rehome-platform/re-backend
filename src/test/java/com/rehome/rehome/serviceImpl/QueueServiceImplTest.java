@@ -14,8 +14,13 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.marketplace.QueueItem;
 import com.rehome.rehome.entity.marketplace.Warehouse;
+import com.rehome.rehome.entity.marketplace.Order;
+import com.rehome.rehome.entity.marketplace.OrderItem;
+import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.repository.OrderItemRepository;
+import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.QueueItemRepository;
 import java.time.Instant;
 import java.util.List;
@@ -38,6 +43,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 class QueueServiceImplTest {
 
     @Mock private QueueItemRepository queueItemRepository;
+    @Mock private OrderRepository orderRepository;
+    @Mock private OrderItemRepository orderItemRepository;
 
     @InjectMocks private QueueServiceImpl queueService;
 
@@ -167,6 +174,65 @@ class QueueServiceImplTest {
             assertThat(result.get(0).getClaimedAt()).isNull();
             assertThat(result.get(1).getClaimedBy()).isEqualTo(other.getId().toString());
             assertThat(result.get(1).getClaimedAt()).isEqualTo(Instant.parse("2026-10-13T08:05:00Z"));
+        }
+
+        @Test
+        @DisplayName("DG-01: PACKING kèm orderNo, recipientName, itemCount, shelfLocations, waitingMinutes")
+        void packingItem_enrichedWithOrderData() {
+            Warehouse wh = warehouse(1);
+            Account mod = moderator(wh);
+            UUID orderId = UUID.randomUUID();
+            Instant createdAt = Instant.now().minusSeconds(600);
+
+            Order order = Order.builder()
+                    .id(orderId)
+                    .orderNo("OD-2026-000099")
+                    .shippingRecipientName("Nguyễn Văn A")
+                    .createdAt(createdAt)
+                    .build();
+
+            Product product1 = Product.builder().id("sku-1").shelfLocation("A-01").build();
+            Product product2 = Product.builder().id("sku-2").shelfLocation("A-02").build();
+            OrderItem item1 = OrderItem.builder().order(order).product(product1).build();
+            OrderItem item2 = OrderItem.builder().order(order).product(product2).build();
+
+            QueueItem queueItem = QueueItem.builder()
+                    .id("q-1")
+                    .type(QueueType.PACKING)
+                    .refId(orderId.toString())
+                    .warehouse(wh)
+                    .createdAt(Instant.parse("2026-10-13T08:00:00Z"))
+                    .build();
+
+            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of(queueItem));
+            when(orderRepository.findAllById(List.of(orderId))).thenReturn(List.of(order));
+            when(orderItemRepository.findAllByOrder_IdInOrderByIdAsc(List.of(orderId)))
+                    .thenReturn(List.of(item1, item2));
+
+            List<QueueItemResponse> result = queueService.list(null, mod);
+
+            assertThat(result).hasSize(1);
+            QueueItemResponse response = result.get(0);
+            assertThat(response.getOrderNo()).isEqualTo("OD-2026-000099");
+            assertThat(response.getRecipientName()).isEqualTo("Nguyễn Văn A");
+            assertThat(response.getItemCount()).isEqualTo(2);
+            assertThat(response.getShelfLocations()).isEqualTo("A-01, A-02");
+            assertThat(response.getWaitingMinutes()).isGreaterThanOrEqualTo(9L);
+        }
+
+        @Test
+        @DisplayName("PACKING với refId không phải UUID hợp lệ: bỏ qua enrich, không lỗi")
+        void packingItem_invalidRefId_fallsBackToPlain() {
+            Warehouse wh = warehouse(1);
+            Account mod = moderator(wh);
+            when(queueItemRepository.findAllVisible(wh))
+                    .thenReturn(List.of(item("q-1", QueueType.PACKING, null, wh)));
+
+            List<QueueItemResponse> result = queueService.list(null, mod);
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).getOrderNo()).isNull();
+            verify(orderRepository, never()).findAllById(any());
         }
     }
 

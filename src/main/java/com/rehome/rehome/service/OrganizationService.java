@@ -8,6 +8,7 @@ import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
 import com.rehome.rehome.dto.response.LegalChangeRequestDetailResponse;
 import com.rehome.rehome.dto.response.LegalChangeRequestResponse;
 import com.rehome.rehome.dto.response.MemberCodeResponse;
+import com.rehome.rehome.dto.response.OrganizationNearbyResponse;
 import com.rehome.rehome.dto.response.OrganizationOptionsResponse;
 import com.rehome.rehome.dto.response.OrganizationProfileResponse;
 import com.rehome.rehome.dto.response.OrganizationProfileUpdateResponse;
@@ -16,9 +17,11 @@ import com.rehome.rehome.dto.response.OrganizationPublicProfileResponse;
 import com.rehome.rehome.dto.response.OrganizationResubmitResponse;
 import com.rehome.rehome.dto.response.OrganizationVerificationResponse;
 import com.rehome.rehome.dto.response.OrganizationVerifyResponse;
+import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.RegisterOrganizationResponse;
 import com.rehome.rehome.entity.auth.Account;
 
+import java.util.List;
 import java.util.UUID;
 
 public interface OrganizationService {
@@ -33,6 +36,12 @@ public interface OrganizationService {
     // F-085: theo dõi / bỏ theo dõi 1 tổ chức. Cả 2 đều idempotent (gọi lại không báo lỗi).
     void follow(UUID memberId, UUID organizationId);
     void unfollow(UUID memberId, UUID organizationId);
+
+    // Tổ chức đã VERIFIED gần vị trí Member, sắp theo khoảng cách tăng dần, tối đa 20 kết quả.
+    List<OrganizationNearbyResponse> findNearby(double lat, double lng);
+
+    // Tổ chức mà chính Member đang theo dõi, mới theo dõi gần đây trước.
+    PageResponse<OrganizationPublicProfileResponse> listFollowing(UUID memberId, int page, int size);
 
     // F-096: tổ chức tự cập nhật thông tin thường, áp dụng ngay.
     OrganizationProfileUpdateResponse updateMyProfile(UUID accountId, UpdateOrganizationProfileRequest request);

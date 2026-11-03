@@ -122,7 +122,7 @@ class CommunityPostServiceImplTest {
                 eq(orgId), eq(ContentStatus.VISIBLE), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(entity)));
 
-        PageResponse<PostSummaryResponse> result = service.listPosts(orgId, null, 0, 20);
+        PageResponse<PostSummaryResponse> result = service.listPosts(orgId, null, null, 0, 20);
 
         assertThat(result.getContent()).hasSize(1);
         PostSummaryResponse summary = result.getContent().get(0);
@@ -134,10 +134,90 @@ class CommunityPostServiceImplTest {
     }
 
     @Test
-    void listPosts_noOrganizationId_guest_throwsUnauthorized() {
-        assertThatThrownBy(() -> service.listPosts(null, null, 0, 20))
+    void listPosts_enrichesWithPhotosCountsOrganizationAndCampaign() {
+        UUID orgId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        UUID viewerId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        CommunityPost entity = CommunityPost.builder()
+                .id(postId)
+                .organization(OrganizationProfile.builder().accountId(orgId).build())
+                .campaign(Campaign.builder().id(campaignId).title("Mùa đông ấm 2026").build())
+                .content("Đã phát 200 áo ấm cho các em...")
+                .status(ContentStatus.VISIBLE)
+                .createdAt(Instant.parse("2026-10-30T09:00:00Z"))
+                .build();
+
+        when(communityPostRepository.findByOrganization_AccountIdAndStatus(
+                eq(orgId), eq(ContentStatus.VISIBLE), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(entity)));
+        when(postLikeRepository.countByPostIds(List.of(postId)))
+                .thenReturn(List.<Object[]>of(new Object[]{postId, 9L}));
+        when(postCommentRepository.countByPostIds(List.of(postId)))
+                .thenReturn(List.<Object[]>of(new Object[]{postId, 3L}));
+        when(communityPostPhotoRepository.findUrlsByPostIds(List.of(postId)))
+                .thenReturn(List.<Object[]>of(new Object[]{postId, "https://cdn/1.jpg"}));
+        when(postLikeRepository.findLikedPostIds(List.of(postId), viewerId)).thenReturn(List.of(postId));
+        when(organizationProfileRepository.findAllById(List.of(orgId))).thenReturn(List.of(
+                OrganizationProfile.builder().accountId(orgId)
+                        .displayName("Hội Chữ Thập Đỏ").logoUrl("https://cdn/logo.jpg").build()));
+
+        PageResponse<PostSummaryResponse> result = service.listPosts(orgId, null, viewerId, 0, 20);
+
+        PostSummaryResponse summary = result.getContent().get(0);
+        assertThat(summary.getPhotoUrls()).containsExactly("https://cdn/1.jpg");
+        assertThat(summary.getCreatedAt()).isEqualTo(Instant.parse("2026-10-30T09:00:00Z"));
+        assertThat(summary.getCampaignId()).isEqualTo(campaignId.toString());
+        assertThat(summary.getCampaignTitle()).isEqualTo("Mùa đông ấm 2026");
+        assertThat(summary.getOrganization().getId()).isEqualTo(orgId.toString());
+        assertThat(summary.getOrganization().getDisplayName()).isEqualTo("Hội Chữ Thập Đỏ");
+        assertThat(summary.getOrganization().getLogoUrl()).isEqualTo("https://cdn/logo.jpg");
+        assertThat(summary.getLikeCount()).isEqualTo(9L);
+        assertThat(summary.getCommentCount()).isEqualTo(3L);
+        assertThat(summary.isLikedByMe()).isTrue();
+    }
+
+    @Test
+    void listPosts_noOrganizationId_guestNoScope_defaultsToAll() {
+        UUID postId = UUID.randomUUID();
+        UUID orgId = UUID.randomUUID();
+        when(communityPostRepository.findByStatus(eq(ContentStatus.VISIBLE), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(post(postId, orgId, ContentStatus.VISIBLE))));
+
+        // Guest không có gì để "theo dõi" -> mặc định scope=ALL thay vì chặn 401 như trước
+        PageResponse<PostSummaryResponse> result = service.listPosts(null, null, null, 0, 20);
+
+        assertThat(result.getContent()).hasSize(1);
+        verifyNoInteractions(followRepository);
+    }
+
+    @Test
+    void listPosts_scopeFollowing_guest_throwsUnauthorized() {
+        assertThatThrownBy(() -> service.listPosts(null, "FOLLOWING", null, 0, 20))
                 .isInstanceOf(UnauthorizedException.class)
-                .hasMessage("Cần đăng nhập để xem newsfeed.");
+                .hasMessage("Cần đăng nhập để xem newsfeed theo dõi.");
+
+        verifyNoInteractions(communityPostRepository, followRepository);
+    }
+
+    @Test
+    void listPosts_scopeAll_explicit_loggedIn_returnsAllVisiblePosts() {
+        UUID memberId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        UUID orgId = UUID.randomUUID();
+        when(communityPostRepository.findByStatus(eq(ContentStatus.VISIBLE), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(post(postId, orgId, ContentStatus.VISIBLE))));
+
+        PageResponse<PostSummaryResponse> result = service.listPosts(null, "all", memberId, 0, 20);
+
+        assertThat(result.getContent()).hasSize(1);
+        verifyNoInteractions(followRepository);
+    }
+
+    @Test
+    void listPosts_invalidScope_throwsBadRequest() {
+        assertThatThrownBy(() -> service.listPosts(null, "WEIRD", UUID.randomUUID(), 0, 20))
+                .isInstanceOf(BadRequestException.class);
 
         verifyNoInteractions(communityPostRepository, followRepository);
     }
@@ -147,7 +227,7 @@ class CommunityPostServiceImplTest {
         UUID memberId = UUID.randomUUID();
         when(followRepository.findFollowedOrganizationIds(memberId)).thenReturn(List.of());
 
-        PageResponse<PostSummaryResponse> result = service.listPosts(null, memberId, 0, 20);
+        PageResponse<PostSummaryResponse> result = service.listPosts(null, null, memberId, 0, 20);
 
         assertThat(result.getContent()).isEmpty();
         assertThat(result.getTotalElements()).isZero();
@@ -165,7 +245,7 @@ class CommunityPostServiceImplTest {
                 eq(List.of(orgId)), eq(ContentStatus.VISIBLE), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(post(postId, orgId, ContentStatus.VISIBLE))));
 
-        PageResponse<PostSummaryResponse> result = service.listPosts(null, memberId, 0, 20);
+        PageResponse<PostSummaryResponse> result = service.listPosts(null, null, memberId, 0, 20);
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).getId()).isEqualTo(postId.toString());
@@ -177,7 +257,7 @@ class CommunityPostServiceImplTest {
         when(communityPostRepository.findByOrganization_AccountIdAndStatus(any(), any(), any()))
                 .thenReturn(Page.empty());
 
-        service.listPosts(orgId, null, 0, 500);
+        service.listPosts(orgId, null, null, 0, 500);
 
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
         verify(communityPostRepository).findByOrganization_AccountIdAndStatus(any(), any(), captor.capture());
@@ -406,7 +486,7 @@ class CommunityPostServiceImplTest {
                 MemberProfile.builder()
                         .accountId(memberId).fullName("Nguyễn Văn A").avatarUrl("https://cdn/a.jpg").build()));
 
-        PageResponse<CommentResponse> result = service.listComments(postId, 0, 20);
+        PageResponse<CommentResponse> result = service.listComments(postId, null, 0, 20);
 
         assertThat(result.getContent()).hasSize(1);
         CommentResponse res = result.getContent().get(0);
@@ -416,9 +496,69 @@ class CommunityPostServiceImplTest {
         assertThat(res.getStatus()).isEqualTo("VISIBLE");
         assertThat(res.getAuthor().getId()).isEqualTo(memberId.toString());
         assertThat(res.getAuthor().getType()).isEqualTo("MEMBER");
-        assertThat(res.getAuthor().getName()).isEqualTo("Nguyễn Văn A");
+        assertThat(res.getAuthor().getDisplayName()).isEqualTo("Nguyễn Văn A");
         assertThat(res.getAuthor().getAvatarUrl()).isEqualTo("https://cdn/a.jpg");
         assertThat(res.getCreatedAt()).isEqualTo(Instant.parse("2026-10-30T09:00:00Z"));
+    }
+
+    @Test
+    void listComments_viewerIsAuthor_isMineTrue() {
+        UUID postId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        CommunityPost entity = post(postId, UUID.randomUUID(), ContentStatus.VISIBLE);
+        PostComment comment = PostComment.builder()
+                .id(commentId).author(memberAccount(memberId)).content("Của tôi")
+                .status(ContentStatus.VISIBLE).createdAt(Instant.now()).build();
+
+        when(communityPostRepository.findById(postId)).thenReturn(Optional.of(entity));
+        when(postCommentRepository.findByPost_Id(eq(postId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(comment)));
+        when(memberProfileRepository.findAllById(Set.of(memberId))).thenReturn(List.of());
+
+        CommentResponse res = service.listComments(postId, memberId, 0, 20).getContent().get(0);
+
+        assertThat(res.isMine()).isTrue();
+    }
+
+    @Test
+    void listComments_viewerIsNotAuthor_isMineFalse() {
+        UUID postId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        CommunityPost entity = post(postId, UUID.randomUUID(), ContentStatus.VISIBLE);
+        PostComment comment = PostComment.builder()
+                .id(commentId).author(memberAccount(memberId)).content("Của người khác")
+                .status(ContentStatus.VISIBLE).createdAt(Instant.now()).build();
+
+        when(communityPostRepository.findById(postId)).thenReturn(Optional.of(entity));
+        when(postCommentRepository.findByPost_Id(eq(postId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(comment)));
+        when(memberProfileRepository.findAllById(Set.of(memberId))).thenReturn(List.of());
+
+        CommentResponse res = service.listComments(postId, UUID.randomUUID(), 0, 20).getContent().get(0);
+
+        assertThat(res.isMine()).isFalse();
+    }
+
+    @Test
+    void listComments_guest_isMineFalse() {
+        UUID postId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        CommunityPost entity = post(postId, UUID.randomUUID(), ContentStatus.VISIBLE);
+        PostComment comment = PostComment.builder()
+                .id(commentId).author(memberAccount(memberId)).content("Bất kỳ ai cũng xem được")
+                .status(ContentStatus.VISIBLE).createdAt(Instant.now()).build();
+
+        when(communityPostRepository.findById(postId)).thenReturn(Optional.of(entity));
+        when(postCommentRepository.findByPost_Id(eq(postId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(comment)));
+        when(memberProfileRepository.findAllById(Set.of(memberId))).thenReturn(List.of());
+
+        CommentResponse res = service.listComments(postId, null, 0, 20).getContent().get(0);
+
+        assertThat(res.isMine()).isFalse();
     }
 
     @Test
@@ -445,11 +585,11 @@ class CommunityPostServiceImplTest {
                 OrganizationProfile.builder().accountId(orgId)
                         .displayName("Hội Chữ Thập Đỏ").logoUrl("https://cdn/logo.jpg").build()));
 
-        CommentResponse res = service.listComments(postId, 0, 20).getContent().get(0);
+        CommentResponse res = service.listComments(postId, null, 0, 20).getContent().get(0);
 
         assertThat(res.getParentId()).isEqualTo(rootId.toString());
         assertThat(res.getAuthor().getType()).isEqualTo("ORGANIZATION");
-        assertThat(res.getAuthor().getName()).isEqualTo("Hội Chữ Thập Đỏ");
+        assertThat(res.getAuthor().getDisplayName()).isEqualTo("Hội Chữ Thập Đỏ");
         assertThat(res.getAuthor().getAvatarUrl()).isEqualTo("https://cdn/logo.jpg");
     }
 
@@ -471,7 +611,7 @@ class CommunityPostServiceImplTest {
         when(postCommentRepository.findByPost_Id(eq(postId), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(removed)));
 
-        PageResponse<CommentResponse> result = service.listComments(postId, 0, 20);
+        PageResponse<CommentResponse> result = service.listComments(postId, null, 0, 20);
 
         CommentResponse res = result.getContent().get(0);
         assertThat(res.getStatus()).isEqualTo("REMOVED");
@@ -484,7 +624,7 @@ class CommunityPostServiceImplTest {
         UUID postId = UUID.randomUUID();
         when(communityPostRepository.findById(postId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.listComments(postId, 0, 20))
+        assertThatThrownBy(() -> service.listComments(postId, null, 0, 20))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Không tìm thấy bài viết.");
 
@@ -497,7 +637,7 @@ class CommunityPostServiceImplTest {
         CommunityPost entity = post(postId, UUID.randomUUID(), ContentStatus.REMOVED);
         when(communityPostRepository.findById(postId)).thenReturn(Optional.of(entity));
 
-        assertThatThrownBy(() -> service.listComments(postId, 0, 20))
+        assertThatThrownBy(() -> service.listComments(postId, null, 0, 20))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Không tìm thấy bài viết.");
 
@@ -536,7 +676,7 @@ class CommunityPostServiceImplTest {
         assertThat(res.getId()).isNotNull();
         assertThat(res.getAuthor().getId()).isEqualTo(memberId.toString());
         assertThat(res.getAuthor().getType()).isEqualTo("MEMBER");
-        assertThat(res.getAuthor().getName()).isEqualTo("Nguyễn Văn A");
+        assertThat(res.getAuthor().getDisplayName()).isEqualTo("Nguyễn Văn A");
 
         ArgumentCaptor<PostComment> captor = ArgumentCaptor.forClass(PostComment.class);
         verify(postCommentRepository).save(captor.capture());
@@ -571,7 +711,7 @@ class CommunityPostServiceImplTest {
         CommentResponse res = service.createComment(orgId, postId, new CreateCommentRequest("Cảm ơn mọi người!", null));
 
         assertThat(res.getAuthor().getType()).isEqualTo("ORGANIZATION");
-        assertThat(res.getAuthor().getName()).isEqualTo("Hội Chữ Thập Đỏ");
+        assertThat(res.getAuthor().getDisplayName()).isEqualTo("Hội Chữ Thập Đỏ");
         // Bình luận gốc của chính tổ chức sở hữu bài -> không có ai để báo
         verifyNoInteractions(notificationService);
     }

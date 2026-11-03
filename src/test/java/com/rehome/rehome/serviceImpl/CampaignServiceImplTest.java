@@ -75,6 +75,8 @@ class CampaignServiceImplTest {
         return OrganizationProfile.builder()
                 .accountId(id)
                 .verificationStatus(VerificationStatus.VERIFIED)
+                .displayName("Chia Sẻ Yêu Thương")
+                .logoUrl("https://cdn/logo.png")
                 .donationPointName("Điểm nhận đồ ABC")
                 .donationPointAddress("45 Nguyễn Huệ, Q.1")
                 .donationPointLatitude(new BigDecimal("10.7769000"))
@@ -117,6 +119,9 @@ class CampaignServiceImplTest {
         assertThat(res.getOwnAddress().getName()).isEqualTo("Điểm nhận đồ ABC");
         assertThat(res.getOwnAddress().getAddress()).isEqualTo("45 Nguyễn Huệ, Q.1");
         assertThat(res.getWarehouses()).isEmpty();
+        assertThat(res.getOrganization().getId()).isEqualTo(orgId.toString());
+        assertThat(res.getOrganization().getDisplayName()).isEqualTo("Chia Sẻ Yêu Thương");
+        assertThat(res.getOrganization().getLogoUrl()).isEqualTo("https://cdn/logo.png");
     }
 
     @Test
@@ -131,7 +136,8 @@ class CampaignServiceImplTest {
                 .status(CampaignStatus.OPEN)
                 .build();
         when(campaignRepository.findById(id)).thenReturn(Optional.of(campaign));
-        when(donationRepository.countByWarehouse_IdAndStatus(warehouseId, DonationStatus.PENDING_PICKUP))
+        when(donationRepository.countByWarehouse_IdAndCampaign_IdAndStatus(
+                warehouseId, id, DonationStatus.PENDING_PICKUP))
                 .thenReturn(3L);
 
         CampaignPublicResponse res = service.getPublicDetail(id);
@@ -145,6 +151,26 @@ class CampaignServiceImplTest {
     }
 
     @Test
+    void getPublicDetail_returnsPreferredItemTypesAndCreatedAt() {
+        UUID id = UUID.randomUUID();
+        UUID orgId = UUID.randomUUID();
+        Instant createdAt = Instant.parse("2026-09-01T00:00:00Z");
+        Campaign campaign = baseCampaign(id)
+                .organization(organizationWithDonationPoint(orgId))
+                .status(CampaignStatus.OPEN)
+                .preferredItemTypes("Áo ấm, Chăn")
+                .createdAt(createdAt)
+                .build();
+        when(campaignRepository.findById(id)).thenReturn(Optional.of(campaign));
+
+        CampaignPublicResponse res = service.getPublicDetail(id);
+
+        // Trước đây write path lưu được nhưng read path không trả lại, màn sửa bị trống
+        assertThat(res.getPreferredItemTypes()).containsExactly("Áo ấm", "Chăn");
+        assertThat(res.getCreatedAt()).isEqualTo(createdAt);
+    }
+
+    @Test
     void getPublicDetail_notFound_throws() {
         UUID id = UUID.randomUUID();
         when(campaignRepository.findById(id)).thenReturn(Optional.empty());
@@ -152,6 +178,88 @@ class CampaignServiceImplTest {
         assertThatThrownBy(() -> service.getPublicDetail(id))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Không tìm thấy chiến dịch.");
+    }
+
+    // =====================================================================
+    // listPublicCampaigns (GET /campaigns?status=ACTIVE)
+    // =====================================================================
+
+    @Test
+    void listPublicCampaigns_defaultStatus_filtersToOpen() {
+        UUID orgId = UUID.randomUUID();
+        when(campaignRepository.findByStatus(eq(CampaignStatus.OPEN), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        baseCampaign(UUID.randomUUID()).organization(organizationWithDonationPoint(orgId))
+                                .status(CampaignStatus.OPEN).build())));
+
+        PageResponse<CampaignPublicResponse> result = service.listPublicCampaigns(null, 0, 20);
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getStatus()).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void listPublicCampaigns_closedStatus_filtersToClosed() {
+        when(campaignRepository.findByStatus(eq(CampaignStatus.CLOSED), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        service.listPublicCampaigns("CLOSED", 0, 20);
+
+        verify(campaignRepository).findByStatus(eq(CampaignStatus.CLOSED), any(Pageable.class));
+    }
+
+    @Test
+    void listPublicCampaigns_invalidStatus_throwsBadRequest() {
+        assertThatThrownBy(() -> service.listPublicCampaigns("WEIRD", 0, 20))
+                .isInstanceOf(BadRequestException.class);
+
+        verifyNoInteractions(campaignRepository);
+    }
+
+    // =====================================================================
+    // listOrganizationCampaigns (GET /api/organizations/{id}/campaigns)
+    // =====================================================================
+
+    @Test
+    void listOrganizationCampaigns_returnsOrganizationCampaigns() {
+        UUID orgId = UUID.randomUUID();
+        when(organizationProfileRepository.findById(orgId))
+                .thenReturn(Optional.of(verifiedOrganization(orgId)));
+        when(campaignRepository.findByOrganization_AccountIdAndStatus(
+                eq(orgId), eq(CampaignStatus.OPEN), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        baseCampaign(UUID.randomUUID()).organization(organizationWithDonationPoint(orgId))
+                                .status(CampaignStatus.OPEN).build())));
+
+        PageResponse<CampaignPublicResponse> result = service.listOrganizationCampaigns(orgId, null, 0, 20);
+
+        assertThat(result.getContent()).hasSize(1);
+    }
+
+    @Test
+    void listOrganizationCampaigns_organizationNotFound_throws() {
+        UUID orgId = UUID.randomUUID();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.listOrganizationCampaigns(orgId, null, 0, 20))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy tổ chức.");
+
+        verifyNoInteractions(campaignRepository);
+    }
+
+    @Test
+    void listOrganizationCampaigns_organizationNotVerified_throwsNotFound() {
+        UUID orgId = UUID.randomUUID();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(
+                OrganizationProfile.builder().accountId(orgId)
+                        .verificationStatus(VerificationStatus.PENDING).build()));
+
+        assertThatThrownBy(() -> service.listOrganizationCampaigns(orgId, null, 0, 20))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy tổ chức.");
+
+        verifyNoInteractions(campaignRepository);
     }
 
     // =====================================================================
@@ -526,7 +634,8 @@ class CampaignServiceImplTest {
         campaign.setReceiveAtOwnAddress(true);
         campaign.setWarehouses(Set.of(warehouse(warehouseId, "Kho Quận 7")));
         when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(campaign));
-        when(donationRepository.countByWarehouse_IdAndStatus(warehouseId, DonationStatus.PENDING_PICKUP))
+        when(donationRepository.countByWarehouse_IdAndCampaign_IdAndStatus(
+                warehouseId, campaignId, DonationStatus.PENDING_PICKUP))
                 .thenReturn(0L);
 
         CreateCampaignRequest request = partialUpdate(null, null);
@@ -545,7 +654,8 @@ class CampaignServiceImplTest {
         campaign.setReceiveAtOwnAddress(true);
         campaign.setWarehouses(Set.of(warehouse(warehouseId, "Kho Quận 7")));
         when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(campaign));
-        when(donationRepository.countByWarehouse_IdAndStatus(warehouseId, DonationStatus.PENDING_PICKUP))
+        when(donationRepository.countByWarehouse_IdAndCampaign_IdAndStatus(
+                warehouseId, campaignId, DonationStatus.PENDING_PICKUP))
                 .thenReturn(2L);
 
         CreateCampaignRequest request = partialUpdate(null, null);
@@ -721,13 +831,31 @@ class CampaignServiceImplTest {
         campaign.setWarehouses(Set.of(warehouse(warehouseId, "Kho Quận 7")));
         when(campaignRepository.findByOrganization_AccountId(eq(orgId), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(campaign)));
-        when(donationRepository.countByWarehouse_IdAndStatus(warehouseId, DonationStatus.PENDING_PICKUP))
+        when(donationRepository.countByWarehouse_IdAndCampaign_IdAndStatus(
+                warehouseId, campaignId, DonationStatus.PENDING_PICKUP))
                 .thenReturn(5L);
 
         PageResponse<CampaignSummaryResponse> result = service.listMyCampaigns(orgId, null, 0, 20);
 
         assertThat(result.getContent().get(0).getWarehouses()).hasSize(1);
         assertThat(result.getContent().get(0).getWarehouses().get(0).getPendingCount()).isEqualTo(5L);
+    }
+
+    @Test
+    void listMyCampaigns_returnsPreferredItemTypesAndCreatedAt() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        Instant createdAt = Instant.parse("2026-09-01T00:00:00Z");
+        Campaign campaign = ownedCampaign(campaignId, orgId, CampaignStatus.OPEN);
+        campaign.setPreferredItemTypes("Áo ấm, Chăn");
+        campaign.setCreatedAt(createdAt);
+        when(campaignRepository.findByOrganization_AccountId(eq(orgId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(campaign)));
+
+        PageResponse<CampaignSummaryResponse> result = service.listMyCampaigns(orgId, null, 0, 20);
+
+        assertThat(result.getContent().get(0).getPreferredItemTypes()).containsExactly("Áo ấm", "Chăn");
+        assertThat(result.getContent().get(0).getCreatedAt()).isEqualTo(createdAt);
     }
 
     @Test

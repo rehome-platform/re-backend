@@ -16,6 +16,10 @@ public interface ConversationService {
     // F-089/F-090/F-091: hộp thư theo vai trò của người đang xem.
     List<ConversationSummaryResponse> listConversations(Account viewer);
 
+    // Mở thẳng 1 hội thoại theo id, ví dụ từ thông báo đẩy. 404 nếu không tồn tại, 403 nếu
+    // người xem không thuộc hội thoại này.
+    ConversationSummaryResponse getConversation(Account viewer, UUID conversationId);
+
     // F-089/F-090: Member mở hội thoại; đã có thì trả về hội thoại cũ.
     ConversationResponse createConversation(UUID memberId, CreateConversationRequest request);
 

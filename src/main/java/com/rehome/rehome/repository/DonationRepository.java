@@ -67,6 +67,8 @@ public interface DonationRepository extends JpaRepository<Donation, UUID> {
                                                  @Param("warehouseId") UUID warehouseId,
                                                  Pageable pageable);
 
-    // OC-02/OC-03: "n chờ lấy" hiển thị cho từng kho mà chiến dịch đã chọn
-    long countByWarehouse_IdAndStatus(UUID warehouseId, DonationStatus status);
+    // OC-02/OC-03: "n chờ lấy" hiển thị cho từng kho mà chiến dịch đã chọn, tính riêng cho
+    // ĐÚNG chiến dịch đang xem - kho dùng chung giữa nhiều chiến dịch không được cộng dồn
+    // lượt chờ lấy của chiến dịch khác vào đây
+    long countByWarehouse_IdAndCampaign_IdAndStatus(UUID warehouseId, UUID campaignId, DonationStatus status);
 }

@@ -86,9 +86,28 @@ public class CommunityPostServiceImpl implements CommunityPostService {
     private final ViolationReportRepository violationReportRepository;
     private final NotificationService notificationService;
 
+    // Scope của newsfeed khi không lọc theo 1 tổ chức cụ thể (organizationId == null).
+    // ALL: mọi bài VISIBLE xuyên tổ chức, Guest xem được. FOLLOWING: chỉ bài của tổ chức
+    // viewer đang theo dõi, bắt buộc đăng nhập.
+    private enum PostFeedScope { ALL, FOLLOWING }
+
+    // Không truyền scope: giữ hành vi cũ là FOLLOWING khi đã đăng nhập; Guest không có gì để
+    // "theo dõi" nên mặc định cho xem ALL thay vì chặn 401 như trước.
+    private static PostFeedScope resolveScope(String rawScope, UUID viewerId) {
+        if (!StringUtils.hasText(rawScope)) {
+            return viewerId != null ? PostFeedScope.FOLLOWING : PostFeedScope.ALL;
+        }
+        try {
+            return PostFeedScope.valueOf(rawScope.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("scope không hợp lệ.");
+        }
+    }
+
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<PostSummaryResponse> listPosts(UUID organizationId, UUID viewerId, int page, int size) {
+    public PageResponse<PostSummaryResponse> listPosts(UUID organizationId, String scope, UUID viewerId,
+                                                         int page, int size) {
         Pageable pageable = PageRequest.of(
                 Math.max(page, 0),
                 Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
@@ -98,9 +117,11 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         if (organizationId != null) {
             result = communityPostRepository.findByOrganization_AccountIdAndStatus(
                     organizationId, ContentStatus.VISIBLE, pageable);
+        } else if (resolveScope(scope, viewerId) == PostFeedScope.ALL) {
+            result = communityPostRepository.findByStatus(ContentStatus.VISIBLE, pageable);
         } else {
             if (viewerId == null) {
-                throw new UnauthorizedException("Cần đăng nhập để xem newsfeed.");
+                throw new UnauthorizedException("Cần đăng nhập để xem newsfeed theo dõi.");
             }
             List<UUID> followedOrganizationIds = followRepository.findFollowedOrganizationIds(viewerId);
             result = followedOrganizationIds.isEmpty()
@@ -109,7 +130,50 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                             followedOrganizationIds, ContentStatus.VISIBLE, pageable);
         }
 
-        return PageResponse.from(result.map(CommunityPostServiceImpl::toSummary));
+        return PageResponse.from(toSummaryPage(result, viewerId));
+    }
+
+    private Page<PostSummaryResponse> toSummaryPage(Page<CommunityPost> result, UUID viewerId) {
+        if (result.isEmpty()) {
+            return result.map(post -> PostSummaryResponse.builder().build());
+        }
+
+        List<UUID> postIds = result.getContent().stream().map(CommunityPost::getId).toList();
+        Map<UUID, Long> likeCounts = toCountMap(postLikeRepository.countByPostIds(postIds));
+        Map<UUID, Long> commentCounts = toCountMap(postCommentRepository.countByPostIds(postIds));
+        Map<UUID, List<String>> photoUrlsByPost = communityPostPhotoRepository.findUrlsByPostIds(postIds).stream()
+                .collect(Collectors.groupingBy(row -> (UUID) row[0],
+                        Collectors.mapping(row -> (String) row[1], Collectors.toList())));
+        Set<UUID> likedByMePostIds = viewerId == null ? Set.of()
+                : Set.copyOf(postLikeRepository.findLikedPostIds(postIds, viewerId));
+
+        List<UUID> organizationIds = result.getContent().stream()
+                .map(post -> post.getOrganization().getAccountId()).distinct().toList();
+        Map<UUID, OrganizationProfile> organizationsById = organizationProfileRepository.findAllById(organizationIds)
+                .stream().collect(Collectors.toMap(OrganizationProfile::getAccountId, o -> o));
+
+        return result.map(post -> {
+            Campaign campaign = post.getCampaign();
+            OrganizationProfile organization = organizationsById.get(post.getOrganization().getAccountId());
+            return PostSummaryResponse.builder()
+                    .id(post.getId().toString())
+                    .organizationId(post.getOrganization().getAccountId().toString())
+                    .content(post.getContent())
+                    .status(post.getStatus().name())
+                    .photoUrls(photoUrlsByPost.getOrDefault(post.getId(), List.of()))
+                    .createdAt(post.getCreatedAt())
+                    .campaignId(campaign == null ? null : campaign.getId().toString())
+                    .campaignTitle(campaign == null ? null : campaign.getTitle())
+                    .organization(organization == null ? null : PostOrganizationSummaryResponse.builder()
+                            .id(organization.getAccountId().toString())
+                            .displayName(organization.getDisplayName())
+                            .logoUrl(organization.getLogoUrl())
+                            .build())
+                    .likeCount(likeCounts.getOrDefault(post.getId(), 0L))
+                    .commentCount(commentCounts.getOrDefault(post.getId(), 0L))
+                    .likedByMe(likedByMePostIds.contains(post.getId()))
+                    .build();
+        });
     }
 
     @Override
@@ -174,7 +238,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<CommentResponse> listComments(UUID postId, int page, int size) {
+    public PageResponse<CommentResponse> listComments(UUID postId, UUID viewerId, int page, int size) {
         communityPostRepository.findById(postId)
                 .filter(p -> p.getStatus() == ContentStatus.VISIBLE)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy bài viết."));
@@ -187,7 +251,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         // Trả cả REMOVED (content bỏ ở tầng response) - mobile tự xếp nhóm theo parentId (OB-05)
         Page<PostComment> result = postCommentRepository.findByPost_Id(postId, pageable);
         Map<UUID, AuthorInfo> authorInfoByAccountId = loadAuthorInfoMap(result.getContent());
-        return PageResponse.from(result.map(c -> toCommentResponse(c, authorInfoByAccountId)));
+        return PageResponse.from(result.map(c -> toCommentResponse(c, authorInfoByAccountId, viewerId)));
     }
 
     @Override
@@ -225,7 +289,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         notifyAboutComment(post, author, parent);
 
         AuthorInfo authorInfo = loadAuthorInfo(author);
-        return toCommentResponse(comment, Collections.singletonMap(authorId, authorInfo));
+        return toCommentResponse(comment, Collections.singletonMap(authorId, authorInfo), authorId);
     }
 
     // Chỉ trả lời 1 cấp: trả lời vào 1 reply thì gắn vào bình luận gốc của chính reply đó
@@ -491,16 +555,8 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         return rows.stream().collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
     }
 
-    private static PostSummaryResponse toSummary(CommunityPost post) {
-        return PostSummaryResponse.builder()
-                .id(post.getId().toString())
-                .organizationId(post.getOrganization().getAccountId().toString())
-                .content(post.getContent())
-                .status(post.getStatus().name())
-                .build();
-    }
-
-    private static CommentResponse toCommentResponse(PostComment comment, Map<UUID, AuthorInfo> authorInfoByAccountId) {
+    private static CommentResponse toCommentResponse(PostComment comment, Map<UUID, AuthorInfo> authorInfoByAccountId,
+                                                      UUID viewerId) {
         boolean removed = comment.getStatus() == ContentStatus.REMOVED;
         Account authorAccount = comment.getAuthor();
         AuthorInfo authorInfo = authorInfoByAccountId.get(authorAccount.getId());
@@ -514,10 +570,11 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                 .author(CommentAuthorResponse.builder()
                         .id(authorAccount.getId().toString())
                         .type(authorInfo != null ? authorInfo.type() : authorAccount.getRole().name())
-                        .name(authorInfo == null ? null : authorInfo.name())
+                        .displayName(authorInfo == null ? null : authorInfo.name())
                         .avatarUrl(authorInfo == null ? null : authorInfo.avatarUrl())
                         .build())
                 .createdAt(comment.getCreatedAt())
+                .isMine(viewerId != null && authorAccount.getId().equals(viewerId))
                 .build();
     }
 }

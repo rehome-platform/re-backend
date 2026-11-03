@@ -37,14 +37,15 @@ public class CommunityPostController {
     private final CommunityPostService communityPostService;
 
     @GetMapping
-    @Operation(summary = "Danh sách bài viết cộng đồng: theo tổ chức hoặc newsfeed (F-086)")
+    @Operation(summary = "Danh sách bài viết cộng đồng: theo tổ chức, hoặc newsfeed theo scope=ALL|FOLLOWING (F-086)")
     public ResponseEntity<ApiResponse<PageResponse<PostSummaryResponse>>> listPosts(
             @RequestParam(required = false) UUID organizationId,
+            @RequestParam(required = false) String scope,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @AuthenticationPrincipal Account account) {
         PageResponse<PostSummaryResponse> result = communityPostService.listPosts(
-                organizationId, account != null ? account.getId() : null, page, size);
+                organizationId, scope, account != null ? account.getId() : null, page, size);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
@@ -83,8 +84,10 @@ public class CommunityPostController {
     public ResponseEntity<ApiResponse<PageResponse<CommentResponse>>> listComments(
             @PathVariable UUID id,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ApiResponse.success(communityPostService.listComments(id, page, size)));
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal Account account) {
+        return ResponseEntity.ok(ApiResponse.success(communityPostService.listComments(
+                id, account != null ? account.getId() : null, page, size)));
     }
 
     @PostMapping

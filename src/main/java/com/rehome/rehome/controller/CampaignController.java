@@ -6,6 +6,7 @@ import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.CampaignPublicResponse;
 import com.rehome.rehome.dto.response.CampaignStatusResponse;
 import com.rehome.rehome.dto.response.DonationNoteResponse;
+import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.CampaignService;
 import com.rehome.rehome.service.DonationService;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
@@ -32,6 +34,15 @@ public class CampaignController {
 
     private final CampaignService campaignService;
     private final DonationService donationService;
+
+    @GetMapping
+    @Operation(summary = "Danh sách chiến dịch công khai xuyên tổ chức, mặc định chỉ chiến dịch đang mở")
+    public ResponseEntity<ApiResponse<PageResponse<CampaignPublicResponse>>> listPublicCampaigns(
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.success(campaignService.listPublicCampaigns(status, page, size)));
+    }
 
     @GetMapping("/{id}")
     @Operation(summary = "Xem chi tiết công khai 1 chiến dịch (F-083)")

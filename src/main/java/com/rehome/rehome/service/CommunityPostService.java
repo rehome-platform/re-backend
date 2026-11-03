@@ -15,8 +15,10 @@ import java.util.UUID;
 
 public interface CommunityPostService {
 
-    // F-086: organizationId == null -> newsfeed theo các tổ chức viewerId đang follow (bắt buộc đăng nhập).
-    PageResponse<PostSummaryResponse> listPosts(UUID organizationId, UUID viewerId, int page, int size);
+    // F-086: organizationId == null -> newsfeed theo scope. scope=FOLLOWING (mặc định khi đã
+    // đăng nhập) cần follow ít nhất 1 tổ chức; scope=ALL (mặc định cho Guest) lấy mọi bài VISIBLE.
+    PageResponse<PostSummaryResponse> listPosts(UUID organizationId, String scope, UUID viewerId,
+                                                int page, int size);
 
     // F-086: chi tiết 1 bài viết, kèm likeCount/commentCount/likedByMe.
     PostDetailResponse getDetail(UUID postId, UUID viewerId);
@@ -27,8 +29,8 @@ public interface CommunityPostService {
     void unlike(UUID accountId, UUID postId);
 
     // F-087: toàn bộ bình luận của 1 bài, kể cả bị ẩn (REMOVED, content null) - mobile tự
-    // xếp nhóm theo parentId.
-    PageResponse<CommentResponse> listComments(UUID postId, int page, int size);
+    // xếp nhóm theo parentId. viewerId == null khi Guest -> isMine luôn false.
+    PageResponse<CommentResponse> listComments(UUID postId, UUID viewerId, int page, int size);
 
     // F-087: Member hoặc ORGANIZATION (chỉ trên bài của chính mình) bình luận/trả lời 1 bài viết.
     CommentResponse createComment(UUID authorId, UUID postId, CreateCommentRequest request);

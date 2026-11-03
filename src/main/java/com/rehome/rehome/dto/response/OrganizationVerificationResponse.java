@@ -55,12 +55,16 @@ public class OrganizationVerificationResponse {
     @AllArgsConstructor
     @Builder
     public static class DocumentInfo {
+        // Để FE gửi lại khi từ chối hồ sơ, chấm accepted cho đúng giấy tờ (API reject, F-138)
+        private String id;
         private String docType;
         private String docNumber;
         private LocalDate issueDate;
         private String issuingAuthority;
         // F-139: đường dẫn endpoint có kiểm quyền, không phải URL storage; null nếu đã hết hạn giữ
         private String fileUrl;
+        // Kết luận của Moderator cho riêng giấy tờ này ở lần từ chối gần nhất; null = chưa chấm
+        private Boolean accepted;
     }
 
     @Data
@@ -92,12 +96,14 @@ public class OrganizationVerificationResponse {
                         .build())
                 .documents(profile.getDocuments() == null ? List.of() : profile.getDocuments().stream()
                         .map(doc -> DocumentInfo.builder()
+                                .id(doc.getId().toString())
                                 .docType(doc.getDocType())
                                 .docNumber(doc.getDocNumber())
                                 .issueDate(doc.getIssueDate())
                                 .issuingAuthority(doc.getIssuingAuthority())
                                 .fileUrl(LegalFileLinks.documentOrNull(
                                         organizationId, doc.getId(), doc.getFileUrl()))
+                                .accepted(doc.getAccepted())
                                 .build())
                         .toList())
                 .checklist(buildChecklist(profile.getOrgType(), hasTaxCode))

@@ -1,5 +1,6 @@
 package com.rehome.rehome.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -23,4 +24,8 @@ public class CommentResponse {
     private String status;
     private CommentAuthorResponse author;
     private Instant createdAt;
+
+    // Bình luận này có phải của chính người đang xem không; false khi Guest (không có viewerId)
+    @JsonProperty("isMine")
+    private boolean isMine;
 }

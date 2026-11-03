@@ -199,6 +199,36 @@ public class OrganizationProfileController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
+    @GetMapping("/nearby")
+    @Operation(summary = "Tổ chức đã xác minh gần vị trí, sắp theo khoảng cách tăng dần")
+    public ResponseEntity<ApiResponse<List<OrganizationNearbyResponse>>> getNearby(
+            @RequestParam double lat,
+            @RequestParam double lng) {
+        return ResponseEntity.ok(ApiResponse.success(organizationService.findNearby(lat, lng)));
+    }
+
+    @GetMapping("/following")
+    @PreAuthorize("hasRole('MEMBER')")
+    @Operation(summary = "Tổ chức mà chính Member đang theo dõi (F-085)")
+    public ResponseEntity<ApiResponse<PageResponse<OrganizationPublicProfileResponse>>> getFollowing(
+            @AuthenticationPrincipal Account account,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.success(
+                organizationService.listFollowing(account.getId(), page, size)));
+    }
+
+    @GetMapping("/{id}/campaigns")
+    @Operation(summary = "Chiến dịch công khai của 1 tổ chức, mặc định chỉ chiến dịch đang mở (F-083)")
+    public ResponseEntity<ApiResponse<PageResponse<CampaignPublicResponse>>> getOrganizationCampaigns(
+            @PathVariable UUID id,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.success(
+                campaignService.listOrganizationCampaigns(id, status, page, size)));
+    }
+
     @PostMapping("/{id}/follow")
     @PreAuthorize("hasRole('MEMBER')")
     @Operation(summary = "Theo dõi 1 tổ chức (F-085)")

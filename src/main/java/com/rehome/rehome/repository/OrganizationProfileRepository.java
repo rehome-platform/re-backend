@@ -27,5 +27,6 @@ public interface OrganizationProfileRepository extends JpaRepository<Organizatio
     List<OrganizationProfile> findAllByVerificationStatusAndVerifiedAtBefore(
             VerificationStatus verificationStatus, Instant verifiedAt);
 
-
+    // Tổ chức gần vị trí: chỉ tổ chức đã VERIFIED mới công khai (F-082)
+    List<OrganizationProfile> findAllByVerificationStatus(VerificationStatus verificationStatus);
 }

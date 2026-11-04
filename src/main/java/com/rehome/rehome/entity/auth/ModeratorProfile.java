@@ -1,6 +1,7 @@
 package com.rehome.rehome.entity.auth;
 
 import com.rehome.rehome.entity.marketplace.Warehouse;
+import com.rehome.rehome.generator.GeneratedModeratorCode;
 import jakarta.persistence.*;
 import java.util.UUID;
 import lombok.*;
@@ -27,7 +28,8 @@ public class ModeratorProfile {
     @Column(name = "full_name", nullable = false, length = 255)
     private String fullName;
 
-    // Mã nhân viên, in trên biên nhận, ví dụ MOD-07-003 — mục 12
+    // Mã nhân viên, in trên biên nhận, dạng MOD000001 (tự sinh từ moderator_code_seq) — mục 12
+    @GeneratedModeratorCode
     @Column(name = "moderator_code", nullable = false, unique = true, length = 255)
     private String moderatorCode;
 

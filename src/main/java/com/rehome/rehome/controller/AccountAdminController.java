@@ -2,8 +2,12 @@ package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.BanAccountRequest;
 import com.rehome.rehome.dto.response.AccountStatusResponse;
+import com.rehome.rehome.dto.response.AdminAccountResponse;
 import com.rehome.rehome.dto.response.ApiResponse;
+import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.AccountStatus;
+import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.service.AccountAdminService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -25,6 +29,18 @@ import java.util.UUID;
 public class AccountAdminController {
 
     private final AccountAdminService accountAdminService;
+
+    @GetMapping
+    @Operation(summary = "API 135 - Tìm và xem tài khoản (theo email/họ tên, lọc role, status)")
+    public ResponseEntity<ApiResponse<PageResponse<AdminAccountResponse>>> search(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Role role,
+            @RequestParam(required = false) AccountStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.success(
+                accountAdminService.search(search, role, status, page, size)));
+    }
 
     @PostMapping("/{accountId}/ban")
     @Operation(summary = "Khoá tài khoản kèm lý do")

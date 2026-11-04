@@ -6,19 +6,24 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.chat.Notification;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.repository.FollowRepository;
 import com.rehome.rehome.repository.NotificationRepository;
 import com.rehome.rehome.service.NotificationService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class NotificationServiceImpl implements NotificationService {
@@ -26,6 +31,7 @@ public class NotificationServiceImpl implements NotificationService {
     private static final int MAX_PAGE_SIZE = 50;
 
     private final NotificationRepository notificationRepository;
+    private final FollowRepository followRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -54,6 +60,32 @@ public class NotificationServiceImpl implements NotificationService {
                 .createdAt(Instant.now())
                 .build();
         notificationRepository.save(notification);
+    }
+
+    @Override
+    @Async
+    @Transactional
+    public void notifyFollowers(UUID organizationId, NotificationType type, String title, String body,
+                                 NotificationTargetType targetType, UUID targetId) {
+        List<Account> followers = followRepository.findFollowerAccounts(organizationId);
+        if (followers.isEmpty()) {
+            return;
+        }
+
+        Instant now = Instant.now();
+        List<Notification> notifications = followers.stream()
+                .map(follower -> Notification.builder()
+                        .recipientAccount(follower)
+                        .type(type)
+                        .title(title)
+                        .body(body)
+                        .targetType(targetType)
+                        .targetId(targetId)
+                        .createdAt(now)
+                        .build())
+                .toList();
+        notificationRepository.saveAll(notifications);
+        log.info("Đã báo {} cho {} người theo dõi tổ chức {}", type, notifications.size(), organizationId);
     }
 
     @Override

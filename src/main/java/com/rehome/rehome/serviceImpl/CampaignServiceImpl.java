@@ -13,6 +13,8 @@ import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.CampaignStatus;
 import com.rehome.rehome.entity.enums.CatalogStatus;
 import com.rehome.rehome.entity.enums.DonationStatus;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.entity.enums.VerificationStatus;
 import com.rehome.rehome.entity.marketplace.Campaign;
 import com.rehome.rehome.entity.marketplace.Warehouse;
@@ -26,6 +28,7 @@ import com.rehome.rehome.repository.DonationRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.CampaignService;
+import com.rehome.rehome.service.NotificationService;
 import com.rehome.rehome.service.SystemConfigReader;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -61,6 +64,7 @@ public class CampaignServiceImpl implements CampaignService {
     private final WarehouseRepository warehouseRepository;
     private final DonationRepository donationRepository;
     private final SystemConfigReader systemConfigReader;
+    private final NotificationService notificationService;
 
     @Override
     @Transactional(readOnly = true)
@@ -118,6 +122,13 @@ public class CampaignServiceImpl implements CampaignService {
                 .createdAt(Instant.now())
                 .build();
         campaignRepository.save(campaign);
+
+        // UC-44: báo cho người theo dõi tổ chức khi có chiến dịch mới. Chỉ gửi lúc TẠO, không
+        // gửi khi sửa (updateCampaign không gọi hàm này).
+        notificationService.notifyFollowers(organizationAccountId, NotificationType.FOLLOWED_ORG_CAMPAIGN,
+                organization.getDisplayName() + " mở chiến dịch mới",
+                campaign.getTitle(),
+                NotificationTargetType.CAMPAIGN, campaign.getId());
 
         return CampaignStatusResponse.builder()
                 .id(campaign.getId().toString())

@@ -1,5 +1,6 @@
 package com.rehome.rehome.repository;
 
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.marketplace.Follow;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -33,4 +34,8 @@ public interface FollowRepository extends JpaRepository<Follow, UUID> {
 
     // Tổ chức mà Member đang theo dõi, mới theo dõi gần đây trước
     Page<Follow> findByMember_IdOrderByCreatedAtDesc(UUID memberId, Pageable pageable);
+
+    // UC-44: tài khoản Member đang theo dõi một tổ chức - để báo khi tổ chức có chiến dịch/bài mới
+    @Query("select f.member from Follow f where f.organization.accountId = :organizationId")
+    List<Account> findFollowerAccounts(@Param("organizationId") UUID organizationId);
 }

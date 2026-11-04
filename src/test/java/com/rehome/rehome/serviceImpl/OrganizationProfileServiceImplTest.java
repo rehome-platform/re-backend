@@ -1037,6 +1037,39 @@ class OrganizationProfileServiceImplTest {
     }
 
     // =====================================================================
+    // getLegalChangeRequestDetail (F-140, Moderator xem chi tiết 1 yêu cầu)
+    // =====================================================================
+
+    @Test
+    void getLegalChangeRequestDetail_found_returnsFullDetail() {
+        UUID requestId = UUID.randomUUID();
+        OrganizationLegalChangeRequest r = OrganizationLegalChangeRequest.builder()
+                .id(requestId)
+                .proposedChanges(proposedChanges())
+                .status(LegalChangeRequestStatus.PENDING)
+                .createdAt(Instant.parse("2026-11-01T00:00:00Z"))
+                .build();
+        when(organizationLegalChangeRequestRepository.findById(requestId)).thenReturn(Optional.of(r));
+
+        var res = service.getLegalChangeRequestDetail(requestId);
+
+        assertThat(res.getId()).isEqualTo(requestId.toString());
+        assertThat(res.getStatus()).isEqualTo("PENDING");
+        assertThat(res.getProposedChanges()).isSameAs(r.getProposedChanges());
+        assertThat(res.getDecidedAt()).isNull();
+    }
+
+    @Test
+    void getLegalChangeRequestDetail_notFound_throws404Message() {
+        UUID requestId = UUID.randomUUID();
+        when(organizationLegalChangeRequestRepository.findById(requestId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getLegalChangeRequestDetail(requestId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy yêu cầu đổi thông tin.");
+    }
+
+    // =====================================================================
     // getVerificationDetail  (F-137)
     // =====================================================================
 

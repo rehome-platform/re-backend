@@ -370,6 +370,20 @@ public class OrganizationServiceImpl implements OrganizationService {
                 .findFirstByOrganization_AccountIdOrderByCreatedAtDesc(accountId)
                 .orElseThrow(() -> new IllegalArgumentException(LEGAL_CHANGE_REQUEST_NOT_FOUND));
 
+        return toLegalChangeDetailResponse(r);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public LegalChangeRequestDetailResponse getLegalChangeRequestDetail(UUID requestId) {
+        OrganizationLegalChangeRequest r = organizationLegalChangeRequestRepository
+                .findById(requestId)
+                .orElseThrow(() -> new IllegalArgumentException(LEGAL_CHANGE_REQUEST_NOT_FOUND));
+
+        return toLegalChangeDetailResponse(r);
+    }
+
+    private static LegalChangeRequestDetailResponse toLegalChangeDetailResponse(OrganizationLegalChangeRequest r) {
         return LegalChangeRequestDetailResponse.builder()
                 .id(r.getId().toString())
                 .status(r.getStatus().name())

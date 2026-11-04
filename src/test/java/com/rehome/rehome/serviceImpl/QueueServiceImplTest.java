@@ -11,6 +11,9 @@ import static org.mockito.Mockito.when;
 import com.rehome.rehome.dto.response.QueueClaimResponse;
 import com.rehome.rehome.dto.response.QueueItemResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.auth.OrganizationLegalChangeRequest;
+import com.rehome.rehome.entity.auth.OrganizationProfile;
+import com.rehome.rehome.entity.enums.LegalChangeRequestStatus;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.marketplace.QueueItem;
 import com.rehome.rehome.entity.marketplace.Warehouse;
@@ -19,9 +22,12 @@ import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.mapper.OrganizationLegalChangeMapper;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
+import com.rehome.rehome.repository.OrganizationLegalChangeRequestRepository;
 import com.rehome.rehome.repository.QueueItemRepository;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -45,6 +51,8 @@ class QueueServiceImplTest {
     @Mock private QueueItemRepository queueItemRepository;
     @Mock private OrderRepository orderRepository;
     @Mock private OrderItemRepository orderItemRepository;
+    @Mock private OrganizationLegalChangeRequestRepository organizationLegalChangeRequestRepository;
+    @Mock private OrganizationLegalChangeMapper organizationLegalChangeMapper;
 
     @InjectMocks private QueueServiceImpl queueService;
 
@@ -233,6 +241,75 @@ class QueueServiceImplTest {
             assertThat(result).hasSize(1);
             assertThat(result.get(0).getOrderNo()).isNull();
             verify(orderRepository, never()).findAllById(any());
+        }
+
+        @Test
+        @DisplayName("API 131: LEGAL_CHANGE kèm orgName, trạng thái và tóm tắt trường thay đổi")
+        void legalChangeItem_enrichedWithRequestSummary() {
+            Warehouse wh = warehouse(1);
+            Account mod = moderator(wh);
+            UUID requestId = UUID.randomUUID();
+
+            OrganizationProfile org = OrganizationProfile.builder()
+                    .accountId(UUID.randomUUID())
+                    .displayName("Quỹ Chia Sẻ")
+                    .build();
+            OrganizationLegalChangeRequest request = OrganizationLegalChangeRequest.builder()
+                    .id(requestId)
+                    .organization(org)
+                    .status(LegalChangeRequestStatus.PENDING)
+                    .proposedChanges(JsonNodeFactory.instance.objectNode().put("legalName", "Quỹ Mới"))
+                    .build();
+
+            QueueItem queueItem = QueueItem.builder()
+                    .id("q-1")
+                    .type(QueueType.LEGAL_CHANGE)
+                    .refId(requestId.toString())
+                    .warehouse(null)
+                    .createdAt(Instant.parse("2026-10-13T08:00:00Z"))
+                    .build();
+
+            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of(queueItem));
+            when(organizationLegalChangeRequestRepository.findAllById(List.of(requestId)))
+                    .thenReturn(List.of(request));
+            when(organizationLegalChangeMapper.summarize(request.getProposedChanges(), org))
+                    .thenReturn(new OrganizationLegalChangeMapper.LegalChangeSummary(
+                            "Tên pháp lý", "Hội Chia Sẻ", "Quỹ Mới"));
+
+            List<QueueItemResponse> result = queueService.list(null, mod);
+
+            assertThat(result).hasSize(1);
+            QueueItemResponse response = result.get(0);
+            assertThat(response.getRequestId()).isEqualTo(requestId.toString());
+            assertThat(response.getOrgName()).isEqualTo("Quỹ Chia Sẻ");
+            assertThat(response.getStatus()).isEqualTo("PENDING");
+            assertThat(response.getFieldChanged()).isEqualTo("Tên pháp lý");
+            assertThat(response.getOldValue()).isEqualTo("Hội Chia Sẻ");
+            assertThat(response.getNewValue()).isEqualTo("Quỹ Mới");
+        }
+
+        @Test
+        @DisplayName("LEGAL_CHANGE không còn tìm thấy yêu cầu (đã bị xóa): bỏ qua enrich, không lỗi")
+        void legalChangeItem_requestMissing_fallsBackToPlain() {
+            Warehouse wh = warehouse(1);
+            Account mod = moderator(wh);
+            UUID requestId = UUID.randomUUID();
+
+            QueueItem queueItem = QueueItem.builder()
+                    .id("q-1")
+                    .type(QueueType.LEGAL_CHANGE)
+                    .refId(requestId.toString())
+                    .createdAt(Instant.parse("2026-10-13T08:00:00Z"))
+                    .build();
+
+            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of(queueItem));
+            when(organizationLegalChangeRequestRepository.findAllById(List.of(requestId)))
+                    .thenReturn(List.of());
+
+            List<QueueItemResponse> result = queueService.list(null, mod);
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).getOrgName()).isNull();
         }
     }
 

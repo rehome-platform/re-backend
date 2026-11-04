@@ -302,6 +302,15 @@ public class OrganizationProfileController {
     // Hàng đợi để xem danh sách là GET /queues?type=LEGAL_CHANGE (API 28, đã có).
     // ------------------------------------------------------------------
 
+    @GetMapping("/legal-change-requests/{id}")
+    @PreAuthorize("hasRole('MODERATOR')")
+    @Operation(summary = "Moderator xem đầy đủ nội dung 1 yêu cầu đổi thông tin pháp lý")
+    public ResponseEntity<ApiResponse<LegalChangeRequestDetailResponse>> getLegalChangeRequestDetail(
+            @PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(
+                organizationService.getLegalChangeRequestDetail(id)));
+    }
+
     @PostMapping("/legal-change-requests/{id}/approve")
     @PreAuthorize("hasRole('MODERATOR')")
     @Operation(summary = "Moderator duyệt yêu cầu đổi thông tin pháp lý của tổ chức")

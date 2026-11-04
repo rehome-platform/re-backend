@@ -56,10 +56,34 @@ public class NotificationServiceImpl implements NotificationService {
         notificationRepository.save(notification);
     }
 
+    @Override
+    @Transactional
+    public NotificationResponse markAsRead(UUID accountId, UUID notificationId) {
+        Notification notification = notificationRepository
+                .findByIdAndRecipientAccount_Id(notificationId, accountId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy thông báo."));
+
+        notification.setIsRead(true);
+        return toResponse(notification);
+    }
+
+    @Override
+    @Transactional
+    public void markAllAsRead(UUID accountId) {
+        notificationRepository.markAllAsRead(accountId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public long countUnread(UUID accountId) {
+        return notificationRepository.countByRecipientAccount_IdAndIsReadFalse(accountId);
+    }
+
     private static NotificationResponse toResponse(Notification notification) {
         return NotificationResponse.builder()
                 .id(notification.getId().toString())
                 .type(notification.getType().name())
+                .title(notification.getTitle())
                 .message(notification.getBody())
                 .isRead(Boolean.TRUE.equals(notification.getIsRead()))
                 .targetType(notification.getTargetType() == null ? null : notification.getTargetType().name())

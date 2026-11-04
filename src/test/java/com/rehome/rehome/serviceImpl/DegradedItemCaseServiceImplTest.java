@@ -274,6 +274,7 @@ class DegradedItemCaseServiceImplTest {
         Account seller = someMember();
         ReturnRequest returnRequest = returnRequestWith("Áo bị rộng", "Về kho bị bung chỉ vai phải");
         DegradedItemCase degradedCase = caseFor(seller, returnRequest, null);
+        degradedCase.setCreatedAt(Instant.parse("2026-10-20T00:00:00Z"));
         when(degradedItemCaseRepository.findDetailById(degradedCase.getId()))
                 .thenReturn(Optional.of(degradedCase));
         when(returnRequestPhotoRepository.findAllByReturnRequest_IdOrderByIdAsc(returnRequest.getId()))
@@ -292,8 +293,11 @@ class DegradedItemCaseServiceImplTest {
         assertThat(res.getCompensationAmount()).isEqualByComparingTo("360000");
         assertThat(res.getStatus()).isEqualTo("PENDING_DECISION");
         assertThat(res.getDecision()).isNull();
-        // Hệ thống chưa có hạn quyết định cho F-036
+        // Hệ thống chưa có hạn quyết định/lấy hàng hay auto-decide cho F-036
         assertThat(res.getDecisionDeadline()).isNull();
+        assertThat(res.getPickupDeadline()).isNull();
+        assertThat(res.isAutoDecided()).isFalse();
+        assertThat(res.getReceivedAt()).isEqualTo(Instant.parse("2026-10-20T00:00:00Z"));
         assertThat(res.getDegradedCompensationRate()).isEqualByComparingTo("0.50");
         assertThat(res.getPaidAmount()).isNull();
         assertThat(res.getDecidedAt()).isNull();

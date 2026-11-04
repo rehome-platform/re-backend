@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -213,4 +214,113 @@ public class OrganizationLegalChangeMapper {
     private String blankToNull(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
+
+    /**
+     * Tóm tắt các trường thực sự khác so với hồ sơ hiện tại, để hiển thị trên hàng đợi
+     * (GET /queues?type=LEGAL_CHANGE) trước khi Moderator duyệt.
+     *
+     * <p>Khác với {@link #apply}: đây chỉ đọc, không áp dụng, và không báo lỗi khi gặp cấu trúc
+     * lạ — proposedChanges của một yêu cầu đang PENDING có thể chưa từng được kiểm (việc kiểm
+     * nghiêm chỉ xảy ra lúc duyệt), nên hàng đợi vẫn phải hiển thị được, chỉ là bỏ qua phần không
+     * đọc được.
+     */
+    public LegalChangeSummary summarize(JsonNode proposedChanges, OrganizationProfile profile) {
+        List<String> labels = new ArrayList<>();
+        List<String> oldValues = new ArrayList<>();
+        List<String> newValues = new ArrayList<>();
+
+        if (proposedChanges != null && proposedChanges.isObject()) {
+            if (proposedChanges.has("legalName")) {
+                addDiff(labels, oldValues, newValues, "Tên pháp lý",
+                        profile.getLegalName(), textOrNull(proposedChanges, "legalName"));
+            }
+            if (proposedChanges.has("orgType")) {
+                addDiff(labels, oldValues, newValues, "Loại hình tổ chức",
+                        profile.getOrgType(), textOrNull(proposedChanges, "orgType"));
+            }
+            if (proposedChanges.has("taxCode")) {
+                addDiff(labels, oldValues, newValues, "Mã số thuế",
+                        profile.getTaxCode(), textOrNull(proposedChanges, "taxCode"));
+            }
+            if (proposedChanges.has("representative") && proposedChanges.get("representative").isObject()) {
+                summarizeRepresentative(proposedChanges.get("representative"), profile.getRepresentative(),
+                        labels, oldValues, newValues);
+            }
+            if (proposedChanges.has("documents") && proposedChanges.get("documents").isArray()) {
+                summarizeDocuments(proposedChanges.get("documents"), profile.getDocuments(),
+                        labels, oldValues, newValues);
+            }
+        }
+
+        return new LegalChangeSummary(
+                String.join("; ", labels), String.join("; ", oldValues), String.join("; ", newValues));
+    }
+
+    private void summarizeRepresentative(JsonNode node, OrganizationRepresentative current,
+                                          List<String> labels, List<String> oldValues, List<String> newValues) {
+        if (node.has("fullName")) {
+            addDiff(labels, oldValues, newValues, "Họ và tên người đại diện",
+                    current == null ? null : current.getFullName(), textOrNull(node, "fullName"));
+        }
+        if (node.has("position")) {
+            addDiff(labels, oldValues, newValues, "Chức vụ người đại diện",
+                    current == null ? null : current.getPosition(), textOrNull(node, "position"));
+        }
+        if (node.has("cccdNumber")) {
+            addDiff(labels, oldValues, newValues, "Số CCCD người đại diện",
+                    current == null ? null : current.getCccdNumber(), textOrNull(node, "cccdNumber"));
+        }
+        if (node.has("cccdFrontUrl")) {
+            addDiff(labels, oldValues, newValues, "Ảnh CCCD mặt trước",
+                    current == null ? null : current.getCccdFrontUrl(), textOrNull(node, "cccdFrontUrl"));
+        }
+        if (node.has("cccdBackUrl")) {
+            addDiff(labels, oldValues, newValues, "Ảnh CCCD mặt sau",
+                    current == null ? null : current.getCccdBackUrl(), textOrNull(node, "cccdBackUrl"));
+        }
+    }
+
+    /** documents là thay toàn bộ danh sách, không có id để đối chiếu từng giấy, nên so sánh theo gộp loại giấy. */
+    private void summarizeDocuments(JsonNode node, List<OrganizationDocument> current,
+                                     List<String> labels, List<String> oldValues, List<String> newValues) {
+        String oldDisplay = current == null ? "" : current.stream()
+                .map(OrganizationDocument::getDocType)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.joining(", "));
+
+        List<String> newTypes = new ArrayList<>();
+        for (JsonNode item : node) {
+            if (item.isObject() && item.has("docType")) {
+                String docType = textOrNull(item, "docType");
+                if (StringUtils.hasText(docType)) {
+                    newTypes.add(docType);
+                }
+            }
+        }
+        addDiff(labels, oldValues, newValues, "Giấy tờ pháp lý", oldDisplay, String.join(", ", newTypes));
+    }
+
+    private void addDiff(List<String> labels, List<String> oldValues, List<String> newValues,
+                          String label, String oldValue, String newValue) {
+        String oldDisplay = oldValue == null ? "" : oldValue;
+        String newDisplay = newValue == null ? "" : newValue;
+        if (oldDisplay.equals(newDisplay)) {
+            return;
+        }
+        labels.add(label);
+        oldValues.add(oldDisplay);
+        newValues.add(newDisplay);
+    }
+
+    private String textOrNull(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        String text = value.asText(null);
+        return text == null ? null : text.trim();
+    }
+
+    /** Kết quả đối chiếu proposedChanges với hồ sơ hiện tại, đã gộp thành 1 dòng cho hàng đợi. */
+    public record LegalChangeSummary(String fieldChanged, String oldValue, String newValue) {}
 }

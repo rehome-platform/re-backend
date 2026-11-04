@@ -69,4 +69,8 @@ public interface OrganizationService {
     // F-140: Moderator từ chối yêu cầu đổi thông tin pháp lý kèm lý do; hồ sơ giữ nguyên.
     LegalChangeRequestResponse rejectLegalChange(Account moderator, UUID requestId,
                                                  RejectLegalChangeRequest request);
+
+    // F-140: Moderator xem đầy đủ nội dung 1 yêu cầu đổi thông tin pháp lý (bất kỳ trạng thái)
+    // khi cần xét kỹ trước khi duyệt/từ chối.
+    LegalChangeRequestDetailResponse getLegalChangeRequestDetail(UUID requestId);
 }

@@ -22,6 +22,7 @@ import com.rehome.rehome.repository.CampaignRepository;
 import com.rehome.rehome.repository.DonationRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
+import com.rehome.rehome.service.NotificationService;
 import com.rehome.rehome.service.SystemConfigReader;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -58,6 +59,7 @@ class CampaignServiceImplTest {
     @Mock private WarehouseRepository warehouseRepository;
     @Mock private DonationRepository donationRepository;
     @Mock private SystemConfigReader systemConfigReader;
+    @Mock private NotificationService notificationService;
 
     @InjectMocks private CampaignServiceImpl service;
 

@@ -24,6 +24,7 @@ import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.repository.CampaignRepository;
+import com.rehome.rehome.repository.DonationNoteRepository;
 import com.rehome.rehome.repository.DonationRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
@@ -64,15 +65,18 @@ public class CampaignServiceImpl implements CampaignService {
     private final OrganizationProfileRepository organizationProfileRepository;
     private final WarehouseRepository warehouseRepository;
     private final DonationRepository donationRepository;
+    private final DonationNoteRepository donationNoteRepository;
     private final SystemConfigReader systemConfigReader;
     private final NotificationService notificationService;
 
     @Override
     @Transactional(readOnly = true)
-    public CampaignPublicResponse getPublicDetail(UUID campaignId) {
+    public CampaignPublicResponse getPublicDetail(UUID campaignId, UUID viewerAccountId) {
         Campaign campaign = campaignRepository.findById(campaignId)
                 .orElseThrow(() -> new IllegalArgumentException(CAMPAIGN_NOT_FOUND));
-        return toPublicResponse(campaign);
+        boolean isOwner = viewerAccountId != null
+                && campaign.getOrganization().getAccountId().equals(viewerAccountId);
+        return toPublicResponse(campaign, isOwner);
     }
 
     @Override
@@ -358,6 +362,10 @@ public class CampaignServiceImpl implements CampaignService {
     }
 
     private CampaignPublicResponse toPublicResponse(Campaign campaign) {
+        return toPublicResponse(campaign, false);
+    }
+
+    private CampaignPublicResponse toPublicResponse(Campaign campaign, boolean includeDonationNoteCount) {
         boolean ownAddress = Boolean.TRUE.equals(campaign.getReceiveAtOwnAddress());
         return CampaignPublicResponse.builder()
                 .id(campaign.getId().toString())
@@ -373,6 +381,9 @@ public class CampaignServiceImpl implements CampaignService {
                 .preferredItemTypes(splitPreferredItemTypes(campaign.getPreferredItemTypes()))
                 .createdAt(campaign.getCreatedAt())
                 .organization(toOrganizationSummaryResponse(campaign.getOrganization()))
+                .donationNoteCount(includeDonationNoteCount
+                        ? donationNoteRepository.countByCampaign_Id(campaign.getId())
+                        : null)
                 .build();
     }
 

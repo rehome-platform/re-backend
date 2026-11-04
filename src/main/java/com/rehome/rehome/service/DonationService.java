@@ -40,4 +40,10 @@ public interface DonationService {
     // thay vì body, và phải thuộc đúng tổ chức đang gọi.
     DonationNoteResponse createCampaignDonationNote(UUID organizationAccountId, UUID campaignId,
                                                      CreateCampaignDonationNoteRequest request);
+
+    // OC-08/F-167: tổ chức xem các note quyên góp của chính chiến dịch mình, mới nhất trước.
+    // Phải xem được cả khi chiến dịch đã CLOSED. Campaign không tồn tại -> 404, thuộc
+    // tổ chức khác -> 403.
+    PageResponse<DonationNoteResponse> listCampaignDonationNotes(UUID organizationAccountId, UUID campaignId,
+                                                                   int page, int size);
 }

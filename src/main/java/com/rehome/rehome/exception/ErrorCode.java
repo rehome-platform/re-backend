@@ -221,7 +221,18 @@ public enum ErrorCode {
     POST_CONTENT_TOO_LONG(HttpStatus.BAD_REQUEST, "content tối đa 2000 ký tự."),
     POST_TOO_MANY_PHOTOS(HttpStatus.BAD_REQUEST, "Tối đa 5 ảnh cho 1 bài viết."),
     // F-087 - bình luận bài viết cộng đồng: giới hạn nội dung
-    COMMENT_CONTENT_TOO_LONG(HttpStatus.BAD_REQUEST, "content tối đa 500 ký tự.");
+    COMMENT_CONTENT_TOO_LONG(HttpStatus.BAD_REQUEST, "content tối đa 500 ký tự."),
+
+    // API 146 - F-157: Admin chỉnh tham số cấu hình
+    CONFIG_KEY_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy tham số."),
+    CONFIG_VALUE_INVALID(HttpStatus.UNPROCESSABLE_ENTITY, "Giá trị không hợp lệ cho tham số này."),
+
+    // API 148 - F-159: xuất báo cáo dashboard
+    INVALID_DATE_RANGE(HttpStatus.BAD_REQUEST, "Khoảng thời gian không hợp lệ."),
+    DASHBOARD_EXPORT_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo file Excel báo cáo."),
+
+    // API 149 - F-160: tra cứu audit log
+    INVALID_PAGINATION(HttpStatus.BAD_REQUEST, "page phải >= 0 và size trong khoảng 1 đến 100.");
 
     private final HttpStatus status;
     private final String defaultMessage;

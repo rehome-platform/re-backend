@@ -157,9 +157,7 @@ class WarehouseAdminServiceImplTest {
         when(warehouseRepository.existsByCode("Q102")).thenReturn(false);
         when(warehouseRepository.save(any(Warehouse.class))).thenAnswer(inv -> {
             Warehouse w = inv.getArgument(0);
-            if (w.getId() == null) {
-                w.setId(UUID.randomUUID());
-            }
+            w.setId(UUID.randomUUID());
             return w;
         });
 

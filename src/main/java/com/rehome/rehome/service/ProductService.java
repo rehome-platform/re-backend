@@ -2,7 +2,6 @@ package com.rehome.rehome.service;
 
 import com.rehome.rehome.dto.request.CreateProductRequest;
 import com.rehome.rehome.dto.request.PriceReductionRequest;
-import com.rehome.rehome.dto.request.UpdateShelfLocationRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
@@ -39,13 +38,10 @@ public interface ProductService {
 
     List<StockMovementResponse> getStockMovements(String productId);
 
-    ShelfLocationResponse updateShelfLocation(Account account, String productId,
-                                              UpdateShelfLocationRequest request);
-
     ProductSkuLookupResponse getBySku(Account account, String sku);
 
     PdfDownload getSkuLabel(Account account, String productId);
 
     PageResponse<InventoryItemResponse> getInventory(Account account, ProductStatus status,
-                                                     String shelfLocation, int page, int size);
+                                                     int page, int size);
 }

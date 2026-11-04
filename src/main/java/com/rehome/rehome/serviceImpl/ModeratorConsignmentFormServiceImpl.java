@@ -256,7 +256,6 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
                     .sku(product.getId())
                     .name(product.getName())
                     .status(product.getStatus())
-                    .shelfLocation(product.getShelfLocation())
                     .createdAt(product.getCreatedAt())
                     .build());
         }

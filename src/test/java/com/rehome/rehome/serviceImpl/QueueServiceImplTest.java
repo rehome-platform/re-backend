@@ -185,7 +185,7 @@ class QueueServiceImplTest {
         }
 
         @Test
-        @DisplayName("DG-01: PACKING kèm orderNo, recipientName, itemCount, shelfLocations, waitingMinutes")
+        @DisplayName("DG-01: PACKING kèm orderNo, recipientName, itemCount, waitingMinutes")
         void packingItem_enrichedWithOrderData() {
             Warehouse wh = warehouse(1);
             Account mod = moderator(wh);
@@ -199,8 +199,8 @@ class QueueServiceImplTest {
                     .createdAt(createdAt)
                     .build();
 
-            Product product1 = Product.builder().id("sku-1").shelfLocation("A-01").build();
-            Product product2 = Product.builder().id("sku-2").shelfLocation("A-02").build();
+            Product product1 = Product.builder().id("sku-1").build();
+            Product product2 = Product.builder().id("sku-2").build();
             OrderItem item1 = OrderItem.builder().order(order).product(product1).build();
             OrderItem item2 = OrderItem.builder().order(order).product(product2).build();
 
@@ -224,7 +224,6 @@ class QueueServiceImplTest {
             assertThat(response.getOrderNo()).isEqualTo("OD-2026-000099");
             assertThat(response.getRecipientName()).isEqualTo("Nguyễn Văn A");
             assertThat(response.getItemCount()).isEqualTo(2);
-            assertThat(response.getShelfLocations()).isEqualTo("A-01, A-02");
             assertThat(response.getWaitingMinutes()).isGreaterThanOrEqualTo(9L);
         }
 

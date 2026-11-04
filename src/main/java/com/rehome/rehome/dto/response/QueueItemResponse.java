@@ -28,7 +28,6 @@ public class QueueItemResponse {
     private String orderNo;
     private String recipientName;
     private Integer itemCount;
-    private String shelfLocations;
     private Long waitingMinutes;
 
     // Chỉ có giá trị với QueueType.LEGAL_CHANGE
@@ -53,12 +52,11 @@ public class QueueItemResponse {
     }
 
     public static QueueItemResponse fromPacking(
-            QueueItem q, Order order, int itemCount, String shelfLocations, long waitingMinutes) {
+            QueueItem q, Order order, int itemCount, long waitingMinutes) {
         QueueItemResponse response = from(q);
         response.setOrderNo(order.getOrderNo());
         response.setRecipientName(order.getShippingRecipientName());
         response.setItemCount(itemCount);
-        response.setShelfLocations(shelfLocations);
         response.setWaitingMinutes(waitingMinutes);
         return response;
     }

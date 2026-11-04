@@ -3,7 +3,6 @@ package com.rehome.rehome.serviceImpl;
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.dto.request.CreateProductRequest;
 import com.rehome.rehome.dto.request.PriceReductionRequest;
-import com.rehome.rehome.dto.request.UpdateShelfLocationRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.MemberProfile;
@@ -398,7 +397,6 @@ public class ProductServiceImpl implements ProductService {
                 .termStartedAt(now)
                 .endOfTermDeadline(now.plus(Duration.ofDays(
                         (long) receipt.getTermLengthDays() * (receipt.getMaxRenewals() + 1))))
-                .shelfLocation(request.getShelfLocation())
                 .build();
 
         productRepository.save(product);
@@ -408,7 +406,6 @@ public class ProductServiceImpl implements ProductService {
                 .product(product)
                 .warehouse(product.getWarehouse())
                 .movementType(StockMovementType.STOCK_IN)
-                .toLocation(product.getShelfLocation())
                 .moderator(account)
                 .build());
 
@@ -445,37 +442,6 @@ public class ProductServiceImpl implements ProductService {
                 .toList();
     }
 
-    @Override
-    @Transactional
-    public ShelfLocationResponse updateShelfLocation(Account account, String productId,
-                                                     UpdateShelfLocationRequest request) {
-
-        Product product = productRepository.findByIdForUpdate(productId)
-                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));        // 404
-
-        // Moderator chỉ được đổi kệ sản phẩm trong kho của mình
-        assertSameWarehouse(account, product);
-
-        String from = product.getShelfLocation();
-        String to = request.getShelfLocation().trim();
-
-        if (!to.equals(from)) {
-            product.setShelfLocation(to);
-            productRepository.save(product);
-
-            stockMovementLogRepository.save(StockMovementLog.builder()
-                    .product(product)
-                    .warehouse(product.getWarehouse())
-                    .movementType(StockMovementType.SHELF_MOVE)
-                    .fromLocation(from)
-                    .toLocation(to)
-                    .moderator(account)
-                    .build());
-        }
-
-        return new ShelfLocationResponse(product.getId(), product.getShelfLocation());
-    }
-
     // Moderator chỉ thao tác được sản phẩm thuộc kho của mình
     private void assertSameWarehouse(Account account, Product product) {
         if (account.getWarehouse() == null
@@ -510,7 +476,6 @@ public class ProductServiceImpl implements ProductService {
         return ProductSkuLookupResponse.builder()
                 .id(product.getId())
                 .name(product.getName())
-                .shelfLocation(product.getShelfLocation())
                 .status(product.getStatus())
                 .brandName(product.getBrand().getName())
                 .categoryName(product.getCategory().getName())
@@ -540,7 +505,7 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public PageResponse<InventoryItemResponse> getInventory(Account account, ProductStatus status,
-                                                            String shelfLocation, int page, int size) {
+                                                            int page, int size) {
 
         if (account.getWarehouse() == null) {
             throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);              // 403
@@ -550,12 +515,10 @@ public class ProductServiceImpl implements ProductService {
         int safeSize = size < 1 ? DEFAULT_SIZE : Math.min(size, MAX_SIZE);
         Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
 
-        String shelf = (shelfLocation == null || shelfLocation.isBlank()) ? null : shelfLocation.trim();
-
         Page<Product> result = productRepository.findInventory(
-                account.getWarehouse().getId(), status, shelf, pageable);
+                account.getWarehouse().getId(), status, pageable);
 
         return PageResponse.from(result.map(p -> new InventoryItemResponse(
-                p.getId(), p.getName(), p.getShelfLocation(), p.getStatus())));
+                p.getId(), p.getName(), p.getStatus())));
     }
 }

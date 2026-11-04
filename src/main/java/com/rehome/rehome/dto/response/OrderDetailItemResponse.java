@@ -20,9 +20,6 @@ public class OrderDetailItemResponse {
     private String condition;
     private BigDecimal priceAtOrder;
 
-    // Vị trí kệ trong kho, phục vụ phiếu gom hàng DG-01
-    private String shelfLocation;
-
     // Đã được Moderator quét đối chiếu SKU trước khi tạo vận đơn - F-127
     private Boolean scanned;
 }

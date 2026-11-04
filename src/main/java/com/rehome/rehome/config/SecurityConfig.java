@@ -83,6 +83,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/organizations/me", "/api/organizations/options")
                                 .authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/organizations/following").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/organizations").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/organizations/{id}").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/organizations/{id}/campaigns").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")

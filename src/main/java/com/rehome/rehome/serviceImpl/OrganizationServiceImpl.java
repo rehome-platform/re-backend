@@ -48,10 +48,12 @@ import com.rehome.rehome.repository.FollowRepository;
 import com.rehome.rehome.repository.OrganizationLegalChangeRequestRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.service.OrganizationService;
+import com.rehome.rehome.util.VietnameseText;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -60,6 +62,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -266,6 +269,34 @@ public class OrganizationServiceImpl implements OrganizationService {
 
         return PageResponse.from(follows.map(f -> toPublicProfileResponse(
                 f.getOrganization(), true, followerCounts.getOrDefault(f.getOrganization().getAccountId(), 0L))));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<OrganizationPublicProfileResponse> listPublicOrganizations(String search, UUID viewerId,
+                                                                                     int page, int size) {
+        Pageable pageable = PageRequest.of(
+                Math.max(page, 0),
+                Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
+                Sort.by(Sort.Direction.DESC, "verifiedAt"));
+        String keyword = StringUtils.hasText(search) ? VietnameseText.normalize(search) : null;
+
+        Page<OrganizationProfile> result = organizationProfileRepository.search(
+                VerificationStatus.VERIFIED, keyword, pageable);
+        if (result.isEmpty()) {
+            return PageResponse.from(result.map(p -> toPublicProfileResponse(p, false, 0L)));
+        }
+
+        List<UUID> organizationIds = result.getContent().stream().map(OrganizationProfile::getAccountId).toList();
+        Map<UUID, Long> followerCounts = followRepository.countByOrganizationIds(organizationIds).stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
+        Set<UUID> followedOrganizationIds = viewerId == null
+                ? Set.of()
+                : Set.copyOf(followRepository.findFollowedOrganizationIds(viewerId));
+
+        return PageResponse.from(result.map(p -> toPublicProfileResponse(p,
+                followedOrganizationIds.contains(p.getAccountId()),
+                followerCounts.getOrDefault(p.getAccountId(), 0L))));
     }
 
     @Override

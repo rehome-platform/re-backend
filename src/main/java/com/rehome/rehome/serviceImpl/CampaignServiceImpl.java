@@ -30,6 +30,7 @@ import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.CampaignService;
 import com.rehome.rehome.service.NotificationService;
 import com.rehome.rehome.service.SystemConfigReader;
+import com.rehome.rehome.util.VietnameseText;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -224,13 +225,14 @@ public class CampaignServiceImpl implements CampaignService {
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<CampaignPublicResponse> listPublicCampaigns(String status, int page, int size) {
+    public PageResponse<CampaignPublicResponse> listPublicCampaigns(String search, String status, int page, int size) {
         Pageable pageable = PageRequest.of(
                 Math.max(page, 0),
                 Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
                 Sort.by(Sort.Direction.DESC, "createdAt"));
 
-        Page<Campaign> result = campaignRepository.findByStatus(parsePublicStatusFilter(status), pageable);
+        String keyword = StringUtils.hasText(search) ? VietnameseText.normalize(search) : null;
+        Page<Campaign> result = campaignRepository.search(parsePublicStatusFilter(status), keyword, pageable);
         return PageResponse.from(result.map(this::toPublicResponse));
     }
 

@@ -624,6 +624,69 @@ class OrganizationProfileServiceImplTest {
     }
 
     // =====================================================================
+    // listPublicOrganizations (GET /api/organizations?search=)
+    // =====================================================================
+
+    @Test
+    void listPublicOrganizations_noSearch_passesNullKeyword() {
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile organization = baseProfile(orgId).verificationStatus(VerificationStatus.VERIFIED).build();
+        when(organizationProfileRepository.search(eq(VerificationStatus.VERIFIED), isNull(), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(organization)));
+        when(followRepository.countByOrganizationIds(List.of(orgId)))
+                .thenReturn(List.<Object[]>of(new Object[]{orgId, 7L}));
+        when(followRepository.findFollowedOrganizationIds(any())).thenReturn(List.of(orgId));
+
+        UUID viewerId = UUID.randomUUID();
+        PageResponse<OrganizationPublicProfileResponse> result =
+                service.listPublicOrganizations(null, viewerId, 0, 20);
+
+        assertThat(result.getContent()).hasSize(1);
+        OrganizationPublicProfileResponse res = result.getContent().get(0);
+        assertThat(res.getId()).isEqualTo(orgId.toString());
+        assertThat(res.getDisplayName()).isEqualTo("Chia Sẻ");
+        assertThat(res.getFollowerCount()).isEqualTo(7L);
+        assertThat(res.isFollowing()).isTrue();
+    }
+
+    @Test
+    void listPublicOrganizations_withSearch_normalizesKeywordBeforeQuery() {
+        when(organizationProfileRepository.search(eq(VerificationStatus.VERIFIED), eq("chia se"), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
+
+        service.listPublicOrganizations("Chia Sẻ", null, 0, 20);
+
+        verify(organizationProfileRepository).search(eq(VerificationStatus.VERIFIED), eq("chia se"), any());
+    }
+
+    @Test
+    void listPublicOrganizations_guestViewer_isFollowingAlwaysFalse() {
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile organization = baseProfile(orgId).verificationStatus(VerificationStatus.VERIFIED).build();
+        when(organizationProfileRepository.search(eq(VerificationStatus.VERIFIED), isNull(), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(organization)));
+        when(followRepository.countByOrganizationIds(List.of(orgId))).thenReturn(List.of());
+
+        PageResponse<OrganizationPublicProfileResponse> result =
+                service.listPublicOrganizations(null, null, 0, 20);
+
+        assertThat(result.getContent().get(0).isFollowing()).isFalse();
+        verify(followRepository, never()).findFollowedOrganizationIds(any());
+    }
+
+    @Test
+    void listPublicOrganizations_empty_returnsEmptyPageWithoutFollowerCountQuery() {
+        when(organizationProfileRepository.search(eq(VerificationStatus.VERIFIED), isNull(), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
+
+        PageResponse<OrganizationPublicProfileResponse> result =
+                service.listPublicOrganizations(null, UUID.randomUUID(), 0, 20);
+
+        assertThat(result.getContent()).isEmpty();
+        verify(followRepository, never()).countByOrganizationIds(any());
+    }
+
+    // =====================================================================
     // follow / unfollow  (F-085)
     // =====================================================================
 

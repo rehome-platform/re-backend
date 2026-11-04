@@ -279,7 +279,7 @@ public class OrganizationServiceImpl implements OrganizationService {
                 Math.max(page, 0),
                 Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
                 Sort.by(Sort.Direction.DESC, "verifiedAt"));
-        String keyword = StringUtils.hasText(search) ? VietnameseText.normalize(search) : null;
+        String keyword = StringUtils.hasText(search) ? VietnameseText.normalize(search) : "";
 
         Page<OrganizationProfile> result = organizationProfileRepository.search(
                 VerificationStatus.VERIFIED, keyword, pageable);

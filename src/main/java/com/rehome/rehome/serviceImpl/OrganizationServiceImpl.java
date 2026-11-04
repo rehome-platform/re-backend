@@ -8,6 +8,7 @@ import com.rehome.rehome.dto.request.UpdateOrganizationProfileRequest;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
 import com.rehome.rehome.dto.response.LegalChangeRequestDetailResponse;
 import com.rehome.rehome.dto.response.LegalChangeRequestResponse;
+import com.rehome.rehome.dto.response.OrganizationNearbyCampaignResponse;
 import com.rehome.rehome.dto.response.OrganizationNearbyResponse;
 import com.rehome.rehome.dto.response.OrganizationOptionsResponse;
 import com.rehome.rehome.dto.response.OrganizationProfileResponse;
@@ -23,8 +24,10 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.OrganizationLegalChangeRequest;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.auth.OrganizationRepresentative;
+import com.rehome.rehome.entity.marketplace.Campaign;
 import com.rehome.rehome.entity.marketplace.Follow;
 import com.rehome.rehome.entity.auth.OrganizationDocument;
+import com.rehome.rehome.entity.enums.CampaignStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.VerificationStatus;
 import com.rehome.rehome.entity.enums.LegalChangeRequestStatus;
@@ -40,6 +43,7 @@ import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.OrganizationLegalChangeMapper;
 import com.rehome.rehome.mapper.OrganizationProfileMapper;
 import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.repository.CampaignRepository;
 import com.rehome.rehome.repository.FollowRepository;
 import com.rehome.rehome.repository.OrganizationLegalChangeRequestRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
@@ -75,6 +79,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     private final OrganizationLegalChangeRequestRepository organizationLegalChangeRequestRepository;
     private final OrganizationLegalChangeMapper organizationLegalChangeMapper;
     private final NotificationService notificationService;
+    private final CampaignRepository campaignRepository;
 
     private static final double EARTH_RADIUS_KM = 6371.0;
     private static final int NEARBY_LIMIT = 20;
@@ -203,15 +208,34 @@ public class OrganizationServiceImpl implements OrganizationService {
             throw new AppException(ErrorCode.INVALID_COORDINATES);
         }
 
-        return organizationProfileRepository.findAllByVerificationStatus(VerificationStatus.VERIFIED).stream()
+        List<OrganizationProfile> organizations = organizationProfileRepository
+                .findAllByVerificationStatus(VerificationStatus.VERIFIED);
+
+        List<UUID> organizationIds = organizations.stream().map(OrganizationProfile::getAccountId).toList();
+        Map<UUID, List<OrganizationNearbyCampaignResponse>> activeCampaignsByOrgId = organizationIds.isEmpty()
+                ? Map.of()
+                : campaignRepository
+                        .findAllByOrganization_AccountIdInAndStatus(organizationIds, CampaignStatus.OPEN).stream()
+                        .collect(Collectors.groupingBy(
+                                c -> c.getOrganization().getAccountId(),
+                                Collectors.mapping(
+                                        c -> new OrganizationNearbyCampaignResponse(c.getId(), c.getEndTime()),
+                                        Collectors.toList())));
+
+        return organizations.stream()
                 .map(org -> new OrganizationNearbyResponse(
                         org.getAccountId(),
                         org.getDisplayName(),
                         org.getLogoUrl(),
                         org.getDonationPointAddress(),
+                        org.getDonationPointLatitude(),
+                        org.getDonationPointLongitude(),
+                        org.getDonationPointReceivingHours(),
+                        org.getOrgType(),
                         haversine(lat, lng,
                                 org.getDonationPointLatitude().doubleValue(),
-                                org.getDonationPointLongitude().doubleValue())))
+                                org.getDonationPointLongitude().doubleValue()),
+                        activeCampaignsByOrgId.getOrDefault(org.getAccountId(), List.of())))
                 .sorted(Comparator.comparingDouble(OrganizationNearbyResponse::distanceKm))
                 .limit(NEARBY_LIMIT)
                 .toList();

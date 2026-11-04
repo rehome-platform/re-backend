@@ -46,6 +46,9 @@ public class DegradedItemCaseDetailResponse {
     /** Số tiền thực tế đã cộng vào ví; null khi chưa quyết định */
     private BigDecimal paidAmount;
 
+    /** Thời điểm Moderator kết luận hàng xuống cấp và mở ca - alias của createdAt */
+    private Instant receivedAt;
+
     /** Thời điểm Member quyết định; null khi chưa quyết định */
     private Instant decidedAt;
 
@@ -55,6 +58,20 @@ public class DegradedItemCaseDetailResponse {
      * đổi contract khi có hạn thật.
      */
     private Instant decisionDeadline;
+
+    /**
+     * LUÔN null: hạn để Member đến kho lấy hàng sau khi chọn PARTIAL_WITH_ITEM_BACK.
+     * F-036 chưa quy định hạn này, không có cột trong DB và không có job tự đóng ca quá hạn.
+     * Giữ field để app không phải đổi contract khi có hạn thật.
+     */
+    private Instant pickupDeadline;
+
+    /**
+     * LUÔN false: hệ thống chưa có job tự quyết định hộ Member khi quá hạn - mọi ca hiện tại
+     * chỉ được quyết định bởi chính Member qua API 95. Giữ field để app không phải đổi
+     * contract khi có auto-decide thật.
+     */
+    private boolean autoDecided;
 
     /** PENDING_DECISION / DECIDED, suy ra từ decision */
     private String status;

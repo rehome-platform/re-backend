@@ -18,11 +18,14 @@ import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -195,5 +198,71 @@ class NotificationServiceImplTest {
         assertThat(res.getTargetType()).isEqualTo("CAMPAIGN");
         assertThat(res.getTargetId()).isEqualTo(campaignId.toString());
         assertThat(res.getWarehouseId()).isEqualTo(warehouseId.toString());
+    }
+
+    @Test
+    void listNotifications_mapsTitle() {
+        UUID accountId = UUID.randomUUID();
+        when(notificationRepository.findByRecipientAccount_Id(eq(accountId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        notification(UUID.randomUUID(), NotificationType.ORDER_UPDATE, false, Instant.now()))));
+
+        NotificationResponse res = service.listNotifications(accountId, 0, 20).getContent().get(0);
+
+        assertThat(res.getTitle()).isEqualTo("Đơn hàng");
+    }
+
+    // =====================================================================
+    // markAsRead
+    // =====================================================================
+
+    @Test
+    void markAsRead_ownNotification_marksReadAndReturnsResponse() {
+        UUID accountId = UUID.randomUUID();
+        UUID notificationId = UUID.randomUUID();
+        Notification notification = notification(notificationId, NotificationType.ORDER_UPDATE, false, Instant.now());
+        when(notificationRepository.findByIdAndRecipientAccount_Id(notificationId, accountId))
+                .thenReturn(Optional.of(notification));
+
+        NotificationResponse result = service.markAsRead(accountId, notificationId);
+
+        assertThat(notification.getIsRead()).isTrue();
+        assertThat(result.isRead()).isTrue();
+    }
+
+    @Test
+    void markAsRead_notOwnedOrMissing_throwsNotFound() {
+        UUID accountId = UUID.randomUUID();
+        UUID notificationId = UUID.randomUUID();
+        when(notificationRepository.findByIdAndRecipientAccount_Id(notificationId, accountId))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.markAsRead(accountId, notificationId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy thông báo.");
+    }
+
+    // =====================================================================
+    // markAllAsRead / countUnread
+    // =====================================================================
+
+    @Test
+    void markAllAsRead_delegatesToRepository() {
+        UUID accountId = UUID.randomUUID();
+
+        service.markAllAsRead(accountId);
+
+        verify(notificationRepository).markAllAsRead(accountId);
+    }
+
+    @Test
+    void countUnread_returnsRepositoryCount() {
+        UUID accountId = UUID.randomUUID();
+        when(notificationRepository.countByRecipientAccount_IdAndIsReadFalse(accountId)).thenReturn(3L);
+
+        long result = service.countUnread(accountId);
+
+        assertThat(result).isEqualTo(3L);
+        verify(notificationRepository, never()).findByRecipientAccount_Id(any(), any());
     }
 }

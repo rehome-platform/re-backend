@@ -22,6 +22,10 @@ import java.util.UUID;
 @Repository
 public interface ConsignmentFormRepository extends JpaRepository<ConsignmentForm, UUID> {
 
+    // API 144: còn phiếu ký gửi đang xử lý tại kho thì không ẩn kho
+    boolean existsByWarehouse_IdAndStatusIn(UUID warehouseId, Collection<ConsignmentFormStatus> statuses);
+
+
     List<ConsignmentForm> findByMember_IdAndStatusInOrderByCreatedAtAsc(
             UUID memberId, Collection<ConsignmentFormStatus> statuses);
 

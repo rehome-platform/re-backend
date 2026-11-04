@@ -134,6 +134,15 @@ public enum ErrorCode {
     CANNOT_BAN_ADMIN_OR_SELF(HttpStatus.FORBIDDEN, "Không thể khoá tài khoản Admin hoặc chính bạn."),
     ACCOUNT_NOT_BANNED(HttpStatus.CONFLICT, "Tài khoản này đang không bị khoá."),
     ACCOUNT_ALREADY_BANNED(HttpStatus.CONFLICT, "Tài khoản này đã bị khoá."),
+    // Phase 7 - Admin: Moderator và kho (API 138, 140, 142, 143, 144)
+    NOT_MODERATOR_ACCOUNT(HttpStatus.BAD_REQUEST, "Tài khoản này không phải Moderator."),
+    MODERATOR_HAS_CLAIMED_TASK(HttpStatus.CONFLICT, "MODERATOR_HAS_CLAIMED_TASK: Moderator đang giữ việc chưa xong trong hàng đợi."),
+    MODERATOR_SAME_WAREHOUSE(HttpStatus.CONFLICT, "Moderator đã thuộc kho này."),
+    WAREHOUSE_HIDDEN(HttpStatus.CONFLICT, "WAREHOUSE_HIDDEN: kho đang bị ẩn, không thể gán Moderator."),
+    WAREHOUSE_ALREADY_HIDDEN(HttpStatus.CONFLICT, "Kho này đã được ẩn."),
+    WAREHOUSE_HAS_STOCK(HttpStatus.CONFLICT, "WAREHOUSE_HAS_STOCK: kho còn hàng hoặc phiếu ký gửi đang xử lý, không thể ẩn."),
+    WAREHOUSE_NAME_ALREADY_EXISTS(HttpStatus.CONFLICT, "Tên kho đã tồn tại."),
+
     // Nháp ký gửi ("Tủ đồ") và giới hạn yêu cầu chờ duyệt
     CONSIGNMENT_FORM_NOT_DRAFT(HttpStatus.CONFLICT, "Form này không phải bản nháp."),
     TOO_MANY_PENDING_FORMS(HttpStatus.CONFLICT, "Bạn đã đạt giới hạn yêu cầu ký gửi đang chờ duyệt. Vui lòng chờ duyệt xong rồi gửi tiếp."),

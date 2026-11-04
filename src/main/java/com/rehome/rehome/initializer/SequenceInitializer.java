@@ -16,6 +16,7 @@ public class SequenceInitializer implements ApplicationRunner {
 
     private static final List<String> SEQUENCES = List.of(
             "member_code_seq",
+            "moderator_code_seq",
             "product_sku_seq",
             "receipt_no_seq",
             "consignment_form_no_seq"

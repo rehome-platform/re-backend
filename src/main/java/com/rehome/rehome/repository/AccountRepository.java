@@ -1,7 +1,11 @@
 package com.rehome.rehome.repository;
 
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.AccountStatus;
 import com.rehome.rehome.entity.enums.Role;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -36,4 +40,31 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
     Optional<Account> findWithWarehouseById(@Param("accountId") UUID accountId);
 
     List<Account> findByRole(Role role);
+
+    // API 135: tìm theo email hoặc họ tên/tên tổ chức (:pattern đã là dạng %từ khoá% chữ thường, "%" nếu không tìm).
+    // role/status null = không lọc.
+    @Query("""
+        select a from Account a
+        where (:role is null or a.role = :role)
+          and (:status is null or a.status = :status)
+          and (lower(a.email) like :pattern
+               or exists (select 1 from MemberProfile m
+                          where m.accountId = a.id and lower(m.fullName) like :pattern)
+               or exists (select 1 from ModeratorProfile mo
+                          where mo.accountId = a.id and lower(mo.fullName) like :pattern)
+               or exists (select 1 from OrganizationProfile o
+                          where o.accountId = a.id
+                            and (lower(o.displayName) like :pattern or lower(o.legalName) like :pattern)))
+        """)
+    Page<Account> searchForAdmin(@Param("role") Role role,
+                                 @Param("status") AccountStatus status,
+                                 @Param("pattern") String pattern,
+                                 Pageable pageable);
+
+    // API 139: danh sách Moderator, nạp luôn kho để không N+1
+    @EntityGraph(attributePaths = "warehouse")
+    Page<Account> findByRole(Role role, Pageable pageable);
+
+    @EntityGraph(attributePaths = "warehouse")
+    Page<Account> findByRoleAndWarehouse_Id(Role role, UUID warehouseId, Pageable pageable);
 }

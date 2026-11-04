@@ -16,6 +16,12 @@ import java.util.UUID;
 
 public interface ProductRepository extends JpaRepository<Product, String>, JpaSpecificationExecutor<Product> {
 
+    // API 144: còn hàng nào đang nằm ở kho theo các trạng thái này không
+    @Query("select count(p) from Product p where p.warehouse.id = :warehouseId and p.status in :statuses")
+    long countByWarehouseAndStatuses(@Param("warehouseId") UUID warehouseId,
+                                     @Param("statuses") Collection<ProductStatus> statuses);
+
+
     // API 97: nạp luôn category (cần tryonSlot) để service kiểm slot mà không phụ thuộc session
     // Nạp luôn warehouse để TryOnImageResponse.ProductInfo.warehouseId không chạm lazy proxy sau khi hết session
     @EntityGraph(attributePaths = {"category", "warehouse"})

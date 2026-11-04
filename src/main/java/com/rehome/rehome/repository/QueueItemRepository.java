@@ -27,6 +27,9 @@ public interface QueueItemRepository extends JpaRepository<QueueItem, String> {
 
     Optional<QueueItem> findByTypeAndRefId(QueueType type, String refId);
 
+    // API 140: Moderator còn giữ việc (việc xong thì dòng queue bị gỡ) thì không cho chuyển kho
+    boolean existsByClaimedBy_Id(java.util.UUID accountId);
+
     // Moderator: lấy thông tin claim của nhiều việc cùng lúc (kèm người nhận, không N+1)
     @Query("select q from QueueItem q left join fetch q.claimedBy "
             + "where q.type in :types and q.refId in :refIds")

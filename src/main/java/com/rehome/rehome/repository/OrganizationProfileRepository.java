@@ -39,9 +39,9 @@ public interface OrganizationProfileRepository extends JpaRepository<Organizatio
     List<OrganizationProfile> findAllByDisplayNameNormalizedIsNull();
 
     // GET /api/organizations?search=: tìm theo displayName hoặc legalName, chỉ tổ chức VERIFIED.
-    // keyword null -> không lọc theo tên, chỉ còn verificationStatus
+    // keyword "" -> không lọc theo tên, chỉ còn verificationStatus
     @Query("select o from OrganizationProfile o where o.verificationStatus = :status "
-            + "and (:keyword is null or o.displayNameNormalized like concat('%', :keyword, '%') "
+            + "and (o.displayNameNormalized like concat('%', :keyword, '%') "
             + "or o.legalNameNormalized like concat('%', :keyword, '%'))")
     Page<OrganizationProfile> search(@Param("status") VerificationStatus status,
                                       @Param("keyword") String keyword, Pageable pageable);

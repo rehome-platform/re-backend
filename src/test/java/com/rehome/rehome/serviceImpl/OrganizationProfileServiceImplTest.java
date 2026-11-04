@@ -628,10 +628,10 @@ class OrganizationProfileServiceImplTest {
     // =====================================================================
 
     @Test
-    void listPublicOrganizations_noSearch_passesNullKeyword() {
+    void listPublicOrganizations_noSearch_passesEmptyKeyword() {
         UUID orgId = UUID.randomUUID();
         OrganizationProfile organization = baseProfile(orgId).verificationStatus(VerificationStatus.VERIFIED).build();
-        when(organizationProfileRepository.search(eq(VerificationStatus.VERIFIED), isNull(), any()))
+        when(organizationProfileRepository.search(eq(VerificationStatus.VERIFIED), eq(""), any()))
                 .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(organization)));
         when(followRepository.countByOrganizationIds(List.of(orgId)))
                 .thenReturn(List.<Object[]>of(new Object[]{orgId, 7L}));
@@ -663,7 +663,7 @@ class OrganizationProfileServiceImplTest {
     void listPublicOrganizations_guestViewer_isFollowingAlwaysFalse() {
         UUID orgId = UUID.randomUUID();
         OrganizationProfile organization = baseProfile(orgId).verificationStatus(VerificationStatus.VERIFIED).build();
-        when(organizationProfileRepository.search(eq(VerificationStatus.VERIFIED), isNull(), any()))
+        when(organizationProfileRepository.search(eq(VerificationStatus.VERIFIED), eq(""), any()))
                 .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(organization)));
         when(followRepository.countByOrganizationIds(List.of(orgId))).thenReturn(List.of());
 
@@ -676,7 +676,7 @@ class OrganizationProfileServiceImplTest {
 
     @Test
     void listPublicOrganizations_empty_returnsEmptyPageWithoutFollowerCountQuery() {
-        when(organizationProfileRepository.search(eq(VerificationStatus.VERIFIED), isNull(), any()))
+        when(organizationProfileRepository.search(eq(VerificationStatus.VERIFIED), eq(""), any()))
                 .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
 
         PageResponse<OrganizationPublicProfileResponse> result =

@@ -231,7 +231,7 @@ public class CampaignServiceImpl implements CampaignService {
                 Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
                 Sort.by(Sort.Direction.DESC, "createdAt"));
 
-        String keyword = StringUtils.hasText(search) ? VietnameseText.normalize(search) : null;
+        String keyword = StringUtils.hasText(search) ? VietnameseText.normalize(search) : "";
         Page<Campaign> result = campaignRepository.search(parsePublicStatusFilter(status), keyword, pageable);
         return PageResponse.from(result.map(this::toPublicResponse));
     }

@@ -190,7 +190,7 @@ class CampaignServiceImplTest {
     @Test
     void listPublicCampaigns_defaultStatus_filtersToOpen() {
         UUID orgId = UUID.randomUUID();
-        when(campaignRepository.search(eq(CampaignStatus.OPEN), isNull(), any(Pageable.class)))
+        when(campaignRepository.search(eq(CampaignStatus.OPEN), eq(""), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(
                         baseCampaign(UUID.randomUUID()).organization(organizationWithDonationPoint(orgId))
                                 .status(CampaignStatus.OPEN).build())));
@@ -203,12 +203,12 @@ class CampaignServiceImplTest {
 
     @Test
     void listPublicCampaigns_closedStatus_filtersToClosed() {
-        when(campaignRepository.search(eq(CampaignStatus.CLOSED), isNull(), any(Pageable.class)))
+        when(campaignRepository.search(eq(CampaignStatus.CLOSED), eq(""), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
         service.listPublicCampaigns(null, "CLOSED", 0, 20);
 
-        verify(campaignRepository).search(eq(CampaignStatus.CLOSED), isNull(), any(Pageable.class));
+        verify(campaignRepository).search(eq(CampaignStatus.CLOSED), eq(""), any(Pageable.class));
     }
 
     @Test

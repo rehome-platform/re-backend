@@ -35,9 +35,9 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
     List<Campaign> findAllByTitleNormalizedIsNullAndTitleIsNotNull();
 
     // GET /campaigns?search=&status=ACTIVE: tìm theo title của chiến dịch hoặc tên tổ chức.
-    // keyword null -> không lọc theo từ khóa, chỉ còn status
+    // keyword "" -> không lọc theo từ khóa, chỉ còn status
     @Query("select c from Campaign c where c.status = :status "
-            + "and (:keyword is null or c.titleNormalized like concat('%', :keyword, '%') "
+            + "and (c.titleNormalized like concat('%', :keyword, '%') "
             + "or c.organization.displayNameNormalized like concat('%', :keyword, '%'))")
     Page<Campaign> search(@Param("status") CampaignStatus status, @Param("keyword") String keyword,
                            Pageable pageable);

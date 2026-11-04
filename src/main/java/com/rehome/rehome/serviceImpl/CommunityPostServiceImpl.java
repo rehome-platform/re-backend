@@ -276,24 +276,29 @@ public class CommunityPostServiceImpl implements CommunityPostService {
             throw new ForbiddenException("Bạn không có quyền bình luận trên bài viết này.");
         }
 
-        PostComment parent = resolveRootParentOrNull(postId, request.getParentId());
+        // replyTarget: bình luận thực sự được bấm trả lời (trước khi quy về gốc) - dùng để báo
+        // COMMENT_REPLIED cho đúng người, dù lưu quan hệ parent vẫn quy về bình luận gốc (chỉ 1 cấp)
+        PostComment replyTarget = resolveReplyTargetOrNull(postId, request.getParentId());
+        PostComment rootParent = replyTarget == null ? null
+                : (replyTarget.getParent() != null ? replyTarget.getParent() : replyTarget);
 
         PostComment comment = PostComment.builder()
                 .post(post)
                 .author(author)
-                .parent(parent)
+                .parent(rootParent)
                 .content(request.getContent())
                 .build();
         postCommentRepository.save(comment);
 
-        notifyAboutComment(post, author, parent);
+        notifyAboutComment(post, author, replyTarget);
 
         AuthorInfo authorInfo = loadAuthorInfo(author);
         return toCommentResponse(comment, Collections.singletonMap(authorId, authorInfo), authorId);
     }
 
-    // Chỉ trả lời 1 cấp: trả lời vào 1 reply thì gắn vào bình luận gốc của chính reply đó
-    private PostComment resolveRootParentOrNull(UUID postId, String rawParentId) {
+    // Trả về đúng bình luận được bấm trả lời (không quy về gốc) - chỉ dùng để xác định người
+    // nhận thông báo; quan hệ lưu DB vẫn chỉ 1 cấp, xem rootParent ở createComment.
+    private PostComment resolveReplyTargetOrNull(UUID postId, String rawParentId) {
         if (!StringUtils.hasText(rawParentId)) {
             return null;
         }
@@ -303,31 +308,35 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException(COMMENT_NOT_FOUND);
         }
-        PostComment parent = postCommentRepository.findById(parentId)
+        return postCommentRepository.findById(parentId)
                 .filter(c -> c.getPost().getId().equals(postId))
                 .orElseThrow(() -> new IllegalArgumentException(COMMENT_NOT_FOUND));
-        return parent.getParent() != null ? parent.getParent() : parent;
     }
 
-    // COMMENT_REPLIED: tổ chức trả lời -> báo cho tác giả bình luận gốc (luôn là Member, vì chỉ
-    // tổ chức sở hữu bài mới bình luận được nên bình luận gốc không thể của tổ chức khác).
-    // POST_COMMENTED: Member bình luận/trả lời -> báo cho tổ chức sở hữu bài.
-    private void notifyAboutComment(CommunityPost post, Account author, PostComment parent) {
-        if (author.getRole() == Role.ORGANIZATION) {
-            if (parent != null && !parent.getAuthor().getId().equals(author.getId())) {
-                notificationService.notify(parent.getAuthor(), NotificationType.COMMENT_REPLIED,
-                        "Bình luận của bạn có phản hồi",
-                        "Tổ chức đã trả lời bình luận của bạn trên một bài viết.",
-                        NotificationTargetType.POST, post.getId(), null);
-            }
-        } else {
-            Account organizationAccount = post.getOrganization().getAccount();
-            if (!organizationAccount.getId().equals(author.getId())) {
-                notificationService.notify(organizationAccount, NotificationType.POST_COMMENTED,
-                        "Có bình luận mới",
-                        "Bài viết của bạn có bình luận mới.",
-                        NotificationTargetType.POST, post.getId(), null);
-            }
+    // COMMENT_REPLIED: có replyTarget và tác giả replyTarget khác người vừa bình luận -> báo cho
+    // tác giả replyTarget (có thể là Member hoặc tổ chức, vì giờ cả hai đều có thể bị trả lời).
+    // POST_COMMENTED: người bình luận là Member và tổ chức (chủ bài) chưa nhận COMMENT_REPLIED ở
+    // bước trên -> báo thêm cho tổ chức. Không bao giờ báo cho chính người vừa bình luận.
+    private void notifyAboutComment(CommunityPost post, Account author, PostComment replyTarget) {
+        Account organizationAccount = post.getOrganization().getAccount();
+        boolean organizationAlreadyNotified = false;
+
+        if (replyTarget != null && !replyTarget.getAuthor().getId().equals(author.getId())) {
+            String replierName = loadAuthorInfo(author).name();
+            notificationService.notify(replyTarget.getAuthor(), NotificationType.COMMENT_REPLIED,
+                    "Bình luận của bạn có phản hồi",
+                    (StringUtils.hasText(replierName) ? replierName : "Một người dùng")
+                            + " đã trả lời bình luận của bạn.",
+                    NotificationTargetType.POST, post.getId(), null);
+            organizationAlreadyNotified = replyTarget.getAuthor().getId().equals(organizationAccount.getId());
+        }
+
+        if (author.getRole() == Role.MEMBER && !organizationAlreadyNotified
+                && !organizationAccount.getId().equals(author.getId())) {
+            notificationService.notify(organizationAccount, NotificationType.POST_COMMENTED,
+                    "Có bình luận mới",
+                    "Bài viết của bạn có bình luận mới.",
+                    NotificationTargetType.POST, post.getId(), null);
         }
     }
 
@@ -393,7 +402,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         }
         // OB-02: campaignId không bắt buộc; nếu có thì chỉ chấp nhận chiến dịch đang OPEN của
         // chính tổ chức này, ngoài phạm vi đó coi như không tìm thấy (giống DonationServiceImpl)
-        Campaign campaign = resolveOwnOpenCampaignOrNull(organizationAccountId, request.getCampaignId());
+        Campaign campaign = resolveOwnOpenCampaignOrNull(organizationAccountId, request.getCampaignId(), null);
 
         CommunityPost post = CommunityPost.builder()
                 .organization(organization)
@@ -423,7 +432,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
 
         CommunityPost post = requireOwnPost(organizationAccountId, postId,
                 "Bạn không có quyền sửa bài viết này.");
-        Campaign campaign = resolveOwnOpenCampaignOrNull(organizationAccountId, request.getCampaignId());
+        Campaign campaign = resolveOwnOpenCampaignOrNull(organizationAccountId, request.getCampaignId(), post.getCampaign());
 
         post.setContent(request.getContent());
         post.setCampaign(campaign);
@@ -468,8 +477,11 @@ public class CommunityPostServiceImpl implements CommunityPostService {
     }
 
     // OB-02/OB-03: campaignId rỗng -> không gắn/gỡ chiến dịch; có giá trị thì chiến dịch phải
-    // đang OPEN và thuộc đúng tổ chức này, ngoài phạm vi đó coi như không tìm thấy
-    private Campaign resolveOwnOpenCampaignOrNull(UUID organizationAccountId, String rawCampaignId) {
+    // đang OPEN và thuộc đúng tổ chức này, ngoài phạm vi đó coi như không tìm thấy.
+    // Ngoại lệ: nếu campaignId gửi lên trùng với chiến dịch bài đang gắn (currentCampaign) thì
+    // giữ nguyên dù chiến dịch đã CLOSED - không thì sửa nội dung/ảnh của bài cũ sẽ luôn fail.
+    private Campaign resolveOwnOpenCampaignOrNull(UUID organizationAccountId, String rawCampaignId,
+            Campaign currentCampaign) {
         if (!StringUtils.hasText(rawCampaignId)) {
             return null;
         }
@@ -478,6 +490,9 @@ public class CommunityPostServiceImpl implements CommunityPostService {
             campaignId = UUID.fromString(rawCampaignId.trim());
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException(CAMPAIGN_NOT_FOUND);
+        }
+        if (currentCampaign != null && currentCampaign.getId().equals(campaignId)) {
+            return currentCampaign;
         }
         return campaignRepository.findById(campaignId)
                 .filter(c -> c.getOrganization().getAccountId().equals(organizationAccountId))

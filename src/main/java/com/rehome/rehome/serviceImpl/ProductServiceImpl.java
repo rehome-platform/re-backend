@@ -11,6 +11,7 @@ import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.StockMovementType;
+import com.rehome.rehome.entity.enums.TryOnSlot;
 import com.rehome.rehome.entity.marketplace.*;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
@@ -72,8 +73,8 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public PageResponse<ProductSummaryResponse> getProducts(String search, UUID categoryId, UUID brandId,
                                                             BigDecimal priceMin, BigDecimal priceMax,
-                                                            UUID warehouseId, int page, int size,
-                                                            UUID viewerId) {
+                                                            UUID warehouseId, TryOnSlot tryonSlot,
+                                                            int page, int size, UUID viewerId) {
 
         if (priceMin != null && priceMax != null && priceMin.compareTo(priceMax) > 0) {
             throw new BadRequestException("priceMin không được lớn hơn priceMax.");
@@ -83,7 +84,7 @@ public class ProductServiceImpl implements ProductService {
                 Sort.by(Sort.Direction.DESC, "createdAt"));
 
         Page<Product> result = productRepository.findAll(
-                ProductSpecifications.filter(search, categoryId, brandId, priceMin, priceMax, warehouseId),
+                ProductSpecifications.filter(search, categoryId, brandId, priceMin, priceMax, warehouseId, tryonSlot),
                 pageable
         );
 
@@ -130,6 +131,7 @@ public class ProductServiceImpl implements ProductService {
                 .brandName(product.getBrand().getName())
                 .categoryId(product.getCategory().getId())
                 .categoryName(product.getCategory().getName())
+                .tryonSlot(product.getCategory().getTryonSlot())
                 .size(product.getSize())
                 .condition(product.getConditionNote())
                 .description(null)

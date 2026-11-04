@@ -9,6 +9,7 @@ import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.StockMovementType;
+import com.rehome.rehome.entity.enums.TryOnSlot;
 import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.entity.marketplace.Category;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
@@ -312,7 +313,7 @@ class ProductServiceImplTest {
         try (MockedStatic<PageResponse> mocked = mockStatic(PageResponse.class)) {
             mocked.when(() -> PageResponse.from(any(Page.class))).thenReturn(mock(PageResponse.class));
 
-            service.getProducts("áo", null, null, min, max, null, page, size, null);
+            service.getProducts("áo", null, null, min, max, null, null, page, size, null);
 
             ArgumentCaptor<Page> captor = ArgumentCaptor.forClass(Page.class);
             mocked.verify(() -> PageResponse.from(captor.capture()));
@@ -323,7 +324,7 @@ class ProductServiceImplTest {
     @Test
     void getProducts_priceMinGreaterThanMax_throws() {
         assertThatThrownBy(() -> service.getProducts(null, null, null,
-                new BigDecimal("200"), new BigDecimal("100"), null, 0, 10, null))
+                new BigDecimal("200"), new BigDecimal("100"), null, null, 0, 10, null))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("priceMin không được lớn hơn priceMax.");
 
@@ -403,6 +404,7 @@ class ProductServiceImplTest {
         when(p.getBrand().getName()).thenReturn("Nike");
         when(p.getCategory().getId()).thenReturn(categoryId);
         when(p.getCategory().getName()).thenReturn("Áo");
+        when(p.getCategory().getTryonSlot()).thenReturn(TryOnSlot.TOP);
         when(p.getSize()).thenReturn("M");
         when(p.getConditionNote()).thenReturn("Còn 90%");
         when(p.getWarehouse().getId()).thenReturn(warehouseId);
@@ -423,6 +425,7 @@ class ProductServiceImplTest {
         assertThat(result.getBrandName()).isEqualTo("Nike");
         assertThat(result.getCategoryId()).isEqualTo(categoryId);
         assertThat(result.getCategoryName()).isEqualTo("Áo");
+        assertThat(result.getTryonSlot()).isEqualTo(TryOnSlot.TOP);
         assertThat(result.getSize()).isEqualTo("M");
         assertThat(result.getCondition()).isEqualTo("Còn 90%");
         assertThat(result.getDescription()).isNull();

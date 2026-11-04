@@ -1,6 +1,7 @@
 package com.rehome.rehome.dto.response;
 
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.TryOnSlot;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -24,6 +25,8 @@ public class ProductDetailResponse {
     private String brandName;
     private UUID categoryId;
     private String categoryName;
+    // TOP / BOTTOM / DRESS lấy từ danh mục, để FE biết món vào slot nào khi mở phòng thử đồ
+    private TryOnSlot tryonSlot;
     private String size;
     private String condition;
     private String description;

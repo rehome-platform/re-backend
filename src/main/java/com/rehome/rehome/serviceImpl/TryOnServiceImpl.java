@@ -3,6 +3,7 @@ package com.rehome.rehome.serviceImpl;
 import com.rehome.rehome.dto.request.CreateTryOnImageRequest;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.TryOnImageResponse;
+import com.rehome.rehome.dto.response.TryOnSuggestionResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.TryOnModelType;
@@ -31,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -44,6 +46,10 @@ public class TryOnServiceImpl implements TryOnService {
 
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
+    // API 96: số món gợi ý tối đa
+    private static final int SUGGESTION_LIMIT = 10;
+    // Không biết kho của món đang xem thì dùng UUID này: không khớp kho nào nên không ưu tiên kho
+    private static final UUID NO_PREFERRED_WAREHOUSE = new UUID(0L, 0L);
     // Chỉ cần biết là ảnh để storage chọn đúng resource_type khi xóa
     private static final String IMAGE_CONTENT_TYPE = "image/png";
 
@@ -161,21 +167,76 @@ public class TryOnServiceImpl implements TryOnService {
         Page<TryOnImage> result = tryOnImageRepository.findByMember_Id(account.getId(), pageable);
 
         // Ảnh đại diện của mọi món trong trang lấy bằng một query, tránh N+1
-        List<String> productIds = result.getContent().stream()
+        Map<String, String> thumbnails = loadThumbnails(result.getContent());
+
+        return PageResponse.from(result.map(i -> toResponse(i, thumbnails)));
+    }
+
+    // ================================================================ GET /tryon/images/{id}
+
+    @Override
+    @Transactional(readOnly = true)
+    public TryOnImageResponse getImage(Account account, UUID imageId) {
+        TryOnImage image = tryOnImageRepository.findWithProductsById(imageId)
+                .orElseThrow(() -> new AppException(ErrorCode.TRYON_IMAGE_NOT_FOUND));      // 404
+
+        // Giống deleteImage: ảnh của người khác cũng trả 404, không lộ ảnh có tồn tại hay không
+        if (!image.getMember().getId().equals(account.getId())) {
+            throw new AppException(ErrorCode.TRYON_IMAGE_NOT_FOUND);                        // 404
+        }
+        return toResponse(image, loadThumbnails(List.of(image)));
+    }
+
+    // ================================================================ API 96: F-075
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TryOnSuggestionResponse> getSuggestions(String slot, String excludeProductId) {
+        TryOnSlot target = parseSuggestionSlot(slot);
+
+        String excludeId = blankToNull(excludeProductId);
+        // Món đang xem quyết định kho được ưu tiên; không có hoặc không tồn tại thì chỉ xếp theo mới nhất
+        UUID preferredWarehouse = excludeId == null ? NO_PREFERRED_WAREHOUSE
+                : productRepository.findWarehouseIdById(excludeId).orElse(NO_PREFERRED_WAREHOUSE);
+
+        return productRepository.findTryOnSuggestions(target,
+                        excludeId == null ? "" : excludeId,      // id sản phẩm không bao giờ rỗng nên "" là không loại món nào
+                        preferredWarehouse,
+                        PageRequest.of(0, SUGGESTION_LIMIT)).stream()
+                .map(p -> TryOnSuggestionResponse.builder()
+                        .id(p.getId())
+                        .name(p.getName())
+                        .currentPrice(p.getCurrentPrice())
+                        .build())
+                .toList();
+    }
+
+    // API 96 chỉ nhận TOP hoặc BOTTOM (đầm đi một mình, không cần món bù)
+    private static TryOnSlot parseSuggestionSlot(String slot) {
+        String value = blankToNull(slot);
+        if (value != null) {
+            String upper = value.toUpperCase(Locale.ROOT);
+            if (upper.equals(TryOnSlot.TOP.name())) return TryOnSlot.TOP;
+            if (upper.equals(TryOnSlot.BOTTOM.name())) return TryOnSlot.BOTTOM;
+        }
+        throw new AppException(ErrorCode.INVALID_SUGGESTION_SLOT);                          // 400
+    }
+
+    // Ảnh đại diện (ảnh đầu tiên) của mọi món trong các ảnh thử đồ, lấy bằng một query
+    private Map<String, String> loadThumbnails(List<TryOnImage> images) {
+        List<String> productIds = images.stream()
                 .flatMap(i -> Stream.of(i.getTopProduct(), i.getBottomProduct(), i.getDressProduct()))
                 .filter(Objects::nonNull)
                 .map(Product::getId)
                 .distinct()
                 .toList();
 
-        Map<String, String> thumbnails = productIds.isEmpty() ? Map.of()
+        return productIds.isEmpty() ? Map.of()
                 : productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(productIds).stream()
                 .collect(Collectors.toMap(
                         ph -> ph.getProduct().getId(),
                         ProductPhoto::getImageUrl,
                         (first, second) -> first));
-
-        return PageResponse.from(result.map(i -> toResponse(i, thumbnails)));
     }
 
     private TryOnImageResponse toResponse(TryOnImage image, Map<String, String> thumbnails) {
@@ -198,6 +259,7 @@ public class TryOnServiceImpl implements TryOnService {
                 .thumbnailUrl(thumbnails.get(product.getId()))
                 .currentPrice(product.getCurrentPrice())
                 .status(product.getStatus())
+                .warehouseId(product.getWarehouse() != null ? product.getWarehouse().getId() : null)
                 .build();
     }
 

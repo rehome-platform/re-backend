@@ -18,6 +18,7 @@ import java.time.Instant;
 public class NotificationResponse {
     private String id;
     private String type;
+    private String title;
     private String message;
 
     @JsonProperty("isRead") // Jackson mặc định bỏ tiền tố "is" của getter boolean -> phải ép tên field tường minh

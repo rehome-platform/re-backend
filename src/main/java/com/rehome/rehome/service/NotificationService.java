@@ -18,4 +18,13 @@ public interface NotificationService {
     // nghĩa với DONATION_RECORDED (OC-07). Truyền null cho 3 tham số này khi không cần deep-link.
     void notify(Account recipientAccount, NotificationType type, String title, String body,
                 NotificationTargetType targetType, UUID targetId, UUID warehouseId);
+
+    // Đánh dấu một thông báo của chính người gọi đã đọc. 404 nếu không thuộc về accountId.
+    NotificationResponse markAsRead(UUID accountId, UUID notificationId);
+
+    // Đánh dấu toàn bộ thông báo chưa đọc của người gọi đã đọc.
+    void markAllAsRead(UUID accountId);
+
+    // Số thông báo chưa đọc, dùng hiện badge.
+    long countUnread(UUID accountId);
 }

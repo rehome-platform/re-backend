@@ -1,5 +1,7 @@
 package com.rehome.rehome.dto.response;
 
+import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -11,7 +13,13 @@ public record OrganizationNearbyResponse(
         String displayName,
         String logoUrl,
         String donationPointAddress,
-        double distanceKm
+        BigDecimal donationPointLatitude,
+        BigDecimal donationPointLongitude,
+        String donationPointReceivingHours,
+        String orgType,
+        double distanceKm,
+        // Chiến dịch OPEN của tổ chức - cho bản đồ cộng đồng biết tổ chức đang kêu gọi gì
+        List<OrganizationNearbyCampaignResponse> activeCampaigns
 ) {
     public OrganizationNearbyResponse {
         distanceKm = Math.round(distanceKm * 10.0) / 10.0;

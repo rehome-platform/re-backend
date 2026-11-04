@@ -9,6 +9,7 @@ import com.rehome.rehome.dto.request.RejectOrganizationRequest;
 import com.rehome.rehome.dto.request.UpdateOrganizationProfileRequest;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
 import com.rehome.rehome.dto.response.LegalChangeRequestResponse;
+import com.rehome.rehome.dto.response.OrganizationNearbyCampaignResponse;
 import com.rehome.rehome.dto.response.OrganizationNearbyResponse;
 import com.rehome.rehome.dto.response.OrganizationProfileResponse;
 import com.rehome.rehome.dto.response.PageResponse;
@@ -24,7 +25,9 @@ import com.rehome.rehome.entity.auth.OrganizationDocument;
 import com.rehome.rehome.entity.auth.OrganizationLegalChangeRequest;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.auth.OrganizationRepresentative;
+import com.rehome.rehome.entity.marketplace.Campaign;
 import com.rehome.rehome.entity.marketplace.Follow;
+import com.rehome.rehome.entity.enums.CampaignStatus;
 import com.rehome.rehome.entity.enums.LegalChangeRequestStatus;
 import com.rehome.rehome.entity.enums.OrganizationType;
 import com.rehome.rehome.entity.enums.Role;
@@ -40,6 +43,7 @@ import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.mapper.OrganizationLegalChangeMapper;
 import com.rehome.rehome.mapper.OrganizationProfileMapper;
 import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.repository.CampaignRepository;
 import com.rehome.rehome.repository.FollowRepository;
 import com.rehome.rehome.repository.OrganizationLegalChangeRequestRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
@@ -83,6 +87,7 @@ class OrganizationProfileServiceImplTest {
     @Mock private OrganizationLegalChangeRequestRepository organizationLegalChangeRequestRepository;
     @Mock private OrganizationLegalChangeMapper organizationLegalChangeMapper;
     @Mock private NotificationService notificationService;
+    @Mock private CampaignRepository campaignRepository;
 
     @InjectMocks private OrganizationServiceImpl service;
 
@@ -535,6 +540,8 @@ class OrganizationProfileServiceImplTest {
                 .build();
         when(organizationProfileRepository.findAllByVerificationStatus(VerificationStatus.VERIFIED))
                 .thenReturn(List.of(far, near));
+        when(campaignRepository.findAllByOrganization_AccountIdInAndStatus(any(), eq(CampaignStatus.OPEN)))
+                .thenReturn(List.of());
 
         List<OrganizationNearbyResponse> result = service.findNearby(10.7769000, 106.7009000);
 
@@ -542,6 +549,9 @@ class OrganizationProfileServiceImplTest {
         assertThat(result.get(0).id()).isEqualTo(nearId);
         assertThat(result.get(1).id()).isEqualTo(farId);
         assertThat(result.get(0).distanceKm()).isLessThan(result.get(1).distanceKm());
+        assertThat(result.get(0).orgType()).isEqualTo("NGO");
+        assertThat(result.get(0).donationPointReceivingHours()).isEqualTo("8:00-17:00 T2-T6");
+        assertThat(result.get(0).activeCampaigns()).isEmpty();
     }
 
     @Test
@@ -549,6 +559,27 @@ class OrganizationProfileServiceImplTest {
         assertAppError(() -> service.findNearby(999, 106.7009000), ErrorCode.INVALID_COORDINATES);
 
         verifyNoInteractions(organizationProfileRepository);
+    }
+
+    @Test
+    void findNearby_includesOnlyOpenCampaignsOfMatchingOrganization() {
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile org = baseProfile(orgId).verificationStatus(VerificationStatus.VERIFIED).build();
+        UUID campaignId = UUID.randomUUID();
+        Instant endTime = Instant.parse("2026-12-01T00:00:00Z");
+        Campaign openCampaign = Campaign.builder().id(campaignId).organization(org)
+                .status(CampaignStatus.OPEN).endTime(endTime).build();
+
+        when(organizationProfileRepository.findAllByVerificationStatus(VerificationStatus.VERIFIED))
+                .thenReturn(List.of(org));
+        when(campaignRepository.findAllByOrganization_AccountIdInAndStatus(List.of(orgId), CampaignStatus.OPEN))
+                .thenReturn(List.of(openCampaign));
+
+        List<OrganizationNearbyResponse> result = service.findNearby(10.7769000, 106.7009000);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).activeCampaigns())
+                .containsExactly(new OrganizationNearbyCampaignResponse(campaignId, endTime));
     }
 
     // =====================================================================

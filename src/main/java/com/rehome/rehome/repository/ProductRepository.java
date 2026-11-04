@@ -1,6 +1,7 @@
 package com.rehome.rehome.repository;
 
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.TryOnSlot;
 import com.rehome.rehome.entity.marketplace.Product;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
@@ -16,8 +17,29 @@ import java.util.UUID;
 public interface ProductRepository extends JpaRepository<Product, String>, JpaSpecificationExecutor<Product> {
 
     // API 97: nạp luôn category (cần tryonSlot) để service kiểm slot mà không phụ thuộc session
-    @EntityGraph(attributePaths = {"category"})
+    // Nạp luôn warehouse để TryOnImageResponse.ProductInfo.warehouseId không chạm lazy proxy sau khi hết session
+    @EntityGraph(attributePaths = {"category", "warehouse"})
     List<Product> findWithCategoryByIdIn(Collection<String> ids);
+
+    // API 96: món còn bán ở đúng slot, khác món đang xem. Cùng kho xếp trước (đỡ tách đơn), rồi mới nhất trước.
+    // preferredWarehouseId luôn khác null: không biết kho thì truyền UUID không khớp kho nào, thứ tự rơi về createdAt.
+    // Giới hạn số món bằng Pageable (không kèm Sort, thứ tự đã nằm trong query).
+    @Query("""
+        SELECT p FROM Product p
+        WHERE p.status = com.rehome.rehome.entity.enums.ProductStatus.ON_SALE
+          AND p.category.tryonSlot = :slot
+          AND p.id <> :excludeProductId
+        ORDER BY CASE WHEN p.warehouse.id = :preferredWarehouseId THEN 0 ELSE 1 END,
+                 p.createdAt DESC
+        """)
+    List<Product> findTryOnSuggestions(@Param("slot") TryOnSlot slot,
+                                       @Param("excludeProductId") String excludeProductId,
+                                       @Param("preferredWarehouseId") UUID preferredWarehouseId,
+                                       Pageable pageable);
+
+    // Kho của một sản phẩm, đọc thẳng cột FK nên không phải nạp entity
+    @Query("SELECT p.warehouse.id FROM Product p WHERE p.id = :id")
+    Optional<UUID> findWarehouseIdById(@Param("id") String id);
 
     // Khóa dòng để 2 request checkout cùng sản phẩm không cùng vượt qua kiểm tra ON_SALE
     @Lock(LockModeType.PESSIMISTIC_WRITE)

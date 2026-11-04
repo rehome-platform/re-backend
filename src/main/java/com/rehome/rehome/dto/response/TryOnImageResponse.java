@@ -38,5 +38,7 @@ public class TryOnImageResponse {
         private String thumbnailUrl;
         private BigDecimal currentPrice;
         private ProductStatus status;
+        // Kho giữ món này. FE so top.warehouseId với bottom.warehouseId: khác nhau thì mua cả bộ sẽ tách 2 đơn (F-053)
+        private UUID warehouseId;
     }
 }

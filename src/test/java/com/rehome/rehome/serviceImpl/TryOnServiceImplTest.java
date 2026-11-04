@@ -3,6 +3,7 @@ package com.rehome.rehome.serviceImpl;
 import com.rehome.rehome.dto.request.CreateTryOnImageRequest;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.TryOnImageResponse;
+import com.rehome.rehome.dto.response.TryOnSuggestionResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;
@@ -12,6 +13,7 @@ import com.rehome.rehome.entity.enums.UploadFolder;
 import com.rehome.rehome.entity.marketplace.Category;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
+import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.entity.tryon.TryOnImage;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
@@ -573,6 +575,142 @@ class TryOnServiceImplTest {
         verify(tryOnImageRepository).findByMember_Id(eq(member.getId()), captor.capture());
         assertEquals(2, captor.getValue().getPageNumber());
         assertEquals(50, captor.getValue().getPageSize());
+    }
+
+    // ==================== ProductInfo.warehouseId ====================
+
+    @Test
+    @DisplayName("getCollection: ProductInfo trả warehouseId để FE biết mua cả bộ có tách đơn không")
+    void getCollection_returnsWarehouseId() {
+        UUID topWarehouse = UUID.randomUUID();
+        UUID bottomWarehouse = UUID.randomUUID();
+        top.setWarehouse(Warehouse.builder().id(topWarehouse).build());
+        bottom.setWarehouse(Warehouse.builder().id(bottomWarehouse).build());
+        when(tryOnImageRepository.findByMember_Id(eq(member.getId()), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(outfitImage())));
+        when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(anyCollection()))
+                .thenReturn(List.of());
+
+        TryOnImageResponse r = tryOnService.getCollection(member, 0, 20).getContent().get(0);
+
+        assertEquals(topWarehouse, r.getTop().getWarehouseId());
+        assertEquals(bottomWarehouse, r.getBottom().getWarehouseId());
+    }
+
+    // ==================== GET /tryon/images/{id}: getImage ====================
+
+    @Test
+    @DisplayName("getImage: chủ ảnh -> trả imageUrl đã lưu và thông tin từng món")
+    void getImage_success() {
+        UUID topWarehouse = UUID.randomUUID();
+        top.setWarehouse(Warehouse.builder().id(topWarehouse).build());
+        TryOnImage image = outfitImage();
+        when(tryOnImageRepository.findWithProductsById(image.getId())).thenReturn(Optional.of(image));
+        when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(anyCollection()))
+                .thenReturn(List.of(photo(top, "https://img/top.jpg")));
+
+        TryOnImageResponse r = tryOnService.getImage(member, image.getId());
+
+        assertEquals(image.getId(), r.getId());
+        assertEquals(IMAGE_URL, r.getImageUrl());
+        assertEquals(TryOnModelType.FEMALE, r.getModelType());
+        assertEquals("Q7-AK-000001", r.getTop().getId());
+        assertEquals("https://img/top.jpg", r.getTop().getThumbnailUrl());
+        assertEquals(topWarehouse, r.getTop().getWarehouseId());
+        assertEquals("Q7-QU-000002", r.getBottom().getId());
+        assertNull(r.getDress());
+    }
+
+    @Test
+    @DisplayName("getImage: không có ảnh -> TRYON_IMAGE_NOT_FOUND")
+    void getImage_notFound() {
+        UUID id = UUID.randomUUID();
+        when(tryOnImageRepository.findWithProductsById(id)).thenReturn(Optional.empty());
+
+        AppException ex = assertThrows(AppException.class, () -> tryOnService.getImage(member, id));
+
+        assertEquals(ErrorCode.TRYON_IMAGE_NOT_FOUND, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("getImage: ảnh của Member khác -> TRYON_IMAGE_NOT_FOUND (không lộ ảnh tồn tại)")
+    void getImage_notOwner() {
+        TryOnImage image = outfitImage();
+        Account other = Account.builder().id(UUID.randomUUID()).role(Role.MEMBER).build();
+        when(tryOnImageRepository.findWithProductsById(image.getId())).thenReturn(Optional.of(image));
+
+        AppException ex = assertThrows(AppException.class, () -> tryOnService.getImage(other, image.getId()));
+
+        assertEquals(ErrorCode.TRYON_IMAGE_NOT_FOUND, ex.getErrorCode());
+        verifyNoInteractions(productPhotoRepository);
+    }
+
+    // ==================== API 96: getSuggestions ====================
+
+    @Test
+    @DisplayName("getSuggestions: map id/name/currentPrice, ưu tiên kho của món đang xem, tối đa 10 món")
+    void getSuggestions_success() {
+        UUID warehouseId = UUID.randomUUID();
+        Product suggested = product("Q7-QU-000900", TryOnSlot.BOTTOM, ProductStatus.ON_SALE);
+        when(productRepository.findWarehouseIdById(TOP_ID)).thenReturn(Optional.of(warehouseId));
+        when(productRepository.findTryOnSuggestions(eq(TryOnSlot.BOTTOM), eq(TOP_ID), eq(warehouseId), any(Pageable.class)))
+                .thenReturn(List.of(suggested));
+
+        List<TryOnSuggestionResponse> res = tryOnService.getSuggestions("BOTTOM", TOP_ID);
+
+        assertEquals(1, res.size());
+        assertEquals("Q7-QU-000900", res.get(0).getId());
+        assertEquals("SP Q7-QU-000900", res.get(0).getName());
+        assertEquals(new BigDecimal("100000"), res.get(0).getCurrentPrice());
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(productRepository).findTryOnSuggestions(any(), any(), any(), pageable.capture());
+        assertEquals(0, pageable.getValue().getPageNumber());
+        assertEquals(10, pageable.getValue().getPageSize());
+    }
+
+    @Test
+    @DisplayName("getSuggestions: slot không phân biệt hoa thường và bỏ khoảng trắng")
+    void getSuggestions_slotIsCaseInsensitive() {
+        when(productRepository.findTryOnSuggestions(eq(TryOnSlot.TOP), any(), any(), any(Pageable.class)))
+                .thenReturn(List.of());
+
+        assertTrue(tryOnService.getSuggestions(" top ", null).isEmpty());
+        verify(productRepository).findTryOnSuggestions(eq(TryOnSlot.TOP), any(), any(), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("getSuggestions: không có excludeProductId -> không loại món nào, không ưu tiên kho")
+    void getSuggestions_withoutExcludeId() {
+        when(productRepository.findTryOnSuggestions(any(), any(), any(), any(Pageable.class))).thenReturn(List.of());
+
+        tryOnService.getSuggestions("TOP", null);
+
+        verify(productRepository, never()).findWarehouseIdById(any());
+        verify(productRepository).findTryOnSuggestions(eq(TryOnSlot.TOP), eq(""),
+                eq(new UUID(0L, 0L)), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("getSuggestions: excludeProductId không tồn tại -> vẫn trả gợi ý, không ưu tiên kho")
+    void getSuggestions_unknownExcludeId() {
+        when(productRepository.findWarehouseIdById("NOPE")).thenReturn(Optional.empty());
+        when(productRepository.findTryOnSuggestions(any(), any(), any(), any(Pageable.class))).thenReturn(List.of());
+
+        tryOnService.getSuggestions("BOTTOM", "NOPE");
+
+        verify(productRepository).findTryOnSuggestions(eq(TryOnSlot.BOTTOM), eq("NOPE"),
+                eq(new UUID(0L, 0L)), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("getSuggestions: slot sai/thiếu/DRESS -> INVALID_SUGGESTION_SLOT, không query")
+    void getSuggestions_invalidSlot() {
+        for (String slot : new String[]{null, "", "  ", "ABC", "DRESS"}) {
+            AppException ex = assertThrows(AppException.class, () -> tryOnService.getSuggestions(slot, TOP_ID));
+            assertEquals(ErrorCode.INVALID_SUGGESTION_SLOT, ex.getErrorCode());
+        }
+        verifyNoInteractions(productRepository);
     }
 
     // ==================== F-081: deleteImage ====================

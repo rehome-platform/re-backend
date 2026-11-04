@@ -176,6 +176,9 @@ public enum ErrorCode {
     // F-139: ảnh giấy tờ pháp lý chỉ ra qua endpoint có phân quyền, không qua URL công khai
     LEGAL_FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy tệp giấy tờ."),
     LEGAL_FILE_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền xem tệp giấy tờ này."),
+    // F-097 (OP-05): mỗi lần chỉ 1 yêu cầu đổi thông tin pháp lý đang chờ duyệt
+    LEGAL_CHANGE_REQUEST_ALREADY_PENDING(HttpStatus.CONFLICT,
+            "Bạn đang có một yêu cầu đổi thông tin pháp lý chờ duyệt."),
 
     // API 90 - F-032: Member yêu cầu rút lại hàng ký gửi giữa kỳ
     PRODUCT_ALREADY_ORDERED(HttpStatus.CONFLICT, "PRODUCT_ALREADY_ORDERED: sản phẩm đã có đơn mua, không thể rút."),
@@ -184,15 +187,18 @@ public enum ErrorCode {
     // API 91 - F-033: Member trả phí rút hàng
     ITEM_WITHDRAWAL_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy yêu cầu rút hàng."),
     ITEM_WITHDRAWAL_FORBIDDEN(HttpStatus.FORBIDDEN, "Yêu cầu rút hàng này không thuộc về bạn."),
+    ITEM_WITHDRAWAL_NOT_PENDING(HttpStatus.CONFLICT,
+            "Yêu cầu rút hàng không còn ở trạng thái chờ lấy hàng (đã hết hạn)."),
 
     // API 95 - F-036: Member quyết định cách xử lý hàng xuống cấp
     DEGRADED_ITEM_CASE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy ca xử lý hàng xuống cấp."),
     DEGRADED_ITEM_CASE_FORBIDDEN(HttpStatus.FORBIDDEN, "Ca xử lý hàng xuống cấp này không thuộc về bạn."),
     DEGRADED_ITEM_CASE_ALREADY_DECIDED(HttpStatus.CONFLICT, "Ca này đã được quyết định."),
 
-
     // F-080, F-081 - bộ sưu tập ảnh thử đồ
     TRYON_IMAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy ảnh thử đồ."),
+    // API 96 - gợi ý món thử cùng
+    INVALID_SUGGESTION_SLOT(HttpStatus.BAD_REQUEST, "slot phải là TOP hoặc BOTTOM."),
     TRYON_IMAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "Ảnh thử đồ này không thuộc về bạn."),
 
     // API 97 - F-077, F-078: sinh ảnh thử đồ
@@ -200,7 +206,13 @@ public enum ErrorCode {
     DRESS_NOT_SUPPORTED_FOR_MALE(HttpStatus.BAD_REQUEST, "Người mẫu nam chưa hỗ trợ thử đầm."),
     TRYON_SLOT_MISMATCH(HttpStatus.BAD_REQUEST, "Sản phẩm không đúng vị trí thử đồ (áo, quần hoặc đầm)."),
     TRYON_PRODUCT_NOT_AVAILABLE(HttpStatus.CONFLICT, "Sản phẩm không thể dùng để thử đồ (không còn bán hoặc thiếu ảnh)."),
-    TRYON_GENERATION_FAILED(HttpStatus.BAD_GATEWAY, "Không thể sinh ảnh thử đồ lúc này, vui lòng thử lại sau.");
+    TRYON_GENERATION_FAILED(HttpStatus.BAD_GATEWAY, "Không thể sinh ảnh thử đồ lúc này, vui lòng thử lại sau."),
+
+    // F-104/F-105 - đăng/sửa bài viết cộng đồng: giới hạn nội dung và số ảnh
+    POST_CONTENT_TOO_LONG(HttpStatus.BAD_REQUEST, "content tối đa 2000 ký tự."),
+    POST_TOO_MANY_PHOTOS(HttpStatus.BAD_REQUEST, "Tối đa 5 ảnh cho 1 bài viết."),
+    // F-087 - bình luận bài viết cộng đồng: giới hạn nội dung
+    COMMENT_CONTENT_TOO_LONG(HttpStatus.BAD_REQUEST, "content tối đa 500 ký tự.");
 
     private final HttpStatus status;
     private final String defaultMessage;

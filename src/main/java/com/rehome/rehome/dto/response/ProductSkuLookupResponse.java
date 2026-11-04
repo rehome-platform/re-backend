@@ -19,7 +19,6 @@ import java.util.List;
 public class ProductSkuLookupResponse {
     private String id;
     private String name;
-    private String shelfLocation;
     private ProductStatus status;
 
     private String brandName;

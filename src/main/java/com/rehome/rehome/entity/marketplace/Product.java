@@ -99,10 +99,6 @@ public class Product implements Persistable<String> {
     @Column(name = "unclaimed_decision_deadline", nullable = true)
     private Instant unclaimedDecisionDeadline;
 
-    // Vị trí kệ trong kho để lấy hàng nhanh
-    @Column(name = "shelf_location", nullable = true, length = 255)
-    private String shelfLocation;
-
     // Thời điểm nhập kho
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

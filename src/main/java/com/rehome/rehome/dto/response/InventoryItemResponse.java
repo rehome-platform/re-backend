@@ -13,6 +13,5 @@ import lombok.Setter;
 public class InventoryItemResponse {
     private String id;
     private String name;
-    private String shelfLocation;
     private ProductStatus status;
 }

@@ -850,7 +850,6 @@ class ProductServiceImplTest {
         r.setReceiptId(receiptId);
         r.setName("  Áo sơ mi Zara trắng  ");
         r.setSize("M");
-        r.setShelfLocation("A1-03");
         r.setPhotoUrls(photos);
         return r;
     }
@@ -893,7 +892,6 @@ class ProductServiceImplTest {
         assertThat(p.getCategory()).isSameAs(receipt.getConsignmentForm().getCategory());
         assertThat(p.getBrand()).isSameAs(receipt.getConsignmentForm().getBrand());
         assertThat(p.getSize()).isEqualTo("M");
-        assertThat(p.getShelfLocation()).isEqualTo("A1-03");
         assertThat(p.getCurrentPrice()).isEqualByComparingTo("220000");
         assertThat(p.getStatus()).isEqualTo(ProductStatus.ON_SALE);
         assertThat(p.getCurrentTerm()).isEqualTo((short) 1);
@@ -918,7 +916,7 @@ class ProductServiceImplTest {
         assertThat(log.getModerator()).isSameAs(moderator);
         assertThat(log.getProduct().getId()).isEqualTo("Q7-AK-000845");
         assertThat(log.getWarehouse()).isNotNull();
-        assertThat(log.getToLocation()).isEqualTo("A1-03");
+        assertThat(log.getToLocation()).isNull();
         assertThat(log.getFromLocation()).isNull();
     }
 

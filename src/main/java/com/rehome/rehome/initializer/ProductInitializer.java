@@ -146,7 +146,6 @@ public class ProductInitializer implements CommandLineRunner {
                     .currentTerm(s.term())
                     .termStartedAt(termStartedAt)
                     .endOfTermDeadline(termStartedAt.plus(30, ChronoUnit.DAYS))
-                    .shelfLocation("A-" + (i + 1))
                     .build());
 
             // Sản phẩm đang chờ Member chọn cách xử lý cuối kỳ (decision = null)
@@ -238,7 +237,6 @@ public class ProductInitializer implements CommandLineRunner {
                 .currentTerm((short) 1)
                 .termStartedAt(termStartedAt)
                 .endOfTermDeadline(termStartedAt.plus(30, ChronoUnit.DAYS))
-                .shelfLocation("T-" + (index + 1))
                 .build());
         log.info("ProductInitializer: đã tạo sản phẩm thử đồ {}.", s.id());
         return product;

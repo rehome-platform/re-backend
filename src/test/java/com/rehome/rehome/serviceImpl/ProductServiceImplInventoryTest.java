@@ -1,6 +1,5 @@
 package com.rehome.rehome.serviceImpl;
 
-import com.rehome.rehome.dto.request.UpdateShelfLocationRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.MemberProfile;
@@ -90,7 +89,6 @@ class ProductServiceImplInventoryTest {
                 .name("Áo sơ mi Zara trắng")
                 .warehouse(warehouse)
                 .status(ProductStatus.ON_SALE)
-                .shelfLocation("A1-03")
                 .brand(Brand.builder().name("Zara").build())
                 .category(Category.builder().name("Áo sơ mi").build())
                 .member(member)
@@ -126,7 +124,6 @@ class ProductServiceImplInventoryTest {
 
         assertEquals(SKU, res.getId());
         assertEquals("Áo sơ mi Zara trắng", res.getName());
-        assertEquals("A1-03", res.getShelfLocation());
         assertEquals(ProductStatus.ON_SALE, res.getStatus());
         assertEquals("Zara", res.getBrandName());
         assertEquals("Áo sơ mi", res.getCategoryName());
@@ -229,89 +226,6 @@ class ProductServiceImplInventoryTest {
         verifyNoInteractions(skuLabelPdfService);
     }
 
-    // ==================== API 42: updateShelfLocation ====================
-
-    private UpdateShelfLocationRequest shelfRequest(String value) {
-        UpdateShelfLocationRequest req = new UpdateShelfLocationRequest();
-        req.setShelfLocation(value);
-        return req;
-    }
-
-    @Test
-    @DisplayName("updateShelfLocation: đổi kệ -> cập nhật product và ghi log SHELF_MOVE")
-    void updateShelfLocation_success() {
-        when(productRepository.findByIdForUpdate(SKU)).thenReturn(Optional.of(product));
-
-        ShelfLocationResponse res = productService.updateShelfLocation(moderator, SKU, shelfRequest("  B2-10  "));
-
-        assertEquals(SKU, res.getId());
-        assertEquals("B2-10", res.getShelfLocation());
-        assertEquals("B2-10", product.getShelfLocation());
-        verify(productRepository).save(product);
-
-        ArgumentCaptor<StockMovementLog> captor = ArgumentCaptor.forClass(StockMovementLog.class);
-        verify(stockMovementLogRepository).save(captor.capture());
-        StockMovementLog log = captor.getValue();
-        assertEquals(StockMovementType.SHELF_MOVE, log.getMovementType());
-        assertEquals("A1-03", log.getFromLocation());
-        assertEquals("B2-10", log.getToLocation());
-        assertSame(product, log.getProduct());
-        assertSame(warehouse, log.getWarehouse());
-        assertSame(moderator, log.getModerator());
-    }
-
-    @Test
-    @DisplayName("updateShelfLocation: vị trí không đổi -> trả 200, không save, không ghi log")
-    void updateShelfLocation_sameLocation() {
-        when(productRepository.findByIdForUpdate(SKU)).thenReturn(Optional.of(product));
-
-        ShelfLocationResponse res = productService.updateShelfLocation(moderator, SKU, shelfRequest(" A1-03 "));
-
-        assertEquals("A1-03", res.getShelfLocation());
-        verify(productRepository, never()).save(any());
-        verifyNoInteractions(stockMovementLogRepository);
-    }
-
-    @Test
-    @DisplayName("updateShelfLocation: sản phẩm chưa có kệ (null) -> ghi log với fromLocation null")
-    void updateShelfLocation_fromNull() {
-        product.setShelfLocation(null);
-        when(productRepository.findByIdForUpdate(SKU)).thenReturn(Optional.of(product));
-
-        productService.updateShelfLocation(moderator, SKU, shelfRequest("B2-10"));
-
-        ArgumentCaptor<StockMovementLog> captor = ArgumentCaptor.forClass(StockMovementLog.class);
-        verify(stockMovementLogRepository).save(captor.capture());
-        assertNull(captor.getValue().getFromLocation());
-        assertEquals("B2-10", captor.getValue().getToLocation());
-    }
-
-    @Test
-    @DisplayName("updateShelfLocation: không có sản phẩm -> PRODUCT_NOT_FOUND")
-    void updateShelfLocation_notFound() {
-        when(productRepository.findByIdForUpdate(SKU)).thenReturn(Optional.empty());
-
-        AppException ex = assertThrows(AppException.class,
-                () -> productService.updateShelfLocation(moderator, SKU, shelfRequest("B2-10")));
-
-        assertEquals(ErrorCode.PRODUCT_NOT_FOUND, ex.getErrorCode());
-        verifyNoInteractions(stockMovementLogRepository);
-    }
-
-    @Test
-    @DisplayName("updateShelfLocation: kho khác -> 403, không đổi kệ, không ghi log")
-    void updateShelfLocation_otherWarehouse() {
-        when(productRepository.findByIdForUpdate(SKU)).thenReturn(Optional.of(product));
-
-        AppException ex = assertThrows(AppException.class,
-                () -> productService.updateShelfLocation(moderatorOf(otherWarehouse), SKU, shelfRequest("B2-10")));
-
-        assertEquals(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE, ex.getErrorCode());
-        assertEquals("A1-03", product.getShelfLocation());
-        verify(productRepository, never()).save(any());
-        verifyNoInteractions(stockMovementLogRepository);
-    }
-
     // ==================== API 43: getStockMovements ====================
 
     @Test
@@ -364,28 +278,27 @@ class ProductServiceImplInventoryTest {
 
     // ==================== API 40: getInventory ====================
 
-    private Pageable captureInventoryPageable(String expectedShelf, ProductStatus expectedStatus) {
+    private Pageable captureInventoryPageable(ProductStatus expectedStatus) {
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
         verify(productRepository).findInventory(
-                eq(warehouse.getId()), eq(expectedStatus), eq(expectedShelf), captor.capture());
+                eq(warehouse.getId()), eq(expectedStatus), captor.capture());
         return captor.getValue();
     }
 
     @Test
     @DisplayName("getInventory: lọc theo kho của Moderator, map đúng field")
     void getInventory_success() {
-        when(productRepository.findInventory(eq(warehouse.getId()), eq(ProductStatus.ON_SALE), eq("A1"), any()))
+        when(productRepository.findInventory(eq(warehouse.getId()), eq(ProductStatus.ON_SALE), any()))
                 .thenReturn(new PageImpl<>(List.of(product)));
 
         PageResponse<InventoryItemResponse> res =
-                productService.getInventory(moderator, ProductStatus.ON_SALE, "A1", 0, 20);
+                productService.getInventory(moderator, ProductStatus.ON_SALE, 0, 20);
 
         // Giả định PageResponse có getter getContent() (theo field "content" trong spec)
         assertEquals(1, res.getContent().size());
         InventoryItemResponse item = res.getContent().get(0);
         assertEquals(SKU, item.getId());
         assertEquals("Áo sơ mi Zara trắng", item.getName());
-        assertEquals("A1-03", item.getShelfLocation());
         assertEquals(ProductStatus.ON_SALE, item.getStatus());
     }
 
@@ -393,40 +306,20 @@ class ProductServiceImplInventoryTest {
     @DisplayName("getInventory: Moderator chưa gán kho -> MODERATOR_NO_WAREHOUSE")
     void getInventory_noWarehouse() {
         AppException ex = assertThrows(AppException.class,
-                () -> productService.getInventory(moderatorOf(null), null, null, 0, 20));
+                () -> productService.getInventory(moderatorOf(null), null, 0, 20));
 
         assertEquals(ErrorCode.MODERATOR_NO_WAREHOUSE, ex.getErrorCode());
         verifyNoInteractions(productRepository);
     }
 
     @Test
-    @DisplayName("getInventory: shelfLocation rỗng/khoảng trắng -> coi như không lọc (null)")
-    void getInventory_blankShelfBecomesNull() {
-        when(productRepository.findInventory(any(), any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
-
-        productService.getInventory(moderator, null, "   ", 0, 20);
-
-        captureInventoryPageable(null, null);
-    }
-
-    @Test
-    @DisplayName("getInventory: shelfLocation được trim")
-    void getInventory_shelfTrimmed() {
-        when(productRepository.findInventory(any(), any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
-
-        productService.getInventory(moderator, null, "  A1  ", 0, 20);
-
-        captureInventoryPageable("A1", null);
-    }
-
-    @Test
     @DisplayName("getInventory: page âm -> 0, size < 1 -> mặc định 20")
     void getInventory_pagingDefaults() {
-        when(productRepository.findInventory(any(), any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
+        when(productRepository.findInventory(any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
 
-        productService.getInventory(moderator, null, null, -5, 0);
+        productService.getInventory(moderator, null, -5, 0);
 
-        Pageable pageable = captureInventoryPageable(null, null);
+        Pageable pageable = captureInventoryPageable(null);
         assertEquals(0, pageable.getPageNumber());
         assertEquals(20, pageable.getPageSize());
     }
@@ -434,11 +327,11 @@ class ProductServiceImplInventoryTest {
     @Test
     @DisplayName("getInventory: size vượt trần -> bị chặn ở 50")
     void getInventory_sizeCapped() {
-        when(productRepository.findInventory(any(), any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
+        when(productRepository.findInventory(any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
 
-        productService.getInventory(moderator, null, null, 2, 1000);
+        productService.getInventory(moderator, null, 2, 1000);
 
-        Pageable pageable = captureInventoryPageable(null, null);
+        Pageable pageable = captureInventoryPageable(null);
         assertEquals(2, pageable.getPageNumber());
         assertEquals(50, pageable.getPageSize());
     }
@@ -446,11 +339,11 @@ class ProductServiceImplInventoryTest {
     @Test
     @DisplayName("getInventory: sắp xếp theo createdAt giảm dần")
     void getInventory_sortByCreatedAtDesc() {
-        when(productRepository.findInventory(any(), any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
+        when(productRepository.findInventory(any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
 
-        productService.getInventory(moderator, null, null, 0, 20);
+        productService.getInventory(moderator, null, 0, 20);
 
-        Pageable pageable = captureInventoryPageable(null, null);
+        Pageable pageable = captureInventoryPageable(null);
         assertNotNull(pageable.getSort().getOrderFor("createdAt"));
         assertTrue(pageable.getSort().getOrderFor("createdAt").isDescending());
     }

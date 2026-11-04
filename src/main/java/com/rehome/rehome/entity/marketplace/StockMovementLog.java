@@ -31,7 +31,7 @@ public class StockMovementLog {
     @JoinColumn(name = "warehouse_id", nullable = false)
     private Warehouse warehouse;
 
-    // STOCK_IN / SHELF_MOVE / WITHDRAWAL_OUT / RETURN_IN / DONATED_OUT / DESTROYED
+    // STOCK_IN / WITHDRAWAL_OUT / RETURN_IN / DONATED_OUT / DESTROYED
     @Enumerated(EnumType.STRING)
     @Column(name = "movement_type", nullable = false)
     private StockMovementType movementType;

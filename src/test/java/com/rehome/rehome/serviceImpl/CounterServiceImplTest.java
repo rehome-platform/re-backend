@@ -431,13 +431,12 @@ class CounterServiceImplTest {
 
     private ItemWithdrawalRequest itemWithdrawalRequest(Account owner, ItemWithdrawalStatus status) {
         Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).name("Kho Quận 7").build();
-        // Sản phẩm đã WITHDRAWN từ lúc tạo yêu cầu (F-032 - ngừng bán ngay), chưa rời kho nên vẫn còn shelfLocation
+        // Sản phẩm đã WITHDRAWN từ lúc tạo yêu cầu (F-032 - ngừng bán ngay)
         Product product = Product.builder()
                 .id(ITEM_WITHDRAWAL_PRODUCT_ID)
                 .member(owner)
                 .warehouse(warehouse)
                 .status(ProductStatus.WITHDRAWN)
-                .shelfLocation("A1-01")
                 .build();
 
         return ItemWithdrawalRequest.builder()
@@ -466,8 +465,6 @@ class CounterServiceImplTest {
 
         Product product = withdrawal.getProduct();
         assertThat(product.getStatus()).isEqualTo(ProductStatus.WITHDRAWN);
-        assertThat(product.getShelfLocation()).isNull();
-        verify(productRepository).save(product);
 
         ArgumentCaptor<StockMovementLog> logCaptor = ArgumentCaptor.forClass(StockMovementLog.class);
         verify(stockMovementLogRepository).save(logCaptor.capture());
@@ -475,7 +472,6 @@ class CounterServiceImplTest {
         assertThat(log.getProduct()).isEqualTo(product);
         assertThat(log.getWarehouse()).isEqualTo(product.getWarehouse());
         assertThat(log.getMovementType()).isEqualTo(StockMovementType.WITHDRAWAL_OUT);
-        assertThat(log.getFromLocation()).isEqualTo("A1-01");
         assertThat(log.getModerator()).isEqualTo(moderator);
     }
 

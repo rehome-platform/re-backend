@@ -15,7 +15,6 @@ public class WrongItemDetail {
     private String name;
     private String brandName;
     private String size;
-    private String shelfLocation;
 
     // Mã đơn đang chứa sản phẩm này, null nếu không thuộc đơn nào đang xử lý
     private String belongsToOrderNo;

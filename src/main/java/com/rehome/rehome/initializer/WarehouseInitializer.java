@@ -6,7 +6,6 @@ import com.rehome.rehome.repository.WarehouseRepository;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,8 +18,8 @@ import com.rehome.rehome.repository.AccountRepository;
 /**
  * Seed dữ liệu mẫu cho bảng warehouses (phục vụ test API F-015 - kho gần nhất).
  * Chỉ seed khi bảng đang trống, nên khởi động lại app không bị trùng dữ liệu. Nếu bảng đã có dữ liệu
- * thì chỉ đồng bộ lại khối địa chỉ GHN (phường/xã, quận/huyện, tỉnh/thành) theo định nghĩa seed —
- * kho không có API sửa nên seed luôn là nguồn chuẩn, và tên tỉnh/thành sai sẽ làm GHN từ chối vận đơn.
+ * thì chỉ bổ sung khối địa chỉ GHN (phường/xã, quận/huyện, tỉnh/thành) còn thiếu theo định nghĩa seed,
+ * không ghi đè giá trị đã có (Admin có thể đã sửa kho qua API 143).
  */
 @Slf4j
 @Component
@@ -88,8 +87,8 @@ public class WarehouseInitializer implements CommandLineRunner {
         }
     }
 
-    // Ghi lại khối địa chỉ cho những kho đã tồn tại nhưng khai sai so với seed (vd tên tỉnh/thành
-    // "TP. Hồ Chí Minh" trong khi danh mục GHN gọi là "Hồ Chí Minh")
+    // Điền khối địa chỉ GHN (phường/xã, quận/huyện, tỉnh/thành) cho kho seed còn thiếu. Từ khi Admin có API sửa kho
+    // (API 143), seed không còn là nguồn chuẩn nữa nên chỉ lấp chỗ trống, không ghi đè giá trị đã có.
     private void syncAddressUnits(List<Warehouse> seeds) {
         Map<String, Warehouse> seedByName = seeds.stream()
                 .collect(Collectors.toMap(Warehouse::getName, w -> w));
@@ -97,7 +96,7 @@ public class WarehouseInitializer implements CommandLineRunner {
         int fixed = 0;
         for (Warehouse existing : warehouseRepository.findAll()) {
             Warehouse seed = seedByName.get(existing.getName());
-            if (seed == null || isSameAddressUnit(existing, seed)) {
+            if (seed == null || !isMissingAddressUnit(existing)) {
                 continue;
             }
 
@@ -110,15 +109,16 @@ public class WarehouseInitializer implements CommandLineRunner {
         }
 
         if (fixed > 0) {
-            log.info("Đã đồng bộ lại khối địa chỉ GHN cho {} kho", fixed);
+            log.info("Đã bổ sung khối địa chỉ GHN cho {} kho", fixed);
         }
     }
 
-    private boolean isSameAddressUnit(Warehouse existing, Warehouse seed) {
-        return Objects.equals(existing.getWardName(), seed.getWardName())
-                && Objects.equals(existing.getDistrictName(), seed.getDistrictName())
-                && Objects.equals(existing.getProvinceName(), seed.getProvinceName())
-                && Objects.equals(existing.getIsNewAddress(), seed.getIsNewAddress());
+    private boolean isMissingAddressUnit(Warehouse w) {
+        return isBlank(w.getWardName()) || isBlank(w.getDistrictName()) || isBlank(w.getProvinceName());
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     // Tên tỉnh/thành phải đúng như danh mục GHN trả về: "Hồ Chí Minh", không phải "TP. Hồ Chí Minh"

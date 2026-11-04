@@ -10,6 +10,15 @@ import java.util.List;
 import java.util.UUID;
 
 public interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
+
+    // API 144: hàng đã bán (SOLD) nhưng đơn còn PAID/PACKING thì hàng vẫn ở kho chờ đóng gói
+    @Query("select count(oi) from OrderItem oi join oi.order o join oi.product p "
+            + "where p.warehouse.id = :warehouseId "
+            + "and p.status = com.rehome.rehome.entity.enums.ProductStatus.SOLD "
+            + "and o.status in :orderStatuses")
+    long countSoldItemsInOpenOrders(@Param("warehouseId") UUID warehouseId,
+                                    @Param("orderStatuses") Collection<com.rehome.rehome.entity.enums.OrderStatus> orderStatuses);
+
     List<OrderItem> findAllByOrder_Id(UUID orderId);
 
     @Query("select oi from OrderItem oi " +

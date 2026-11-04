@@ -134,6 +134,15 @@ public enum ErrorCode {
     CANNOT_BAN_ADMIN_OR_SELF(HttpStatus.FORBIDDEN, "Không thể khoá tài khoản Admin hoặc chính bạn."),
     ACCOUNT_NOT_BANNED(HttpStatus.CONFLICT, "Tài khoản này đang không bị khoá."),
     ACCOUNT_ALREADY_BANNED(HttpStatus.CONFLICT, "Tài khoản này đã bị khoá."),
+    // Phase 7 - Admin: Moderator và kho (API 138, 140, 142, 143, 144)
+    NOT_MODERATOR_ACCOUNT(HttpStatus.BAD_REQUEST, "Tài khoản này không phải Moderator."),
+    MODERATOR_HAS_CLAIMED_TASK(HttpStatus.CONFLICT, "MODERATOR_HAS_CLAIMED_TASK: Moderator đang giữ việc chưa xong trong hàng đợi."),
+    MODERATOR_SAME_WAREHOUSE(HttpStatus.CONFLICT, "Moderator đã thuộc kho này."),
+    WAREHOUSE_HIDDEN(HttpStatus.CONFLICT, "WAREHOUSE_HIDDEN: kho đang bị ẩn, không thể gán Moderator."),
+    WAREHOUSE_ALREADY_HIDDEN(HttpStatus.CONFLICT, "Kho này đã được ẩn."),
+    WAREHOUSE_HAS_STOCK(HttpStatus.CONFLICT, "WAREHOUSE_HAS_STOCK: kho còn hàng hoặc phiếu ký gửi đang xử lý, không thể ẩn."),
+    WAREHOUSE_NAME_ALREADY_EXISTS(HttpStatus.CONFLICT, "Tên kho đã tồn tại."),
+
     // Nháp ký gửi ("Tủ đồ") và giới hạn yêu cầu chờ duyệt
     CONSIGNMENT_FORM_NOT_DRAFT(HttpStatus.CONFLICT, "Form này không phải bản nháp."),
     TOO_MANY_PENDING_FORMS(HttpStatus.CONFLICT, "Bạn đã đạt giới hạn yêu cầu ký gửi đang chờ duyệt. Vui lòng chờ duyệt xong rồi gửi tiếp."),
@@ -212,7 +221,18 @@ public enum ErrorCode {
     POST_CONTENT_TOO_LONG(HttpStatus.BAD_REQUEST, "content tối đa 2000 ký tự."),
     POST_TOO_MANY_PHOTOS(HttpStatus.BAD_REQUEST, "Tối đa 5 ảnh cho 1 bài viết."),
     // F-087 - bình luận bài viết cộng đồng: giới hạn nội dung
-    COMMENT_CONTENT_TOO_LONG(HttpStatus.BAD_REQUEST, "content tối đa 500 ký tự.");
+    COMMENT_CONTENT_TOO_LONG(HttpStatus.BAD_REQUEST, "content tối đa 500 ký tự."),
+
+    // API 146 - F-157: Admin chỉnh tham số cấu hình
+    CONFIG_KEY_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy tham số."),
+    CONFIG_VALUE_INVALID(HttpStatus.UNPROCESSABLE_ENTITY, "Giá trị không hợp lệ cho tham số này."),
+
+    // API 148 - F-159: xuất báo cáo dashboard
+    INVALID_DATE_RANGE(HttpStatus.BAD_REQUEST, "Khoảng thời gian không hợp lệ."),
+    DASHBOARD_EXPORT_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo file Excel báo cáo."),
+
+    // API 149 - F-160: tra cứu audit log
+    INVALID_PAGINATION(HttpStatus.BAD_REQUEST, "page phải >= 0 và size trong khoảng 1 đến 100.");
 
     private final HttpStatus status;
     private final String defaultMessage;

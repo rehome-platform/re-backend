@@ -44,4 +44,8 @@ public final class SystemConfigKeys {
     // Số ngày giữ ảnh giấy tờ sau khi hồ sơ tổ chức được duyệt, hết hạn thì tự xóa (F-139)
     public static final String LEGAL_IMAGE_RETENTION_DAYS = "legal_image_retention_days";
     public static final int DEFAULT_LEGAL_IMAGE_RETENTION_DAYS = 30;
+
+    // Việc nằm trong hàng đợi Moderator quá số giờ này thì tính là quá hạn trên dashboard (F-158/F-095)
+    public static final String OVERDUE_TASK_HOURS = "overdue_task_hours";
+    public static final int DEFAULT_OVERDUE_TASK_HOURS = 48;
 }

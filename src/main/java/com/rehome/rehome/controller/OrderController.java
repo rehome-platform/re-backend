@@ -16,6 +16,7 @@ import com.rehome.rehome.dto.response.OrderTrackingResponse;
 import com.rehome.rehome.dto.response.PackScanResponse;
 import com.rehome.rehome.dto.response.PayOrdersResponse;
 import com.rehome.rehome.dto.response.SoldOrderListResponse;
+import com.rehome.rehome.dto.response.WarehouseOrderListResponse;
 import com.rehome.rehome.service.OrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -84,6 +85,23 @@ public class OrderController {
 
         String email = authentication.getName();
         SoldOrderListResponse result = orderService.getSoldOrders(email, status, page, size);
+
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    // Đơn đã bán theo kho: moderator xem mọi đơn thuộc kho mình quản lý, không giới hạn
+    // theo người ký gửi (như /orders/sold) hay người mua (như GET /orders).
+    // Phải đứng TRƯỚC @GetMapping("/{id}") để "warehouse" không bị khớp vào {id}.
+    @GetMapping("/warehouse/sold")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<WarehouseOrderListResponse>> getWarehouseSoldOrders(
+            Authentication authentication,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        String email = authentication.getName();
+        WarehouseOrderListResponse result = orderService.getWarehouseSoldOrders(email, status, page, size);
 
         return ResponseEntity.ok(ApiResponse.success(result));
     }

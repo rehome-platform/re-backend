@@ -27,6 +27,8 @@ import com.rehome.rehome.dto.response.PayOrdersResponse;
 import com.rehome.rehome.dto.response.SoldOrderItemResponse;
 import com.rehome.rehome.dto.response.SoldOrderListResponse;
 import com.rehome.rehome.dto.response.SoldOrderResponse;
+import com.rehome.rehome.dto.response.WarehouseOrderListResponse;
+import com.rehome.rehome.dto.response.WarehouseOrderResponse;
 import com.rehome.rehome.dto.response.WrongItemDetail;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.CancelReason;
@@ -531,6 +533,86 @@ public class OrderServiceImpl implements OrderService {
             counts.put(s.name(), 0L);
         }
         for (Object[] row : orderRepository.countGroupedByStatusForSeller(sellerId)) {
+            counts.put(((OrderStatus) row[0]).name(), (Long) row[1]);
+        }
+        return counts;
+    }
+
+    @Override
+    public WarehouseOrderListResponse getWarehouseSoldOrders(String email, String status, int page, int size) {
+
+        Account moderator = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        if (moderator.getWarehouse() == null) {
+            throw new ForbiddenException("Bạn chưa được phân công quản lý kho nào.");
+        }
+        UUID warehouseId = moderator.getWarehouse().getId();
+
+        List<OrderStatus> statuses = parseSoldStatuses(status);
+
+        PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        Page<Order> result = orderRepository.findByWarehouse_IdAndStatusIn(warehouseId, statuses, pageable);
+
+        List<UUID> orderIds = result.getContent().stream().map(Order::getId).toList();
+        List<OrderItem> orderItems = orderItemRepository.findAllByOrder_IdInOrderByIdAsc(orderIds);
+
+        Map<UUID, List<OrderItem>> itemsByOrderId = orderItems.stream()
+                .collect(Collectors.groupingBy(oi -> oi.getOrder().getId(), LinkedHashMap::new, Collectors.toList()));
+
+        List<String> firstProductIds = itemsByOrderId.values().stream()
+                .filter(items -> !items.isEmpty())
+                .map(items -> items.get(0).getProduct().getId())
+                .distinct()
+                .toList();
+
+        Map<String, String> thumbnailByProductId = productPhotoRepository
+                .findByProduct_IdInOrderByIdAsc(firstProductIds).stream()
+                .collect(Collectors.toMap(
+                        photo -> photo.getProduct().getId(),
+                        ProductPhoto::getImageUrl,
+                        (first, second) -> first
+                ));
+
+        Page<WarehouseOrderResponse> mapped = result.map(order -> {
+            List<OrderItem> items = itemsByOrderId.getOrDefault(order.getId(), List.of());
+            OrderItem firstItem = items.isEmpty() ? null : items.get(0);
+
+            return WarehouseOrderResponse.builder()
+                    .id(order.getId().toString())
+                    .orderNo(order.getOrderNo())
+                    .status(order.getStatus().name())
+                    .createdAt(order.getCreatedAt())
+                    .totalAmount(order.getTotalAmount())
+                    .itemCount(items.size())
+                    .firstItemName(firstItem != null ? firstItem.getProduct().getName() : null)
+                    .firstItemThumbnail(firstItem != null
+                            ? thumbnailByProductId.get(firstItem.getProduct().getId()) : null)
+                    .buyerName(order.getShippingRecipientName())
+                    .buyerPhone(order.getShippingPhone())
+                    .scannedCount(order.getScannedCount() == null ? 0 : order.getScannedCount())
+                    .totalCount(items.size())
+                    .ghnTrackingCode(order.getGhnTrackingCode())
+                    .deliveredAt(order.getDeliveredAt())
+                    .completedAt(order.getCompletedAt())
+                    .cancelledAt(order.getCancelledAt())
+                    .build();
+        });
+
+        return WarehouseOrderListResponse.builder()
+                .orders(PageResponse.from(mapped))
+                .statusCounts(buildStatusCountsForWarehouse(warehouseId))
+                .build();
+    }
+
+    private Map<String, Long> buildStatusCountsForWarehouse(UUID warehouseId) {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        for (OrderStatus s : OrderStatus.values()) {
+            counts.put(s.name(), 0L);
+        }
+        for (Object[] row : orderRepository.countGroupedByStatusForWarehouse(warehouseId)) {
             counts.put(((OrderStatus) row[0]).name(), (Long) row[1]);
         }
         return counts;

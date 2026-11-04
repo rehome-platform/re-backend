@@ -56,4 +56,11 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     @Query("select o.status, count(distinct o) from OrderItem oi join oi.order o "
             + "where oi.product.member.id = :sellerId group by o.status")
     List<Object[]> countGroupedByStatusForSeller(@Param("sellerId") UUID sellerId);
+
+    // Đơn đã bán thuộc một kho - dùng cho moderator xem đơn của kho mình quản lý, không
+    // giới hạn theo người ký gửi hay người mua như hai query trên.
+    Page<Order> findByWarehouse_IdAndStatusIn(UUID warehouseId, List<OrderStatus> statuses, Pageable pageable);
+
+    @Query("select o.status, count(o) from Order o where o.warehouse.id = :warehouseId group by o.status")
+    List<Object[]> countGroupedByStatusForWarehouse(@Param("warehouseId") UUID warehouseId);
 }

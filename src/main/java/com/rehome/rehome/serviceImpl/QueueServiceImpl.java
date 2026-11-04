@@ -3,6 +3,7 @@ package com.rehome.rehome.serviceImpl;
 import com.rehome.rehome.dto.response.QueueClaimResponse;
 import com.rehome.rehome.dto.response.QueueItemResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.auth.OrganizationLegalChangeRequest;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
@@ -10,8 +11,10 @@ import com.rehome.rehome.entity.marketplace.QueueItem;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.mapper.OrganizationLegalChangeMapper;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
+import com.rehome.rehome.repository.OrganizationLegalChangeRequestRepository;
 import com.rehome.rehome.repository.QueueItemRepository;
 import com.rehome.rehome.service.QueueService;
 import java.time.Duration;
@@ -35,6 +38,8 @@ public class QueueServiceImpl implements QueueService {
     private final QueueItemRepository queueItemRepository;
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
+    private final OrganizationLegalChangeRequestRepository organizationLegalChangeRequestRepository;
+    private final OrganizationLegalChangeMapper organizationLegalChangeMapper;
 
     @Override
     @Transactional(readOnly = true)
@@ -51,11 +56,12 @@ public class QueueServiceImpl implements QueueService {
     }
 
     // DG-01: QueueItemResponse của PACKING cần kèm dữ liệu đơn hàng (mã đơn, người nhận,
-    // số món, vị trí kệ, thời gian chờ); các loại việc khác giữ nguyên QueueItemResponse.from.
+    // số món, vị trí kệ, thời gian chờ); LEGAL_CHANGE kèm nội dung xin đổi (xem bên dưới);
+    // các loại việc khác giữ nguyên QueueItemResponse.from.
     private List<QueueItemResponse> toResponses(List<QueueItem> items) {
         List<UUID> packingOrderIds = items.stream()
                 .filter(i -> i.getType() == QueueType.PACKING)
-                .map(i -> parseOrderId(i.getRefId()))
+                .map(i -> parseUuid(i.getRefId()))
                 .filter(Objects::nonNull)
                 .toList();
 
@@ -70,28 +76,51 @@ public class QueueServiceImpl implements QueueService {
                             .add(oi));
         }
 
+        List<UUID> legalChangeIds = items.stream()
+                .filter(i -> i.getType() == QueueType.LEGAL_CHANGE)
+                .map(i -> parseUuid(i.getRefId()))
+                .filter(Objects::nonNull)
+                .toList();
+
+        Map<UUID, OrganizationLegalChangeRequest> legalChangesById = new HashMap<>();
+        if (!legalChangeIds.isEmpty()) {
+            organizationLegalChangeRequestRepository.findAllById(legalChangeIds)
+                    .forEach(r -> legalChangesById.put(r.getId(), r));
+        }
+
         Instant now = Instant.now();
         return items.stream().map(q -> {
-            if (q.getType() != QueueType.PACKING) {
-                return QueueItemResponse.from(q);
+            if (q.getType() == QueueType.PACKING) {
+                UUID orderId = parseUuid(q.getRefId());
+                Order order = orderId == null ? null : ordersById.get(orderId);
+                if (order == null) {
+                    return QueueItemResponse.from(q);
+                }
+                List<OrderItem> orderItems = orderItemsByOrderId.getOrDefault(orderId, List.of());
+                String shelfLocations = orderItems.stream()
+                        .map(oi -> oi.getProduct().getShelfLocation())
+                        .filter(StringUtils::hasText)
+                        .distinct()
+                        .collect(Collectors.joining(", "));
+                long waitingMinutes = Duration.between(order.getCreatedAt(), now).toMinutes();
+                return QueueItemResponse.fromPacking(q, order, orderItems.size(), shelfLocations, waitingMinutes);
             }
-            UUID orderId = parseOrderId(q.getRefId());
-            Order order = orderId == null ? null : ordersById.get(orderId);
-            if (order == null) {
-                return QueueItemResponse.from(q);
+            if (q.getType() == QueueType.LEGAL_CHANGE) {
+                UUID requestId = parseUuid(q.getRefId());
+                OrganizationLegalChangeRequest request = requestId == null ? null : legalChangesById.get(requestId);
+                if (request == null) {
+                    return QueueItemResponse.from(q);
+                }
+                OrganizationLegalChangeMapper.LegalChangeSummary summary = organizationLegalChangeMapper
+                        .summarize(request.getProposedChanges(), request.getOrganization());
+                return QueueItemResponse.fromLegalChange(q, request,
+                        summary.fieldChanged(), summary.oldValue(), summary.newValue());
             }
-            List<OrderItem> orderItems = orderItemsByOrderId.getOrDefault(orderId, List.of());
-            String shelfLocations = orderItems.stream()
-                    .map(oi -> oi.getProduct().getShelfLocation())
-                    .filter(StringUtils::hasText)
-                    .distinct()
-                    .collect(Collectors.joining(", "));
-            long waitingMinutes = Duration.between(order.getCreatedAt(), now).toMinutes();
-            return QueueItemResponse.fromPacking(q, order, orderItems.size(), shelfLocations, waitingMinutes);
+            return QueueItemResponse.from(q);
         }).toList();
     }
 
-    private UUID parseOrderId(String refId) {
+    private UUID parseUuid(String refId) {
         try {
             return UUID.fromString(refId);
         } catch (IllegalArgumentException e) {

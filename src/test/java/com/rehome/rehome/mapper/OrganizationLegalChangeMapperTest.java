@@ -292,4 +292,75 @@ class OrganizationLegalChangeMapperTest {
         assertThat(profile.getDocuments()).extracting(OrganizationDocument::getIssueDate)
                 .containsOnlyNulls();
     }
+
+    // ---------------------------------------------------------------- summarize (hàng đợi)
+
+    @Test
+    void summarize_singleField_returnsLabelAndValues() {
+        OrganizationProfile profile = profile();
+
+        var summary = mapper.summarize(json("{\"legalName\":\"Quỹ Chia Sẻ\"}"), profile);
+
+        assertThat(summary.fieldChanged()).isEqualTo("Tên pháp lý");
+        assertThat(summary.oldValue()).isEqualTo("Hội Chia Sẻ");
+        assertThat(summary.newValue()).isEqualTo("Quỹ Chia Sẻ");
+    }
+
+    @Test
+    void summarize_multipleFields_joinsWithSemicolon() {
+        OrganizationProfile profile = profile();
+
+        var summary = mapper.summarize(
+                json("{\"legalName\":\"Quỹ Chia Sẻ\",\"taxCode\":\"0309876543\"}"), profile);
+
+        assertThat(summary.fieldChanged()).isEqualTo("Tên pháp lý; Mã số thuế");
+        assertThat(summary.oldValue()).isEqualTo("Hội Chia Sẻ; 0101234567");
+        assertThat(summary.newValue()).isEqualTo("Quỹ Chia Sẻ; 0309876543");
+    }
+
+    @Test
+    void summarize_representativeSubField_usesVietnameseLabel() {
+        OrganizationProfile profile = profile();
+
+        var summary = mapper.summarize(
+                json("{\"representative\":{\"fullName\":\"Trần Thị B\"}}"), profile);
+
+        assertThat(summary.fieldChanged()).isEqualTo("Họ và tên người đại diện");
+        assertThat(summary.oldValue()).isEqualTo("Nguyễn Văn A");
+        assertThat(summary.newValue()).isEqualTo("Trần Thị B");
+    }
+
+    @Test
+    void summarize_documents_comparesJoinedDocTypes() {
+        OrganizationProfile profile = profile();
+
+        var summary = mapper.summarize(json("""
+                {"documents":[{"docType":"CHARTER"},{"docType":"FUND_LICENSE"}]}"""), profile);
+
+        assertThat(summary.fieldChanged()).isEqualTo("Giấy tờ pháp lý");
+        assertThat(summary.oldValue()).isEqualTo("FUND_LICENSE");
+        assertThat(summary.newValue()).isEqualTo("CHARTER, FUND_LICENSE");
+    }
+
+    @Test
+    void summarize_valueUnchanged_isOmitted() {
+        OrganizationProfile profile = profile();
+
+        // Tổ chức gửi lại đúng tên cũ (vd. sửa trường khác trong cùng yêu cầu)
+        var summary = mapper.summarize(json("{\"legalName\":\"Hội Chia Sẻ\"}"), profile);
+
+        assertThat(summary.fieldChanged()).isEmpty();
+        assertThat(summary.oldValue()).isEmpty();
+        assertThat(summary.newValue()).isEmpty();
+    }
+
+    @Test
+    void summarize_malformedStructure_doesNotThrow() {
+        OrganizationProfile profile = profile();
+
+        // Chưa qua duyệt nên chưa bị validate nghiêm như apply(); hàng đợi vẫn phải hiển thị được
+        var summary = mapper.summarize(json("{\"representative\":\"not-an-object\"}"), profile);
+
+        assertThat(summary.fieldChanged()).isEmpty();
+    }
 }

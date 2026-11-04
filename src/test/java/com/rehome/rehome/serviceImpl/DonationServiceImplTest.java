@@ -1209,6 +1209,87 @@ class DonationServiceImplTest {
         verify(donationNoteRepository, never()).save(any());
     }
 
+    // =====================================================================
+    // listCampaignDonationNotes  (OC-08)
+    // =====================================================================
+
+    private DonationNote donationNote(UUID campaignId, String donorName, boolean anonymous) {
+        return DonationNote.builder()
+                .id(UUID.randomUUID())
+                .campaign(Campaign.builder().id(campaignId).build())
+                .donorName(donorName)
+                .isAnonymous(anonymous)
+                .note("1 túi quần áo trẻ em")
+                .createdAt(Instant.parse("2026-10-30T09:00:00Z"))
+                .build();
+    }
+
+    private static final Pageable NOTES_FIRST_PAGE_OF_20 = PageRequest.of(0, 20);
+
+    @Test
+    void listCampaignDonationNotes_ownCampaign_returnsPage() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        stubOwnCampaign(campaignId, orgId);
+        when(donationNoteRepository.findByCampaign_IdOrderByCreatedAtDesc(campaignId, NOTES_FIRST_PAGE_OF_20))
+                .thenReturn(new PageImpl<>(List.of(donationNote(campaignId, "Trần Thị B", false))));
+
+        PageResponse<DonationNoteResponse> result =
+                service.listCampaignDonationNotes(orgId, campaignId, 0, 20);
+
+        assertThat(result.getContent()).hasSize(1);
+        DonationNoteResponse res = result.getContent().get(0);
+        assertThat(res.getCampaignId()).isEqualTo(campaignId.toString());
+        assertThat(res.getDonorName()).isEqualTo("Trần Thị B");
+        assertThat(res.isAnonymous()).isFalse();
+        assertThat(res.getNote()).isEqualTo("1 túi quần áo trẻ em");
+        assertThat(res.getCreatedAt()).isEqualTo(Instant.parse("2026-10-30T09:00:00Z"));
+    }
+
+    @Test
+    void listCampaignDonationNotes_closedCampaign_stillReturnsNotes() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(
+                Campaign.builder().id(campaignId)
+                        .organization(OrganizationProfile.builder().accountId(orgId).build())
+                        .status(com.rehome.rehome.entity.enums.CampaignStatus.CLOSED)
+                        .build()));
+        when(donationNoteRepository.findByCampaign_IdOrderByCreatedAtDesc(campaignId, NOTES_FIRST_PAGE_OF_20))
+                .thenReturn(new PageImpl<>(List.of(donationNote(campaignId, "Trần Thị B", false))));
+
+        PageResponse<DonationNoteResponse> result =
+                service.listCampaignDonationNotes(orgId, campaignId, 0, 20);
+
+        assertThat(result.getContent()).hasSize(1);
+    }
+
+    @Test
+    void listCampaignDonationNotes_campaignNotFound_throwsNotFound() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.listCampaignDonationNotes(orgId, campaignId, 0, 20))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy chiến dịch.");
+
+        verifyNoInteractions(donationNoteRepository);
+    }
+
+    @Test
+    void listCampaignDonationNotes_otherOrganizationCampaign_throwsForbidden() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        stubOwnCampaign(campaignId, UUID.randomUUID());
+
+        assertThatThrownBy(() -> service.listCampaignDonationNotes(orgId, campaignId, 0, 20))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("Chiến dịch không thuộc tổ chức của bạn.");
+
+        verifyNoInteractions(donationNoteRepository);
+    }
+
     @Test
     void handoverDonations_otherWarehouse_throwsCombinedMessage() {
         UUID warehouseId = UUID.randomUUID();

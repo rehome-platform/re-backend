@@ -294,6 +294,22 @@ public class DonationServiceImpl implements DonationService {
         return saveDonationNote(organization, campaign, request.getDonorName(), anonymous, request.getNote());
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<DonationNoteResponse> listCampaignDonationNotes(UUID organizationAccountId, UUID campaignId,
+                                                                          int page, int size) {
+        // Phải xem được cả khi chiến dịch đã CLOSED nên không lọc theo status ở đây
+        Campaign campaign = campaignRepository.findById(campaignId)
+                .orElseThrow(() -> new IllegalArgumentException(CAMPAIGN_NOT_FOUND));
+        if (!campaign.getOrganization().getAccountId().equals(organizationAccountId)) {
+            throw new ForbiddenException("Chiến dịch không thuộc tổ chức của bạn.");
+        }
+
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), MAX_PAGE_SIZE));
+        Page<DonationNote> notes = donationNoteRepository.findByCampaign_IdOrderByCreatedAtDesc(campaignId, pageable);
+        return PageResponse.from(notes.map(DonationServiceImpl::toNoteResponse));
+    }
+
     // Chưa có tên người quyên góp mà cũng không tích ẩn danh thì không hợp lệ, dùng chung
     // cho cả F-167 và OC-08
     private boolean requireDonorNameOrAnonymous(Boolean isAnonymousFlag, String donorName) {
@@ -317,11 +333,16 @@ public class DonationServiceImpl implements DonationService {
                 .build();
         donationNoteRepository.save(donationNote);
 
+        return toNoteResponse(donationNote);
+    }
+
+    private static DonationNoteResponse toNoteResponse(DonationNote donationNote) {
+        Campaign campaign = donationNote.getCampaign();
         return DonationNoteResponse.builder()
                 .id(donationNote.getId().toString())
                 .campaignId(campaign == null ? null : campaign.getId().toString())
                 .donorName(donationNote.getDonorName())
-                .isAnonymous(anonymous)
+                .isAnonymous(Boolean.TRUE.equals(donationNote.getIsAnonymous()))
                 .note(donationNote.getNote())
                 .createdAt(donationNote.getCreatedAt())
                 .build();

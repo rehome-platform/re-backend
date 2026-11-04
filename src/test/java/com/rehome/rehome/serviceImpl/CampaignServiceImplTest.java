@@ -19,6 +19,7 @@ import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.repository.CampaignRepository;
+import com.rehome.rehome.repository.DonationNoteRepository;
 import com.rehome.rehome.repository.DonationRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
@@ -59,6 +60,7 @@ class CampaignServiceImplTest {
     @Mock private OrganizationProfileRepository organizationProfileRepository;
     @Mock private WarehouseRepository warehouseRepository;
     @Mock private DonationRepository donationRepository;
+    @Mock private DonationNoteRepository donationNoteRepository;
     @Mock private SystemConfigReader systemConfigReader;
     @Mock private NotificationService notificationService;
 
@@ -110,7 +112,7 @@ class CampaignServiceImplTest {
                 .build();
         when(campaignRepository.findById(id)).thenReturn(Optional.of(campaign));
 
-        CampaignPublicResponse res = service.getPublicDetail(id);
+        CampaignPublicResponse res = service.getPublicDetail(id, null);
 
         assertThat(res.getId()).isEqualTo(id.toString());
         assertThat(res.getTitle()).isEqualTo("Thu áo ấm miền núi phía Bắc");
@@ -143,7 +145,7 @@ class CampaignServiceImplTest {
                 warehouseId, id, DonationStatus.PENDING_PICKUP))
                 .thenReturn(3L);
 
-        CampaignPublicResponse res = service.getPublicDetail(id);
+        CampaignPublicResponse res = service.getPublicDetail(id, null);
 
         assertThat(res.isReceiveAtOwnAddress()).isFalse();
         assertThat(res.getOwnAddress()).isNull();
@@ -166,7 +168,7 @@ class CampaignServiceImplTest {
                 .build();
         when(campaignRepository.findById(id)).thenReturn(Optional.of(campaign));
 
-        CampaignPublicResponse res = service.getPublicDetail(id);
+        CampaignPublicResponse res = service.getPublicDetail(id, null);
 
         // Trước đây write path lưu được nhưng read path không trả lại, màn sửa bị trống
         assertThat(res.getPreferredItemTypes()).containsExactly("Áo ấm", "Chăn");
@@ -178,9 +180,57 @@ class CampaignServiceImplTest {
         UUID id = UUID.randomUUID();
         when(campaignRepository.findById(id)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.getPublicDetail(id))
+        assertThatThrownBy(() -> service.getPublicDetail(id, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Không tìm thấy chiến dịch.");
+    }
+
+    @Test
+    void getPublicDetail_viewerIsOwnerOrganization_includesDonationNoteCount() {
+        UUID id = UUID.randomUUID();
+        UUID orgId = UUID.randomUUID();
+        Campaign campaign = baseCampaign(id)
+                .organization(organizationWithDonationPoint(orgId))
+                .status(CampaignStatus.OPEN)
+                .build();
+        when(campaignRepository.findById(id)).thenReturn(Optional.of(campaign));
+        when(donationNoteRepository.countByCampaign_Id(id)).thenReturn(5L);
+
+        CampaignPublicResponse res = service.getPublicDetail(id, orgId);
+
+        assertThat(res.getDonationNoteCount()).isEqualTo(5L);
+    }
+
+    @Test
+    void getPublicDetail_viewerIsNotOwner_donationNoteCountIsNull() {
+        UUID id = UUID.randomUUID();
+        UUID orgId = UUID.randomUUID();
+        Campaign campaign = baseCampaign(id)
+                .organization(organizationWithDonationPoint(orgId))
+                .status(CampaignStatus.OPEN)
+                .build();
+        when(campaignRepository.findById(id)).thenReturn(Optional.of(campaign));
+
+        CampaignPublicResponse res = service.getPublicDetail(id, UUID.randomUUID());
+
+        assertThat(res.getDonationNoteCount()).isNull();
+        verify(donationNoteRepository, never()).countByCampaign_Id(any());
+    }
+
+    @Test
+    void getPublicDetail_guestViewer_donationNoteCountIsNull() {
+        UUID id = UUID.randomUUID();
+        UUID orgId = UUID.randomUUID();
+        Campaign campaign = baseCampaign(id)
+                .organization(organizationWithDonationPoint(orgId))
+                .status(CampaignStatus.OPEN)
+                .build();
+        when(campaignRepository.findById(id)).thenReturn(Optional.of(campaign));
+
+        CampaignPublicResponse res = service.getPublicDetail(id, null);
+
+        assertThat(res.getDonationNoteCount()).isNull();
+        verify(donationNoteRepository, never()).countByCampaign_Id(any());
     }
 
     // =====================================================================

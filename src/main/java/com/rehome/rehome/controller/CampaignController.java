@@ -47,9 +47,13 @@ public class CampaignController {
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Xem chi tiết công khai 1 chiến dịch (F-083)")
-    public ResponseEntity<ApiResponse<CampaignPublicResponse>> getPublicDetail(@PathVariable UUID id) {
-        return ResponseEntity.ok(ApiResponse.success(campaignService.getPublicDetail(id)));
+    @Operation(summary = "Xem chi tiết công khai 1 chiến dịch (F-083), kèm donationNoteCount nếu là tổ chức sở hữu")
+    public ResponseEntity<ApiResponse<CampaignPublicResponse>> getPublicDetail(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal Account account) {
+        CampaignPublicResponse result = campaignService.getPublicDetail(
+                id, account != null ? account.getId() : null);
+        return ResponseEntity.ok(ApiResponse.success(result));
     }
 
     @PostMapping
@@ -94,5 +98,18 @@ public class CampaignController {
         DonationNoteResponse result = donationService.createCampaignDonationNote(account.getId(), id, request);
         return ResponseEntity.status(201)
                 .body(ApiResponse.success(result, 201, "Đã ghi nhận note quyên góp"));
+    }
+
+    @GetMapping("/{id}/donation-notes")
+    @PreAuthorize("hasRole('ORGANIZATION')")
+    @Operation(summary = "Tổ chức xem các note quyên góp của chính chiến dịch mình, mới nhất trước (OC-08)")
+    public ResponseEntity<ApiResponse<PageResponse<DonationNoteResponse>>> listCampaignDonationNotes(
+            @PathVariable UUID id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal Account account) {
+        PageResponse<DonationNoteResponse> result =
+                donationService.listCampaignDonationNotes(account.getId(), id, page, size);
+        return ResponseEntity.ok(ApiResponse.success(result));
     }
 }

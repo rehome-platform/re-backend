@@ -1,6 +1,7 @@
 package com.rehome.rehome.repository.spec;
 
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.TryOnSlot;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.util.VietnameseText;
 import jakarta.persistence.criteria.Predicate;
@@ -17,7 +18,8 @@ public class ProductSpecifications {
     }
 
     public static Specification<Product> filter(String search, UUID categoryId, UUID brandId,
-                                                  BigDecimal priceMin, BigDecimal priceMax, UUID warehouseId) {
+                                                  BigDecimal priceMin, BigDecimal priceMax, UUID warehouseId,
+                                                  TryOnSlot tryonSlot) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
 
@@ -37,6 +39,9 @@ public class ProductSpecifications {
             }
             if (warehouseId != null) {
                 predicates.add(cb.equal(root.get("warehouse").get("id"), warehouseId));
+            }
+            if (tryonSlot != null) {
+                predicates.add(cb.equal(root.get("category").get("tryonSlot"), tryonSlot));
             }
             if (priceMin != null) {
                 predicates.add(cb.greaterThanOrEqualTo(root.get("currentPrice"), priceMin));

@@ -6,6 +6,7 @@ import com.rehome.rehome.dto.request.UpdateShelfLocationRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.TryOnSlot;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
@@ -48,12 +49,14 @@ public class ProductController {
             @RequestParam(required = false) BigDecimal priceMin,
             @RequestParam(required = false) BigDecimal priceMax,
             @RequestParam(required = false) UUID warehouseId,
+            // Lọc theo loại thử đồ của danh mục: TOP / BOTTOM / DRESS (F-076: Member tự chọn món còn thiếu)
+            @RequestParam(required = false) TryOnSlot tryonSlot,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @AuthenticationPrincipal Account account) {
 
         PageResponse<ProductSummaryResponse> result = productService.getProducts(
-                search, categoryId, brandId, priceMin, priceMax, warehouseId, page, size,
+                search, categoryId, brandId, priceMin, priceMax, warehouseId, tryonSlot, page, size,
                 account != null ? account.getId() : null);
 
         return ResponseEntity.ok(ApiResponse.success(result));

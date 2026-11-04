@@ -58,6 +58,22 @@ DECLARE
     v_brand_ids      uuid[5];
     v_cat_ids        uuid[5];
     v_cat_codes      text[5]  := ARRAY['AK', 'AT', 'QJ', 'CV', 'DM'];
+    -- Ảnh thật, nền trắng, quần/áo trải phẳng (không xếp chồng) — thay cho picsum.photos random
+    -- trước đây — 2 biến thể/loại để đỡ trùng lặp. Ảnh quần jean (QJ) được crop (rect=) từ ảnh gốc
+    -- "quần + áo khoác jean" trên Unsplash để chỉ còn lại quần.
+    -- Nguồn: fakestoreapi.com (demo product API), cdn.dummyjson.com (demo product API), images.unsplash.com.
+    v_photo_urls     text[5][2] := ARRAY[
+        ARRAY['https://fakestoreapi.com/img/71li-ujtlUL._AC_UX679_t.png',
+              'https://fakestoreapi.com/img/51Y5NI-I5jL._AC_UX679_t.png'],
+        ARRAY['https://fakestoreapi.com/img/71-3HjGNDUL._AC_SY879._SX._UX._SY._UY_t.png',
+              'https://fakestoreapi.com/img/71z3kpMAYsL._AC_UY879_t.png'],
+        ARRAY['https://images.unsplash.com/photo-1708523842501-1619478cea1f?rect=316,0,2598,3745&w=800&fit=crop&q=80',
+              'https://images.unsplash.com/photo-1718252540511-e958742e4165?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=NHwxMjA3fDA&ixlib=rb-4.1.0&q=80&w=1080'],
+        ARRAY['https://cdn.dummyjson.com/product-images/womens-dresses/corset-leather-with-skirt/1.webp',
+              'https://cdn.dummyjson.com/product-images/womens-dresses/corset-with-black-skirt/1.webp'],
+        ARRAY['https://cdn.dummyjson.com/product-images/tops/gray-dress/1.webp',
+              'https://cdn.dummyjson.com/product-images/womens-dresses/black-women''s-gown/1.webp']
+    ];
 
     v_cart_id        uuid;
 
@@ -86,6 +102,7 @@ DECLARE
 
     v_tmp_id         uuid; -- biến tạm: PL/pgSQL không cho "RETURNING ... INTO mang[i]" trực tiếp
     v_product_id     text;
+    v_photo_url      text;
     v_warehouse_id   uuid;
     v_moderator_id   uuid;
     v_seller_id      uuid;
@@ -347,6 +364,7 @@ BEGIN
         v_seller_id      := v_seller_ids[((i - 1) % 3) + 1];
         v_product_id     := (CASE WHEN i <= 10 THEN 'Q7-' ELSE 'CG-' END)
                                 || v_cat_codes[((i - 1) % 5) + 1] || '-' || lpad(i::text, 6, '0');
+        v_photo_url      := v_photo_urls[((i - 1) % 5) + 1][((i - 1) / 5) % 2 + 1];
 
         INSERT INTO consignment_forms (id, member_id, warehouse_id, category_id, brand_id,
                                         product_name, description, desired_price, status,
@@ -384,7 +402,7 @@ BEGIN
                 'A1-' || lpad(i::text, 2, '0'), v_confirmed_at, v_now);
 
         INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
-        VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+        VALUES (gen_random_uuid(), v_product_id, v_photo_url, false, 0);
     END LOOP;
 
     ------------------------------------------------------------------
@@ -426,7 +444,7 @@ BEGIN
             480000, 'RETURNED', 1, v_confirmed_at, v_confirmed_at + interval '90 days', NULL,
             'A1-21', v_confirmed_at, v_now);
     INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
-    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+    VALUES (gen_random_uuid(), v_product_id, 'https://fakestoreapi.com/img/71li-ujtlUL._AC_UX679_t.png', false, 0);
 
     -- #22: Q7, seller2, sẽ LOST trên đơn OD-2026-SEED07 (buyer2)
     v_confirmed_at := v_now - interval '22 days';
@@ -459,7 +477,7 @@ BEGIN
             190000, 'RETURNED', 1, v_confirmed_at, v_confirmed_at + interval '90 days', NULL,
             'A1-22', v_confirmed_at, v_now);
     INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
-    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+    VALUES (gen_random_uuid(), v_product_id, 'https://fakestoreapi.com/img/71z3kpMAYsL._AC_UY879_t.png', false, 0);
 
     -- #23: CG, seller3, sẽ VALID+degraded trên đơn OD-2026-SEED08 (buyer1)
     v_confirmed_at := v_now - interval '24 days';
@@ -492,7 +510,7 @@ BEGIN
             310000, 'RETURNED', 1, v_confirmed_at, v_confirmed_at + interval '90 days', NULL,
             'A1-23', v_confirmed_at, v_now);
     INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
-    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+    VALUES (gen_random_uuid(), v_product_id, 'https://images.unsplash.com/photo-1708523842501-1619478cea1f?rect=316,0,2598,3745&w=800&fit=crop&q=80', false, 0);
 
     -- #24: CG, seller1, sẽ VALID+degraded trên đơn OD-2026-SEED09 (buyer2)
     v_confirmed_at := v_now - interval '26 days';
@@ -525,7 +543,7 @@ BEGIN
             260000, 'RETURNED', 1, v_confirmed_at, v_confirmed_at + interval '90 days', NULL,
             'A1-24', v_confirmed_at, v_now);
     INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
-    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+    VALUES (gen_random_uuid(), v_product_id, 'https://cdn.dummyjson.com/product-images/womens-dresses/corset-leather-with-skirt/1.webp', false, 0);
 
     -- #25: CG, seller2, vẫn ON_SALE nhưng đã hết kỳ 90 ngày (end_of_term_deadline đã qua 5 ngày) —
     --      mô phỏng đúng trạng thái end_of_term_decisions.decision = NULL mà ProductInitializer tạo
@@ -564,7 +582,7 @@ BEGIN
             400000, 'ON_SALE', 3, v_confirmed_at + interval '60 days', v_confirmed_at + interval '90 days', NULL,
             'A1-25', v_confirmed_at, v_now);
     INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
-    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+    VALUES (gen_random_uuid(), v_product_id, 'https://cdn.dummyjson.com/product-images/womens-dresses/black-women''s-gown/1.webp', false, 0);
 
     -- Hạn 30 ngày Member phải chọn TAKE_BACK/RE_CONSIGN tính từ lúc hết kỳ (end_of_term_deadline),
     -- không phải từ lúc chạy script — còn 25/30 ngày vì deadline đã qua 5 ngày.
@@ -604,7 +622,7 @@ BEGIN
             420000, 'ON_SALE', 3, v_confirmed_at + interval '60 days', v_confirmed_at + interval '90 days', NULL,
             'A1-26', v_confirmed_at, v_now);
     INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
-    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+    VALUES (gen_random_uuid(), v_product_id, 'https://fakestoreapi.com/img/51Y5NI-I5jL._AC_UX679_t.png', false, 0);
     INSERT INTO end_of_term_decisions (id, product_id, decision, new_receipt_id, decided_at, deadline, taken_back_at)
     VALUES (gen_random_uuid(), v_product_id, NULL, NULL, NULL,
             v_confirmed_at + interval '90 days' + interval '30 days', NULL);
@@ -642,7 +660,7 @@ BEGIN
             330000, 'ON_SALE', 3, v_confirmed_at + interval '60 days', v_confirmed_at + interval '90 days', NULL,
             'A1-27', v_confirmed_at, v_now);
     INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
-    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+    VALUES (gen_random_uuid(), v_product_id, 'https://images.unsplash.com/photo-1718252540511-e958742e4165?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=NHwxMjA3fDA&ixlib=rb-4.1.0&q=80&w=1080', false, 0);
     INSERT INTO end_of_term_decisions (id, product_id, decision, new_receipt_id, decided_at, deadline, taken_back_at)
     VALUES (gen_random_uuid(), v_product_id, 'RE_CONSIGN', NULL, v_now - interval '2 days',
             v_confirmed_at + interval '90 days' + interval '30 days', NULL);
@@ -680,7 +698,7 @@ BEGIN
             290000, 'WITHDRAWN', 3, v_confirmed_at + interval '60 days', v_confirmed_at + interval '90 days', NULL,
             'A1-28', v_confirmed_at, v_now);
     INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
-    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+    VALUES (gen_random_uuid(), v_product_id, 'https://cdn.dummyjson.com/product-images/womens-dresses/corset-with-black-skirt/1.webp', false, 0);
     INSERT INTO end_of_term_decisions (id, product_id, decision, new_receipt_id, decided_at, deadline, taken_back_at)
     VALUES (gen_random_uuid(), v_product_id, 'TAKE_BACK', NULL, v_now - interval '5 days',
             v_confirmed_at + interval '90 days' + interval '30 days', NULL);
@@ -719,7 +737,7 @@ BEGIN
             210000, 'UNCLAIMED', 3, v_confirmed_at + interval '60 days', v_confirmed_at + interval '90 days', NULL,
             'A1-29', v_confirmed_at, v_now);
     INSERT INTO product_photos (id, product_id, image_url, is_background_removed, display_order)
-    VALUES (gen_random_uuid(), v_product_id, 'https://picsum.photos/seed/' || v_product_id || '/600/800', false, 0);
+    VALUES (gen_random_uuid(), v_product_id, 'https://fakestoreapi.com/img/71-3HjGNDUL._AC_SY879._SX._UX._SY._UY_t.png', false, 0);
     INSERT INTO end_of_term_decisions (id, product_id, decision, new_receipt_id, decided_at, deadline, taken_back_at)
     VALUES (gen_random_uuid(), v_product_id, 'UNCLAIMED', NULL, NULL,
             v_confirmed_at + interval '90 days' + interval '30 days', NULL);

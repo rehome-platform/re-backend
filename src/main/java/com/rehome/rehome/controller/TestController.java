@@ -18,9 +18,4 @@ public class TestController {
     public Map<String, String> health() {
         return Map.of("status", "UP");
     }
-
-    @GetMapping("/api/admin/dashboard")
-    public Map<String, String> adminDashboard() {
-        return Map.of("message", "Chỉ ADMIN mới thấy được nội dung này");
-    }
 }

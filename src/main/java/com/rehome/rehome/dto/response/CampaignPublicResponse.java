@@ -32,4 +32,7 @@ public class CampaignPublicResponse {
     private List<String> preferredItemTypes;
     private Instant createdAt;
     private CampaignOrganizationSummaryResponse organization;
+
+    // OC-08/F-167: chỉ trả khi người xem chính là tổ chức sở hữu chiến dịch; null với guest/member
+    private Long donationNoteCount;
 }

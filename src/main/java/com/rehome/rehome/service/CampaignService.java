@@ -10,8 +10,9 @@ import java.util.UUID;
 
 public interface CampaignService {
 
-    // F-083: chi tiết công khai 1 chiến dịch.
-    CampaignPublicResponse getPublicDetail(UUID campaignId);
+    // F-083: chi tiết công khai 1 chiến dịch. viewerAccountId == null khi guest/chưa đăng
+    // nhập; donationNoteCount chỉ trả khi viewerAccountId chính là tổ chức sở hữu chiến dịch.
+    CampaignPublicResponse getPublicDetail(UUID campaignId, UUID viewerAccountId);
 
     // F-098/F-099: tổ chức tạo chiến dịch mới, chặn nếu đã đạt hạn mức chiến dịch đang chạy.
     CampaignStatusResponse createCampaign(UUID organizationAccountId, CreateCampaignRequest request);

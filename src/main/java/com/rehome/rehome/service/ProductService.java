@@ -6,6 +6,7 @@ import com.rehome.rehome.dto.request.UpdateShelfLocationRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.TryOnSlot;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -18,8 +19,8 @@ public interface ProductService {
     // ---- Sàn (khách xem được, viewerId = null nếu chưa đăng nhập)
     PageResponse<ProductSummaryResponse> getProducts(String search, UUID categoryId, UUID brandId,
                                                      BigDecimal priceMin, BigDecimal priceMax,
-                                                     UUID warehouseId, int page, int size,
-                                                     UUID viewerId);
+                                                     UUID warehouseId, TryOnSlot tryonSlot,
+                                                     int page, int size, UUID viewerId);
 
     ProductDetailResponse getProductDetail(String id, UUID viewerId);
 

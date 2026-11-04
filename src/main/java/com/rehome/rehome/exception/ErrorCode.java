@@ -197,6 +197,8 @@ public enum ErrorCode {
 
     // F-080, F-081 - bộ sưu tập ảnh thử đồ
     TRYON_IMAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy ảnh thử đồ."),
+    // API 96 - gợi ý món thử cùng
+    INVALID_SUGGESTION_SLOT(HttpStatus.BAD_REQUEST, "slot phải là TOP hoặc BOTTOM."),
     TRYON_IMAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "Ảnh thử đồ này không thuộc về bạn."),
 
     // API 97 - F-077, F-078: sinh ảnh thử đồ

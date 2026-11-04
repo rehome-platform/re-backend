@@ -19,6 +19,11 @@ public interface NotificationService {
     void notify(Account recipientAccount, NotificationType type, String title, String body,
                 NotificationTargetType targetType, UUID targetId, UUID warehouseId);
 
+    // UC-44: báo cho mọi Member đang theo dõi tổ chức organizationId (chiến dịch/bài mới). Chạy
+    // @Async nên không làm chậm API tạo chiến dịch/bài - chỉ gọi sau khi đã lưu thành công.
+    void notifyFollowers(UUID organizationId, NotificationType type, String title, String body,
+                          NotificationTargetType targetType, UUID targetId);
+
     // Đánh dấu một thông báo của chính người gọi đã đọc. 404 nếu không thuộc về accountId.
     NotificationResponse markAsRead(UUID accountId, UUID notificationId);
 

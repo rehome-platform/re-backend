@@ -71,6 +71,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
     private static final int MAX_CONTENT_LENGTH = 2000;
     private static final int MAX_PHOTOS = 5;
     private static final int MAX_COMMENT_LENGTH = 500;
+    private static final int POST_NOTIFICATION_BODY_LENGTH = 80;
     private static final String CAMPAIGN_NOT_FOUND = "Không tìm thấy chiến dịch.";
     private static final String COMMENT_NOT_FOUND = "Không tìm thấy bình luận.";
 
@@ -416,6 +417,13 @@ public class CommunityPostServiceImpl implements CommunityPostService {
             communityPostPhotoRepository.saveAll(photos);
         }
 
+        // UC-44: báo cho người theo dõi tổ chức khi có bài viết mới. Chỉ gửi lúc TẠO, không gửi
+        // khi sửa (updatePost không gọi hàm này).
+        notificationService.notifyFollowers(organizationAccountId, NotificationType.FOLLOWED_ORG_POST,
+                organization.getDisplayName() + " có bài viết mới",
+                truncate(request.getContent(), POST_NOTIFICATION_BODY_LENGTH),
+                NotificationTargetType.POST, post.getId());
+
         return PostCreateResponse.builder()
                 .id(post.getId().toString())
                 .status(post.getStatus().name())
@@ -464,6 +472,14 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         if (photoCount > MAX_PHOTOS) {
             throw new AppException(ErrorCode.POST_TOO_MANY_PHOTOS);
         }
+    }
+
+    // UC-44: body thông báo bài viết mới chỉ lấy 80 ký tự đầu, tránh thông báo quá dài
+    private String truncate(String content, int maxLength) {
+        if (content == null || content.length() <= maxLength) {
+            return content;
+        }
+        return content.substring(0, maxLength);
     }
 
     private List<CommunityPostPhoto> toPhotoEntities(CommunityPost post, List<String> photoUrls) {

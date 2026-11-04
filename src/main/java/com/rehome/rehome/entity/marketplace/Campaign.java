@@ -2,6 +2,7 @@ package com.rehome.rehome.entity.marketplace;
 
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.CampaignStatus;
+import com.rehome.rehome.util.VietnameseText;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -34,6 +35,11 @@ public class Campaign {
     // NOT NULL cho các chiến dịch đã tồn tại trước field này; bắt buộc ở tầng validate request.
     @Column(name = "title", nullable = true, length = 255)
     private String title;
+
+    // Bản không dấu + viết thường của title, để GET /campaigns?search= tìm được dù title có
+    // dấu. Nullable vì title cũng nullable; xem CampaignTitleNormalizeInitializer cho dữ liệu cũ.
+    @Column(name = "title_normalized", nullable = true, length = 255)
+    private String titleNormalized;
 
     // Ảnh bìa chiến dịch, upload qua /uploads (UploadFolder.CAMPAIGN_COVERS); không bắt buộc
     @Column(name = "cover_url", nullable = true, length = 2048)
@@ -98,5 +104,11 @@ public class Campaign {
     private void onCreate() {
         Instant now = Instant.now();
         if (createdAt == null) createdAt = now;
+        titleNormalized = VietnameseText.normalize(title);
+    }
+
+    @PreUpdate
+    private void onUpdate() {
+        titleNormalized = VietnameseText.normalize(title);
     }
 }

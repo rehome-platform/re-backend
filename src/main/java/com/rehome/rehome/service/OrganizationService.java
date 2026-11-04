@@ -43,6 +43,11 @@ public interface OrganizationService {
     // Tổ chức mà chính Member đang theo dõi, mới theo dõi gần đây trước.
     PageResponse<OrganizationPublicProfileResponse> listFollowing(UUID memberId, int page, int size);
 
+    // GET /api/organizations?search=: danh mục công khai mọi tổ chức đã VERIFIED, lọc theo
+    // displayName/legalName nếu có search. viewerId == null khi Guest (không có token).
+    PageResponse<OrganizationPublicProfileResponse> listPublicOrganizations(String search, UUID viewerId,
+                                                                             int page, int size);
+
     // F-096: tổ chức tự cập nhật thông tin thường, áp dụng ngay.
     OrganizationProfileUpdateResponse updateMyProfile(UUID accountId, UpdateOrganizationProfileRequest request);
 

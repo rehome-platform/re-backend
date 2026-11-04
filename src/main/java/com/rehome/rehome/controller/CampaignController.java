@@ -38,10 +38,12 @@ public class CampaignController {
     @GetMapping
     @Operation(summary = "Danh sách chiến dịch công khai xuyên tổ chức, mặc định chỉ chiến dịch đang mở")
     public ResponseEntity<ApiResponse<PageResponse<CampaignPublicResponse>>> listPublicCampaigns(
+            @RequestParam(required = false) String search,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ApiResponse.success(campaignService.listPublicCampaigns(status, page, size)));
+        return ResponseEntity.ok(
+                ApiResponse.success(campaignService.listPublicCampaigns(search, status, page, size)));
     }
 
     @GetMapping("/{id}")

@@ -189,6 +189,18 @@ public class OrganizationProfileController {
         return ResponseEntity.ok(ApiResponse.success(result, "Đã từ chối hồ sơ"));
     }
 
+    @GetMapping
+    @Operation(summary = "Danh mục công khai mọi tổ chức đã VERIFIED, có thể tìm theo tên")
+    public ResponseEntity<ApiResponse<PageResponse<OrganizationPublicProfileResponse>>> listPublicOrganizations(
+            @RequestParam(required = false) String search,
+            @AuthenticationPrincipal Account account,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        PageResponse<OrganizationPublicProfileResponse> result = organizationService.listPublicOrganizations(
+                search, account != null ? account.getId() : null, page, size);
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
     @GetMapping("/{id}")
     @Operation(summary = "Xem hồ sơ công khai của 1 tổ chức đã VERIFIED (F-082)")
     public ResponseEntity<ApiResponse<OrganizationPublicProfileResponse>> getPublicProfile(

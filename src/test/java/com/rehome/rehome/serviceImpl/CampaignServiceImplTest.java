@@ -46,6 +46,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -189,12 +190,12 @@ class CampaignServiceImplTest {
     @Test
     void listPublicCampaigns_defaultStatus_filtersToOpen() {
         UUID orgId = UUID.randomUUID();
-        when(campaignRepository.findByStatus(eq(CampaignStatus.OPEN), any(Pageable.class)))
+        when(campaignRepository.search(eq(CampaignStatus.OPEN), isNull(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(
                         baseCampaign(UUID.randomUUID()).organization(organizationWithDonationPoint(orgId))
                                 .status(CampaignStatus.OPEN).build())));
 
-        PageResponse<CampaignPublicResponse> result = service.listPublicCampaigns(null, 0, 20);
+        PageResponse<CampaignPublicResponse> result = service.listPublicCampaigns(null, null, 0, 20);
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).getStatus()).isEqualTo("ACTIVE");
@@ -202,20 +203,30 @@ class CampaignServiceImplTest {
 
     @Test
     void listPublicCampaigns_closedStatus_filtersToClosed() {
-        when(campaignRepository.findByStatus(eq(CampaignStatus.CLOSED), any(Pageable.class)))
+        when(campaignRepository.search(eq(CampaignStatus.CLOSED), isNull(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
-        service.listPublicCampaigns("CLOSED", 0, 20);
+        service.listPublicCampaigns(null, "CLOSED", 0, 20);
 
-        verify(campaignRepository).findByStatus(eq(CampaignStatus.CLOSED), any(Pageable.class));
+        verify(campaignRepository).search(eq(CampaignStatus.CLOSED), isNull(), any(Pageable.class));
     }
 
     @Test
     void listPublicCampaigns_invalidStatus_throwsBadRequest() {
-        assertThatThrownBy(() -> service.listPublicCampaigns("WEIRD", 0, 20))
+        assertThatThrownBy(() -> service.listPublicCampaigns(null, "WEIRD", 0, 20))
                 .isInstanceOf(BadRequestException.class);
 
         verifyNoInteractions(campaignRepository);
+    }
+
+    @Test
+    void listPublicCampaigns_withSearch_normalizesKeyword() {
+        when(campaignRepository.search(eq(CampaignStatus.OPEN), eq("ao khoac"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        service.listPublicCampaigns("Áo khoác", null, 0, 20);
+
+        verify(campaignRepository).search(eq(CampaignStatus.OPEN), eq("ao khoac"), any(Pageable.class));
     }
 
     // =====================================================================

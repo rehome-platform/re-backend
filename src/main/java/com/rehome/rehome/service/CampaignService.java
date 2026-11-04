@@ -28,7 +28,8 @@ public interface CampaignService {
                                                           int page, int size);
 
     // Duyệt công khai xuyên tổ chức; status == null thì mặc định chỉ chiến dịch đang mở (ACTIVE).
-    PageResponse<CampaignPublicResponse> listPublicCampaigns(String status, int page, int size);
+    // search == null/rỗng thì không lọc theo từ khóa; có search thì tìm theo title hoặc tên tổ chức.
+    PageResponse<CampaignPublicResponse> listPublicCampaigns(String search, String status, int page, int size);
 
     // Chiến dịch công khai của 1 tổ chức cụ thể (F-082/F-083); status == null thì mặc định
     // chỉ chiến dịch đang mở (ACTIVE). 404 nếu tổ chức không tồn tại hoặc chưa VERIFIED.

@@ -1,6 +1,7 @@
 package com.rehome.rehome.entity.auth;
 
 import com.rehome.rehome.entity.enums.VerificationStatus;
+import com.rehome.rehome.util.VietnameseText;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -35,6 +36,16 @@ public class OrganizationProfile {
     // Tên người dùng nhìn thấy trên nền tảng
     @Column(name = "display_name", nullable = false, length = 255)
     private String displayName;
+
+    // Bản không dấu + viết thường của displayName, để tìm "ao khoac" cũng ra "Áo khoác" (GET
+    // /api/organizations?search=). Cột nullable vì ddl-auto=update không backfill được hồ sơ cũ -
+    // xem OrganizationNameNormalizeInitializer.
+    @Column(name = "display_name_normalized", nullable = true, length = 255)
+    private String displayNameNormalized;
+
+    // Bản không dấu + viết thường của legalName, cùng mục đích tìm kiếm như trên
+    @Column(name = "legal_name_normalized", nullable = true, length = 255)
+    private String legalNameNormalized;
 
     // Loại hình tổ chức, quyết định checklist giấy tờ lúc xác minh
     // The design does not yet define organization types; retain the supplied code as text.
@@ -131,4 +142,11 @@ public class OrganizationProfile {
 
     @OneToMany(mappedBy = "organization", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrganizationDocument> documents = new ArrayList<>();
+
+    @PrePersist
+    @PreUpdate
+    private void normalizeSearchFields() {
+        displayNameNormalized = VietnameseText.normalize(displayName);
+        legalNameNormalized = VietnameseText.normalize(legalName);
+    }
 }

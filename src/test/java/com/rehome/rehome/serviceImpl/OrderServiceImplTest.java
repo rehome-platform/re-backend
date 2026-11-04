@@ -18,6 +18,8 @@ import com.rehome.rehome.dto.response.PackScanResponse;
 import com.rehome.rehome.dto.response.PayOrdersResponse;
 import com.rehome.rehome.dto.response.SoldOrderListResponse;
 import com.rehome.rehome.dto.response.SoldOrderResponse;
+import com.rehome.rehome.dto.response.WarehouseOrderListResponse;
+import com.rehome.rehome.dto.response.WarehouseOrderResponse;
 import com.rehome.rehome.dto.response.WrongItemDetail;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.CancelReason;
@@ -2312,6 +2314,135 @@ class OrderServiceImplTest {
         SoldOrderResponse sold = result.getOrders().getContent().get(0);
         assertThat(sold.getPaidOut()).isTrue();
         assertThat(sold.getCompletedAt()).isEqualTo(Instant.parse("2026-10-05T00:00:00Z"));
+    }
+
+    // ==================== getWarehouseSoldOrders ====================
+
+    private Account moderatorOf(Warehouse warehouse) {
+        return Account.builder().id(UUID.randomUUID()).email("mod@example.com")
+                .role(Role.MODERATOR).warehouse(warehouse).build();
+    }
+
+    @Test
+    void getWarehouseSoldOrders_throwsForbidden_whenModeratorHasNoWarehouse() {
+        Account moderator = moderatorOf(null);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderator));
+
+        assertThatThrownBy(() -> orderService.getWarehouseSoldOrders("mod@example.com", null, 0, 20))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("Bạn chưa được phân công quản lý kho nào.");
+
+        verify(orderRepository, never()).findByWarehouse_IdAndStatusIn(any(), any(), any());
+    }
+
+    @Test
+    void getWarehouseSoldOrders_defaultStatuses_excludePendingPaymentAndCancelled() {
+        Account moderator = moderatorOf(warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderator));
+        when(orderRepository.findByWarehouse_IdAndStatusIn(eq(warehouse1.getId()), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        orderService.getWarehouseSoldOrders("mod@example.com", null, 0, 20);
+
+        ArgumentCaptor<List<OrderStatus>> statuses = ArgumentCaptor.forClass(List.class);
+        verify(orderRepository).findByWarehouse_IdAndStatusIn(
+                eq(warehouse1.getId()), statuses.capture(), any(Pageable.class));
+
+        assertThat(statuses.getValue())
+                .containsExactly(OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.SHIPPING,
+                        OrderStatus.DELIVERED, OrderStatus.COMPLETED, OrderStatus.RETURNED)
+                .doesNotContain(OrderStatus.PENDING_PAYMENT, OrderStatus.CANCELLED);
+    }
+
+    @Test
+    void getWarehouseSoldOrders_explicitStatusIsHonoured() {
+        Account moderator = moderatorOf(warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderator));
+        when(orderRepository.findByWarehouse_IdAndStatusIn(eq(warehouse1.getId()), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        orderService.getWarehouseSoldOrders("mod@example.com", "CANCELLED", 0, 20);
+
+        ArgumentCaptor<List<OrderStatus>> statuses = ArgumentCaptor.forClass(List.class);
+        verify(orderRepository).findByWarehouse_IdAndStatusIn(
+                eq(warehouse1.getId()), statuses.capture(), any(Pageable.class));
+
+        assertThat(statuses.getValue()).containsExactly(OrderStatus.CANCELLED);
+    }
+
+    @Test
+    void getWarehouseSoldOrders_throwsBadRequest_whenStatusIsNotAValidOrderStatus() {
+        Account moderator = moderatorOf(warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderator));
+
+        assertThatThrownBy(() -> orderService.getWarehouseSoldOrders("mod@example.com", "NOPE", 0, 20))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("status không hợp lệ: NOPE");
+
+        verify(orderRepository, never()).findByWarehouse_IdAndStatusIn(any(), any(), any());
+    }
+
+    // Đơn chứa hàng của nhiều người ký gửi khác nhau trong cùng kho - không lọc theo người
+    // bán như getSoldOrders, và lộ thông tin người nhận vì moderator cần đóng gói/giao.
+    @Test
+    void getWarehouseSoldOrders_returnsAllItemsRegardlessOfSeller_andExposesBuyerInfo() {
+        UUID orderId = UUID.randomUUID();
+        Account moderator = moderatorOf(warehouse1);
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000888")
+                .buyer(member)
+                .warehouse(warehouse1)
+                .status(OrderStatus.PACKING)
+                .totalAmount(new BigDecimal("600000"))
+                .shippingRecipientName("Tạ Thị Ngọc Anh")
+                .shippingPhone("0912345678")
+                .scannedCount(1)
+                .createdAt(Instant.parse("2026-10-01T00:00:00Z"))
+                .build();
+
+        Account otherSeller = Account.builder().id(UUID.randomUUID()).email("other-seller@example.com").build();
+        Product otherProduct = Product.builder().id("Q7-AK-000999").member(otherSeller).build();
+
+        OrderItem item1 = soldItem(order, product1, "220000", "0.10");
+        OrderItem item2 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(otherProduct)
+                .priceAtOrder(new BigDecimal("380000")).commissionRateApplied(new BigDecimal("0.10"))
+                .taxRateApplied(BigDecimal.ZERO).termApplied((short) 1).build();
+
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderator));
+        when(orderRepository.findByWarehouse_IdAndStatusIn(eq(warehouse1.getId()), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(order)));
+        when(orderItemRepository.findAllByOrder_IdInOrderByIdAsc(List.of(orderId)))
+                .thenReturn(List.of(item1, item2));
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(List.of(product1.getId())))
+                .thenReturn(List.of());
+
+        WarehouseOrderListResponse result = orderService.getWarehouseSoldOrders("mod@example.com", null, 0, 20);
+
+        assertThat(result.getOrders().getContent()).hasSize(1);
+        WarehouseOrderResponse warehouseOrder = result.getOrders().getContent().get(0);
+
+        assertThat(warehouseOrder.getId()).isEqualTo(orderId.toString());
+        assertThat(warehouseOrder.getStatus()).isEqualTo("PACKING");
+        assertThat(warehouseOrder.getItemCount()).isEqualTo(2);
+        assertThat(warehouseOrder.getBuyerName()).isEqualTo("Tạ Thị Ngọc Anh");
+        assertThat(warehouseOrder.getBuyerPhone()).isEqualTo("0912345678");
+        assertThat(warehouseOrder.getScannedCount()).isEqualTo(1);
+        assertThat(warehouseOrder.getTotalCount()).isEqualTo(2);
+        assertThat(warehouseOrder.getTotalAmount()).isEqualByComparingTo("600000");
+    }
+
+    @Test
+    void getWarehouseSoldOrders_skipsItemQuery_whenNoOrdersFound() {
+        Account moderator = moderatorOf(warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderator));
+        when(orderRepository.findByWarehouse_IdAndStatusIn(eq(warehouse1.getId()), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        WarehouseOrderListResponse result = orderService.getWarehouseSoldOrders("mod@example.com", null, 0, 20);
+
+        assertThat(result.getOrders().getContent()).isEmpty();
+        verify(orderItemRepository).findAllByOrder_IdInOrderByIdAsc(List.of());
     }
 
     @Test

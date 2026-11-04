@@ -15,6 +15,7 @@ import com.rehome.rehome.dto.response.OrderTrackingResponse;
 import com.rehome.rehome.dto.response.PackScanResponse;
 import com.rehome.rehome.dto.response.PayOrdersResponse;
 import com.rehome.rehome.dto.response.SoldOrderListResponse;
+import com.rehome.rehome.dto.response.WarehouseOrderListResponse;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.ReturnedItemAction;
 import com.rehome.rehome.entity.marketplace.Order;
@@ -33,6 +34,10 @@ public interface OrderService {
     SoldOrderListResponse getSoldOrders(String email, String status, int page, int size);
 
     OrderDetailResponse getOrderDetail(String email, UUID orderId);
+
+    // Moderator xem toàn bộ đơn đã bán thuộc kho mình quản lý - không giới hạn theo người
+    // ký gửi (như getSoldOrders) hay người mua (như getOrders).
+    WarehouseOrderListResponse getWarehouseSoldOrders(String email, String status, int page, int size);
 
     OrderCancelResponse cancelOrder(String email, UUID orderId);
 

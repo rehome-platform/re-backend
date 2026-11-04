@@ -23,6 +23,13 @@ public class GlobalExceptionHandler {
         return build(ex.getStatus(), ex.getMessage(), req);
     }
 
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiResponse<?>> handleIllegalArgument(IllegalArgumentException ex, HttpServletRequest req) {
+        ex.printStackTrace(); // tạm thời
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(404, ex.getMessage()));
+    }
+
     @ExceptionHandler({org.springframework.security.authentication.DisabledException.class,
             org.springframework.security.authentication.LockedException.class})
     public ResponseEntity<ApiError> handleDisabled(Exception ex, HttpServletRequest req) {
@@ -189,12 +196,6 @@ public class GlobalExceptionHandler {
         }
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(ApiResponse.error(403, "Bạn không có quyền truy cập tài nguyên này."));
-    }
-
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ApiResponse<?>> handleIllegalArgument(IllegalArgumentException ex, HttpServletRequest req) {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(ApiResponse.error(404, ex.getMessage()));
     }
 
     @ExceptionHandler(BadRequestException.class)

@@ -12,6 +12,7 @@ import org.springframework.mail.MailException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.util.HtmlUtils;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -120,5 +121,27 @@ public class OtpEmailServiceImpl implements OtpEmailService {
                 + "Nếu bạn không yêu cầu, hãy bỏ qua email này.";
 
         sendViaBrevo(to, "Đặt lại mật khẩu Rehome", text, text);
+    }
+
+    @Override
+    public void sendModeratorAccount(String to, String fullName, String moderatorCode, String tempPassword) {
+        String text = "Xin chào " + fullName + ",\n\n"
+                + "Quản trị viên đã tạo tài khoản Moderator ReHome cho bạn.\n"
+                + "Email đăng nhập: " + to + "\n"
+                + "Mã nhân viên: " + moderatorCode + "\n"
+                + "Mật khẩu tạm: " + tempPassword + "\n\n"
+                + "Vui lòng đăng nhập và đổi mật khẩu ngay.";
+
+        String html = "<div style=\"font-family:Arial,sans-serif;line-height:1.6;color:#333\">"
+                + "<h2 style=\"color:#2e7d32\">REHOME</h2>"
+                + "<p>Xin chào <b>" + HtmlUtils.htmlEscape(fullName) + "</b>,</p>"
+                + "<p>Quản trị viên đã tạo tài khoản Moderator ReHome cho bạn.</p>"
+                + "<p>Email đăng nhập: <b>" + HtmlUtils.htmlEscape(to) + "</b><br>"
+                + "Mã nhân viên: <b>" + HtmlUtils.htmlEscape(moderatorCode) + "</b><br>"
+                + "Mật khẩu tạm: <b>" + HtmlUtils.htmlEscape(tempPassword) + "</b></p>"
+                + "<p style=\"color:#d32f2f\">Vui lòng đăng nhập và đổi mật khẩu ngay.</p>"
+                + "</div>";
+
+        sendViaBrevo(to, "ReHome - Tài khoản Moderator của bạn", html, text);
     }
 }

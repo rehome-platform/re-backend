@@ -29,11 +29,21 @@ public class ItemWithdrawalAutoExpireServiceImpl implements ItemWithdrawalAutoEx
     @Scheduled(fixedRateString = "${app.item-withdrawal.auto-expire-check-interval-ms}")
     @Transactional
     public void expireUncollectedWithdrawals() {
+        Instant now = Instant.now();
 
-        List<ItemWithdrawalRequest> expired = itemWithdrawalRequestRepository
-                .findAllByStatusAndPickupDeadlineBefore(ItemWithdrawalStatus.PENDING_PICKUP, Instant.now());
+        List<ItemWithdrawalRequest> pickupExpired = itemWithdrawalRequestRepository
+                .findAllByStatusAndPickupDeadlineBefore(ItemWithdrawalStatus.PENDING_PICKUP, now);
+        expireAndRelist(pickupExpired, "Het han nhan lai hang rut");
 
-        for (ItemWithdrawalRequest withdrawal : expired) {
+        // Phí rút hàng chưa trả, quá hạn riêng (ngắn hơn pickupDeadline) -> hủy sớm, không chờ
+        // hết pickupDeadline (7 ngày) mới trả hàng lại ON_SALE
+        List<ItemWithdrawalRequest> feeOverdue = itemWithdrawalRequestRepository
+                .findAllByStatusAndFeePaymentOverdue(ItemWithdrawalStatus.PENDING_PICKUP, now);
+        expireAndRelist(feeOverdue, "Qua han tra phi rut hang");
+    }
+
+    private void expireAndRelist(List<ItemWithdrawalRequest> withdrawals, String logReason) {
+        for (ItemWithdrawalRequest withdrawal : withdrawals) {
             withdrawal.setStatus(ItemWithdrawalStatus.EXPIRED);
             itemWithdrawalRequestRepository.save(withdrawal);
 
@@ -45,8 +55,8 @@ public class ItemWithdrawalAutoExpireServiceImpl implements ItemWithdrawalAutoEx
                 productRepository.save(product);
             }
 
-            log.info(">>>> Het han nhan lai hang rut: itemWithdrawalRequestId={}, productId={}",
-                    withdrawal.getId(), withdrawal.getProduct().getId());
+            log.info(">>>> {}: itemWithdrawalRequestId={}, productId={}",
+                    logReason, withdrawal.getId(), withdrawal.getProduct().getId());
         }
     }
 }

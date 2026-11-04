@@ -102,6 +102,15 @@ public class OrganizationProfileController {
                 .body(ApiResponse.success(result, 201, "Đã gởi yêu cầu, chờ duyệt"));
     }
 
+    @GetMapping("/me/legal-change-requests/latest")
+    @PreAuthorize("hasRole('ORGANIZATION')")
+    @Operation(summary = "Trạng thái yêu cầu đổi thông tin pháp lý gần nhất của chính tổ chức (OP-05)")
+    public ResponseEntity<ApiResponse<LegalChangeRequestDetailResponse>> getLatestLegalChangeRequest(
+            @AuthenticationPrincipal Account account) {
+        return ResponseEntity.ok(ApiResponse.success(
+                organizationService.getLatestLegalChangeRequest(account.getId())));
+    }
+
     @GetMapping("/me/campaigns")
     @PreAuthorize("hasRole('ORGANIZATION')")
     @Operation(summary = "Danh sách chiến dịch của chính tổ chức, mọi trạng thái (F-103)")
@@ -127,12 +136,16 @@ public class OrganizationProfileController {
 
     @GetMapping("/me/donations")
     @PreAuthorize("hasRole('ORGANIZATION')")
-    @Operation(summary = "Lượt quyên góp đang chờ lấy và lượt tổ chức đã nhận (F-166)")
-    public ResponseEntity<ApiResponse<List<DonationResponse>>> listMyDonations(
+    @Operation(summary = "Lượt quyên góp đang chờ lấy và lượt tổ chức đã nhận, có phân trang (F-166/OC-07)")
+    public ResponseEntity<ApiResponse<PageResponse<DonationResponse>>> listMyDonations(
             @AuthenticationPrincipal Account account,
-            @RequestParam(required = false) DonationStatus status) {
-        List<DonationResponse> result =
-                donationService.listOrganizationDonations(account.getId(), status);
+            @RequestParam(required = false) UUID campaignId,
+            @RequestParam(required = false) UUID warehouseId,
+            @RequestParam(required = false) DonationStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        PageResponse<DonationResponse> result = donationService.listOrganizationDonations(
+                account.getId(), campaignId, warehouseId, status, page, size);
         return ResponseEntity.ok(ApiResponse.success(result, "OK"));
     }
 
@@ -184,6 +197,36 @@ public class OrganizationProfileController {
         OrganizationPublicProfileResponse result = organizationService.getPublicProfile(
                 id, account != null ? account.getId() : null);
         return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    @GetMapping("/nearby")
+    @Operation(summary = "Tổ chức đã xác minh gần vị trí, sắp theo khoảng cách tăng dần")
+    public ResponseEntity<ApiResponse<List<OrganizationNearbyResponse>>> getNearby(
+            @RequestParam double lat,
+            @RequestParam double lng) {
+        return ResponseEntity.ok(ApiResponse.success(organizationService.findNearby(lat, lng)));
+    }
+
+    @GetMapping("/following")
+    @PreAuthorize("hasRole('MEMBER')")
+    @Operation(summary = "Tổ chức mà chính Member đang theo dõi (F-085)")
+    public ResponseEntity<ApiResponse<PageResponse<OrganizationPublicProfileResponse>>> getFollowing(
+            @AuthenticationPrincipal Account account,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.success(
+                organizationService.listFollowing(account.getId(), page, size)));
+    }
+
+    @GetMapping("/{id}/campaigns")
+    @Operation(summary = "Chiến dịch công khai của 1 tổ chức, mặc định chỉ chiến dịch đang mở (F-083)")
+    public ResponseEntity<ApiResponse<PageResponse<CampaignPublicResponse>>> getOrganizationCampaigns(
+            @PathVariable UUID id,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.success(
+                campaignService.listOrganizationCampaigns(id, status, page, size)));
     }
 
     @PostMapping("/{id}/follow")

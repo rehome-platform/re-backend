@@ -122,7 +122,9 @@ app:
   item-withdrawal:
     # Hạn Member đến kho nhận lại hàng sau khi gửi yêu cầu rút, mặc định 7 ngày
     pickup-deadline-days: 7
-    # F-035: chu kỳ job quét yêu cầu quá hạn đến kho nhận hàng
+    # Hạn trả phí rút hàng (khi feeCharged > 0); quá hạn hủy sớm, không chờ hết pickup-deadline-days
+    fee-payment-deadline-minutes: 15
+    # F-035: chu kỳ job quét yêu cầu quá hạn đến kho nhận hàng / quá hạn trả phí
     auto-expire-check-interval-ms: 60000
 
   # Chiến dịch quyên góp F-098 -> F-102

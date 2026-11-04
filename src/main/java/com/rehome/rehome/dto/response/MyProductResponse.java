@@ -53,6 +53,11 @@ public class MyProductResponse {
     // Biên nhận đang áp dụng: biên nhận ký gửi lại đã xác nhận nếu có, không thì biên nhận gốc (mục 24)
     private UUID receiptId;
 
+    // Snapshot trên biên nhận, để mobile tính trước phí rút (F-032) mà không cần gọi API biên nhận:
+    // trong freeWithdrawalWindowDays đầu kỳ (tính từ termStartedAt) thì rút miễn phí, sau đó tốn withdrawalFee
+    private Integer freeWithdrawalWindowDays;
+    private BigDecimal withdrawalFee;
+
     // Chỉ có ở /mine/{id}, danh sách thì null và không xuất hiện trong JSON
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private List<PriceChange> priceChanges;
@@ -70,8 +75,10 @@ public class MyProductResponse {
                            Instant payoutDueAt, Instant payoutAt) {}
     // status luôn PENDING_PICKUP ở đây: chỉ gắn yêu cầu đang chờ Member đến kho nhận hàng
     public record WithdrawalRef(UUID id, String status, Instant pickupDeadline) {}
-    // status luôn PENDING_DECISION ở đây; decisionDeadline luôn null vì F-036 chưa có hạn
-    public record DegradedCaseRef(UUID id, String status, Instant decisionDeadline) {}
+    // status luôn PENDING_DECISION ở đây (chỉ gắn ca đang chờ quyết định); decisionDeadline luôn
+    // null vì F-036 chưa có hạn. decision null cho tới khi Member quyết định (FULL_COMPENSATION /
+    // PARTIAL_WITH_ITEM_BACK) - trong thực tế luôn null ở record này vì chỉ ca PENDING mới được gắn.
+    public record DegradedCaseRef(UUID id, String status, Instant decisionDeadline, String decision) {}
     public record PriceChange(Instant changedAt, BigDecimal oldPrice, BigDecimal newPrice) {}
     public record TermInfo(int term, BigDecimal price, BigDecimal commissionRate) {}
 }

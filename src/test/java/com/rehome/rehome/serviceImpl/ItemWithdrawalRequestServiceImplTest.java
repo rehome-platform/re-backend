@@ -24,6 +24,7 @@ import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.ItemWithdrawalRequestRepository;
 import com.rehome.rehome.repository.PlatformFundRepository;
+import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.repository.WalletTransactionRepository;
@@ -62,6 +63,7 @@ import static org.mockito.Mockito.when;
 class ItemWithdrawalRequestServiceImplTest {
 
     @Mock ProductRepository productRepository;
+    @Mock ProductPhotoRepository productPhotoRepository;
     @Mock ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
     @Mock WalletRepository walletRepository;
     @Mock WalletTransactionRepository walletTransactionRepository;
@@ -73,6 +75,7 @@ class ItemWithdrawalRequestServiceImplTest {
     ItemWithdrawalRequestServiceImpl service;
 
     static final long PICKUP_DEADLINE_DAYS = 7;
+    static final long FEE_PAYMENT_DEADLINE_MINUTES = 15;
     static final String PRODUCT_ID = "Q7-AK-000845";
 
     Account owner;
@@ -83,6 +86,7 @@ class ItemWithdrawalRequestServiceImplTest {
     @BeforeEach
     void setup() {
         ReflectionTestUtils.setField(service, "pickupDeadlineDays", PICKUP_DEADLINE_DAYS);
+        ReflectionTestUtils.setField(service, "feePaymentDeadlineMinutes", FEE_PAYMENT_DEADLINE_MINUTES);
         ReflectionTestUtils.setField(service, "momoPartnerCode", "MOMO");
         ReflectionTestUtils.setField(service, "momoAccessKey", "access-key");
         ReflectionTestUtils.setField(service, "momoSecretKey", "secret-key");
@@ -229,6 +233,9 @@ class ItemWithdrawalRequestServiceImplTest {
         assertThat(saved.getMember()).isEqualTo(owner);
         assertThat(saved.getFeeCharged()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(saved.getStatus()).isEqualTo(ItemWithdrawalStatus.PENDING_PICKUP);
+        // Miễn phí -> không có gì phải trả, không cần hạn trả phí
+        assertThat(saved.getFeePaymentDeadline()).isNull();
+        assertThat(response.getFeePaymentDeadline()).isNull();
     }
 
     @Test
@@ -265,6 +272,24 @@ class ItemWithdrawalRequestServiceImplTest {
     }
 
     @Test
+    @DisplayName("có phí phải trả -> đặt hạn trả phí +15 phút, ngắn hơn pickupDeadline")
+    void create_withFee_setsFeePaymentDeadline() {
+        product.setTermStartedAt(Instant.now().minus(10, ChronoUnit.DAYS));
+
+        Instant before = Instant.now();
+        ItemWithdrawalResponse response = service.create(owner, request(PRODUCT_ID));
+        Instant after = Instant.now();
+
+        assertThat(response.getFeePaymentDeadline())
+                .isAfter(before.plus(FEE_PAYMENT_DEADLINE_MINUTES, ChronoUnit.MINUTES).minusSeconds(5))
+                .isBefore(after.plus(FEE_PAYMENT_DEADLINE_MINUTES, ChronoUnit.MINUTES).plusSeconds(5));
+
+        ArgumentCaptor<ItemWithdrawalRequest> captor = ArgumentCaptor.forClass(ItemWithdrawalRequest.class);
+        verify(itemWithdrawalRequestRepository).save(captor.capture());
+        assertThat(captor.getValue().getFeePaymentDeadline()).isBefore(captor.getValue().getPickupDeadline());
+    }
+
+    @Test
     @DisplayName("phí rút dùng giá trị snapshot trên biên nhận, không phải cấu hình sống")
     void create_usesReceiptSnapshotFee_notLiveConfig() {
         product.setTermStartedAt(Instant.now().minus(10, ChronoUnit.DAYS));
@@ -298,6 +323,19 @@ class ItemWithdrawalRequestServiceImplTest {
                 () -> service.payFee(other, withdrawalId, payRequest("WALLET"), "127.0.0.1"));
 
         assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.ITEM_WITHDRAWAL_FORBIDDEN);
+        verifyNoInteractions(walletRepository, momoApi, vnPayApi);
+    }
+
+    @Test
+    @DisplayName("payFee: yêu cầu đã EXPIRED (quá hạn trả phí hoặc quá hạn lấy hàng) -> ITEM_WITHDRAWAL_NOT_PENDING")
+    void payFee_alreadyExpired_throws() {
+        ItemWithdrawalRequest r = withdrawal(new BigDecimal("50000"));
+        r.setStatus(ItemWithdrawalStatus.EXPIRED);
+
+        AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
+                () -> service.payFee(owner, withdrawalId, payRequest("WALLET"), "127.0.0.1"));
+
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.ITEM_WITHDRAWAL_NOT_PENDING);
         verifyNoInteractions(walletRepository, momoApi, vnPayApi);
     }
 
@@ -563,7 +601,8 @@ class ItemWithdrawalRequestServiceImplTest {
     private ItemWithdrawalRequest withdrawalFor(Account member, BigDecimal fee,
                                                 Instant feePaidAt, WithdrawalFeePaymentMethod method,
                                                 ItemWithdrawalStatus status) {
-        Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).name("Kho Q7").build();
+        Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).name("Kho Q7")
+                .address("123 Nguyễn Văn Linh, Q7").openingHours("08:00 - 21:00").build();
         Product product = Product.builder()
                 .id("Q7-AK-000845")
                 .name("Áo khoác Uniqlo")
@@ -603,7 +642,67 @@ class ItemWithdrawalRequestServiceImplTest {
         assertThat(res.getPaymentMethod()).isEqualTo("MOMO");
         assertThat(res.getPickupDeadline()).isEqualTo(Instant.parse("2026-11-08T00:00:00Z"));
         assertThat(res.getWarehouseName()).isEqualTo("Kho Q7");
+        assertThat(res.getWarehouseAddress()).isEqualTo("123 Nguyễn Văn Linh, Q7");
+        assertThat(res.getWarehouseOpeningHours()).isEqualTo("08:00 - 21:00");
         assertThat(res.getCreatedAt()).isEqualTo(Instant.parse("2026-11-01T00:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("getMine: trả photoUrl (ảnh đầu, displayOrder nhỏ nhất) và completedAt sau khi bàn giao")
+    void getMine_returnsPhotoUrlAndCompletedAt() {
+        Account member = member();
+        ItemWithdrawalRequest withdrawal = withdrawalFor(member, BigDecimal.ZERO, null, null,
+                ItemWithdrawalStatus.COMPLETED);
+        withdrawal.setCompletedAt(Instant.parse("2026-11-05T09:00:00Z"));
+        when(itemWithdrawalRequestRepository.findDetailById(withdrawal.getId()))
+                .thenReturn(Optional.of(withdrawal));
+        when(productPhotoRepository.findByProduct_IdOrderByDisplayOrderAscIdAsc("Q7-AK-000845"))
+                .thenReturn(List.of(
+                        com.rehome.rehome.entity.marketplace.ProductPhoto.builder()
+                                .imageUrl("https://cdn/first.jpg").displayOrder(0).build(),
+                        com.rehome.rehome.entity.marketplace.ProductPhoto.builder()
+                                .imageUrl("https://cdn/second.jpg").displayOrder(1).build()));
+
+        ItemWithdrawalDetailResponse res = service.getMine(member, withdrawal.getId());
+
+        assertThat(res.getPhotoUrl()).isEqualTo("https://cdn/first.jpg");
+        assertThat(res.getCompletedAt()).isEqualTo(Instant.parse("2026-11-05T09:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("getMine: sản phẩm chưa có ảnh -> photoUrl = null")
+    void getMine_productWithoutPhoto_photoUrlIsNull() {
+        Account member = member();
+        ItemWithdrawalRequest withdrawal = withdrawalFor(member, BigDecimal.ZERO, null, null,
+                ItemWithdrawalStatus.PENDING_PICKUP);
+        when(itemWithdrawalRequestRepository.findDetailById(withdrawal.getId()))
+                .thenReturn(Optional.of(withdrawal));
+        when(productPhotoRepository.findByProduct_IdOrderByDisplayOrderAscIdAsc("Q7-AK-000845"))
+                .thenReturn(List.of());
+
+        ItemWithdrawalDetailResponse res = service.getMine(member, withdrawal.getId());
+
+        assertThat(res.getPhotoUrl()).isNull();
+    }
+
+    @Test
+    @DisplayName("listMine: ảnh của cả trang lấy bằng một query, không N+1")
+    void listMine_batchesPhotosAcrossResults() {
+        Account member = member();
+        ItemWithdrawalRequest withdrawal = withdrawalFor(member, BigDecimal.ZERO, null, null,
+                ItemWithdrawalStatus.PENDING_PICKUP);
+        when(itemWithdrawalRequestRepository.findDetailsByMember(member.getId(), null))
+                .thenReturn(List.of(withdrawal));
+        when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(List.of("Q7-AK-000845")))
+                .thenReturn(List.of(
+                        com.rehome.rehome.entity.marketplace.ProductPhoto.builder()
+                                .imageUrl("https://cdn/first.jpg").product(withdrawal.getProduct()).build()));
+
+        List<ItemWithdrawalDetailResponse> results = service.listMine(member, null);
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).getPhotoUrl()).isEqualTo("https://cdn/first.jpg");
+        verify(productPhotoRepository, never()).findByProduct_IdOrderByDisplayOrderAscIdAsc(any());
     }
 
     @Test
@@ -633,6 +732,37 @@ class ItemWithdrawalRequestServiceImplTest {
 
         assertThat(res.isFeePaid()).isFalse();
         assertThat(res.getPaymentMethod()).isNull();
+    }
+
+    @Test
+    @DisplayName("chưa trả phí -> trả feePaymentDeadline để mobile hiện đồng hồ đếm ngược")
+    void getMine_feeNotPaid_exposesFeePaymentDeadline() {
+        Account member = member();
+        ItemWithdrawalRequest withdrawal = withdrawalFor(member, new BigDecimal("30000"), null, null,
+                ItemWithdrawalStatus.PENDING_PICKUP);
+        withdrawal.setFeePaymentDeadline(Instant.parse("2026-11-01T00:15:00Z"));
+        when(itemWithdrawalRequestRepository.findDetailById(withdrawal.getId()))
+                .thenReturn(Optional.of(withdrawal));
+
+        ItemWithdrawalDetailResponse res = service.getMine(member, withdrawal.getId());
+
+        assertThat(res.getFeePaymentDeadline()).isEqualTo(Instant.parse("2026-11-01T00:15:00Z"));
+    }
+
+    @Test
+    @DisplayName("đã trả phí -> không còn hạn phải trả, feePaymentDeadline = null")
+    void getMine_feeAlreadyPaid_hidesFeePaymentDeadline() {
+        Account member = member();
+        ItemWithdrawalRequest withdrawal = withdrawalFor(member, new BigDecimal("30000"),
+                Instant.parse("2026-11-01T00:05:00Z"), WithdrawalFeePaymentMethod.WALLET,
+                ItemWithdrawalStatus.PENDING_PICKUP);
+        withdrawal.setFeePaymentDeadline(Instant.parse("2026-11-01T00:15:00Z"));
+        when(itemWithdrawalRequestRepository.findDetailById(withdrawal.getId()))
+                .thenReturn(Optional.of(withdrawal));
+
+        ItemWithdrawalDetailResponse res = service.getMine(member, withdrawal.getId());
+
+        assertThat(res.getFeePaymentDeadline()).isNull();
     }
 
     @Test

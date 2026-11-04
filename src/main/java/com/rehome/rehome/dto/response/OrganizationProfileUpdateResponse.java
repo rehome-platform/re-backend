@@ -14,6 +14,7 @@ import lombok.NoArgsConstructor;
 @Builder
 public class OrganizationProfileUpdateResponse {
     private String id;
+    private String displayName;
     private String logoUrl;
     private String description;
     private String contactPhone;

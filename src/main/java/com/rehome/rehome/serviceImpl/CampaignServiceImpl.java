@@ -2,6 +2,7 @@ package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.CreateCampaignRequest;
+import com.rehome.rehome.dto.response.CampaignOrganizationSummaryResponse;
 import com.rehome.rehome.dto.response.CampaignOwnAddressResponse;
 import com.rehome.rehome.dto.response.CampaignPublicResponse;
 import com.rehome.rehome.dto.response.CampaignStatusResponse;
@@ -36,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -49,6 +51,7 @@ public class CampaignServiceImpl implements CampaignService {
 
     private static final int MAX_PAGE_SIZE = 50;
     private static final String CAMPAIGN_NOT_FOUND = "Không tìm thấy chiến dịch.";
+    private static final String ORGANIZATION_NOT_FOUND = "Không tìm thấy tổ chức.";
     private static final String INVALID_WAREHOUSE_IDS = "warehouseIds không hợp lệ.";
     private static final String RECEIVE_WAY_REQUIRED =
             "Phải chọn nhận tại địa chỉ riêng hoặc chọn ít nhất 1 kho.";
@@ -158,7 +161,7 @@ public class CampaignServiceImpl implements CampaignService {
 
         if (request.getWarehouseIds() != null) {
             Set<Warehouse> newWarehouses = resolveWarehouses(request.getWarehouseIds());
-            requireNoPendingPickupOnRemovedWarehouses(campaign.getWarehouses(), newWarehouses);
+            requireNoPendingPickupOnRemovedWarehouses(campaign.getId(), campaign.getWarehouses(), newWarehouses);
             campaign.setWarehouses(newWarehouses);
         }
         if (!receiveAtOwnAddress && campaign.getWarehouses().isEmpty()) {
@@ -208,11 +211,55 @@ public class CampaignServiceImpl implements CampaignService {
         return PageResponse.from(result.map(this::toSummaryResponse));
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<CampaignPublicResponse> listPublicCampaigns(String status, int page, int size) {
+        Pageable pageable = PageRequest.of(
+                Math.max(page, 0),
+                Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        Page<Campaign> result = campaignRepository.findByStatus(parsePublicStatusFilter(status), pageable);
+        return PageResponse.from(result.map(this::toPublicResponse));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<CampaignPublicResponse> listOrganizationCampaigns(UUID organizationId, String status,
+                                                                           int page, int size) {
+        OrganizationProfile organization = organizationProfileRepository.findById(organizationId)
+                .filter(o -> o.getVerificationStatus() == VerificationStatus.VERIFIED)
+                .orElseThrow(() -> new IllegalArgumentException(ORGANIZATION_NOT_FOUND));
+
+        Pageable pageable = PageRequest.of(
+                Math.max(page, 0),
+                Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        Page<Campaign> result = campaignRepository.findByOrganization_AccountIdAndStatus(
+                organization.getAccountId(), parsePublicStatusFilter(status), pageable);
+        return PageResponse.from(result.map(this::toPublicResponse));
+    }
+
     // Response dùng ACTIVE/CLOSED nên filter cũng nhận đúng bộ chữ đó; vẫn chấp nhận
     // tên enum gốc OPEN để khớp với tài liệu API
     private static CampaignStatus parseStatusFilter(String status) {
         if (!StringUtils.hasText(status)) {
             return null;
+        }
+        return switch (status.trim().toUpperCase()) {
+            case "ACTIVE", "OPEN" -> CampaignStatus.OPEN;
+            case "CLOSED" -> CampaignStatus.CLOSED;
+            default -> throw new BadRequestException("status không hợp lệ.");
+        };
+    }
+
+    // Duyệt công khai (xuyên tổ chức hoặc theo 1 tổ chức): bỏ trống status thì mặc định chỉ
+    // chiến dịch đang mở, khác với listMyCampaigns (bỏ trống = mọi trạng thái, màn quản lý của
+    // chính tổ chức cần thấy cả chiến dịch đã đóng)
+    private static CampaignStatus parsePublicStatusFilter(String status) {
+        if (!StringUtils.hasText(status)) {
+            return CampaignStatus.OPEN;
         }
         return switch (status.trim().toUpperCase()) {
             case "ACTIVE", "OPEN" -> CampaignStatus.OPEN;
@@ -236,16 +283,17 @@ public class CampaignServiceImpl implements CampaignService {
         }
     }
 
-    // Kho đang có lượt chờ lấy thì không cho bỏ khỏi chiến dịch (mobile đã khoá sẵn ở UI)
-    private void requireNoPendingPickupOnRemovedWarehouses(Set<Warehouse> currentWarehouses,
+    // Kho đang có lượt chờ lấy CỦA CHÍNH chiến dịch này thì không cho bỏ khỏi chiến dịch
+    // (mobile đã khoá sẵn ở UI) - lượt chờ lấy của chiến dịch khác dùng chung kho không tính
+    private void requireNoPendingPickupOnRemovedWarehouses(UUID campaignId, Set<Warehouse> currentWarehouses,
                                                             Set<Warehouse> newWarehouses) {
         Set<UUID> newIds = newWarehouses.stream().map(Warehouse::getId).collect(Collectors.toSet());
         for (Warehouse removed : currentWarehouses) {
             if (newIds.contains(removed.getId())) {
                 continue;
             }
-            long pending = donationRepository.countByWarehouse_IdAndStatus(
-                    removed.getId(), DonationStatus.PENDING_PICKUP);
+            long pending = donationRepository.countByWarehouse_IdAndCampaign_IdAndStatus(
+                    removed.getId(), campaignId, DonationStatus.PENDING_PICKUP);
             if (pending > 0) {
                 throw new ConflictException(
                         "WAREHOUSE_HAS_PENDING_PICKUP: kho \"" + removed.getName()
@@ -285,6 +333,17 @@ public class CampaignServiceImpl implements CampaignService {
                 .orElse(null);
     }
 
+    // Đọc ngược lại chuỗi đã ghép ở joinPreferredItemTypes, để API trả cùng kiểu List<String>
+    // đã nhận lúc tạo/sửa - thiếu bước này thì màn sửa nhận lại rỗng dù đã lưu (bug đã báo)
+    private static List<String> splitPreferredItemTypes(String preferredItemTypes) {
+        if (!StringUtils.hasText(preferredItemTypes)) {
+            return List.of();
+        }
+        return Arrays.stream(preferredItemTypes.split(",\\s*"))
+                .filter(StringUtils::hasText)
+                .toList();
+    }
+
     private CampaignPublicResponse toPublicResponse(Campaign campaign) {
         boolean ownAddress = Boolean.TRUE.equals(campaign.getReceiveAtOwnAddress());
         return CampaignPublicResponse.builder()
@@ -297,7 +356,18 @@ public class CampaignServiceImpl implements CampaignService {
                 .status(toApiStatus(campaign.getStatus()))
                 .receiveAtOwnAddress(ownAddress)
                 .ownAddress(ownAddress ? toOwnAddressResponse(campaign.getOrganization()) : null)
-                .warehouses(toWarehouseResponses(campaign.getWarehouses()))
+                .warehouses(toWarehouseResponses(campaign.getId(), campaign.getWarehouses()))
+                .preferredItemTypes(splitPreferredItemTypes(campaign.getPreferredItemTypes()))
+                .createdAt(campaign.getCreatedAt())
+                .organization(toOrganizationSummaryResponse(campaign.getOrganization()))
+                .build();
+    }
+
+    private static CampaignOrganizationSummaryResponse toOrganizationSummaryResponse(OrganizationProfile organization) {
+        return CampaignOrganizationSummaryResponse.builder()
+                .id(organization.getAccountId().toString())
+                .displayName(organization.getDisplayName())
+                .logoUrl(organization.getLogoUrl())
                 .build();
     }
 
@@ -313,7 +383,9 @@ public class CampaignServiceImpl implements CampaignService {
                 .status(toApiStatus(campaign.getStatus()))
                 .receiveAtOwnAddress(ownAddress)
                 .ownAddress(ownAddress ? toOwnAddressResponse(campaign.getOrganization()) : null)
-                .warehouses(toWarehouseResponses(campaign.getWarehouses()))
+                .warehouses(toWarehouseResponses(campaign.getId(), campaign.getWarehouses()))
+                .preferredItemTypes(splitPreferredItemTypes(campaign.getPreferredItemTypes()))
+                .createdAt(campaign.getCreatedAt())
                 .build();
     }
 
@@ -328,15 +400,15 @@ public class CampaignServiceImpl implements CampaignService {
                 .build();
     }
 
-    private List<CampaignWarehouseResponse> toWarehouseResponses(Set<Warehouse> warehouses) {
+    private List<CampaignWarehouseResponse> toWarehouseResponses(UUID campaignId, Set<Warehouse> warehouses) {
         return warehouses.stream()
                 .map(warehouse -> CampaignWarehouseResponse.builder()
                         .id(warehouse.getId().toString())
                         .name(warehouse.getName())
                         .address(warehouse.getAddress())
                         .openingHours(warehouse.getOpeningHours())
-                        .pendingCount(donationRepository.countByWarehouse_IdAndStatus(
-                                warehouse.getId(), DonationStatus.PENDING_PICKUP))
+                        .pendingCount(donationRepository.countByWarehouse_IdAndCampaign_IdAndStatus(
+                                warehouse.getId(), campaignId, DonationStatus.PENDING_PICKUP))
                         .build())
                 .sorted(Comparator.comparing(CampaignWarehouseResponse::getName))
                 .toList();

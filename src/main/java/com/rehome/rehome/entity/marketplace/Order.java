@@ -155,6 +155,10 @@ public class Order {
     @Column(name = "rating_comment", nullable = true, columnDefinition = "text")
     private String ratingComment;
 
+    // Ghi chú của người mua lúc đặt hàng, hiển thị cho Moderator khi đóng gói - DG-01
+    @Column(name = "buyer_note", nullable = true, columnDefinition = "text")
+    private String buyerNote;
+
     // Thời điểm đặt đơn — mốc chốt tỷ lệ hoa hồng theo kỳ
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

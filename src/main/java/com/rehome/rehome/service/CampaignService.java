@@ -26,4 +26,12 @@ public interface CampaignService {
     // F-103: chiến dịch của chính tổ chức; status == null thì lấy mọi trạng thái.
     PageResponse<CampaignSummaryResponse> listMyCampaigns(UUID organizationAccountId, String status,
                                                           int page, int size);
+
+    // Duyệt công khai xuyên tổ chức; status == null thì mặc định chỉ chiến dịch đang mở (ACTIVE).
+    PageResponse<CampaignPublicResponse> listPublicCampaigns(String status, int page, int size);
+
+    // Chiến dịch công khai của 1 tổ chức cụ thể (F-082/F-083); status == null thì mặc định
+    // chỉ chiến dịch đang mở (ACTIVE). 404 nếu tổ chức không tồn tại hoặc chưa VERIFIED.
+    PageResponse<CampaignPublicResponse> listOrganizationCampaigns(UUID organizationId, String status,
+                                                                    int page, int size);
 }

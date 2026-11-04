@@ -1,5 +1,6 @@
 package com.rehome.rehome.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -9,6 +10,8 @@ import java.time.Instant;
 
 /**
  * 1 tin nhắn (F-089/F-090/F-091). createdAt lấy từ Message.sentAt.
+ * isMine so senderId với chính người đang xem, tính sẵn ở server vì tổ chức hiện không có
+ * account id riêng trong GET /api/organizations/me để tự so sánh.
  */
 @Data
 @NoArgsConstructor
@@ -19,4 +22,7 @@ public class MessageResponse {
     private String senderId;
     private String content;
     private Instant createdAt;
+
+    @JsonProperty("isMine")
+    private boolean isMine;
 }

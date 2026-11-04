@@ -1,12 +1,17 @@
 package com.rehome.rehome.controller;
 
+import com.rehome.rehome.dto.request.CreateCampaignDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateCampaignRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.CampaignPublicResponse;
 import com.rehome.rehome.dto.response.CampaignStatusResponse;
+import com.rehome.rehome.dto.response.DonationNoteResponse;
+import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.CampaignService;
+import com.rehome.rehome.service.DonationService;
 import io.swagger.v3.oas.annotations.Operation;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -17,6 +22,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
@@ -27,6 +33,16 @@ import java.util.UUID;
 public class CampaignController {
 
     private final CampaignService campaignService;
+    private final DonationService donationService;
+
+    @GetMapping
+    @Operation(summary = "Danh sách chiến dịch công khai xuyên tổ chức, mặc định chỉ chiến dịch đang mở")
+    public ResponseEntity<ApiResponse<PageResponse<CampaignPublicResponse>>> listPublicCampaigns(
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.success(campaignService.listPublicCampaigns(status, page, size)));
+    }
 
     @GetMapping("/{id}")
     @Operation(summary = "Xem chi tiết công khai 1 chiến dịch (F-083)")
@@ -64,5 +80,17 @@ public class CampaignController {
             @AuthenticationPrincipal Account account) {
         CampaignStatusResponse result = campaignService.closeCampaign(account.getId(), id);
         return ResponseEntity.ok(ApiResponse.success(result, "Đã đóng chiến dịch"));
+    }
+
+    @PostMapping("/{id}/donation-notes")
+    @PreAuthorize("hasRole('ORGANIZATION')")
+    @Operation(summary = "Tổ chức ghi note quyên góp tại địa chỉ riêng, gắn với chiến dịch (OC-08)")
+    public ResponseEntity<ApiResponse<DonationNoteResponse>> createDonationNote(
+            @PathVariable UUID id,
+            @Valid @RequestBody CreateCampaignDonationNoteRequest request,
+            @AuthenticationPrincipal Account account) {
+        DonationNoteResponse result = donationService.createCampaignDonationNote(account.getId(), id, request);
+        return ResponseEntity.status(201)
+                .body(ApiResponse.success(result, 201, "Đã ghi nhận note quyên góp"));
     }
 }

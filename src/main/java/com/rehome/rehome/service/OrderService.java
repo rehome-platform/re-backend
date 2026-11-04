@@ -15,6 +15,7 @@ import com.rehome.rehome.dto.response.OrderTrackingResponse;
 import com.rehome.rehome.dto.response.PackScanResponse;
 import com.rehome.rehome.dto.response.PayOrdersResponse;
 import com.rehome.rehome.dto.response.SoldOrderListResponse;
+import com.rehome.rehome.dto.response.WarehouseOrderListResponse;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.ReturnedItemAction;
 import com.rehome.rehome.entity.marketplace.Order;
@@ -34,6 +35,10 @@ public interface OrderService {
 
     OrderDetailResponse getOrderDetail(String email, UUID orderId);
 
+    // Moderator xem toàn bộ đơn đã bán thuộc kho mình quản lý - không giới hạn theo người
+    // ký gửi (như getSoldOrders) hay người mua (như getOrders).
+    WarehouseOrderListResponse getWarehouseSoldOrders(String email, String status, int page, int size);
+
     OrderCancelResponse cancelOrder(String email, UUID orderId);
 
     // Trả một hoặc nhiều đơn bằng Ví ReHome: trừ ví và chốt đơn PAID trong cùng một transaction
@@ -52,8 +57,8 @@ public interface OrderService {
 
     OrderRatingResponse rateOrder(String email, UUID orderId, RateOrderRequest request);
 
-    // API 69 (F-127) - Moderator quét SKU đối chiếu trước khi tạo vận đơn
-    PackScanResponse packScan(UUID orderId, PackScanRequest request);
+    // API 69 (F-127) - Moderator quét SKU đối chiếu trước khi tạo vận đơn, chỉ cho đơn thuộc kho mình
+    PackScanResponse packScan(String email, UUID orderId, PackScanRequest request);
 
     // API 70 (F-127) - Moderator tạo vận đơn GHN sau khi đã quét đủ món
     CreateShipmentResponse createShipment(UUID orderId);

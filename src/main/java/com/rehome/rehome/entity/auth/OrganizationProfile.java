@@ -93,6 +93,11 @@ public class OrganizationProfile {
     @Column(name = "verified_at", nullable = true)
     private Instant verifiedAt;
 
+    // Thời điểm từ chối riêng, tách khỏi verifiedAt (verifiedAt bị xác minh lại thì mất mốc
+    // từ chối trước đó; mobile trước đây đọc nhầm ngày từ chối từ verifiedAt)
+    @Column(name = "rejected_at", nullable = true)
+    private Instant rejectedAt;
+
     // Thời điểm nộp hồ sơ (cập nhật lại mỗi lần nộp lại sau khi bị từ chối)
     @Column(name = "submitted_at", nullable = true)
     private Instant submittedAt;

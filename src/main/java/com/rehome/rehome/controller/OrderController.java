@@ -16,6 +16,7 @@ import com.rehome.rehome.dto.response.OrderTrackingResponse;
 import com.rehome.rehome.dto.response.PackScanResponse;
 import com.rehome.rehome.dto.response.PayOrdersResponse;
 import com.rehome.rehome.dto.response.SoldOrderListResponse;
+import com.rehome.rehome.dto.response.WarehouseOrderListResponse;
 import com.rehome.rehome.service.OrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -88,8 +89,25 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
+    // Đơn đã bán theo kho: moderator xem mọi đơn thuộc kho mình quản lý, không giới hạn
+    // theo người ký gửi (như /orders/sold) hay người mua (như GET /orders).
+    // Phải đứng TRƯỚC @GetMapping("/{id}") để "warehouse" không bị khớp vào {id}.
+    @GetMapping("/warehouse/sold")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<WarehouseOrderListResponse>> getWarehouseSoldOrders(
+            Authentication authentication,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        String email = authentication.getName();
+        WarehouseOrderListResponse result = orderService.getWarehouseSoldOrders(email, status, page, size);
+
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('MEMBER')")
+    @PreAuthorize("hasAnyRole('MEMBER', 'MODERATOR', 'ADMIN')")
     public ResponseEntity<ApiResponse<OrderDetailResponse>> getOrderDetail(
             Authentication authentication,
             @PathVariable UUID id) {
@@ -157,10 +175,12 @@ public class OrderController {
     @PostMapping("/{id}/pack/scan")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<PackScanResponse>> packScan(
+            Authentication authentication,
             @PathVariable UUID id,
             @RequestBody PackScanRequest request) {
 
-        PackScanResponse result = orderService.packScan(id, request);
+        String email = authentication.getName();
+        PackScanResponse result = orderService.packScan(email, id, request);
 
         return ResponseEntity.ok(ApiResponse.success(result));
     }

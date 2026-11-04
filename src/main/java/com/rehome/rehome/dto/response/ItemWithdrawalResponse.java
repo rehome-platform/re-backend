@@ -18,4 +18,7 @@ public class ItemWithdrawalResponse {
     private BigDecimal feeCharged;
     private String status;
     private Instant pickupDeadline;
+
+    // Hạn trả phí (feeCharged > 0); null khi miễn phí - không có gì phải trả
+    private Instant feePaymentDeadline;
 }

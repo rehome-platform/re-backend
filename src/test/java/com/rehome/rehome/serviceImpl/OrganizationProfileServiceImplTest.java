@@ -9,7 +9,10 @@ import com.rehome.rehome.dto.request.RejectOrganizationRequest;
 import com.rehome.rehome.dto.request.UpdateOrganizationProfileRequest;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
 import com.rehome.rehome.dto.response.LegalChangeRequestResponse;
+import com.rehome.rehome.dto.response.OrganizationNearbyCampaignResponse;
+import com.rehome.rehome.dto.response.OrganizationNearbyResponse;
 import com.rehome.rehome.dto.response.OrganizationProfileResponse;
+import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.OrganizationProfileUpdateResponse;
 import com.rehome.rehome.dto.response.OrganizationPublicProfileResponse;
 import com.rehome.rehome.dto.response.OrganizationRejectResponse;
@@ -22,7 +25,9 @@ import com.rehome.rehome.entity.auth.OrganizationDocument;
 import com.rehome.rehome.entity.auth.OrganizationLegalChangeRequest;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.auth.OrganizationRepresentative;
+import com.rehome.rehome.entity.marketplace.Campaign;
 import com.rehome.rehome.entity.marketplace.Follow;
+import com.rehome.rehome.entity.enums.CampaignStatus;
 import com.rehome.rehome.entity.enums.LegalChangeRequestStatus;
 import com.rehome.rehome.entity.enums.OrganizationType;
 import com.rehome.rehome.entity.enums.Role;
@@ -33,12 +38,17 @@ import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.mapper.OrganizationLegalChangeMapper;
 import com.rehome.rehome.mapper.OrganizationProfileMapper;
 import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.repository.CampaignRepository;
 import com.rehome.rehome.repository.FollowRepository;
 import com.rehome.rehome.repository.OrganizationLegalChangeRequestRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
+import com.rehome.rehome.service.NotificationService;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -58,6 +68,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -74,6 +86,8 @@ class OrganizationProfileServiceImplTest {
     @Mock private FollowRepository followRepository;
     @Mock private OrganizationLegalChangeRequestRepository organizationLegalChangeRequestRepository;
     @Mock private OrganizationLegalChangeMapper organizationLegalChangeMapper;
+    @Mock private NotificationService notificationService;
+    @Mock private CampaignRepository campaignRepository;
 
     @InjectMocks private OrganizationServiceImpl service;
 
@@ -433,14 +447,21 @@ class OrganizationProfileServiceImplTest {
                 .verificationStatus(VerificationStatus.VERIFIED)
                 .build();
         when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+        when(followRepository.countByOrganization_AccountId(orgId)).thenReturn(7L);
 
         OrganizationPublicProfileResponse res = service.getPublicProfile(orgId, null);
 
         assertThat(res.getId()).isEqualTo(orgId.toString());
         assertThat(res.getDisplayName()).isEqualTo("Chia Sẻ");
         assertThat(res.getDescription()).isEqualTo("Tổ chức thiện nguyện");
+        assertThat(res.getLogoUrl()).isEqualTo("https://cdn/logo.png");
+        assertThat(res.getOrgType()).isEqualTo("NGO");
+        assertThat(res.getOperationScope()).isEqualTo("PROVINCE");
+        assertThat(res.getDonationPointName()).isEqualTo("Điểm nhận Q1");
+        assertThat(res.getFollowerCount()).isEqualTo(7L);
         assertThat(res.isFollowing()).isFalse();
-        verifyNoInteractions(followRepository);
+        // Guest không có viewerId -> không cần tra bảng follow để biết đã theo dõi chưa
+        verify(followRepository, never()).existsByMember_IdAndOrganization_AccountId(any(), any());
     }
 
     @Test
@@ -499,6 +520,107 @@ class OrganizationProfileServiceImplTest {
                 .hasMessage("Không tìm thấy tổ chức.");
 
         verifyNoInteractions(followRepository);
+    }
+
+    // =====================================================================
+    // findNearby
+    // =====================================================================
+
+    @Test
+    void findNearby_returnsVerifiedOrganizationsSortedByDistance() {
+        UUID nearId = UUID.randomUUID();
+        UUID farId = UUID.randomUUID();
+        OrganizationProfile near = baseProfile(nearId).verificationStatus(VerificationStatus.VERIFIED)
+                .donationPointLatitude(new BigDecimal("10.7770000"))
+                .donationPointLongitude(new BigDecimal("106.7010000"))
+                .build();
+        OrganizationProfile far = baseProfile(farId).verificationStatus(VerificationStatus.VERIFIED)
+                .donationPointLatitude(new BigDecimal("21.0285000"))
+                .donationPointLongitude(new BigDecimal("105.8542000"))
+                .build();
+        when(organizationProfileRepository.findAllByVerificationStatus(VerificationStatus.VERIFIED))
+                .thenReturn(List.of(far, near));
+        when(campaignRepository.findAllByOrganization_AccountIdInAndStatus(any(), eq(CampaignStatus.OPEN)))
+                .thenReturn(List.of());
+
+        List<OrganizationNearbyResponse> result = service.findNearby(10.7769000, 106.7009000);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).id()).isEqualTo(nearId);
+        assertThat(result.get(1).id()).isEqualTo(farId);
+        assertThat(result.get(0).distanceKm()).isLessThan(result.get(1).distanceKm());
+        assertThat(result.get(0).orgType()).isEqualTo("NGO");
+        assertThat(result.get(0).donationPointReceivingHours()).isEqualTo("8:00-17:00 T2-T6");
+        assertThat(result.get(0).activeCampaigns()).isEmpty();
+    }
+
+    @Test
+    void findNearby_invalidLatitude_throwsAppException() {
+        assertAppError(() -> service.findNearby(999, 106.7009000), ErrorCode.INVALID_COORDINATES);
+
+        verifyNoInteractions(organizationProfileRepository);
+    }
+
+    @Test
+    void findNearby_includesOnlyOpenCampaignsOfMatchingOrganization() {
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile org = baseProfile(orgId).verificationStatus(VerificationStatus.VERIFIED).build();
+        UUID campaignId = UUID.randomUUID();
+        Instant endTime = Instant.parse("2026-12-01T00:00:00Z");
+        Campaign openCampaign = Campaign.builder().id(campaignId).organization(org)
+                .status(CampaignStatus.OPEN).endTime(endTime).build();
+
+        when(organizationProfileRepository.findAllByVerificationStatus(VerificationStatus.VERIFIED))
+                .thenReturn(List.of(org));
+        when(campaignRepository.findAllByOrganization_AccountIdInAndStatus(List.of(orgId), CampaignStatus.OPEN))
+                .thenReturn(List.of(openCampaign));
+
+        List<OrganizationNearbyResponse> result = service.findNearby(10.7769000, 106.7009000);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).activeCampaigns())
+                .containsExactly(new OrganizationNearbyCampaignResponse(campaignId, endTime));
+    }
+
+    // =====================================================================
+    // listFollowing
+    // =====================================================================
+
+    @Test
+    void listFollowing_returnsFollowedOrganizationsWithFollowerCount() {
+        UUID memberId = UUID.randomUUID();
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile organization = baseProfile(orgId).verificationStatus(VerificationStatus.VERIFIED).build();
+        com.rehome.rehome.entity.marketplace.Follow follow = com.rehome.rehome.entity.marketplace.Follow.builder()
+                .id(UUID.randomUUID())
+                .member(account(memberId, Role.MEMBER))
+                .organization(organization)
+                .build();
+        when(followRepository.findByMember_IdOrderByCreatedAtDesc(eq(memberId), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(follow)));
+        when(followRepository.countByOrganizationIds(List.of(orgId)))
+                .thenReturn(List.<Object[]>of(new Object[]{orgId, 4L}));
+
+        PageResponse<OrganizationPublicProfileResponse> result = service.listFollowing(memberId, 0, 20);
+
+        assertThat(result.getContent()).hasSize(1);
+        OrganizationPublicProfileResponse res = result.getContent().get(0);
+        assertThat(res.getId()).isEqualTo(orgId.toString());
+        assertThat(res.getDisplayName()).isEqualTo("Chia Sẻ");
+        assertThat(res.isFollowing()).isTrue();
+        assertThat(res.getFollowerCount()).isEqualTo(4L);
+    }
+
+    @Test
+    void listFollowing_noFollows_returnsEmptyPageWithoutCountQuery() {
+        UUID memberId = UUID.randomUUID();
+        when(followRepository.findByMember_IdOrderByCreatedAtDesc(eq(memberId), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
+
+        PageResponse<OrganizationPublicProfileResponse> result = service.listFollowing(memberId, 0, 20);
+
+        assertThat(result.getContent()).isEmpty();
+        verify(followRepository, never()).countByOrganizationIds(any());
     }
 
     // =====================================================================
@@ -620,7 +742,7 @@ class OrganizationProfileServiceImplTest {
         when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
 
         OrganizationProfileUpdateResponse res = service.updateMyProfile(id,
-                new UpdateOrganizationProfileRequest(null, "Mô tả mới", null, null));
+                new UpdateOrganizationProfileRequest(null, null, "Mô tả mới", null, null));
 
         assertThat(profile.getDescription()).isEqualTo("Mô tả mới");
         // Các field không truyền phải giữ nguyên
@@ -640,13 +762,40 @@ class OrganizationProfileServiceImplTest {
         when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
 
         OrganizationProfileUpdateResponse res = service.updateMyProfile(id,
-                new UpdateOrganizationProfileRequest(
+                new UpdateOrganizationProfileRequest("Hội Chia Sẻ Mới",
                         "https://cdn/logo-v2.png", "Mô tả mới", "0988888888", "9:00-18:00 T2-T7"));
 
+        assertThat(res.getDisplayName()).isEqualTo("Hội Chia Sẻ Mới");
         assertThat(res.getLogoUrl()).isEqualTo("https://cdn/logo-v2.png");
         assertThat(res.getDescription()).isEqualTo("Mô tả mới");
         assertThat(res.getContactPhone()).isEqualTo("0988888888");
         assertThat(res.getDonationPointReceivingHours()).isEqualTo("9:00-18:00 T2-T7");
+    }
+
+    @Test
+    @DisplayName("OP-02: sửa displayName áp dụng ngay, không cần Moderator duyệt")
+    void updateMyProfile_displayName_appliedImmediately() {
+        UUID id = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id).build();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+
+        service.updateMyProfile(id,
+                new UpdateOrganizationProfileRequest("Tên hiển thị mới", null, null, null, null));
+
+        assertThat(profile.getDisplayName()).isEqualTo("Tên hiển thị mới");
+        verify(organizationProfileRepository).save(profile);
+    }
+
+    @Test
+    void updateMyProfile_blankDisplayName_doesNotOverwrite() {
+        UUID id = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id).build();
+        String originalDisplayName = profile.getDisplayName();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+
+        service.updateMyProfile(id, new UpdateOrganizationProfileRequest("   ", null, null, null, null));
+
+        assertThat(profile.getDisplayName()).isEqualTo(originalDisplayName);
     }
 
     @Test
@@ -656,7 +805,7 @@ class OrganizationProfileServiceImplTest {
         when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
 
         // description/contactPhone/giờ nhận là NOT NULL -> chuỗi rỗng coi như không truyền
-        service.updateMyProfile(id, new UpdateOrganizationProfileRequest("  ", "", "   ", ""));
+        service.updateMyProfile(id, new UpdateOrganizationProfileRequest("  ", "  ", "", "   ", ""));
 
         assertThat(profile.getDescription()).isEqualTo("Tổ chức thiện nguyện");
         assertThat(profile.getContactPhone()).isEqualTo("0900000000");
@@ -671,7 +820,7 @@ class OrganizationProfileServiceImplTest {
         when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
 
         OrganizationProfileUpdateResponse res = service.updateMyProfile(id,
-                new UpdateOrganizationProfileRequest(null, null, null, null));
+                new UpdateOrganizationProfileRequest(null, null, null, null, null));
 
         assertThat(res.getDescription()).isEqualTo("Tổ chức thiện nguyện");
         assertThat(res.getContactPhone()).isEqualTo("0900000000");
@@ -685,7 +834,7 @@ class OrganizationProfileServiceImplTest {
                 .build();
         when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
 
-        service.updateMyProfile(id, new UpdateOrganizationProfileRequest(null, "Mô tả mới", null, null));
+        service.updateMyProfile(id, new UpdateOrganizationProfileRequest(null, null, "Mô tả mới", null, null));
 
         // Thông tin pháp lý đi qua luồng duyệt riêng (F-097), không đổi ở đây
         assertThat(profile.getLegalName()).isEqualTo("Hội Chia Sẻ");
@@ -699,7 +848,7 @@ class OrganizationProfileServiceImplTest {
         when(organizationProfileRepository.findById(id)).thenReturn(Optional.empty());
 
         assertAppError(() -> service.updateMyProfile(id,
-                        new UpdateOrganizationProfileRequest(null, "Mô tả mới", null, null)),
+                        new UpdateOrganizationProfileRequest(null, null, "Mô tả mới", null, null)),
                 ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND);
 
         verify(organizationProfileRepository, never()).save(any());
@@ -807,7 +956,84 @@ class OrganizationProfileServiceImplTest {
                         new CreateLegalChangeRequestRequest(proposedChanges())),
                 ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND);
 
-        verifyNoInteractions(organizationLegalChangeRequestRepository, queueService);
+        verify(organizationLegalChangeRequestRepository, never()).save(any());
+        verifyNoInteractions(queueService);
+    }
+
+    @Test
+    @DisplayName("OP-05: đang có 1 yêu cầu PENDING -> 409 có code, không tạo thêm")
+    void requestLegalChange_alreadyPending_throwsConflictWithCode() {
+        UUID id = UUID.randomUUID();
+        when(organizationLegalChangeRequestRepository.existsByOrganization_AccountIdAndStatus(
+                id, LegalChangeRequestStatus.PENDING)).thenReturn(true);
+
+        assertAppError(() -> service.requestLegalChange(id,
+                        new CreateLegalChangeRequestRequest(proposedChanges())),
+                ErrorCode.LEGAL_CHANGE_REQUEST_ALREADY_PENDING);
+
+        verifyNoInteractions(organizationProfileRepository, queueService);
+        verify(organizationLegalChangeRequestRepository, never()).save(any());
+    }
+
+    // =====================================================================
+    // getLatestLegalChangeRequest  (OP-05)
+    // =====================================================================
+
+    @Test
+    void getLatestLegalChangeRequest_returnsMostRecentWithDecidedAt() {
+        UUID id = UUID.randomUUID();
+        OrganizationLegalChangeRequest r = OrganizationLegalChangeRequest.builder()
+                .id(UUID.randomUUID())
+                .proposedChanges(proposedChanges())
+                .status(LegalChangeRequestStatus.REJECTED)
+                .rejectReason("Ảnh CCCD mờ, chụp lại")
+                .createdAt(Instant.parse("2026-11-01T00:00:00Z"))
+                .reviewedAt(Instant.parse("2026-11-02T00:00:00Z"))
+                .build();
+        when(organizationLegalChangeRequestRepository
+                .findFirstByOrganization_AccountIdOrderByCreatedAtDesc(id))
+                .thenReturn(Optional.of(r));
+
+        var res = service.getLatestLegalChangeRequest(id);
+
+        assertThat(res.getId()).isEqualTo(r.getId().toString());
+        assertThat(res.getStatus()).isEqualTo("REJECTED");
+        assertThat(res.getProposedChanges()).isSameAs(r.getProposedChanges());
+        assertThat(res.getRejectReason()).isEqualTo("Ảnh CCCD mờ, chụp lại");
+        assertThat(res.getCreatedAt()).isEqualTo(Instant.parse("2026-11-01T00:00:00Z"));
+        assertThat(res.getDecidedAt()).isEqualTo(Instant.parse("2026-11-02T00:00:00Z"));
+    }
+
+    @Test
+    void getLatestLegalChangeRequest_pending_decidedAtIsNull() {
+        UUID id = UUID.randomUUID();
+        OrganizationLegalChangeRequest r = OrganizationLegalChangeRequest.builder()
+                .id(UUID.randomUUID())
+                .proposedChanges(proposedChanges())
+                .status(LegalChangeRequestStatus.PENDING)
+                .createdAt(Instant.parse("2026-11-01T00:00:00Z"))
+                .build();
+        when(organizationLegalChangeRequestRepository
+                .findFirstByOrganization_AccountIdOrderByCreatedAtDesc(id))
+                .thenReturn(Optional.of(r));
+
+        var res = service.getLatestLegalChangeRequest(id);
+
+        assertThat(res.getStatus()).isEqualTo("PENDING");
+        assertThat(res.getDecidedAt()).isNull();
+        assertThat(res.getRejectReason()).isNull();
+    }
+
+    @Test
+    void getLatestLegalChangeRequest_noneExists_throwsNotFound() {
+        UUID id = UUID.randomUUID();
+        when(organizationLegalChangeRequestRepository
+                .findFirstByOrganization_AccountIdOrderByCreatedAtDesc(id))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getLatestLegalChangeRequest(id))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy yêu cầu đổi thông tin.");
     }
 
     // =====================================================================
@@ -1035,6 +1261,10 @@ class OrganizationProfileServiceImplTest {
         verify(organizationProfileRepository).save(profile);
         // Đóng việc trong hàng đợi để Moderator khác không nhận lại hồ sơ
         verify(queueService).dequeue(QueueType.ORG_VERIFICATION, orgId.toString());
+        // Báo cho tổ chức biết kết quả xác minh, kèm deep-link mở màn hồ sơ tổ chức
+        verify(notificationService).notify(
+                isNull(), eq(NotificationType.VERIFICATION_RESULT), any(), any(),
+                eq(NotificationTargetType.ORGANIZATION), eq(orgId), isNull());
     }
 
     @Test
@@ -1162,13 +1392,64 @@ class OrganizationProfileServiceImplTest {
         // "ai kết luận, lúc nào" áp dụng cho cả từ chối
         assertThat(profile.getVerifiedBy()).isSameAs(moderator);
         assertThat(profile.getVerifiedAt()).isNotNull();
+        // rejectedAt tách riêng khỏi verifiedAt để mobile không đọc nhầm ngày từ chối
+        assertThat(profile.getRejectedAt()).isNotNull();
 
         assertThat(res.getId()).isEqualTo(orgId.toString());
         assertThat(res.getVerificationStatus()).isEqualTo(VerificationStatus.REJECTED);
         assertThat(res.getRejectionReason()).isEqualTo("Giấy phép hoạt động đã hết hạn");
+        assertThat(res.getRejectedAt()).isEqualTo(profile.getRejectedAt());
 
         verify(organizationProfileRepository).save(profile);
         verify(queueService).dequeue(QueueType.ORG_VERIFICATION, orgId.toString());
+        verify(notificationService).notify(
+                isNull(), eq(NotificationType.VERIFICATION_RESULT), any(), any(),
+                eq(NotificationTargetType.ORGANIZATION), eq(orgId), isNull());
+    }
+
+    @Test
+    void rejectOrganization_withDocumentDecisions_marksEachDocumentAccepted() {
+        UUID orgId = UUID.randomUUID();
+        OrganizationDocument goodDoc = OrganizationDocument.builder()
+                .id(UUID.randomUUID()).docType("FUND_LICENSE").build();
+        OrganizationDocument badDoc = OrganizationDocument.builder()
+                .id(UUID.randomUUID()).docType("CCCD_COPY").build();
+        OrganizationProfile profile = baseProfile(orgId)
+                .verificationStatus(VerificationStatus.PENDING)
+                .documents(new ArrayList<>(List.of(goodDoc, badDoc)))
+                .build();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        RejectOrganizationRequest request = new RejectOrganizationRequest(
+                "Ảnh CCCD bị mờ",
+                List.of(
+                        new RejectOrganizationRequest.DocumentDecision(goodDoc.getId(), true),
+                        new RejectOrganizationRequest.DocumentDecision(badDoc.getId(), false)));
+
+        service.rejectOrganization(account(UUID.randomUUID(), Role.MODERATOR), orgId, request);
+
+        assertThat(goodDoc.getAccepted()).isTrue();
+        assertThat(badDoc.getAccepted()).isFalse();
+    }
+
+    @Test
+    void rejectOrganization_unknownDocumentId_throwsBadRequest() {
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(orgId)
+                .verificationStatus(VerificationStatus.PENDING)
+                .documents(new ArrayList<>())
+                .build();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        RejectOrganizationRequest request = new RejectOrganizationRequest(
+                "Thiếu giấy tờ",
+                List.of(new RejectOrganizationRequest.DocumentDecision(UUID.randomUUID(), false)));
+
+        assertThatThrownBy(() -> service.rejectOrganization(
+                account(UUID.randomUUID(), Role.MODERATOR), orgId, request))
+                .isInstanceOf(BadRequestException.class);
+
+        verify(organizationProfileRepository, never()).save(any());
     }
 
     @Test
@@ -1283,6 +1564,9 @@ class OrganizationProfileServiceImplTest {
         verify(organizationLegalChangeRequestRepository).save(changeRequest);
         // Việc đã kết luận thì rời hàng đợi
         verify(queueService).dequeue(QueueType.LEGAL_CHANGE, requestId.toString());
+        verify(notificationService).notify(
+                isNull(), eq(NotificationType.VERIFICATION_RESULT), any(), any(),
+                eq(NotificationTargetType.LEGAL_CHANGE), eq(requestId), isNull());
     }
 
     @Test
@@ -1432,6 +1716,9 @@ class OrganizationProfileServiceImplTest {
 
         verify(organizationLegalChangeRequestRepository).save(changeRequest);
         verify(queueService).dequeue(QueueType.LEGAL_CHANGE, requestId.toString());
+        verify(notificationService).notify(
+                isNull(), eq(NotificationType.VERIFICATION_RESULT), any(), any(),
+                eq(NotificationTargetType.LEGAL_CHANGE), eq(requestId), isNull());
     }
 
     @Test

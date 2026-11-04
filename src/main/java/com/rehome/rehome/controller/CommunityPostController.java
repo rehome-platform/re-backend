@@ -37,14 +37,15 @@ public class CommunityPostController {
     private final CommunityPostService communityPostService;
 
     @GetMapping
-    @Operation(summary = "Danh sách bài viết cộng đồng: theo tổ chức hoặc newsfeed (F-086)")
+    @Operation(summary = "Danh sách bài viết cộng đồng: theo tổ chức, hoặc newsfeed theo scope=ALL|FOLLOWING (F-086)")
     public ResponseEntity<ApiResponse<PageResponse<PostSummaryResponse>>> listPosts(
             @RequestParam(required = false) UUID organizationId,
+            @RequestParam(required = false) String scope,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @AuthenticationPrincipal Account account) {
         PageResponse<PostSummaryResponse> result = communityPostService.listPosts(
-                organizationId, account != null ? account.getId() : null, page, size);
+                organizationId, scope, account != null ? account.getId() : null, page, size);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
@@ -59,7 +60,7 @@ public class CommunityPostController {
     }
 
     @PostMapping("/{id}/like")
-    @PreAuthorize("hasRole('MEMBER')")
+    @PreAuthorize("hasAnyRole('MEMBER','ORGANIZATION')")
     @Operation(summary = "Thích 1 bài viết (F-087)")
     public ResponseEntity<ApiResponse<Void>> like(
             @PathVariable UUID id,
@@ -69,7 +70,7 @@ public class CommunityPostController {
     }
 
     @DeleteMapping("/{id}/like")
-    @PreAuthorize("hasRole('MEMBER')")
+    @PreAuthorize("hasAnyRole('MEMBER','ORGANIZATION')")
     @Operation(summary = "Bỏ thích 1 bài viết (F-087)")
     public ResponseEntity<ApiResponse<Void>> unlike(
             @PathVariable UUID id,
@@ -79,12 +80,14 @@ public class CommunityPostController {
     }
 
     @GetMapping("/{id}/comments")
-    @Operation(summary = "Danh sách bình luận còn hiển thị của 1 bài viết (F-087)")
+    @Operation(summary = "Toàn bộ bình luận của 1 bài viết, kể cả bị ẩn (content null) (F-087)")
     public ResponseEntity<ApiResponse<PageResponse<CommentResponse>>> listComments(
             @PathVariable UUID id,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ApiResponse.success(communityPostService.listComments(id, page, size)));
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal Account account) {
+        return ResponseEntity.ok(ApiResponse.success(communityPostService.listComments(
+                id, account != null ? account.getId() : null, page, size)));
     }
 
     @PostMapping
@@ -119,8 +122,8 @@ public class CommunityPostController {
     }
 
     @PostMapping("/{id}/comments")
-    @PreAuthorize("hasRole('MEMBER')")
-    @Operation(summary = "Bình luận vào 1 bài viết (F-087)")
+    @PreAuthorize("hasAnyRole('MEMBER','ORGANIZATION')")
+    @Operation(summary = "Bình luận/trả lời 1 bài viết; ORGANIZATION chỉ trên bài của chính mình (F-087)")
     public ResponseEntity<ApiResponse<CommentResponse>> createComment(
             @PathVariable UUID id,
             @RequestBody CreateCommentRequest request,

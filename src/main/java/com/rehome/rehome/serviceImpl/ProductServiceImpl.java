@@ -505,7 +505,7 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public PageResponse<InventoryItemResponse> getInventory(Account account, ProductStatus status,
-                                                            int page, int size) {
+                                                            boolean degradedOnly, int page, int size) {
 
         if (account.getWarehouse() == null) {
             throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);              // 403
@@ -516,7 +516,7 @@ public class ProductServiceImpl implements ProductService {
         Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
 
         Page<Product> result = productRepository.findInventory(
-                account.getWarehouse().getId(), status, pageable);
+                account.getWarehouse().getId(), status, degradedOnly, pageable);
 
         return PageResponse.from(result.map(p -> new InventoryItemResponse(
                 p.getId(), p.getName(), p.getStatus())));

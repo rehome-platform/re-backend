@@ -40,6 +40,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -281,18 +282,18 @@ class ProductServiceImplInventoryTest {
     private Pageable captureInventoryPageable(ProductStatus expectedStatus) {
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
         verify(productRepository).findInventory(
-                eq(warehouse.getId()), eq(expectedStatus), captor.capture());
+                eq(warehouse.getId()), eq(expectedStatus), eq(false), captor.capture());
         return captor.getValue();
     }
 
     @Test
     @DisplayName("getInventory: lọc theo kho của Moderator, map đúng field")
     void getInventory_success() {
-        when(productRepository.findInventory(eq(warehouse.getId()), eq(ProductStatus.ON_SALE), any()))
+        when(productRepository.findInventory(eq(warehouse.getId()), eq(ProductStatus.ON_SALE), eq(false), any()))
                 .thenReturn(new PageImpl<>(List.of(product)));
 
         PageResponse<InventoryItemResponse> res =
-                productService.getInventory(moderator, ProductStatus.ON_SALE, 0, 20);
+                productService.getInventory(moderator, ProductStatus.ON_SALE, false, 0, 20);
 
         // Giả định PageResponse có getter getContent() (theo field "content" trong spec)
         assertEquals(1, res.getContent().size());
@@ -306,7 +307,7 @@ class ProductServiceImplInventoryTest {
     @DisplayName("getInventory: Moderator chưa gán kho -> MODERATOR_NO_WAREHOUSE")
     void getInventory_noWarehouse() {
         AppException ex = assertThrows(AppException.class,
-                () -> productService.getInventory(moderatorOf(null), null, 0, 20));
+                () -> productService.getInventory(moderatorOf(null), null, false, 0, 20));
 
         assertEquals(ErrorCode.MODERATOR_NO_WAREHOUSE, ex.getErrorCode());
         verifyNoInteractions(productRepository);
@@ -315,9 +316,9 @@ class ProductServiceImplInventoryTest {
     @Test
     @DisplayName("getInventory: page âm -> 0, size < 1 -> mặc định 20")
     void getInventory_pagingDefaults() {
-        when(productRepository.findInventory(any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
+        when(productRepository.findInventory(any(), any(), anyBoolean(), any())).thenReturn(new PageImpl<>(List.of()));
 
-        productService.getInventory(moderator, null, -5, 0);
+        productService.getInventory(moderator, null, false, -5, 0);
 
         Pageable pageable = captureInventoryPageable(null);
         assertEquals(0, pageable.getPageNumber());
@@ -327,9 +328,9 @@ class ProductServiceImplInventoryTest {
     @Test
     @DisplayName("getInventory: size vượt trần -> bị chặn ở 50")
     void getInventory_sizeCapped() {
-        when(productRepository.findInventory(any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
+        when(productRepository.findInventory(any(), any(), anyBoolean(), any())).thenReturn(new PageImpl<>(List.of()));
 
-        productService.getInventory(moderator, null, 2, 1000);
+        productService.getInventory(moderator, null, false, 2, 1000);
 
         Pageable pageable = captureInventoryPageable(null);
         assertEquals(2, pageable.getPageNumber());
@@ -339,9 +340,9 @@ class ProductServiceImplInventoryTest {
     @Test
     @DisplayName("getInventory: sắp xếp theo createdAt giảm dần")
     void getInventory_sortByCreatedAtDesc() {
-        when(productRepository.findInventory(any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
+        when(productRepository.findInventory(any(), any(), anyBoolean(), any())).thenReturn(new PageImpl<>(List.of()));
 
-        productService.getInventory(moderator, null, 0, 20);
+        productService.getInventory(moderator, null, false, 0, 20);
 
         Pageable pageable = captureInventoryPageable(null);
         assertNotNull(pageable.getSort().getOrderFor("createdAt"));

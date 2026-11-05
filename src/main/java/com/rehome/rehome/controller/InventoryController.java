@@ -27,10 +27,11 @@ public class InventoryController {
     public ResponseEntity<ApiResponse<PageResponse<InventoryItemResponse>>> getInventory(
             @AuthenticationPrincipal Account account,
             @RequestParam(required = false) ProductStatus status,
+            @RequestParam(defaultValue = "false") boolean degradedOnly,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
         return ResponseEntity.ok(ApiResponse.success(
-                productService.getInventory(account, status, page, size), 200, ""));
+                productService.getInventory(account, status, degradedOnly, page, size), 200, ""));
     }
 }

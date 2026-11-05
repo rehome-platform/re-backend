@@ -91,6 +91,8 @@ class ReturnRequestServiceImplTest {
     @Mock private ReturnRequestRepository returnRequestRepository;
     @Mock private ReturnRequestPhotoRepository returnRequestPhotoRepository;
     @Mock private DegradedItemCaseRepository degradedItemCaseRepository;
+    @Mock private com.rehome.rehome.repository.MemberProfileRepository memberProfileRepository;
+    @Mock private com.rehome.rehome.repository.ProductPhotoRepository productPhotoRepository;
     @Mock private OrderService orderService;
     @Mock private QueueService queueService;
     @Mock private GhnApi ghnApi;
@@ -157,6 +159,7 @@ class ReturnRequestServiceImplTest {
         when(req.getMatchesOriginal()).thenReturn(matches);
         when(req.getDegraded()).thenReturn(degraded);
         when(req.getCounterfeitSuspected()).thenReturn(counterfeit);
+        when(req.getEvidenceImageUrls()).thenReturn(List.of("https://img/1.jpg", "https://img/2.jpg"));
         return req;
     }
 

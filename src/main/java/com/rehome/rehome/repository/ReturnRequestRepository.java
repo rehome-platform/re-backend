@@ -28,6 +28,9 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UU
 
     Page<ReturnRequest> findByOrder_Buyer_IdOrderByCreatedAtDesc(UUID buyerId, Pageable pageable);
 
+    // Lịch sử các yêu cầu trả hàng khác (nếu có) của cùng đơn - để Moderator xem khi kiểm hàng
+    List<ReturnRequest> findAllByOrder_IdAndIdNotOrderByCreatedAtDesc(UUID orderId, UUID excludeId);
+
     Page<ReturnRequest> findByStatusInOrderByCreatedAtAsc(List<ReturnRequestStatus> statuses, Pageable pageable);
 
     List<ReturnRequest> findAllByStatusAndHandoverDeadlineBefore(ReturnRequestStatus status, Instant deadline);

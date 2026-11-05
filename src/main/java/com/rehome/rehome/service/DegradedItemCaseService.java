@@ -18,4 +18,7 @@ public interface DegradedItemCaseService {
 
     // Member xem các ca của mình; status = null/rỗng thì lấy tất cả
     List<DegradedItemCaseDetailResponse> listMine(Account account, String status);
+
+    // Moderator xem các ca hàng xuống cấp thuộc kho mình quản lý; status = null/rỗng thì lấy tất cả
+    List<DegradedItemCaseDetailResponse> listByWarehouse(Account moderator, String status);
 }

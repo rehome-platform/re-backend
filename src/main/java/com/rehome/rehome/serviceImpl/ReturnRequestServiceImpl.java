@@ -13,14 +13,17 @@ import com.rehome.rehome.dto.response.GhnCreateOrderResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.ReturnRequestResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.service.QueueService;
+import com.rehome.rehome.entity.enums.ReturnPhotoSource;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
 import com.rehome.rehome.entity.enums.ReturnedItemAction;
 import com.rehome.rehome.entity.marketplace.DegradedItemCase;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
+import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.entity.marketplace.ReturnRequestPhoto;
 import com.rehome.rehome.entity.marketplace.Warehouse;
@@ -30,8 +33,10 @@ import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.exception.GhnException;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.DegradedItemCaseRepository;
+import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
+import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ReturnRequestPhotoRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.service.OrderService;
@@ -46,6 +51,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -74,6 +80,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     private final ReturnRequestRepository returnRequestRepository;
     private final ReturnRequestPhotoRepository returnRequestPhotoRepository;
     private final DegradedItemCaseRepository degradedItemCaseRepository;
+    private final MemberProfileRepository memberProfileRepository;
+    private final ProductPhotoRepository productPhotoRepository;
     private final OrderService orderService;
     private final QueueService queueService;
     private final GhnApi ghnApi;
@@ -362,12 +370,26 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             throw new ConflictException("Hàng trả chưa được bàn giao cho GHN.", "RETURN_NOT_SHIPPED_BACK");
         }
 
+        List<String> evidenceImageUrls = request.getEvidenceImageUrls();
+        if (evidenceImageUrls == null || evidenceImageUrls.size() < 2 || evidenceImageUrls.size() > 5) {
+            throw new BadRequestException("Phải có từ 2 đến 5 ảnh bằng chứng kiểm hàng.");
+        }
+
         returnRequest.setStatus(ReturnRequestStatus.INSPECTING);
         returnRequest.setMatchesOriginal(request.getMatchesOriginal());
         returnRequest.setDegraded(request.getDegraded());
         returnRequest.setCounterfeitSuspected(Boolean.TRUE.equals(request.getCounterfeitSuspected()));
         returnRequest.setConditionNote(request.getConditionNote());
         returnRequestRepository.save(returnRequest);
+
+        List<ReturnRequestPhoto> evidencePhotos = evidenceImageUrls.stream()
+                .map(url -> ReturnRequestPhoto.builder()
+                        .returnRequest(returnRequest)
+                        .imageUrl(url)
+                        .source(ReturnPhotoSource.MODERATOR)
+                        .build())
+                .toList();
+        returnRequestPhotoRepository.saveAll(evidencePhotos);
 
         return toResponseWithPhotos(returnRequest);
     }
@@ -663,6 +685,45 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     private ReturnRequestResponse toResponse(ReturnRequest returnRequest, List<String> photoUrls) {
         Order order = returnRequest.getOrder();
 
+        OrderItem item = orderItemRepository
+                .findAllByOrder_IdWithProductOrderByIdAsc(order.getId())
+                .stream().findFirst().orElse(null);
+
+        String buyerName = memberProfileRepository.findByAccountId(order.getBuyer().getId())
+                .map(MemberProfile::getFullName).orElse(null);
+        String sellerName = item == null ? null
+                : memberProfileRepository.findByAccountId(item.getProduct().getMember().getId())
+                        .map(MemberProfile::getFullName).orElse(null);
+
+        List<String> initialPhotoUrls = item == null ? List.of()
+                : productPhotoRepository.findByProduct_IdOrderByDisplayOrderAscIdAsc(item.getProduct().getId())
+                        .stream().map(ProductPhoto::getImageUrl).toList();
+
+        List<ReturnRequestResponse.ReturnRequestHistoryItem> history =
+                returnRequestRepository.findAllByOrder_IdAndIdNotOrderByCreatedAtDesc(
+                                order.getId(), returnRequest.getId()).stream()
+                        .map(r -> ReturnRequestResponse.ReturnRequestHistoryItem.builder()
+                                .id(r.getId().toString())
+                                .status(r.getStatus().name())
+                                .degraded(r.getDegraded())
+                                .createdAt(r.getCreatedAt())
+                                .resolvedAt(r.getResolvedAt())
+                                .build())
+                        .toList();
+
+        BigDecimal compensationAmount = null;
+        BigDecimal halfCompensationAmount = null;
+        if (item != null) {
+            compensationAmount = item.getPriceAtOrder()
+                    .subtract(item.getPriceAtOrder().multiply(item.getCommissionRateApplied()));
+            BigDecimal rate = item.getProduct().getConsignmentReceipt() != null
+                    ? item.getProduct().getConsignmentReceipt().getDegradedCompensationRate()
+                    : null;
+            if (rate != null) {
+                halfCompensationAmount = compensationAmount.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+            }
+        }
+
         return ReturnRequestResponse.builder()
                 .id(returnRequest.getId().toString())
                 .orderId(order.getId().toString())
@@ -684,6 +745,13 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .refundAmount(order.getRefundAmount())
                 .createdAt(returnRequest.getCreatedAt())
                 .resolvedAt(returnRequest.getResolvedAt())
+                .buyerName(buyerName)
+                .buyerPhone(order.getShippingPhone())
+                .sellerName(sellerName)
+                .initialConsignmentPhotoUrls(initialPhotoUrls)
+                .returnHistory(history)
+                .compensationAmount(compensationAmount)
+                .halfCompensationAmount(halfCompensationAmount)
                 .build();
     }
 }

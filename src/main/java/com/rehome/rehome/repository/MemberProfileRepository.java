@@ -13,4 +13,5 @@ public interface MemberProfileRepository extends JpaRepository<MemberProfile, UU
     Optional<MemberProfile> findByAccountId(UUID accountId);
     Optional<MemberProfile> findByMemberCode(String memberCode);
     List<MemberProfile> findByAccount_Phone(String phone);
+    List<MemberProfile> findAllByAccount_IdIn(List<UUID> accountIds);
 }

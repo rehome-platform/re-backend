@@ -30,6 +30,10 @@ public class QueueItemResponse {
     private Integer itemCount;
     private Long waitingMinutes;
 
+    // Chung cho PACKING / RETURN: tên đối tượng hiển thị trên queue và dòng phụ
+    private String targetName;
+    private String subjectSubtitle;
+
     // Chỉ có giá trị với QueueType.LEGAL_CHANGE
     private String requestId;
     private String orgName;
@@ -58,6 +62,17 @@ public class QueueItemResponse {
         response.setRecipientName(order.getShippingRecipientName());
         response.setItemCount(itemCount);
         response.setWaitingMinutes(waitingMinutes);
+        response.setTargetName(order.getOrderNo());
+        response.setSubjectSubtitle(order.getShippingRecipientName());
+        return response;
+    }
+
+    public static QueueItemResponse fromReturn(
+            QueueItem q, Order order, String sellerName, String buyerName) {
+        QueueItemResponse response = from(q);
+        response.setOrderNo(order.getOrderNo());
+        response.setTargetName(order.getOrderNo());
+        response.setSubjectSubtitle(sellerName + " / " + buyerName);
         return response;
     }
 

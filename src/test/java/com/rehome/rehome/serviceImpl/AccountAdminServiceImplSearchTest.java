@@ -117,4 +117,34 @@ class AccountAdminServiceImplSearchTest {
         assertThat(pageable.getValue().getPageNumber()).isZero();
         assertThat(pageable.getValue().getPageSize()).isEqualTo(100);
     }
+
+    @Test
+    @DisplayName("search: từ khoá là số điện thoại (+84, khoảng trắng, dấu gạch) được chuẩn hóa về dạng 0xxxxxxxxx")
+    void search_normalizesPhoneKeyword() {
+        when(accountRepository.searchForAdmin(any(), any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+        when(memberProfileRepository.findAllById(any())).thenReturn(List.of());
+        when(moderatorProfileRepository.findAllById(any())).thenReturn(List.of());
+        when(organizationProfileRepository.findAllById(any())).thenReturn(List.of());
+
+        service.search("+84 912-345-678", null, null, 0, 20);
+        service.search("0912 345", null, null, 0, 20);
+
+        verify(accountRepository).searchForAdmin(isNull(), isNull(), eq("%0912345678%"), any(Pageable.class));
+        verify(accountRepository).searchForAdmin(isNull(), isNull(), eq("%0912345%"), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("search: từ khoá không phải số điện thoại giữ nguyên (chỉ trim + chữ thường)")
+    void search_keepsNonPhoneKeyword() {
+        when(accountRepository.searchForAdmin(any(), any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+        when(memberProfileRepository.findAllById(any())).thenReturn(List.of());
+        when(moderatorProfileRepository.findAllById(any())).thenReturn(List.of());
+        when(organizationProfileRepository.findAllById(any())).thenReturn(List.of());
+
+        service.search(" An 2 ", null, null, 0, 20);
+
+        verify(accountRepository).searchForAdmin(isNull(), isNull(), eq("%an 2%"), any(Pageable.class));
+    }
 }

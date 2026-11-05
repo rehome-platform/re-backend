@@ -130,6 +130,8 @@ class AccountAdminServiceImplTest {
         assertThat(log.getTargetType()).isEqualTo("ACCOUNT");
         assertThat(log.getTargetId()).isEqualTo(targetId.toString());
         assertThat(log.getDetail().get("reason").asText()).isEqualTo("Spam");
+        assertThat(log.getDetail().get("beforeStatus").asText()).isEqualTo("ACTIVE");
+        assertThat(log.getDetail().get("afterStatus").asText()).isEqualTo("BANNED");
     }
 
     @Test
@@ -232,6 +234,8 @@ class AccountAdminServiceImplTest {
         assertThat(log.getTargetType()).isEqualTo("ACCOUNT");
         assertThat(log.getTargetId()).isEqualTo(targetId.toString());
         assertThat(log.getDetail().get("previousReason").asText()).isEqualTo("Spam");
+        assertThat(log.getDetail().get("beforeStatus").asText()).isEqualTo("BANNED");
+        assertThat(log.getDetail().get("afterStatus").asText()).isEqualTo("ACTIVE");
     }
 
     @Test

@@ -21,6 +21,10 @@ public class CreateModeratorRequest {
     @Size(max = 255, message = "fullName tối đa 255 ký tự")
     private String fullName;
 
+    // Không bắt buộc để tương thích client cũ; có gửi thì Service chuẩn hóa, kiểm tra định dạng 0xxxxxxxxx và trùng
+    @Size(max = 20, message = "phone tối đa 20 ký tự")
+    private String phone;
+
     @NotNull(message = "warehouseId không được để trống")
     private UUID warehouseId;
 }

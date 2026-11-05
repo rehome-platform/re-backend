@@ -21,6 +21,7 @@ import com.rehome.rehome.repository.ModeratorProfileRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.service.AccountAdminService;
 import com.rehome.rehome.service.RefreshTokenService;
+import com.rehome.rehome.util.PhoneNumbers;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -55,7 +56,9 @@ public class AccountAdminServiceImpl implements AccountAdminService {
                                                      int page, int size) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
-        String keyword = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+        // Từ khoá giống số điện thoại (+84 912 345 678, 0912-345-678...) được chuẩn hóa về 0912345678
+        // để khớp Account.phone; email/họ tên vẫn tìm bình thường
+        String keyword = PhoneNumbers.toSearchKeyword(search == null ? "" : search.trim().toLowerCase(Locale.ROOT));
         // Không dùng param null cho chuỗi (Postgres không suy ra được kiểu): "%" = khớp tất cả
         String pattern = "%" + keyword + "%";
 
@@ -117,6 +120,7 @@ public class AccountAdminServiceImpl implements AccountAdminService {
             throw new AppException(ErrorCode.ACCOUNT_ALREADY_BANNED);
         }
 
+        AccountStatus beforeStatus = target.getStatus();
         target.setStatus(AccountStatus.BANNED);
         target.setBanReason(reason.trim());
         accountRepository.save(target);
@@ -126,6 +130,8 @@ public class AccountAdminServiceImpl implements AccountAdminService {
 
         ObjectNode detail = objectMapper.createObjectNode();
         detail.put("reason", target.getBanReason());
+        detail.put("beforeStatus", beforeStatus.name());
+        detail.put("afterStatus", target.getStatus().name());
         writeAudit(admin, "BAN_ACCOUNT", target, detail);
 
         return toResponse(target);
@@ -143,11 +149,13 @@ public class AccountAdminServiceImpl implements AccountAdminService {
 
         ObjectNode detail = objectMapper.createObjectNode();
         detail.put("previousReason", target.getBanReason());
+        detail.put("beforeStatus", target.getStatus().name());
 
         target.setStatus(AccountStatus.ACTIVE);
         target.setBanReason(null);
         accountRepository.save(target);
 
+        detail.put("afterStatus", target.getStatus().name());
         writeAudit(admin, "UNBAN_ACCOUNT", target, detail);
 
         return toResponse(target);

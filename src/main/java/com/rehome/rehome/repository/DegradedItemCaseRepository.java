@@ -33,6 +33,18 @@ public interface DegradedItemCaseRepository extends JpaRepository<DegradedItemCa
                                                @Param("pendingOnly") boolean pendingOnly,
                                                @Param("decidedOnly") boolean decidedOnly);
 
+    // Màn Moderator: danh sách ca hàng xuống cấp thuộc kho của Moderator đang đăng nhập
+    @Query("select c from DegradedItemCase c "
+            + "join fetch c.product p join fetch p.member "
+            + "left join fetch c.returnRequest "
+            + "where p.warehouse.id = :warehouseId "
+            + "and (:pendingOnly = false or c.choice is null) "
+            + "and (:decidedOnly = false or c.choice is not null) "
+            + "order by c.createdAt desc")
+    List<DegradedItemCase> findDetailsByWarehouse(@Param("warehouseId") UUID warehouseId,
+                                                   @Param("pendingOnly") boolean pendingOnly,
+                                                   @Param("decidedOnly") boolean decidedOnly);
+
     // /products/mine: gắn ca đang chờ Member quyết định vào từng món, một query cho cả trang
     @Query("select c from DegradedItemCase c "
             + "where c.product.id in :productIds and c.choice is null")

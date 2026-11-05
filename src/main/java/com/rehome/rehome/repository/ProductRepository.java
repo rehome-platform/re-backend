@@ -80,9 +80,12 @@ public interface ProductRepository extends JpaRepository<Product, String>, JpaSp
     SELECT p FROM Product p
 WHERE p.warehouse.id = :warehouseId
   AND (:status IS NULL OR p.status = :status)
+  AND (:degradedOnly = false OR EXISTS (
+        SELECT 1 FROM DegradedItemCase c WHERE c.product = p AND c.choice IS NULL))
 """)
     Page<Product> findInventory(@Param("warehouseId") UUID warehouseId,
                                 @Param("status") ProductStatus status,
+                                @Param("degradedOnly") boolean degradedOnly,
                                 Pageable pageable);
 
     @EntityGraph(attributePaths = {"brand", "warehouse", "consignmentReceipt"})

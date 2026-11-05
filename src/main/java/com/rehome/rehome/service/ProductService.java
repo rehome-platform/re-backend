@@ -43,5 +43,5 @@ public interface ProductService {
     PdfDownload getSkuLabel(Account account, String productId);
 
     PageResponse<InventoryItemResponse> getInventory(Account account, ProductStatus status,
-                                                     int page, int size);
+                                                     boolean degradedOnly, int page, int size);
 }

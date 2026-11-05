@@ -104,7 +104,7 @@ public class CounterServiceImpl implements CounterService {
 
     // F-034: đóng yêu cầu rút hàng khi Moderator bàn giao xong tại quầy (record phải khớp thực
     // tế: hàng đã về tay người ký gửi). Sản phẩm đã WITHDRAWN từ lúc tạo yêu cầu (F-032 - ngừng
-    // bán ngay), ở đây chỉ ghi nhận hàng vừa rời kho thật (xóa vị trí kệ, log WITHDRAWAL_OUT).
+    // bán ngay), ở đây chỉ ghi nhận hàng vừa rời kho thật (log WITHDRAWAL_OUT).
     private void handoverItemWithdrawal(Account moderator, UUID accountId, UUID refId) {
         ItemWithdrawalRequest withdrawal = itemWithdrawalRequestRepository.findById(refId)
                 .filter(r -> r.getMember().getId().equals(accountId))
@@ -119,15 +119,10 @@ public class CounterServiceImpl implements CounterService {
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
         if (product.getStatus() == ProductStatus.WITHDRAWN) {
-            String fromLocation = product.getShelfLocation();
-            product.setShelfLocation(null);
-            productRepository.save(product);
-
             stockMovementLogRepository.save(StockMovementLog.builder()
                     .product(product)
                     .warehouse(product.getWarehouse())
                     .movementType(StockMovementType.WITHDRAWAL_OUT)
-                    .fromLocation(fromLocation)
                     .moderator(moderator)
                     .note("Rút hàng ký gửi giữa kỳ - yêu cầu rút hàng " + withdrawal.getId())
                     .build());

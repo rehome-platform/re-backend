@@ -19,6 +19,5 @@ public class CreateProductRequest {
     private String name;
 
     private String size;          // nullable theo entity
-    private String shelfLocation; // nullable theo entity
     private List<String> photoUrls;
 }

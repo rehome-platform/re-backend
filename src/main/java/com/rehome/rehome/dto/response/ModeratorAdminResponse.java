@@ -15,6 +15,7 @@ import java.util.UUID;
 public class ModeratorAdminResponse {
     private final UUID accountId;
     private final String email;
+    private final String phone;
     private final String fullName;
     private final String moderatorCode;
     private final UUID warehouseId;

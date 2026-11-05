@@ -115,7 +115,6 @@ public class ModeratorConsignmentFormResponse {
         private String sku;
         private String name;
         private ProductStatus status;
-        private String shelfLocation;
         private Instant createdAt;
     }
 }

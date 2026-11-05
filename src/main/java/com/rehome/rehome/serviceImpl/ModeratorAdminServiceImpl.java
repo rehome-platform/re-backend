@@ -19,8 +19,10 @@ import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.ModeratorProfileRepository;
 import com.rehome.rehome.repository.QueueItemRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
+import com.rehome.rehome.repository.spec.AccountSpecifications;
 import com.rehome.rehome.service.ModeratorAdminService;
 import com.rehome.rehome.service.OtpEmailService;
+import com.rehome.rehome.util.PhoneNumbers;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -66,6 +68,7 @@ public class ModeratorAdminServiceImpl implements ModeratorAdminService {
         if (accountRepository.existsByEmailIgnoreCase(email)) {
             throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
+        String phone = resolvePhone(request.getPhone());
         Warehouse warehouse = requireActiveWarehouse(request.getWarehouseId());
 
         String tempPassword = generateTempPassword();
@@ -75,6 +78,7 @@ public class ModeratorAdminServiceImpl implements ModeratorAdminService {
                 .role(Role.MODERATOR)
                 .status(AccountStatus.ACTIVE)
                 .emailVerified(true)
+                .phone(phone)
                 .warehouse(warehouse)
                 .build());
 
@@ -92,6 +96,7 @@ public class ModeratorAdminServiceImpl implements ModeratorAdminService {
         ObjectNode detail = objectMapper.createObjectNode();
         detail.put("email", email);
         detail.put("fullName", fullName);
+        detail.put("phone", phone);
         detail.put("moderatorCode", profile.getModeratorCode());
         detail.put("warehouseId", warehouse.getId().toString());
         auditLogger.log(admin, "CREATE_MODERATOR", "ACCOUNT", account.getId().toString(), detail);
@@ -101,12 +106,13 @@ public class ModeratorAdminServiceImpl implements ModeratorAdminService {
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<ModeratorAdminResponse> list(UUID warehouseId, int page, int size) {
+    public PageResponse<ModeratorAdminResponse> list(UUID warehouseId, String search, AccountStatus status,
+                                                     int page, int size) {
         PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
                 Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<Account> accounts = warehouseId == null
-                ? accountRepository.findByRole(Role.MODERATOR, pageable)
-                : accountRepository.findByRoleAndWarehouse_Id(Role.MODERATOR, warehouseId, pageable);
+        // Tìm kiếm + lọc kho + lọc trạng thái nằm chung một truy vấn, nên totalElements/phân trang tính sau khi lọc
+        Page<Account> accounts = accountRepository.findAll(
+                AccountSpecifications.moderators(warehouseId, search, status), pageable);
 
         List<UUID> ids = accounts.getContent().stream().map(Account::getId).toList();
         Map<UUID, ModeratorProfile> profiles = moderatorProfileRepository.findAllById(ids).stream()
@@ -160,6 +166,21 @@ public class ModeratorAdminServiceImpl implements ModeratorAdminService {
         return toResponse(moderator, profile, target);
     }
 
+    // Số điện thoại không bắt buộc; có gửi thì phải đúng dạng 0xxxxxxxxx và chưa thuộc tài khoản nào
+    private String resolvePhone(String rawPhone) {
+        String phone = PhoneNumbers.normalize(rawPhone);
+        if (phone == null) {
+            return null;
+        }
+        if (!PhoneNumbers.isValid(phone)) {
+            throw new AppException(ErrorCode.INVALID_PHONE_FORMAT);
+        }
+        if (accountRepository.existsByPhone(phone)) {
+            throw new AppException(ErrorCode.PHONE_TAKEN);
+        }
+        return phone;
+    }
+
     private Warehouse requireActiveWarehouse(UUID warehouseId) {
         Warehouse warehouse = warehouseRepository.findById(warehouseId)
                 .orElseThrow(() -> new AppException(ErrorCode.WAREHOUSE_NOT_FOUND));
@@ -181,6 +202,7 @@ public class ModeratorAdminServiceImpl implements ModeratorAdminService {
         return ModeratorAdminResponse.builder()
                 .accountId(account.getId())
                 .email(account.getEmail())
+                .phone(account.getPhone())
                 .fullName(profile != null ? profile.getFullName() : null)
                 .moderatorCode(profile != null ? profile.getModeratorCode() : null)
                 .warehouseId(warehouse != null ? warehouse.getId() : null)

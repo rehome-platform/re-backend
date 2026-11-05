@@ -651,7 +651,6 @@ public class OrderServiceImpl implements OrderService {
                             .brandName(product.getBrand().getName())
                             .condition(product.getConditionNote())
                             .priceAtOrder(oi.getPriceAtOrder())
-                            .shelfLocation(product.getShelfLocation())
                             .scanned(oi.getScanned())
                             .build();
                 })
@@ -1221,16 +1220,13 @@ public class OrderServiceImpl implements OrderService {
                 .map(oi -> oi.getOrder().getOrderNo())
                 .orElse(null);
 
-        String instructions = StringUtils.hasText(product.getShelfLocation())
-                ? "Sản phẩm không thuộc đơn này. Vui lòng đặt lại vào kệ " + product.getShelfLocation() + "."
-                : "Sản phẩm không thuộc đơn này. Vui lòng đặt lại đúng vị trí trong kho.";
+        String instructions = "Sản phẩm không thuộc đơn này. Vui lòng đặt lại đúng vị trí trong kho.";
 
         WrongItemDetail wrongItem = WrongItemDetail.builder()
                 .productId(product.getId())
                 .name(product.getName())
                 .brandName(product.getBrand().getName())
                 .size(product.getSize())
-                .shelfLocation(product.getShelfLocation())
                 .belongsToOrderNo(belongsToOrderNo)
                 .instructions(instructions)
                 .build();

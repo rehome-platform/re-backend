@@ -2,7 +2,6 @@ package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.CreateProductRequest;
 import com.rehome.rehome.dto.request.PriceReductionRequest;
-import com.rehome.rehome.dto.request.UpdateShelfLocationRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
@@ -147,16 +146,6 @@ public class ProductController {
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<List<StockMovementResponse>>> getStockMovements(@PathVariable String id) {
         return ResponseEntity.ok(ApiResponse.success(productService.getStockMovements(id), 200, ""));
-    }
-
-    @PatchMapping("/{id}/shelf-location")
-    @PreAuthorize("hasRole('MODERATOR')")
-    public ResponseEntity<ApiResponse<ShelfLocationResponse>> updateShelfLocation(
-            @AuthenticationPrincipal Account account,
-            @PathVariable String id,
-            @Valid @RequestBody UpdateShelfLocationRequest request) {
-        return ResponseEntity.ok(ApiResponse.success(
-                productService.updateShelfLocation(account, id, request), 200, "Đã cập nhật vị trí kệ"));
     }
 
     // Trả thẳng file PDF để Moderator in tem, không qua URL trung gian

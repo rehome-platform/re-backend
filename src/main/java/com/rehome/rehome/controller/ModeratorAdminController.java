@@ -6,6 +6,7 @@ import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.ModeratorAdminResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.AccountStatus;
 import com.rehome.rehome.service.ModeratorAdminService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -38,12 +39,15 @@ public class ModeratorAdminController {
     }
 
     @GetMapping
-    @Operation(summary = "API 139 - Danh sách Moderator, lọc theo kho")
+    @Operation(summary = "API 139 - Danh sách Moderator, tìm theo tên/email/SĐT, lọc theo kho và status")
     public ResponseEntity<ApiResponse<PageResponse<ModeratorAdminResponse>>> list(
             @RequestParam(required = false) UUID warehouseId,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) AccountStatus status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ApiResponse.success(moderatorAdminService.list(warehouseId, page, size)));
+        return ResponseEntity.ok(ApiResponse.success(
+                moderatorAdminService.list(warehouseId, search, status, page, size)));
     }
 
     @PatchMapping("/{moderatorId}/warehouse")

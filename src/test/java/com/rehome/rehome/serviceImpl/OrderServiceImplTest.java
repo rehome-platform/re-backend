@@ -749,9 +749,6 @@ class OrderServiceImplTest {
                 .scannedCount(1)
                 .build();
 
-        product1.setShelfLocation("A-01");
-        product2.setShelfLocation("A-02");
-
         OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order)
                 .product(product1).priceAtOrder(new BigDecimal("220000")).scanned(true).build();
         OrderItem item2 = OrderItem.builder().id(UUID.randomUUID()).order(order)
@@ -798,10 +795,8 @@ class OrderServiceImplTest {
         assertThat(result.getItems().get(0).getThumbnailUrl()).isEqualTo("ao-a.jpg");
         assertThat(result.getItems().get(0).getBrandName()).isEqualTo("Nike");
         assertThat(result.getItems().get(0).getPriceAtOrder()).isEqualTo(new BigDecimal("220000"));
-        assertThat(result.getItems().get(0).getShelfLocation()).isEqualTo("A-01");
         assertThat(result.getItems().get(0).getScanned()).isTrue();
         assertThat(result.getItems().get(1).getBrandName()).isEqualTo("Adidas");
-        assertThat(result.getItems().get(1).getShelfLocation()).isEqualTo("A-02");
         assertThat(result.getItems().get(1).getScanned()).isFalse();
 
         assertThat(result.getBuyerNote()).isEqualTo("Giao giờ hành chính");
@@ -2659,7 +2654,6 @@ class OrderServiceImplTest {
 
         product2.setWarehouse(warehouse1);
         product2.setName("Quần B");
-        product2.setShelfLocation("B-02");
         product2.setBrand(Brand.builder().id(UUID.randomUUID()).name("Adidas").build());
         Order otherOrder = Order.builder().id(otherOrderId).orderNo("OD-2026-000777").warehouse(warehouse1).build();
         OrderItem otherOrderItem = OrderItem.builder().id(UUID.randomUUID()).order(otherOrder).product(product2).build();
@@ -2680,9 +2674,8 @@ class OrderServiceImplTest {
         assertThat(wrongItem.getProductId()).isEqualTo(product2.getId());
         assertThat(wrongItem.getName()).isEqualTo("Quần B");
         assertThat(wrongItem.getBrandName()).isEqualTo("Adidas");
-        assertThat(wrongItem.getShelfLocation()).isEqualTo("B-02");
         assertThat(wrongItem.getBelongsToOrderNo()).isEqualTo("OD-2026-000777");
-        assertThat(wrongItem.getInstructions()).contains("B-02");
+        assertThat(wrongItem.getInstructions()).contains("Vui lòng đặt lại đúng vị trí trong kho");
         assertThat(item1.getScanned()).isFalse();
         verify(orderItemRepository, never()).save(any());
         verify(orderRepository, never()).save(any());
@@ -2706,7 +2699,6 @@ class OrderServiceImplTest {
         assertThat(result.getMatched()).isFalse();
         assertThat(result.getWrongItem().getProductId()).isNull();
         assertThat(result.getWrongItem().getName()).isNull();
-        assertThat(result.getWrongItem().getShelfLocation()).isNull();
         assertThat(result.getWrongItem().getBelongsToOrderNo()).isNull();
         verify(orderItemRepository, never()).findActiveByProductIds(any());
         verify(orderItemRepository, never()).save(any());

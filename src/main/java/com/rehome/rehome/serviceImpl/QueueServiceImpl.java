@@ -25,11 +25,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
@@ -97,13 +95,8 @@ public class QueueServiceImpl implements QueueService {
                     return QueueItemResponse.from(q);
                 }
                 List<OrderItem> orderItems = orderItemsByOrderId.getOrDefault(orderId, List.of());
-                String shelfLocations = orderItems.stream()
-                        .map(oi -> oi.getProduct().getShelfLocation())
-                        .filter(StringUtils::hasText)
-                        .distinct()
-                        .collect(Collectors.joining(", "));
                 long waitingMinutes = Duration.between(order.getCreatedAt(), now).toMinutes();
-                return QueueItemResponse.fromPacking(q, order, orderItems.size(), shelfLocations, waitingMinutes);
+                return QueueItemResponse.fromPacking(q, order, orderItems.size(), waitingMinutes);
             }
             if (q.getType() == QueueType.LEGAL_CHANGE) {
                 UUID requestId = parseUuid(q.getRefId());

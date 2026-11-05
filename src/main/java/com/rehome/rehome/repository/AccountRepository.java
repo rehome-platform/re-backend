@@ -7,14 +7,16 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-public interface AccountRepository extends JpaRepository<Account, UUID> {
+public interface AccountRepository extends JpaRepository<Account, UUID>, JpaSpecificationExecutor<Account> {
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from Account u where u.email = :email")
     Optional<Account> findByEmailForUpdate(@Param("email") String email);
@@ -41,13 +43,15 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
 
     List<Account> findByRole(Role role);
 
-    // API 135: tìm theo email hoặc họ tên/tên tổ chức (:pattern đã là dạng %từ khoá% chữ thường, "%" nếu không tìm).
+    // API 135: tìm theo email, số điện thoại hoặc họ tên/tên tổ chức (:pattern đã là dạng %từ khoá% chữ thường,
+    // "%" nếu không tìm; từ khoá giống số điện thoại đã được chuẩn hóa về dạng 0xxxxxxxxx).
     // role/status null = không lọc.
     @Query("""
         select a from Account a
         where (:role is null or a.role = :role)
           and (:status is null or a.status = :status)
           and (lower(a.email) like :pattern
+               or a.phone like :pattern
                or exists (select 1 from MemberProfile m
                           where m.accountId = a.id and lower(m.fullName) like :pattern)
                or exists (select 1 from ModeratorProfile mo
@@ -61,7 +65,12 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
                                  @Param("pattern") String pattern,
                                  Pageable pageable);
 
-    // API 139: danh sách Moderator, nạp luôn kho để không N+1
+    // API 139: danh sách Moderator (search/status/warehouse qua AccountSpecifications.moderators),
+    // nạp luôn kho để không N+1
+    @Override
+    @EntityGraph(attributePaths = "warehouse")
+    Page<Account> findAll(Specification<Account> spec, Pageable pageable);
+
     @EntityGraph(attributePaths = "warehouse")
     Page<Account> findByRole(Role role, Pageable pageable);
 

@@ -29,8 +29,12 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -293,5 +297,107 @@ class ModeratorAdminServiceImplTest {
         assertAppError(() -> service.changeWarehouse(admin, moderator.getId(), request),
                 ErrorCode.MODERATOR_SAME_WAREHOUSE);
         verify(accountRepository, never()).save(any());
+    }
+
+    // ==================== create: số điện thoại ====================
+
+    private void stubCreateHappyPath(UUID whId) {
+        when(accountRepository.existsByEmailIgnoreCase("new@rehome.com")).thenReturn(false);
+        when(warehouseRepository.findById(whId)).thenReturn(Optional.of(activeWarehouse));
+        when(passwordEncoder.encode(anyString())).thenReturn("hashed");
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> {
+            Account a = inv.getArgument(0);
+            a.setId(UUID.randomUUID());
+            return a;
+        });
+        when(moderatorProfileRepository.saveAndFlush(any(ModeratorProfile.class))).thenAnswer(inv -> {
+            ModeratorProfile p = inv.getArgument(0);
+            p.setModeratorCode("MOD000001");
+            return p;
+        });
+    }
+
+    @Test
+    @DisplayName("create: có phone (+84, có dấu cách) -> chuẩn hóa về 0xxxxxxxxx, lưu vào Account.phone và trả trong response")
+    void create_savesNormalizedPhone() {
+        UUID whId = activeWarehouse.getId();
+        stubCreateHappyPath(whId);
+        when(accountRepository.existsByPhone("0912345678")).thenReturn(false);
+
+        CreateModeratorRequest request = createRequest("new@rehome.com", whId);
+        request.setPhone("+84 912 345 678");
+        ModeratorAdminResponse response = service.create(admin, request);
+
+        ArgumentCaptor<Account> captor = ArgumentCaptor.forClass(Account.class);
+        verify(accountRepository).save(captor.capture());
+        assertThat(captor.getValue().getPhone()).isEqualTo("0912345678");
+        assertThat(response.getPhone()).isEqualTo("0912345678");
+    }
+
+    @Test
+    @DisplayName("create: không gửi phone -> vẫn tạo được, phone null, không kiểm tra trùng")
+    void create_withoutPhone() {
+        UUID whId = activeWarehouse.getId();
+        stubCreateHappyPath(whId);
+
+        ModeratorAdminResponse response = service.create(admin, createRequest("new@rehome.com", whId));
+
+        assertThat(response.getPhone()).isNull();
+        verify(accountRepository, never()).existsByPhone(anyString());
+    }
+
+    @Test
+    @DisplayName("create: phone sai định dạng -> INVALID_PHONE_FORMAT, không tạo account, không gửi mail")
+    void create_invalidPhoneFormat() {
+        when(accountRepository.existsByEmailIgnoreCase("new@rehome.com")).thenReturn(false);
+
+        CreateModeratorRequest request = createRequest("new@rehome.com", activeWarehouse.getId());
+        request.setPhone("12345");
+
+        assertAppError(() -> service.create(admin, request), ErrorCode.INVALID_PHONE_FORMAT);
+        verify(accountRepository, never()).save(any());
+        verifyNoInteractions(otpEmailService, auditLogger);
+    }
+
+    @Test
+    @DisplayName("create: phone đã thuộc tài khoản khác -> PHONE_TAKEN, không tạo account, không gửi mail")
+    void create_phoneTaken() {
+        when(accountRepository.existsByEmailIgnoreCase("new@rehome.com")).thenReturn(false);
+        when(accountRepository.existsByPhone("0912345678")).thenReturn(true);
+
+        CreateModeratorRequest request = createRequest("new@rehome.com", activeWarehouse.getId());
+        request.setPhone("0912345678");
+
+        assertAppError(() -> service.create(admin, request), ErrorCode.PHONE_TAKEN);
+        verify(accountRepository, never()).save(any());
+        verifyNoInteractions(otpEmailService, auditLogger);
+    }
+
+    // ==================== list (API 139) ====================
+
+    @Test
+    @DisplayName("list: gộp search/status/warehouse vào một truy vấn, trả phone và tên kho, giới hạn size 100")
+    @SuppressWarnings("unchecked")
+    void list_usesSpecificationAndMapsPhone() {
+        Account moderator = moderatorIn(activeWarehouse);
+        moderator.setPhone("0912345678");
+        when(accountRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(moderator)));
+        when(moderatorProfileRepository.findAllById(any())).thenReturn(List.of(
+                ModeratorProfile.builder().accountId(moderator.getId()).fullName("Trần Mod")
+                        .moderatorCode("MOD000002").warehouse(activeWarehouse).build()));
+
+        var result = service.list(activeWarehouse.getId(), "0912", AccountStatus.ACTIVE, -1, 9999);
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(accountRepository).findAll(any(Specification.class), pageable.capture());
+        assertThat(pageable.getValue().getPageNumber()).isZero();
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(100);
+
+        assertThat(result.getContent()).hasSize(1);
+        ModeratorAdminResponse row = result.getContent().get(0);
+        assertThat(row.getPhone()).isEqualTo("0912345678");
+        assertThat(row.getFullName()).isEqualTo("Trần Mod");
+        assertThat(row.getWarehouseName()).isEqualTo("Kho Quận 7");
     }
 }

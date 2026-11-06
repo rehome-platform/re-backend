@@ -59,6 +59,7 @@ class ConversationServiceImplTest {
     @Mock private MemberProfileRepository memberProfileRepository;
     @Mock private AccountRepository accountRepository;
     @Mock private SimpMessagingTemplate messagingTemplate;
+    @Mock private com.rehome.rehome.service.PushNotificationService pushNotificationService;
 
     @InjectMocks private ConversationServiceImpl service;
 

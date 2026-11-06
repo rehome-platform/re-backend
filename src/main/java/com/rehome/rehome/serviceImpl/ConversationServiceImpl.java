@@ -23,6 +23,7 @@ import com.rehome.rehome.repository.MessageRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.ConversationService;
+import com.rehome.rehome.service.PushNotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -81,6 +82,7 @@ public class ConversationServiceImpl implements ConversationService {
     private final MemberProfileRepository memberProfileRepository;
     private final AccountRepository accountRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final PushNotificationService pushNotificationService;
 
     // Mỗi hội thoại là 1 topic STOMP riêng; WebSocketAuthInterceptor chặn SUBSCRIBE của người
     // không thuộc hội thoại đó nên không cần tách theo user queue.
@@ -229,8 +231,6 @@ public class ConversationServiceImpl implements ConversationService {
 
         checkMessageRateLimit(viewer.getId());
 
-        checkMessageRateLimit(viewer.getId());
-
         Conversation conversation = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new IllegalArgumentException(CONVERSATION_NOT_FOUND));
         requireParticipant(viewer, conversation);
@@ -252,7 +252,40 @@ public class ConversationServiceImpl implements ConversationService {
         // để cả 2 phía nhận qua WebSocket đều tự so sánh senderId với chính mình ở client.
         messagingTemplate.convertAndSend(conversationTopic(conversationId),
                 toMessageResponse(message, null));
+        // WebSocket chỉ tới được nếu người nhận đang mở kết nối; push FCM thêm đường tới khi app
+        // đã tắt/background. NoopPushNotificationServiceImpl không làm gì nếu chưa cấu hình Firebase.
+        pushMessageNotification(conversation, sender, response);
         return response;
+    }
+
+    // Người nhận: phía còn lại của hội thoại, trừ MEMBER_WAREHOUSE là hộp thư chung của cả kho
+    // (counterpartId là warehouseId, không phải 1 account) nên báo cho mọi Moderator đang phụ trách.
+    private List<Account> resolveRecipients(Conversation conversation, Account sender) {
+        boolean senderIsMember = sender.getId().equals(conversation.getMember().getId());
+        return switch (conversation.getType()) {
+            case MEMBER_ORGANIZATION -> {
+                UUID recipientId = senderIsMember
+                        ? conversation.getCounterpartId() : conversation.getMember().getId();
+                yield accountRepository.findById(recipientId).map(List::of).orElse(List.of());
+            }
+            case MEMBER_WAREHOUSE -> senderIsMember
+                    ? accountRepository.findByRoleAndWarehouse_Id(Role.MODERATOR, conversation.getCounterpartId())
+                    : List.of(conversation.getMember());
+        };
+    }
+
+    private void pushMessageNotification(Conversation conversation, Account sender, MessageResponse response) {
+        List<Account> recipients = resolveRecipients(conversation, sender);
+        if (recipients.isEmpty()) {
+            return;
+        }
+        String body = StringUtils.hasText(response.getContent()) ? response.getContent() : "Đã gửi ảnh";
+        Map<String, String> data = Map.of(
+                "type", "CHAT_MESSAGE",
+                "conversationId", conversation.getId().toString());
+        for (Account recipient : recipients) {
+            pushNotificationService.send(recipient, "Tin nhắn mới", body, data);
+        }
     }
 
     private static void validateImageUrls(List<String> imageUrls) {

@@ -62,4 +62,15 @@ public class DegradedItemCaseController {
         return ResponseEntity.ok(ApiResponse.success(
                 degradedItemCaseService.listMine(account, status)));
     }
+
+    // Danh sách ca hàng xuống cấp thuộc kho của Moderator đang đăng nhập (TH-04..TH-07)
+    @GetMapping("/warehouse")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<List<DegradedItemCaseDetailResponse>>> listByWarehouse(
+            @AuthenticationPrincipal Account account,
+            @RequestParam(required = false) String status) {
+
+        return ResponseEntity.ok(ApiResponse.success(
+                degradedItemCaseService.listByWarehouse(account, status)));
+    }
 }

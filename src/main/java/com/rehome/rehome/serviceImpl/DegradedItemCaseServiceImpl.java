@@ -207,6 +207,21 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
                 .toList();
     }
 
+    @Override
+    public List<DegradedItemCaseDetailResponse> listByWarehouse(Account moderator, String status) {
+        if (moderator.getWarehouse() == null) {
+            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);
+        }
+        DegradedItemCaseStatus parsed = StringUtils.hasText(status) ? parseStatus(status) : null;
+
+        return degradedItemCaseRepository.findDetailsByWarehouse(
+                        moderator.getWarehouse().getId(),
+                        parsed == DegradedItemCaseStatus.PENDING_DECISION,
+                        parsed == DegradedItemCaseStatus.DECIDED).stream()
+                .map(this::toDetailResponse)
+                .toList();
+    }
+
     private DegradedItemCaseStatus parseStatus(String status) {
         try {
             return DegradedItemCaseStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));

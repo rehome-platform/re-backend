@@ -30,6 +30,7 @@ public interface ProductRepository extends JpaRepository<Product, String>, JpaSp
     // API 96: món còn bán ở đúng slot, khác món đang xem. Cùng kho xếp trước (đỡ tách đơn), rồi mới nhất trước.
     // preferredWarehouseId luôn khác null: không biết kho thì truyền UUID không khớp kho nào, thứ tự rơi về createdAt.
     // Giới hạn số món bằng Pageable (không kèm Sort, thứ tự đã nằm trong query).
+    @EntityGraph(attributePaths = {"brand", "category", "warehouse", "consignmentReceipt"})
     @Query("""
         SELECT p FROM Product p
         WHERE p.status = com.rehome.rehome.entity.enums.ProductStatus.ON_SALE

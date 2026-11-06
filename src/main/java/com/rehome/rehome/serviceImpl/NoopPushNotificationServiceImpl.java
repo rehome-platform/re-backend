@@ -1,8 +1,8 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.entity.auth.Account;
-import com.rehome.rehome.entity.chat.Notification;
 import com.rehome.rehome.service.PushNotificationService;
+import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -15,7 +15,7 @@ import org.springframework.stereotype.Service;
 public class NoopPushNotificationServiceImpl implements PushNotificationService {
 
     @Override
-    public void send(Account recipient, Notification notification) {
+    public void send(Account recipient, String title, String body, Map<String, String> data) {
         // Không làm gì - WebSocket (nếu đang kết nối) là đường báo real-time duy nhất lúc này.
     }
 }

@@ -77,6 +77,10 @@ public interface AccountRepository extends JpaRepository<Account, UUID>, JpaSpec
     @EntityGraph(attributePaths = "warehouse")
     Page<Account> findByRoleAndWarehouse_Id(Role role, UUID warehouseId, Pageable pageable);
 
+    // Push chat (MEMBER_WAREHOUSE): tất cả Moderator đang phụ trách kho đó - hộp thư là chung,
+    // không phải 1 người cụ thể, nên phải báo hết.
+    List<Account> findByRoleAndWarehouse_Id(Role role, UUID warehouseId);
+
     // Audit log search: id các tài khoản có họ tên Member/Moderator hoặc tên tổ chức khớp :pattern
     // (dạng %từ khoá% chữ thường). Giới hạn bằng Pageable để từ khoá quá ngắn không kéo cả bảng.
     @Query("""

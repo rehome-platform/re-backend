@@ -8,11 +8,11 @@ import com.google.firebase.messaging.MulticastMessage;
 import com.google.firebase.messaging.SendResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.DeviceToken;
-import com.rehome.rehome.entity.chat.Notification;
 import com.rehome.rehome.repository.DeviceTokenRepository;
 import com.rehome.rehome.service.PushNotificationService;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -36,7 +36,7 @@ public class FcmPushNotificationServiceImpl implements PushNotificationService {
 
     @Override
     @Transactional
-    public void send(Account recipient, Notification notification) {
+    public void send(Account recipient, String title, String body, Map<String, String> data) {
         List<DeviceToken> deviceTokens = deviceTokenRepository.findByAccount_Id(recipient.getId());
         if (deviceTokens.isEmpty()) {
             return;
@@ -47,30 +47,26 @@ public class FcmPushNotificationServiceImpl implements PushNotificationService {
         // chunk đơn giản bằng sublist, không cần hàng đợi.
         for (int from = 0; from < tokens.size(); from += FCM_MULTICAST_LIMIT) {
             List<String> chunk = tokens.subList(from, Math.min(from + FCM_MULTICAST_LIMIT, tokens.size()));
-            sendChunk(chunk, notification);
+            sendChunk(chunk, title, body, data);
         }
     }
 
-    private void sendChunk(List<String> tokens, Notification notification) {
-        MulticastMessage message = MulticastMessage.builder()
+    private void sendChunk(List<String> tokens, String title, String body, Map<String, String> data) {
+        MulticastMessage.Builder messageBuilder = MulticastMessage.builder()
                 .addAllTokens(tokens)
                 .setNotification(com.google.firebase.messaging.Notification.builder()
-                        .setTitle(notification.getTitle())
-                        .setBody(notification.getBody())
-                        .build())
-                .putData("notificationId", notification.getId().toString())
-                .putData("type", notification.getType().name())
-                .putData("targetType", notification.getTargetType() == null
-                        ? "" : notification.getTargetType().name())
-                .putData("targetId", notification.getTargetId() == null
-                        ? "" : notification.getTargetId().toString())
-                .build();
+                        .setTitle(title)
+                        .setBody(body)
+                        .build());
+        if (data != null) {
+            messageBuilder.putAllData(data);
+        }
 
         try {
-            BatchResponse response = firebaseMessaging.sendEachForMulticast(message);
+            BatchResponse response = firebaseMessaging.sendEachForMulticast(messageBuilder.build());
             cleanUpInvalidTokens(tokens, response);
         } catch (FirebaseMessagingException e) {
-            log.warn("Gửi push FCM thất bại cho notification {}: {}", notification.getId(), e.getMessage());
+            log.warn("Gửi push FCM thất bại: {}", e.getMessage());
         }
     }
 

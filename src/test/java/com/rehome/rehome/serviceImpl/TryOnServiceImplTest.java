@@ -10,7 +10,9 @@ import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.TryOnModelType;
 import com.rehome.rehome.entity.enums.TryOnSlot;
 import com.rehome.rehome.entity.enums.UploadFolder;
+import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.entity.marketplace.Category;
+import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.Warehouse;
@@ -125,6 +127,22 @@ class TryOnServiceImplTest {
                 .currentPrice(new BigDecimal("100000"))
                 .status(status)
                 .category(category(slot))
+                .build();
+    }
+
+    // Món gợi ý đầy đủ trường như dữ liệu thật (API 96 trả cùng bộ trường với ProductSummaryResponse)
+    private Product suggestedProduct(String id, UUID warehouseId) {
+        Category c = mock(Category.class);
+        lenient().when(c.getName()).thenReturn("Quần");
+        return Product.builder().id(id).name("SP " + id)
+                .brand(Brand.builder().name("Uniqlo").build())
+                .category(c)
+                .size("M")
+                .conditionNote("Còn mới 90%")
+                .consignmentReceipt(ConsignmentReceipt.builder().agreedPrice(new BigDecimal("200000")).build())
+                .currentPrice(new BigDecimal("100000"))
+                .warehouse(Warehouse.builder().id(warehouseId).build())
+                .status(ProductStatus.ON_SALE)
                 .build();
     }
 
@@ -648,25 +666,66 @@ class TryOnServiceImplTest {
     // ==================== API 96: getSuggestions ====================
 
     @Test
-    @DisplayName("getSuggestions: map id/name/currentPrice, ưu tiên kho của món đang xem, tối đa 10 món")
+    @DisplayName("getSuggestions: trả đủ trường như ProductSummaryResponse + warehouseId, ưu tiên kho của món đang xem, tối đa 10 món")
     void getSuggestions_success() {
         UUID warehouseId = UUID.randomUUID();
-        Product suggested = product("Q7-QU-000900", TryOnSlot.BOTTOM, ProductStatus.ON_SALE);
+        Product suggested = suggestedProduct("Q7-QU-000900", warehouseId);
         when(productRepository.findWarehouseIdById(TOP_ID)).thenReturn(Optional.of(warehouseId));
         when(productRepository.findTryOnSuggestions(eq(TryOnSlot.BOTTOM), eq(TOP_ID), eq(warehouseId), any(Pageable.class)))
                 .thenReturn(List.of(suggested));
+        when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(anyCollection()))
+                .thenReturn(List.of(photo(suggested, "http://localhost:8080/files/products/s900.png")));
 
         List<TryOnSuggestionResponse> res = tryOnService.getSuggestions("BOTTOM", TOP_ID);
 
         assertEquals(1, res.size());
-        assertEquals("Q7-QU-000900", res.get(0).getId());
-        assertEquals("SP Q7-QU-000900", res.get(0).getName());
-        assertEquals(new BigDecimal("100000"), res.get(0).getCurrentPrice());
+        TryOnSuggestionResponse r = res.get(0);
+        assertEquals("Q7-QU-000900", r.getId());
+        assertEquals("SP Q7-QU-000900", r.getName());
+        assertEquals("http://localhost:8080/files/products/s900.png", r.getThumbnailUrl());
+        assertEquals("Uniqlo", r.getBrandName());
+        assertEquals("Quần", r.getCategoryName());
+        assertEquals("M", r.getSize());
+        assertEquals("Còn mới 90%", r.getCondition());
+        assertEquals(new BigDecimal("200000"), r.getOriginalPrice());
+        assertEquals(new BigDecimal("100000"), r.getCurrentPrice());
+        assertEquals(warehouseId, r.getWarehouseId());
 
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
         verify(productRepository).findTryOnSuggestions(any(), any(), any(), pageable.capture());
         assertEquals(0, pageable.getValue().getPageNumber());
         assertEquals(10, pageable.getValue().getPageSize());
+    }
+
+    @Test
+    @DisplayName("getSuggestions: nhiều món -> thumbnail lấy bằng 1 query, món không có ảnh thì thumbnailUrl null")
+    void getSuggestions_thumbnailsLoadedInOneQuery() {
+        UUID warehouseId = UUID.randomUUID();
+        Product withPhoto = suggestedProduct("Q7-QU-000901", warehouseId);
+        Product withoutPhoto = suggestedProduct("Q7-QU-000902", warehouseId);
+        when(productRepository.findTryOnSuggestions(any(), any(), any(), any(Pageable.class)))
+                .thenReturn(List.of(withPhoto, withoutPhoto));
+        // Hai ảnh của cùng một món: lấy ảnh đầu tiên (displayOrder nhỏ nhất)
+        when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(anyCollection()))
+                .thenReturn(List.of(
+                        photo(withPhoto, "http://localhost:8080/files/products/first.png"),
+                        photo(withPhoto, "http://localhost:8080/files/products/second.png")));
+
+        List<TryOnSuggestionResponse> res = tryOnService.getSuggestions("TOP", null);
+
+        assertEquals(2, res.size());
+        assertEquals("http://localhost:8080/files/products/first.png", res.get(0).getThumbnailUrl());
+        assertNull(res.get(1).getThumbnailUrl());
+        verify(productPhotoRepository, times(1)).findByProduct_IdInOrderByDisplayOrderAscIdAsc(anyCollection());
+    }
+
+    @Test
+    @DisplayName("getSuggestions: không có món nào -> trả danh sách rỗng, không query ảnh")
+    void getSuggestions_empty_noPhotoQuery() {
+        when(productRepository.findTryOnSuggestions(any(), any(), any(), any(Pageable.class))).thenReturn(List.of());
+
+        assertTrue(tryOnService.getSuggestions("TOP", null).isEmpty());
+        verifyNoInteractions(productPhotoRepository);
     }
 
     @Test

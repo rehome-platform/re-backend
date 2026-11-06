@@ -195,20 +195,44 @@ public class TryOnServiceImpl implements TryOnService {
         TryOnSlot target = parseSuggestionSlot(slot);
 
         String excludeId = blankToNull(excludeProductId);
-        // Món đang xem quyết định kho được ưu tiên; không có hoặc không tồn tại thì chỉ xếp theo mới nhất
         UUID preferredWarehouse = excludeId == null ? NO_PREFERRED_WAREHOUSE
                 : productRepository.findWarehouseIdById(excludeId).orElse(NO_PREFERRED_WAREHOUSE);
 
-        return productRepository.findTryOnSuggestions(target,
-                        excludeId == null ? "" : excludeId,      // id sản phẩm không bao giờ rỗng nên "" là không loại món nào
-                        preferredWarehouse,
-                        PageRequest.of(0, SUGGESTION_LIMIT)).stream()
-                .map(p -> TryOnSuggestionResponse.builder()
-                        .id(p.getId())
-                        .name(p.getName())
-                        .currentPrice(p.getCurrentPrice())
-                        .build())
+        List<Product> products = productRepository.findTryOnSuggestions(target,
+                excludeId == null ? "" : excludeId,
+                preferredWarehouse,
+                PageRequest.of(0, SUGGESTION_LIMIT));
+        if (products.isEmpty()) {
+            return List.of();
+        }
+
+        // Ảnh đại diện (ảnh đầu tiên) của mọi món gợi ý, lấy bằng một query
+        List<String> productIds = products.stream().map(Product::getId).toList();
+        Map<String, String> thumbnails = productPhotoRepository
+                .findByProduct_IdInOrderByDisplayOrderAscIdAsc(productIds).stream()
+                .collect(Collectors.toMap(
+                        ph -> ph.getProduct().getId(),
+                        ProductPhoto::getImageUrl,
+                        (first, second) -> first));
+
+        return products.stream()
+                .map(p -> toSuggestion(p, thumbnails.get(p.getId())))
                 .toList();
+    }
+
+    private static TryOnSuggestionResponse toSuggestion(Product p, String thumbnailUrl) {
+        return TryOnSuggestionResponse.builder()
+                .id(p.getId())
+                .name(p.getName())
+                .thumbnailUrl(thumbnailUrl)
+                .brandName(p.getBrand() == null ? null : p.getBrand().getName())
+                .categoryName(p.getCategory() == null ? null : p.getCategory().getName())
+                .size(p.getSize())
+                .condition(p.getConditionNote())
+                .originalPrice(p.getConsignmentReceipt() == null ? null : p.getConsignmentReceipt().getAgreedPrice())
+                .currentPrice(p.getCurrentPrice())
+                .warehouseId(p.getWarehouse() == null ? null : p.getWarehouse().getId())
+                .build();
     }
 
     // API 96 chỉ nhận TOP hoặc BOTTOM (đầm đi một mình, không cần món bù)

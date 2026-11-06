@@ -8,6 +8,7 @@ import com.rehome.rehome.dto.request.GhnOrderItem;
 import com.rehome.rehome.dto.request.PackScanRequest;
 import com.rehome.rehome.dto.request.PayOrdersRequest;
 import com.rehome.rehome.dto.request.RateOrderRequest;
+import com.rehome.rehome.dto.request.UpdateOrderShippingAddressRequest;
 import com.rehome.rehome.dto.response.CreateShipmentResponse;
 import com.rehome.rehome.dto.response.GhnCreateOrderResponse;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
@@ -710,6 +711,7 @@ public class OrderServiceImpl implements OrderService {
                 .cancelReason(order.getCancelReason() != null ? order.getCancelReason().name() : null)
                 .cancelledAt(order.getCancelledAt())
                 .refundAmount(order.getRefundAmount())
+                .addressChangedAt(order.getAddressChangedAt())
                 .completedAt(order.getCompletedAt())
                 .ratingComment(order.getRatingComment())
                 .scannedProductIds(scannedProductIds)
@@ -807,6 +809,124 @@ public class OrderServiceImpl implements OrderService {
                 .status(order.getStatus().name())
                 .refundAmount(order.getRefundAmount())
                 .build();
+    }
+
+    // Đổi địa chỉ giao hàng sau khi đặt, chỉ cho phép một lần và chỉ khi chưa đóng gói.
+    // Phí ship được tính lại theo tuyến kho -> địa chỉ mới; tăng thì chặn lại để buyer tự quyết,
+    // giảm thì hoàn phần chênh vào ví ngay (tương tự refundBuyerWallet lúc hủy đơn).
+    @Override
+    @Transactional
+    public OrderResponse updateShippingAddress(String email, UUID orderId, UpdateOrderShippingAddressRequest request) {
+
+        if (request == null || !StringUtils.hasText(request.getShippingAddressId())) {
+            throw new BadRequestException("shippingAddressId là bắt buộc.");
+        }
+
+        Account buyer = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
+
+        if (!order.getBuyer().getId().equals(buyer.getId())) {
+            throw new ForbiddenException("Bạn không có quyền đổi địa chỉ của đơn này.");
+        }
+
+        if (order.getStatus() != OrderStatus.PENDING_PAYMENT && order.getStatus() != OrderStatus.PAID) {
+            throw new ConflictException(
+                    "Đơn đã đóng gói, không thể đổi địa chỉ giao hàng.", "CANNOT_CHANGE_ADDRESS_AFTER_PACKING");
+        }
+
+        if (order.getAddressChangedAt() != null) {
+            throw new ConflictException(
+                    "Địa chỉ giao hàng của đơn này đã được đổi trước đó.", "ADDRESS_ALREADY_CHANGED");
+        }
+
+        UUID shippingAddressId;
+        try {
+            shippingAddressId = UUID.fromString(request.getShippingAddressId());
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException("shippingAddressId không hợp lệ.");
+        }
+
+        ShippingAddress newAddress = shippingAddressRepository.findById(shippingAddressId)
+                .filter(a -> a.getMember().getId().equals(buyer.getId()))
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy địa chỉ."));
+
+        if (!StringUtils.hasText(newAddress.getWardName()) || !StringUtils.hasText(newAddress.getProvinceName())) {
+            throw new BadRequestException("Địa chỉ chưa có đầy đủ thông tin phường/xã, tỉnh/thành.");
+        }
+
+        BigDecimal newFee = ghnShippingFeeCalculator.calculate(
+                order.getWarehouse(), newAddress.getWardName(), newAddress.getProvinceName());
+        BigDecimal oldFee = order.getShippingFee();
+
+        BigDecimal refundedAmount = BigDecimal.ZERO;
+
+        if (order.getStatus() == OrderStatus.PAID && newFee.compareTo(oldFee) > 0) {
+            throw new ConflictException(
+                    "Phí vận chuyển tới địa chỉ mới tăng thêm, phí mới là " + newFee
+                            + "đ, vui lòng chọn địa chỉ khác hoặc giữ địa chỉ cũ.",
+                    "SHIPPING_FEE_INCREASED");
+        }
+
+        BigDecimal feeDiff = oldFee.subtract(newFee);
+        if (order.getStatus() == OrderStatus.PAID && feeDiff.signum() > 0) {
+            refundedAmount = feeDiff;
+            refundShippingFeeDifference(order, refundedAmount);
+        }
+
+        order.setShippingAddress(newAddress);
+        order.setShippingRecipientName(newAddress.getRecipientName());
+        order.setShippingPhone(newAddress.getPhone());
+        order.setShippingAddressDetail(newAddress.getAddressDetail());
+        order.setShippingWardName(newAddress.getWardName());
+        order.setShippingProvinceName(newAddress.getProvinceName());
+        order.setShippingFee(newFee);
+        order.setTotalAmount(order.getSubtotal().add(newFee));
+        order.setAddressChangedAt(Instant.now());
+        orderRepository.save(order);
+
+        return OrderResponse.builder()
+                .id(order.getId().toString())
+                .orderNo(order.getOrderNo())
+                .warehouseId(order.getWarehouse().getId().toString())
+                .shippingRecipientName(order.getShippingRecipientName())
+                .shippingPhone(order.getShippingPhone())
+                .shippingAddressDetail(order.getShippingAddressDetail())
+                .shippingWardName(order.getShippingWardName())
+                .shippingProvinceName(order.getShippingProvinceName())
+                .subtotal(order.getSubtotal())
+                .shippingFee(order.getShippingFee())
+                .totalAmount(order.getTotalAmount())
+                .status(order.getStatus().name())
+                .paymentDeadline(order.getPaymentDeadline())
+                .addressChangedAt(order.getAddressChangedAt())
+                .refundedAmount(refundedAmount)
+                .build();
+    }
+
+    // Hoàn phần phí ship chênh lệch vào ví khi đổi sang địa chỉ có phí thấp hơn - cùng cơ chế
+    // khóa ví với payOrders để không lệch số dư khi có request song song.
+    private void refundShippingFeeDifference(Order order, BigDecimal amount) {
+        Wallet wallet = walletRepository.findByMemberIdForUpdate(order.getBuyer().getId())
+                .orElseGet(() -> getOrCreateWallet(order.getBuyer()));
+        wallet.setBalance(wallet.getBalance().add(amount));
+        walletRepository.save(wallet);
+
+        WalletTransaction refundTransaction = WalletTransaction.builder()
+                .transactionNo(generateTransactionNo())
+                .walletType(WalletType.MEMBER)
+                .walletId(wallet.getId())
+                .type(WalletTransactionType.REFUND)
+                .amount(amount)
+                .balanceAfter(wallet.getBalance())
+                .relatedOrder(order)
+                .status(TransactionStatus.SUCCESS)
+                .note("Hoàn phần phí vận chuyển giảm khi đổi địa chỉ đơn " + order.getOrderNo())
+                .build();
+        walletTransactionRepository.save(refundTransaction);
+        recordPlatformCounterpart(refundTransaction);
     }
 
     @Override

@@ -25,4 +25,23 @@ public class AdminDashboardResponse {
     private final long fundBalance;
     // Số việc trong hàng đợi Moderator đã quá hạn
     private final long overdueTaskCount;
+
+    // Doanh thu bán (tổng giá các món trong đơn COMPLETED) và hoa hồng thu được, theo kỳ ký gửi
+    // áp dụng lúc đặt đơn (OrderItem.termApplied); lọc theo [from, to) giống revenue
+    private final long term1SalesRevenue;
+    private final long term1Commission;
+    private final long term2SalesRevenue;
+    private final long term2Commission;
+    private final long term3SalesRevenue;
+    private final long term3Commission;
+
+    // Số món đang nằm trong kho theo kỳ hiện tại của sản phẩm (Product.currentTerm); luôn là giá trị hiện tại
+    private final long term1StockCount;
+    private final long term2StockCount;
+    private final long term3StockCount;
+
+    // Tổng số món đã bán (trong các đơn COMPLETED thuộc khoảng)
+    private final long totalSoldItemsCount;
+    // platformRevenue / tổng doanh thu bán * 100, làm tròn 2 chữ số; 0 nếu chưa có doanh thu bán
+    private final double netProfitMarginPercent;
 }

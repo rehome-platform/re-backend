@@ -47,7 +47,18 @@ public class DashboardExcelWriter {
             r = line(sheet, r, "Số dư ví đang giữ cho Member (hiện tại, đ)", d.getWalletBalanceHeld(), money);
             r = line(sheet, r, "Doanh thu nền tảng (đ)", d.getPlatformRevenue(), money);
             r = line(sheet, r, "Số dư quỹ nền tảng (hiện tại, đ)", d.getFundBalance(), money);
-            line(sheet, r, "Số việc quá hạn (hiện tại)", d.getOverdueTaskCount(), null);
+            r = line(sheet, r, "Số việc quá hạn (hiện tại)", d.getOverdueTaskCount(), null);
+            r = line(sheet, r, "Tổng số món đã bán", d.getTotalSoldItemsCount(), null);
+            r = line(sheet, r, "Tỷ suất lợi nhuận ròng (%)", d.getNetProfitMarginPercent(), null);
+            r = line(sheet, r, "Doanh thu bán kỳ 1 (đ)", d.getTerm1SalesRevenue(), money);
+            r = line(sheet, r, "Hoa hồng kỳ 1 (đ)", d.getTerm1Commission(), money);
+            r = line(sheet, r, "Doanh thu bán kỳ 2 (đ)", d.getTerm2SalesRevenue(), money);
+            r = line(sheet, r, "Hoa hồng kỳ 2 (đ)", d.getTerm2Commission(), money);
+            r = line(sheet, r, "Doanh thu bán kỳ 3 (đ)", d.getTerm3SalesRevenue(), money);
+            r = line(sheet, r, "Hoa hồng kỳ 3 (đ)", d.getTerm3Commission(), money);
+            r = line(sheet, r, "Số món tồn kho kỳ 1 (hiện tại)", d.getTerm1StockCount(), null);
+            r = line(sheet, r, "Số món tồn kho kỳ 2 (hiện tại)", d.getTerm2StockCount(), null);
+            line(sheet, r, "Số món tồn kho kỳ 3 (hiện tại)", d.getTerm3StockCount(), null);
 
             sheet.setColumnWidth(0, 52 * 256);
             sheet.setColumnWidth(1, 22 * 256);

@@ -1,0 +1,32 @@
+package com.rehome.rehome.dto.request;
+
+import com.rehome.rehome.entity.enums.ViolationWordAction;
+import com.rehome.rehome.entity.enums.ViolationWordCategory;
+import com.rehome.rehome.entity.enums.ViolationWordSeverity;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import lombok.Data;
+
+@Data
+public class CreateViolationWordRequest {
+
+    @NotBlank(message = "word không được để trống")
+    @Size(max = 255, message = "word tối đa 255 ký tự")
+    private String word;
+
+    @NotNull(message = "category không được để trống")
+    private ViolationWordCategory category;
+
+    @NotNull(message = "severity không được để trống")
+    private ViolationWordSeverity severity;
+
+    @NotNull(message = "action không được để trống")
+    private ViolationWordAction action;
+
+    // Không gửi thì mặc định bật
+    private Boolean isActive;
+
+    @Size(max = 1000, message = "note tối đa 1000 ký tự")
+    private String note;
+}

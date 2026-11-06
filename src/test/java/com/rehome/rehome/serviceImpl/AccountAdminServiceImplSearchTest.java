@@ -25,6 +25,7 @@ import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import java.util.List;
 import java.util.UUID;
@@ -74,7 +75,7 @@ class AccountAdminServiceImplSearchTest {
         when(organizationProfileRepository.findAllById(any())).thenReturn(List.of(
                 OrganizationProfile.builder().accountId(org.getId()).displayName("Quỹ Hy Vọng").build()));
 
-        PageResponse<AdminAccountResponse> result = service.search(null, null, null, 0, 20);
+        PageResponse<AdminAccountResponse> result = service.search(null, null, null, null, null, 0, 20);
 
         assertThat(result.getContent()).extracting(AdminAccountResponse::getFullName)
                 .containsExactly("Nguyễn Văn An", "Trần Mod", "Quỹ Hy Vọng", null);
@@ -91,8 +92,8 @@ class AccountAdminServiceImplSearchTest {
         when(moderatorProfileRepository.findAllById(any())).thenReturn(List.of());
         when(organizationProfileRepository.findAllById(any())).thenReturn(List.of());
 
-        service.search("  NguYen@  ", Role.MEMBER, AccountStatus.BANNED, 0, 20);
-        service.search(null, null, null, 0, 20);
+        service.search("  NguYen@  ", Role.MEMBER, AccountStatus.BANNED, null, null, 0, 20);
+        service.search(null, null, null, null, null, 0, 20);
 
         ArgumentCaptor<String> pattern = ArgumentCaptor.forClass(String.class);
         verify(accountRepository).searchForAdmin(eq(Role.MEMBER), eq(AccountStatus.BANNED),
@@ -110,7 +111,7 @@ class AccountAdminServiceImplSearchTest {
         when(moderatorProfileRepository.findAllById(any())).thenReturn(List.of());
         when(organizationProfileRepository.findAllById(any())).thenReturn(List.of());
 
-        service.search(null, null, null, -5, 9999);
+        service.search(null, null, null, null, null, -5, 9999);
 
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
         verify(accountRepository).searchForAdmin(any(), any(), any(), pageable.capture());
@@ -127,8 +128,8 @@ class AccountAdminServiceImplSearchTest {
         when(moderatorProfileRepository.findAllById(any())).thenReturn(List.of());
         when(organizationProfileRepository.findAllById(any())).thenReturn(List.of());
 
-        service.search("+84 912-345-678", null, null, 0, 20);
-        service.search("0912 345", null, null, 0, 20);
+        service.search("+84 912-345-678", null, null, null, null, 0, 20);
+        service.search("0912 345", null, null, null, null, 0, 20);
 
         verify(accountRepository).searchForAdmin(isNull(), isNull(), eq("%0912345678%"), any(Pageable.class));
         verify(accountRepository).searchForAdmin(isNull(), isNull(), eq("%0912345%"), any(Pageable.class));
@@ -143,8 +144,59 @@ class AccountAdminServiceImplSearchTest {
         when(moderatorProfileRepository.findAllById(any())).thenReturn(List.of());
         when(organizationProfileRepository.findAllById(any())).thenReturn(List.of());
 
-        service.search(" An 2 ", null, null, 0, 20);
+        service.search(" An 2 ", null, null, null, null, 0, 20);
 
         verify(accountRepository).searchForAdmin(isNull(), isNull(), eq("%an 2%"), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("search: mặc định sắp theo createdAt giảm dần")
+    void search_defaultSort() {
+        stubEmptyPage();
+
+        service.search(null, null, null, null, null, 0, 20);
+
+        Sort sort = capturePageable().getSort();
+        assertThat(sort.getOrderFor("createdAt")).isNotNull();
+        assertThat(sort.getOrderFor("createdAt").getDirection()).isEqualTo(Sort.Direction.DESC);
+        assertThat(sort).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("search: sortBy=status, sortDir=asc -> status tăng dần, createdAt giảm dần làm khoá phụ")
+    void search_sortByStatusAsc() {
+        stubEmptyPage();
+
+        service.search(null, null, null, "status", "ASC", 0, 20);
+
+        Sort sort = capturePageable().getSort();
+        assertThat(sort.getOrderFor("status").getDirection()).isEqualTo(Sort.Direction.ASC);
+        assertThat(sort.getOrderFor("createdAt").getDirection()).isEqualTo(Sort.Direction.DESC);
+    }
+
+    @Test
+    @DisplayName("search: sortBy ngoài danh sách cho phép / sortDir lạ -> về mặc định createdAt desc")
+    void search_unsupportedSortFallsBackToDefault() {
+        stubEmptyPage();
+
+        service.search(null, null, null, "passwordHash", "sideways", 0, 20);
+
+        Sort sort = capturePageable().getSort();
+        assertThat(sort).hasSize(1);
+        assertThat(sort.getOrderFor("createdAt").getDirection()).isEqualTo(Sort.Direction.DESC);
+    }
+
+    private void stubEmptyPage() {
+        when(accountRepository.searchForAdmin(any(), any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+        when(memberProfileRepository.findAllById(any())).thenReturn(List.of());
+        when(moderatorProfileRepository.findAllById(any())).thenReturn(List.of());
+        when(organizationProfileRepository.findAllById(any())).thenReturn(List.of());
+    }
+
+    private Pageable capturePageable() {
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(accountRepository).searchForAdmin(any(), any(), any(), pageable.capture());
+        return pageable.getValue();
     }
 }

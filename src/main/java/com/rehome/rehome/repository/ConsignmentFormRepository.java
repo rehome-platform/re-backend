@@ -29,6 +29,10 @@ public interface ConsignmentFormRepository extends JpaRepository<ConsignmentForm
     List<ConsignmentForm> findByMember_IdAndStatusInOrderByCreatedAtAsc(
             UUID memberId, Collection<ConsignmentFormStatus> statuses);
 
+    // API 25: form còn hiệu lực của nhiều Member tại một kho, gom 1 query cho cả danh sách tra cứu
+    List<ConsignmentForm> findByMember_IdInAndWarehouse_IdAndStatusInOrderByCreatedAtAsc(
+            Collection<UUID> memberIds, UUID warehouseId, Collection<ConsignmentFormStatus> statuses);
+
     // API 34, 35: khóa dòng để 2 Moderator không xử lý cùng lúc
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select f from ConsignmentForm f where f.id = :id")

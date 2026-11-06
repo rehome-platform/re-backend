@@ -14,10 +14,12 @@ public interface AuditLogAdminService {
      * API 149 - F-160: tra cứu audit log, mới nhất trước. Mọi bộ lọc đều không bắt buộc và kết hợp được với nhau.
      * actionType (một giá trị, giữ cho client cũ) và actionTypes (nhiều giá trị) được gộp lại.
      * Khoảng thời gian là [from, to); 400 INVALID_DATE_RANGE nếu from sau to.
+     * search: từ khoá tự do (không phân biệt hoa thường) khớp actionType, targetId, reason, id/email/tên của
+     * người thực hiện và tên Member/tổ chức bị tác động. targetType lọc không phân biệt hoa thường.
      */
-    PageResponse<AuditLogResponse> search(UUID actorAccountId, String actionType, List<String> actionTypes,
-                                          String targetType, String targetId, Instant from, Instant to,
-                                          int page, int size);
+    PageResponse<AuditLogResponse> search(UUID actorAccountId, String search, String actionType,
+                                          List<String> actionTypes, String targetType, String targetId,
+                                          Instant from, Instant to, int page, int size);
 
     /** Actor và loại thao tác thực sự có trong audit log, dùng cho các ô lọc. */
     AuditLogFilterOptionsResponse filterOptions();

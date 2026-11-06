@@ -4,6 +4,7 @@ import com.rehome.rehome.entity.auth.MemberProfile;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -13,5 +14,5 @@ public interface MemberProfileRepository extends JpaRepository<MemberProfile, UU
     Optional<MemberProfile> findByAccountId(UUID accountId);
     Optional<MemberProfile> findByMemberCode(String memberCode);
     List<MemberProfile> findByAccount_Phone(String phone);
-    List<MemberProfile> findAllByAccount_IdIn(List<UUID> accountIds);
+    List<MemberProfile> findAllByAccount_IdIn(Collection<UUID> accountIds);
 }

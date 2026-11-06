@@ -4,6 +4,7 @@ import com.rehome.rehome.dto.request.CreateOrderRequest;
 import com.rehome.rehome.dto.request.PackScanRequest;
 import com.rehome.rehome.dto.request.PayOrdersRequest;
 import com.rehome.rehome.dto.request.RateOrderRequest;
+import com.rehome.rehome.dto.request.UpdateOrderShippingAddressRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.CreateShipmentResponse;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
@@ -23,6 +24,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -130,6 +132,23 @@ public class OrderController {
         String message = result.getRefundAmount() != null
                 ? "Đã hủy đơn, hoàn tiền vào ví"
                 : "Đã hủy đơn";
+
+        return ResponseEntity.ok(ApiResponse.success(result, message));
+    }
+
+    @PatchMapping("/{id}/shipping-address")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<OrderResponse>> updateShippingAddress(
+            Authentication authentication,
+            @PathVariable UUID id,
+            @RequestBody UpdateOrderShippingAddressRequest request) {
+
+        String email = authentication.getName();
+        OrderResponse result = orderService.updateShippingAddress(email, id, request);
+
+        String message = result.getRefundedAmount() != null && result.getRefundedAmount().signum() > 0
+                ? "Đã cập nhật địa chỉ giao hàng, hoàn tiền phí ship chênh lệch vào ví"
+                : "Đã cập nhật địa chỉ giao hàng";
 
         return ResponseEntity.ok(ApiResponse.success(result, message));
     }

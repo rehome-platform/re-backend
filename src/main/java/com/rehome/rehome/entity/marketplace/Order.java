@@ -129,6 +129,10 @@ public class Order {
     @Column(name = "cancelled_at", nullable = true)
     private Instant cancelledAt;
 
+    // Thời điểm Member đổi địa chỉ giao hàng sau khi đặt - chỉ cho đổi một lần
+    @Column(name = "address_changed_at", nullable = true)
+    private Instant addressChangedAt;
+
     // Số tiền đã hoàn vào ví người mua khi hủy đơn — F-061
     @Column(name = "refund_amount", nullable = true, precision = 19, scale = 2)
     private BigDecimal refundAmount;

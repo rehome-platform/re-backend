@@ -79,6 +79,46 @@ public class OrganizationLegalChangeMapper {
         return imagesReplaced;
     }
 
+    /**
+     * Kiểm cấu trúc {@code proposedChanges} ngay lúc tổ chức nộp yêu cầu (F-097), trước khi lưu —
+     * trường lạ phải báo lỗi ngay, không để chờ đến lúc Moderator duyệt ({@link #apply}) mới phát
+     * hiện, vì lúc đó yêu cầu đã lưu và tổ chức lại phải nộp lại từ đầu.
+     */
+    public void validate(JsonNode proposedChanges) {
+        requireKnownFields(proposedChanges, ALLOWED_FIELDS, "proposedChanges");
+
+        boolean hasAny = proposedChanges.has("legalName")
+                || proposedChanges.has("orgType")
+                || proposedChanges.has("taxCode");
+
+        if (proposedChanges.has("representative")) {
+            JsonNode representative = proposedChanges.get("representative");
+            if (!representative.isObject()) {
+                throw new BadRequestException("representative phải là object.");
+            }
+            requireKnownFields(representative, ALLOWED_REPRESENTATIVE_FIELDS, "representative");
+            hasAny = true;
+        }
+
+        if (proposedChanges.has("documents")) {
+            JsonNode documents = proposedChanges.get("documents");
+            if (!documents.isArray() || documents.isEmpty()) {
+                throw new BadRequestException("documents phải là mảng và có ít nhất một giấy tờ.");
+            }
+            for (JsonNode item : documents) {
+                if (!item.isObject()) {
+                    throw new BadRequestException("Mỗi phần tử của documents phải là object.");
+                }
+                requireKnownFields(item, ALLOWED_DOCUMENT_FIELDS, "documents[]");
+            }
+            hasAny = true;
+        }
+
+        if (!hasAny) {
+            throw new BadRequestException("proposedChanges không có trường pháp lý nào để áp dụng.");
+        }
+    }
+
     /** PATCH từng field: chỉ field có mặt trong JSON mới bị đổi, còn lại giữ nguyên. */
     private boolean applyRepresentative(JsonNode node, OrganizationProfile profile) {
         if (!node.isObject()) {

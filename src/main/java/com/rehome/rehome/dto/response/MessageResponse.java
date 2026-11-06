@@ -1,12 +1,12 @@
 package com.rehome.rehome.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.time.Instant;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.Instant;
 
 /**
  * 1 tin nhắn (F-089/F-090/F-091). createdAt lấy từ Message.sentAt.
@@ -21,6 +21,7 @@ public class MessageResponse {
     private String id;
     private String senderId;
     private String content;
+    private List<String> imageUrls;
     private Instant createdAt;
 
     @JsonProperty("isMine")

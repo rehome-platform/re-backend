@@ -36,7 +36,10 @@ public enum UploadFolder {
     CAMPAIGN_COVERS("campaign-covers", false),
 
     /** Giấy tờ pháp lý của tổ chức - OrganizationDocument.fileUrl (ảnh scan hoặc PDF) */
-    ORGANIZATION_DOCUMENTS("organization-documents", true);
+    ORGANIZATION_DOCUMENTS("organization-documents", true),
+
+    /** Ảnh gửi kèm tin nhắn chat - Message.imageUrls */
+    CHAT_IMAGES("chat-images", false);
 
     /** Đường dẫn thật trên storage */
     private final String path;

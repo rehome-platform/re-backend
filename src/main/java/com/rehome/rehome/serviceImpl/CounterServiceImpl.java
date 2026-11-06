@@ -23,9 +23,13 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -41,9 +45,19 @@ public class CounterServiceImpl implements CounterService {
     private final ReturnRequestRepository returnRequestRepository;
     private final ProductRepository productRepository;
     private final StockMovementLogRepository stockMovementLogRepository;
+    private final AuditLogRepository auditLogRepository;
 
     private static final List<ConsignmentFormStatus> OPEN_FORM_STATUSES =
             List.of(ConsignmentFormStatus.PENDING, ConsignmentFormStatus.APPROVED);
+
+    // Form ký gửi còn hiệu lực với kho: chưa bị từ chối/hết hạn/hủy và chưa nhập kho xong
+    private static final List<ConsignmentFormStatus> ACTIVE_CONSIGNMENT_STATUSES = List.of(
+            ConsignmentFormStatus.PENDING, ConsignmentFormStatus.APPROVED, ConsignmentFormStatus.INSPECTING);
+
+    // Mỗi lần admin khoá tài khoản ghi 1 dòng audit log này (xem AccountAdminServiceImpl.ban)
+    private static final String BAN_ACTION_TYPE = "BAN_ACCOUNT";
+    private static final String ACCOUNT_TARGET_TYPE = "ACCOUNT";
+
     @Override
     @Transactional
     public void confirmIdentity(Account moderator, UUID accountId) {
@@ -153,7 +167,7 @@ public class CounterServiceImpl implements CounterService {
     }
     @Override
     @Transactional
-    public List<MemberLookupItemResponse> lookup(CounterLookupRequest req) {
+    public List<MemberLookupItemResponse> lookup(Account moderator, CounterLookupRequest req) {
         String memberCode = trimToNull(req.getMemberCode());
         String phone = trimToNull(req.getPhone());
         String qrPayload = trimToNull(req.getQrPayload());
@@ -162,6 +176,10 @@ public class CounterServiceImpl implements CounterService {
         if (provided != 1) {
             throw new AppException(ErrorCode.LOOKUP_INVALID_INPUT);
         }
+        if (moderator.getWarehouse() == null) {
+            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);
+        }
+        UUID warehouseId = moderator.getWarehouse().getId();
 
         List<MemberProfile> found;
         if (phone != null) {
@@ -175,7 +193,57 @@ public class CounterServiceImpl implements CounterService {
         if (found.isEmpty()) {
             throw new AppException(ErrorCode.MEMBER_NOT_FOUND);
         }
-        return found.stream().map(MemberLookupItemResponse::from).toList();
+
+        // Nạp theo lô cho cả danh sách tìm thấy: mỗi nguồn dữ liệu đúng 1 truy vấn
+        List<UUID> accountIds = found.stream().map(MemberProfile::getAccountId).toList();
+        Map<UUID, Instant> lastVisits = loadLastWarehouseVisits(accountIds);
+        Map<UUID, ViolationAggregate> violations = loadViolationAggregates(accountIds);
+        Map<UUID, List<MemberLookupItemResponse.ActiveConsignmentItem>> consignments =
+                loadActiveConsignments(accountIds, warehouseId);
+
+        return found.stream().map(p -> {
+            ViolationAggregate agg = violations.get(p.getAccountId());
+            MemberLookupItemResponse.ViolationSummary summary = MemberLookupItemResponse.ViolationSummary
+                    .fromAccount(p.getAccount(),
+                            agg == null ? 0 : agg.total(),
+                            agg == null ? null : agg.lastAt());
+            return MemberLookupItemResponse.from(p,
+                    lastVisits.get(p.getAccountId()),
+                    summary,
+                    consignments.getOrDefault(p.getAccountId(), List.of()));
+        }).toList();
+    }
+
+    // Bảng chỉ giữ 1 dòng/account (ghi đè mỗi lần xác nhận) nên confirmedAt chính là lần gần nhất
+    private Map<UUID, Instant> loadLastWarehouseVisits(Collection<UUID> accountIds) {
+        Map<UUID, Instant> result = new HashMap<>();
+        identityConfirmationRepository.findAllById(accountIds)
+                .forEach(c -> result.put(c.getAccountId(), c.getConfirmedAt()));
+        return result;
+    }
+
+    private record ViolationAggregate(long total, Instant lastAt) {}
+
+    private Map<UUID, ViolationAggregate> loadViolationAggregates(Collection<UUID> accountIds) {
+        Map<UUID, ViolationAggregate> result = new HashMap<>();
+        List<String> targetIds = accountIds.stream().map(UUID::toString).toList();
+        for (Object[] row : auditLogRepository.summarizeByTarget(BAN_ACTION_TYPE, ACCOUNT_TARGET_TYPE, targetIds)) {
+            result.put(UUID.fromString((String) row[0]),
+                    new ViolationAggregate(((Number) row[1]).longValue(), (Instant) row[2]));
+        }
+        return result;
+    }
+
+    private Map<UUID, List<MemberLookupItemResponse.ActiveConsignmentItem>> loadActiveConsignments(
+            Collection<UUID> accountIds, UUID warehouseId) {
+        return consignmentFormRepository
+                .findByMember_IdInAndWarehouse_IdAndStatusInOrderByCreatedAtAsc(
+                        accountIds, warehouseId, ACTIVE_CONSIGNMENT_STATUSES)
+                .stream()
+                // getId() trên proxy lazy không kích hoạt query
+                .collect(Collectors.groupingBy(f -> f.getMember().getId(),
+                        Collectors.mapping(MemberLookupItemResponse.ActiveConsignmentItem::from,
+                                Collectors.toList())));
     }
 
     @Override

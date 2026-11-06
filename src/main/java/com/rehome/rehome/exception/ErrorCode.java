@@ -232,7 +232,11 @@ public enum ErrorCode {
     DASHBOARD_EXPORT_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo file Excel báo cáo."),
 
     // API 149 - F-160: tra cứu audit log
-    INVALID_PAGINATION(HttpStatus.BAD_REQUEST, "page phải >= 0 và size trong khoảng 1 đến 100.");
+    INVALID_PAGINATION(HttpStatus.BAD_REQUEST, "page phải >= 0 và size trong khoảng 1 đến 100."),
+
+    // Admin: quản lý từ khóa vi phạm
+    VIOLATION_WORD_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy từ khóa vi phạm."),
+    VIOLATION_WORD_ALREADY_EXISTS(HttpStatus.CONFLICT, "Từ khóa vi phạm này đã tồn tại.");
 
     private final HttpStatus status;
     private final String defaultMessage;

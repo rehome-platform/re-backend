@@ -20,6 +20,8 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -67,16 +69,62 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
 
         Double rating = queryRepository.avgServiceRating(from, to);
 
+        // Doanh thu bán / hoa hồng theo kỳ 1-3 (món không thuộc kỳ 1-3 vẫn được tính vào tổng)
+        List<AdminDashboardQueryRepository.TermSales> termSales = queryRepository.sumCompletedSalesByTerm(from, to);
+        Map<Short, Long> stockByTerm = queryRepository.countStockedProductsByTerm();
+
+        BigDecimal totalSalesRevenue = termSales.stream()
+                .map(AdminDashboardQueryRepository.TermSales::salesRevenue)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        long totalSoldItemsCount = termSales.stream()
+                .mapToLong(AdminDashboardQueryRepository.TermSales::itemCount)
+                .sum();
+
+        BigDecimal platformRevenue = queryRepository.sumPlatformRevenue(from, to);
+
         return AdminDashboardResponse.builder()
                 .revenue(toLong(queryRepository.sumCompletedOrderAmount(from, to)))
                 .ordersCount(queryRepository.countPaidOrders(from, to))
                 .inventoryCount(queryRepository.countStockedProducts())
                 .avgServiceRating(rating == null ? 0.0 : Math.round(rating * 10.0) / 10.0)
                 .walletBalanceHeld(toLong(queryRepository.sumMemberWalletBalance()))
-                .platformRevenue(toLong(queryRepository.sumPlatformRevenue(from, to)))
+                .platformRevenue(toLong(platformRevenue))
                 .fundBalance(toLong(queryRepository.sumPlatformFundBalance()))
                 .overdueTaskCount(queryRepository.countQueueItemsCreatedBefore(overdueBefore))
+                .term1SalesRevenue(toLong(salesOfTerm(termSales, 1)))
+                .term1Commission(toLong(commissionOfTerm(termSales, 1)))
+                .term2SalesRevenue(toLong(salesOfTerm(termSales, 2)))
+                .term2Commission(toLong(commissionOfTerm(termSales, 2)))
+                .term3SalesRevenue(toLong(salesOfTerm(termSales, 3)))
+                .term3Commission(toLong(commissionOfTerm(termSales, 3)))
+                .term1StockCount(stockByTerm.getOrDefault((short) 1, 0L))
+                .term2StockCount(stockByTerm.getOrDefault((short) 2, 0L))
+                .term3StockCount(stockByTerm.getOrDefault((short) 3, 0L))
+                .totalSoldItemsCount(totalSoldItemsCount)
+                .netProfitMarginPercent(netProfitMarginPercent(platformRevenue, totalSalesRevenue))
                 .build();
+    }
+
+    private static BigDecimal salesOfTerm(List<AdminDashboardQueryRepository.TermSales> rows, int term) {
+        return rows.stream().filter(r -> r.term() == term)
+                .map(AdminDashboardQueryRepository.TermSales::salesRevenue)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private static BigDecimal commissionOfTerm(List<AdminDashboardQueryRepository.TermSales> rows, int term) {
+        return rows.stream().filter(r -> r.term() == term)
+                .map(AdminDashboardQueryRepository.TermSales::commission)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    // (platformRevenue / totalSalesRevenue) * 100; chưa có doanh thu bán thì 0 để tránh chia cho 0
+    static double netProfitMarginPercent(BigDecimal platformRevenue, BigDecimal totalSalesRevenue) {
+        if (totalSalesRevenue.signum() <= 0) {
+            return 0.0;
+        }
+        return platformRevenue.multiply(BigDecimal.valueOf(100))
+                .divide(totalSalesRevenue, 2, RoundingMode.HALF_UP)
+                .doubleValue();
     }
 
     private static long toLong(BigDecimal value) {

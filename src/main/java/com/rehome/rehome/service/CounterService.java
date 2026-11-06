@@ -16,8 +16,8 @@ public interface CounterService {
 
     void handover(Account moderator, CounterHandoverRequest request);
 
-    // API 25: tra Member bằng đúng 1 trong memberCode / phone / qrPayload
-    List<MemberLookupItemResponse> lookup(CounterLookupRequest request);
+    // API 25: tra Member bằng đúng 1 trong memberCode / phone / qrPayload; form ký gửi chỉ tính trong kho của Moderator
+    List<MemberLookupItemResponse> lookup(Account moderator, CounterLookupRequest request);
 
     // API 27: việc chờ xử lý của Member đang đứng tại quầy
     MemberTasksResponse getTasks(UUID accountId);

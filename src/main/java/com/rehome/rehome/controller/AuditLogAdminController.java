@@ -27,9 +27,11 @@ public class AuditLogAdminController {
 
     // Ghi log (F-161) không có API: các service nghiệp vụ gọi AuditLogger.log trong cùng transaction
     @GetMapping
-    @Operation(summary = "API 149 - Tra cứu audit log (F-160), lọc theo actor / actionType(s) / targetType / targetId / khoảng thời gian [from, to)")
+    @Operation(summary = "API 149 - Tra cứu audit log (F-160), tìm theo từ khoá, lọc theo actor / actionType(s) / targetType / targetId / khoảng thời gian [from, to)")
     public ResponseEntity<ApiResponse<PageResponse<AuditLogResponse>>> search(
             @RequestParam(required = false) UUID actorAccountId,
+            // Từ khoá tự do: actionType, targetId (id Member/tổ chức), reason, id/email/tên người thực hiện hoặc người bị tác động
+            @RequestParam(required = false) String search,
             // actionType: một giá trị (giữ cho client cũ); actionTypes: nhiều giá trị, dạng A,B hoặc lặp tham số
             @RequestParam(required = false) String actionType,
             @RequestParam(required = false) List<String> actionTypes,
@@ -41,7 +43,7 @@ public class AuditLogAdminController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(ApiResponse.success(
-                auditLogAdminService.search(actorAccountId, actionType, actionTypes, targetType, targetId,
+                auditLogAdminService.search(actorAccountId, search, actionType, actionTypes, targetType, targetId,
                         from, to, page, size), "OK"));
     }
 

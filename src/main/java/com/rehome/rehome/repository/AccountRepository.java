@@ -76,4 +76,18 @@ public interface AccountRepository extends JpaRepository<Account, UUID>, JpaSpec
 
     @EntityGraph(attributePaths = "warehouse")
     Page<Account> findByRoleAndWarehouse_Id(Role role, UUID warehouseId, Pageable pageable);
+
+    // Audit log search: id các tài khoản có họ tên Member/Moderator hoặc tên tổ chức khớp :pattern
+    // (dạng %từ khoá% chữ thường). Giới hạn bằng Pageable để từ khoá quá ngắn không kéo cả bảng.
+    @Query("""
+        select a.id from Account a
+        where exists (select 1 from MemberProfile m
+                      where m.accountId = a.id and lower(m.fullName) like :pattern)
+           or exists (select 1 from ModeratorProfile mo
+                      where mo.accountId = a.id and lower(mo.fullName) like :pattern)
+           or exists (select 1 from OrganizationProfile o
+                      where o.accountId = a.id
+                        and (lower(o.displayName) like :pattern or lower(o.legalName) like :pattern))
+        """)
+    List<UUID> findIdsByProfileNameLike(@Param("pattern") String pattern, Pageable pageable);
 }

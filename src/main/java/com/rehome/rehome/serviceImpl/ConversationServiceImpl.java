@@ -23,11 +23,13 @@ import com.rehome.rehome.repository.MessageRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.ConversationService;
+import com.rehome.rehome.service.PushNotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -79,6 +81,14 @@ public class ConversationServiceImpl implements ConversationService {
     private final WarehouseRepository warehouseRepository;
     private final MemberProfileRepository memberProfileRepository;
     private final AccountRepository accountRepository;
+    private final SimpMessagingTemplate messagingTemplate;
+    private final PushNotificationService pushNotificationService;
+
+    // Mỗi hội thoại là 1 topic STOMP riêng; WebSocketAuthInterceptor chặn SUBSCRIBE của người
+    // không thuộc hội thoại đó nên không cần tách theo user queue.
+    private static String conversationTopic(UUID conversationId) {
+        return "/topic/conversations." + conversationId;
+    }
 
     @Override
     @Transactional(readOnly = true)
@@ -221,10 +231,6 @@ public class ConversationServiceImpl implements ConversationService {
 
         checkMessageRateLimit(viewer.getId());
 
-        checkMessageRateLimit(viewer.getId());
-
-        checkMessageRateLimit(viewer.getId());
-
         Conversation conversation = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new IllegalArgumentException(CONVERSATION_NOT_FOUND));
         requireParticipant(viewer, conversation);
@@ -241,7 +247,45 @@ public class ConversationServiceImpl implements ConversationService {
                 .build();
         messageRepository.save(message);
 
-        return toMessageResponse(message, viewer.getId());
+        MessageResponse response = toMessageResponse(message, viewer.getId());
+        // isMine phụ thuộc viewer nên broadcast riêng 1 bản trung lập (không ai được đánh dấu "của mình")
+        // để cả 2 phía nhận qua WebSocket đều tự so sánh senderId với chính mình ở client.
+        messagingTemplate.convertAndSend(conversationTopic(conversationId),
+                toMessageResponse(message, null));
+        // WebSocket chỉ tới được nếu người nhận đang mở kết nối; push FCM thêm đường tới khi app
+        // đã tắt/background. NoopPushNotificationServiceImpl không làm gì nếu chưa cấu hình Firebase.
+        pushMessageNotification(conversation, sender, response);
+        return response;
+    }
+
+    // Người nhận: phía còn lại của hội thoại, trừ MEMBER_WAREHOUSE là hộp thư chung của cả kho
+    // (counterpartId là warehouseId, không phải 1 account) nên báo cho mọi Moderator đang phụ trách.
+    private List<Account> resolveRecipients(Conversation conversation, Account sender) {
+        boolean senderIsMember = sender.getId().equals(conversation.getMember().getId());
+        return switch (conversation.getType()) {
+            case MEMBER_ORGANIZATION -> {
+                UUID recipientId = senderIsMember
+                        ? conversation.getCounterpartId() : conversation.getMember().getId();
+                yield accountRepository.findById(recipientId).map(List::of).orElse(List.of());
+            }
+            case MEMBER_WAREHOUSE -> senderIsMember
+                    ? accountRepository.findByRoleAndWarehouse_Id(Role.MODERATOR, conversation.getCounterpartId())
+                    : List.of(conversation.getMember());
+        };
+    }
+
+    private void pushMessageNotification(Conversation conversation, Account sender, MessageResponse response) {
+        List<Account> recipients = resolveRecipients(conversation, sender);
+        if (recipients.isEmpty()) {
+            return;
+        }
+        String body = StringUtils.hasText(response.getContent()) ? response.getContent() : "Đã gửi ảnh";
+        Map<String, String> data = Map.of(
+                "type", "CHAT_MESSAGE",
+                "conversationId", conversation.getId().toString());
+        for (Account recipient : recipients) {
+            pushNotificationService.send(recipient, "Tin nhắn mới", body, data);
+        }
     }
 
     private static void validateImageUrls(List<String> imageUrls) {
@@ -302,7 +346,13 @@ public class ConversationServiceImpl implements ConversationService {
     }
 
     private void requireParticipant(Account viewer, Conversation conversation) {
-        boolean participant = switch (viewer.getRole()) {
+        if (!isParticipant(viewer, conversation)) {
+            throw new ForbiddenException(NOT_A_PARTICIPANT);
+        }
+    }
+
+    private static boolean isParticipant(Account viewer, Conversation conversation) {
+        return switch (viewer.getRole()) {
             case MEMBER -> conversation.getMember().getId().equals(viewer.getId());
             case ORGANIZATION -> conversation.getType() == ConversationType.MEMBER_ORGANIZATION
                     && conversation.getCounterpartId().equals(viewer.getId());
@@ -311,9 +361,15 @@ public class ConversationServiceImpl implements ConversationService {
                     && conversation.getCounterpartId().equals(viewer.getWarehouse().getId());
             case ADMIN -> false;
         };
-        if (!participant) {
-            throw new ForbiddenException(NOT_A_PARTICIPANT);
-        }
+    }
+
+    // Dùng bởi WebSocketAuthInterceptor để chặn STOMP SUBSCRIBE vào hội thoại không thuộc về mình.
+    @Override
+    @Transactional(readOnly = true)
+    public boolean isParticipant(Account viewer, UUID conversationId) {
+        return conversationRepository.findById(conversationId)
+                .map(conversation -> isParticipant(viewer, conversation))
+                .orElse(false);
     }
 
     // Member chỉ thấy tổ chức đã VERIFIED (F-082), nên cũng chỉ chat được với tổ chức đó

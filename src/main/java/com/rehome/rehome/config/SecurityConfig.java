@@ -37,6 +37,10 @@ public class SecurityConfig {
 
     private static final String[] PUBLIC_ENDPOINTS = {
             "/health",
+            // Handshake WebSocket/SockJS: xác thực JWT ở STOMP CONNECT frame
+            // (WebSocketAuthChannelInterceptor), không phải ở request HTTP handshake này.
+            "/ws/**",
+            "/ws-sockjs/**",
             "/api/auth/**",
             "/v3/api-docs/**",
             "/v3/api-docs.yaml",

@@ -9,18 +9,22 @@ import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.repository.FollowRepository;
 import com.rehome.rehome.repository.NotificationRepository;
 import com.rehome.rehome.service.NotificationService;
+import com.rehome.rehome.service.PushNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -30,8 +34,12 @@ public class NotificationServiceImpl implements NotificationService {
 
     private static final int MAX_PAGE_SIZE = 50;
 
+    private static final String NOTIFICATION_QUEUE = "/queue/notifications";
+
     private final NotificationRepository notificationRepository;
     private final FollowRepository followRepository;
+    private final SimpMessagingTemplate messagingTemplate;
+    private final PushNotificationService pushNotificationService;
 
     @Override
     @Transactional(readOnly = true)
@@ -60,6 +68,11 @@ public class NotificationServiceImpl implements NotificationService {
                 .createdAt(Instant.now())
                 .build();
         notificationRepository.save(notification);
+        messagingTemplate.convertAndSendToUser(
+                recipientAccount.getEmail(), NOTIFICATION_QUEUE, toResponse(notification));
+        // WebSocket chỉ tới được nếu app đang mở kết nối; push FCM thêm đường tới khi app đã
+        // tắt/background. NoopPushNotificationServiceImpl không làm gì nếu chưa cấu hình Firebase.
+        pushNotificationService.send(recipientAccount, title, body, pushData(notification));
     }
 
     @Override
@@ -85,6 +98,12 @@ public class NotificationServiceImpl implements NotificationService {
                         .build())
                 .toList();
         notificationRepository.saveAll(notifications);
+        notifications.forEach(notification -> {
+            messagingTemplate.convertAndSendToUser(
+                    notification.getRecipientAccount().getEmail(), NOTIFICATION_QUEUE, toResponse(notification));
+            pushNotificationService.send(
+                    notification.getRecipientAccount(), title, body, pushData(notification));
+        });
         log.info("Đã báo {} cho {} người theo dõi tổ chức {}", type, notifications.size(), organizationId);
     }
 
@@ -109,6 +128,15 @@ public class NotificationServiceImpl implements NotificationService {
     @Transactional(readOnly = true)
     public long countUnread(UUID accountId) {
         return notificationRepository.countByRecipientAccount_IdAndIsReadFalse(accountId);
+    }
+
+    private static Map<String, String> pushData(Notification notification) {
+        Map<String, String> data = new HashMap<>();
+        data.put("notificationId", notification.getId().toString());
+        data.put("type", notification.getType().name());
+        data.put("targetType", notification.getTargetType() == null ? "" : notification.getTargetType().name());
+        data.put("targetId", notification.getTargetId() == null ? "" : notification.getTargetId().toString());
+        return data;
     }
 
     private static NotificationResponse toResponse(Notification notification) {

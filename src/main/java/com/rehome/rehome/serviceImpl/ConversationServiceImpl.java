@@ -28,6 +28,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -79,6 +80,13 @@ public class ConversationServiceImpl implements ConversationService {
     private final WarehouseRepository warehouseRepository;
     private final MemberProfileRepository memberProfileRepository;
     private final AccountRepository accountRepository;
+    private final SimpMessagingTemplate messagingTemplate;
+
+    // Mỗi hội thoại là 1 topic STOMP riêng; WebSocketAuthInterceptor chặn SUBSCRIBE của người
+    // không thuộc hội thoại đó nên không cần tách theo user queue.
+    private static String conversationTopic(UUID conversationId) {
+        return "/topic/conversations." + conversationId;
+    }
 
     @Override
     @Transactional(readOnly = true)
@@ -239,7 +247,12 @@ public class ConversationServiceImpl implements ConversationService {
                 .build();
         messageRepository.save(message);
 
-        return toMessageResponse(message, viewer.getId());
+        MessageResponse response = toMessageResponse(message, viewer.getId());
+        // isMine phụ thuộc viewer nên broadcast riêng 1 bản trung lập (không ai được đánh dấu "của mình")
+        // để cả 2 phía nhận qua WebSocket đều tự so sánh senderId với chính mình ở client.
+        messagingTemplate.convertAndSend(conversationTopic(conversationId),
+                toMessageResponse(message, null));
+        return response;
     }
 
     private static void validateImageUrls(List<String> imageUrls) {
@@ -300,7 +313,13 @@ public class ConversationServiceImpl implements ConversationService {
     }
 
     private void requireParticipant(Account viewer, Conversation conversation) {
-        boolean participant = switch (viewer.getRole()) {
+        if (!isParticipant(viewer, conversation)) {
+            throw new ForbiddenException(NOT_A_PARTICIPANT);
+        }
+    }
+
+    private static boolean isParticipant(Account viewer, Conversation conversation) {
+        return switch (viewer.getRole()) {
             case MEMBER -> conversation.getMember().getId().equals(viewer.getId());
             case ORGANIZATION -> conversation.getType() == ConversationType.MEMBER_ORGANIZATION
                     && conversation.getCounterpartId().equals(viewer.getId());
@@ -309,9 +328,15 @@ public class ConversationServiceImpl implements ConversationService {
                     && conversation.getCounterpartId().equals(viewer.getWarehouse().getId());
             case ADMIN -> false;
         };
-        if (!participant) {
-            throw new ForbiddenException(NOT_A_PARTICIPANT);
-        }
+    }
+
+    // Dùng bởi WebSocketAuthInterceptor để chặn STOMP SUBSCRIBE vào hội thoại không thuộc về mình.
+    @Override
+    @Transactional(readOnly = true)
+    public boolean isParticipant(Account viewer, UUID conversationId) {
+        return conversationRepository.findById(conversationId)
+                .map(conversation -> isParticipant(viewer, conversation))
+                .orElse(false);
     }
 
     // Member chỉ thấy tổ chức đã VERIFIED (F-082), nên cũng chỉ chat được với tổ chức đó

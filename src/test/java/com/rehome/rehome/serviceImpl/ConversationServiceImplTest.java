@@ -32,6 +32,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
@@ -57,6 +58,7 @@ class ConversationServiceImplTest {
     @Mock private WarehouseRepository warehouseRepository;
     @Mock private MemberProfileRepository memberProfileRepository;
     @Mock private AccountRepository accountRepository;
+    @Mock private SimpMessagingTemplate messagingTemplate;
 
     @InjectMocks private ConversationServiceImpl service;
 

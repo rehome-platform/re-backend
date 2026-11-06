@@ -28,4 +28,10 @@ public interface ConversationService {
 
     // F-089/F-090/F-091: gửi tin nhắn.
     MessageResponse sendMessage(Account viewer, UUID conversationId, SendMessageRequest request);
+
+    // Dùng để chặn STOMP SUBSCRIBE vào /topic/conversations.{id} của người không thuộc hội thoại
+    // đó - không throw như requireParticipant (gọi từ REST) vì nơi gọi nằm trong ChannelInterceptor,
+    // chỉ cần true/false để quyết định cho phép subscribe hay không. false cả khi conversationId
+    // không tồn tại.
+    boolean isParticipant(Account viewer, UUID conversationId);
 }

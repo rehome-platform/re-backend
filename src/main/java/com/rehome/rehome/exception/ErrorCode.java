@@ -236,7 +236,10 @@ public enum ErrorCode {
 
     // Admin: quản lý từ khóa vi phạm
     VIOLATION_WORD_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy từ khóa vi phạm."),
-    VIOLATION_WORD_ALREADY_EXISTS(HttpStatus.CONFLICT, "Từ khóa vi phạm này đã tồn tại.");
+    VIOLATION_WORD_ALREADY_EXISTS(HttpStatus.CONFLICT, "Từ khóa vi phạm này đã tồn tại."),
+
+    // Chat: giới hạn tốc độ gửi tin nhắn
+    MESSAGE_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Bạn gửi quá nhanh, thử lại sau ít giây.");
 
     private final HttpStatus status;
     private final String defaultMessage;

@@ -553,7 +553,7 @@ class ConversationServiceImplTest {
         });
 
         MessageResponse res = service.sendMessage(account(memberId, Role.MEMBER), convId,
-                new SendMessageRequest("Đơn hàng OD-2026-000123 đã giao chưa?"));
+                new SendMessageRequest("Đơn hàng OD-2026-000123 đã giao chưa?", null));
 
         assertThat(res.getId()).isNotNull();
         assertThat(res.getContent()).isEqualTo("Đơn hàng OD-2026-000123 đã giao chưa?");
@@ -571,9 +571,9 @@ class ConversationServiceImplTest {
     @Test
     void sendMessage_blankContent_throwsBadRequest() {
         assertThatThrownBy(() -> service.sendMessage(account(UUID.randomUUID(), Role.MEMBER),
-                UUID.randomUUID(), new SendMessageRequest("   ")))
+                UUID.randomUUID(), new SendMessageRequest("   ", null)))
                 .isInstanceOf(BadRequestException.class)
-                .hasMessage("content là bắt buộc.");
+                .hasMessage("content hoặc imageUrls là bắt buộc.");
 
         verifyNoInteractions(conversationRepository, messageRepository, accountRepository);
     }
@@ -584,7 +584,7 @@ class ConversationServiceImplTest {
         when(conversationRepository.findById(convId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.sendMessage(account(UUID.randomUUID(), Role.MEMBER),
-                convId, new SendMessageRequest("xin chào")))
+                convId, new SendMessageRequest("xin chào", null)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Không tìm thấy hội thoại.");
 
@@ -598,7 +598,7 @@ class ConversationServiceImplTest {
                 conversation(convId, UUID.randomUUID(), ConversationType.MEMBER_ORGANIZATION, UUID.randomUUID())));
 
         assertThatThrownBy(() -> service.sendMessage(account(UUID.randomUUID(), Role.MEMBER),
-                convId, new SendMessageRequest("xin chào")))
+                convId, new SendMessageRequest("xin chào", null)))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessage("Bạn không thuộc hội thoại này.");
 

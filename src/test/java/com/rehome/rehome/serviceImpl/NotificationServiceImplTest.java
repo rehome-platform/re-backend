@@ -7,6 +7,7 @@ import com.rehome.rehome.entity.chat.Notification;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.repository.NotificationRepository;
+import com.rehome.rehome.service.PushNotificationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -15,6 +16,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.time.Instant;
 import java.util.List;
@@ -33,6 +35,8 @@ import static org.mockito.Mockito.when;
 class NotificationServiceImplTest {
 
     @Mock private NotificationRepository notificationRepository;
+    @Mock private SimpMessagingTemplate messagingTemplate;
+    @Mock private PushNotificationService pushNotificationService;
 
     @InjectMocks private NotificationServiceImpl service;
 
@@ -139,9 +143,14 @@ class NotificationServiceImplTest {
 
     @Test
     void notify_withTarget_savesNotificationWithTargetAndWarehouse() {
-        Account recipient = Account.builder().id(UUID.randomUUID()).build();
+        Account recipient = Account.builder().id(UUID.randomUUID()).email("member@rehome.vn").build();
         UUID campaignId = UUID.randomUUID();
         UUID warehouseId = UUID.randomUUID();
+        when(notificationRepository.save(any())).thenAnswer(invocation -> {
+            Notification saved = invocation.getArgument(0);
+            saved.setId(UUID.randomUUID());
+            return saved;
+        });
 
         service.notify(recipient, NotificationType.DONATION_RECORDED, "Có lượt quyên góp mới",
                 "Điểm ký gửi \"Kho Quận 7\" vừa ghi nhận 1 lượt quyên góp cho chiến dịch của bạn.",
@@ -160,7 +169,12 @@ class NotificationServiceImplTest {
 
     @Test
     void notify_withoutTarget_savesNotificationWithNullTargetFields() {
-        Account recipient = Account.builder().id(UUID.randomUUID()).build();
+        Account recipient = Account.builder().id(UUID.randomUUID()).email("member@rehome.vn").build();
+        when(notificationRepository.save(any())).thenAnswer(invocation -> {
+            Notification saved = invocation.getArgument(0);
+            saved.setId(UUID.randomUUID());
+            return saved;
+        });
 
         service.notify(recipient, NotificationType.ORDER_UPDATE, "Đơn hàng", "Đơn của bạn đang được giao",
                 null, null, null);

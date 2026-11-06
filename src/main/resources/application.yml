@@ -139,6 +139,13 @@ app:
     # job chỉ cần chạy thưa; 1 giờ là đủ.
     legal-image-cleanup-check-interval-ms: 3600000
 
+  # Push notification (F-092/F-093/F-094) qua Firebase Cloud Messaging khi app đã tắt/background -
+  # WebSocket (mục websocket phía dưới dùng chung code, xem WebSocketConfig) chỉ tới được khi app
+  # còn giữ kết nối. false = NoopPushNotificationServiceImpl (không cần service account thật, dùng
+  # cho dev/CI). true = FcmPushNotificationServiceImpl, cần set firebase.credentials-base64.
+  push:
+    enabled: ${PUSH_ENABLED:false}
+
 # ==================== LOGGING ====================
 logging:
   level:
@@ -147,6 +154,15 @@ logging:
 
 google:
   client-id: ${GOOGLE_CLIENT_ID}
+
+# ==================== FIREBASE CLOUD MESSAGING (PUSH) ====================
+# Chỉ đọc khi app.push.enabled=true. Lấy file JSON ở Firebase Console > Project Settings >
+# Service accounts > Generate new private key, encode base64 (vd. `base64 -w0 key.json`),
+# set vào env var FIREBASE_CREDENTIALS_BASE64 - KHÔNG commit file JSON gốc vào repo.
+# credentials-path là lối thay thế cho local dev (đường dẫn file JSON trên máy), không dùng khi deploy.
+firebase:
+  credentials-base64: ${FIREBASE_CREDENTIALS_BASE64:}
+  credentials-path: ${FIREBASE_CREDENTIALS_PATH:}
 
 # ==================== CLOUDINARY (LƯU ẢNH/PDF) ====================
 # Chỉ được đọc khi app.storage.provider=cloudinary. Lấy 3 giá trị này ở Dashboard

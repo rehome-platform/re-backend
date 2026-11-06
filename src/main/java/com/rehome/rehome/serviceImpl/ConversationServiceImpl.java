@@ -32,6 +32,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -57,8 +59,14 @@ public class ConversationServiceImpl implements ConversationService {
     // để tránh giao dịch ngoài sàn (F-089/F-090/F-091).
     private static final Pattern EMAIL_PATTERN =
             Pattern.compile("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
-    private static final Pattern PHONE_PATTERN = Pattern.compile("(?:\\+84|0)\\d{9,10}\\b");
+    // Cho phép khoảng trắng/dấu chấm/gạch ngang xen giữa các chữ số, vd. "0912 345 678", "0912.345.678"
+    private static final Pattern PHONE_PATTERN =
+            Pattern.compile("(?:\\+84|0)(?:[\\s.-]?\\d){9,10}\\b");
     private static final Pattern BANK_ACCOUNT_PATTERN = Pattern.compile("\\b\\d{9,19}\\b");
+
+    // imageUrls chỉ được chấp nhận URL do chính Cloudinary của hệ thống phân phối, không nhận
+    // link ngoài — tránh client tự gắn URL ảnh bất kỳ (SSRF/nội dung không kiểm soát) vào tin nhắn.
+    private static final String CLOUDINARY_DELIVERY_HOST = "res.cloudinary.com";
 
     // Rate limit gửi tin nhắn: tối đa 10 tin / 30 giây / Member, giữ trong bộ nhớ theo accountId.
     private static final int MESSAGE_RATE_LIMIT_MAX = 10;
@@ -207,6 +215,11 @@ public class ConversationServiceImpl implements ConversationService {
         if (!StringUtils.hasText(request.getContent()) && !hasImages) {
             throw new BadRequestException("content hoặc imageUrls là bắt buộc.");
         }
+        if (hasImages) {
+            validateImageUrls(imageUrls);
+        }
+
+        checkMessageRateLimit(viewer.getId());
 
         checkMessageRateLimit(viewer.getId());
 
@@ -227,6 +240,26 @@ public class ConversationServiceImpl implements ConversationService {
         messageRepository.save(message);
 
         return toMessageResponse(message, viewer.getId());
+    }
+
+    private static void validateImageUrls(List<String> imageUrls) {
+        for (String url : imageUrls) {
+            if (!isOwnCloudinaryUrl(url)) {
+                throw new BadRequestException("imageUrls chỉ được chứa ảnh đã upload qua hệ thống.");
+            }
+        }
+    }
+
+    private static boolean isOwnCloudinaryUrl(String url) {
+        if (!StringUtils.hasText(url)) {
+            return false;
+        }
+        try {
+            URI uri = new URI(url);
+            return "https".equals(uri.getScheme()) && CLOUDINARY_DELIVERY_HOST.equals(uri.getHost());
+        } catch (URISyntaxException e) {
+            return false;
+        }
     }
 
     private static String maskSensitiveContent(String content) {

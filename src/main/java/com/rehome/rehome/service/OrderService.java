@@ -4,6 +4,7 @@ import com.rehome.rehome.dto.request.CreateOrderRequest;
 import com.rehome.rehome.dto.request.PackScanRequest;
 import com.rehome.rehome.dto.request.PayOrdersRequest;
 import com.rehome.rehome.dto.request.RateOrderRequest;
+import com.rehome.rehome.dto.request.UpdateOrderShippingAddressRequest;
 import com.rehome.rehome.dto.response.CreateShipmentResponse;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
 import com.rehome.rehome.dto.response.OrderConfirmReceiptResponse;
@@ -40,6 +41,10 @@ public interface OrderService {
     WarehouseOrderListResponse getWarehouseSoldOrders(String email, String status, int page, int size);
 
     OrderCancelResponse cancelOrder(String email, UUID orderId);
+
+    // Đổi địa chỉ giao hàng của đơn khi còn PENDING_PAYMENT/PAID (chưa đóng gói), chỉ cho đổi
+    // một lần; phí ship được tính lại theo địa chỉ mới, tăng thì chặn, giảm thì hoàn phần chênh vào ví.
+    OrderResponse updateShippingAddress(String email, UUID orderId, UpdateOrderShippingAddressRequest request);
 
     // Trả một hoặc nhiều đơn bằng Ví ReHome: trừ ví và chốt đơn PAID trong cùng một transaction
     PayOrdersResponse payOrders(String email, PayOrdersRequest request);

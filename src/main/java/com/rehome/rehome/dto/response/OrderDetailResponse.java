@@ -54,6 +54,7 @@ public class OrderDetailResponse {
     private String cancelReason;
     private Instant cancelledAt;
     private BigDecimal refundAmount;
+    private Instant addressChangedAt;
 
     // Yêu cầu trả hàng gần nhất của đơn, null nếu chưa từng tạo — có giá trị thì nút trả hàng
     // chuyển thành "Xem yêu cầu trả hàng"

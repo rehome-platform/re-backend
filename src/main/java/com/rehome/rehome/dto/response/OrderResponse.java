@@ -26,4 +26,9 @@ public class OrderResponse {
     private BigDecimal totalAmount;
     private String status;
     private Instant paymentDeadline;
+    private Instant addressChangedAt;
+
+    // Số tiền hoàn lại vào ví khi đổi địa chỉ giao hàng làm giảm phí ship - 0 nếu không có hoàn tiền
+    @Builder.Default
+    private BigDecimal refundedAmount = BigDecimal.ZERO;
 }

@@ -223,6 +223,8 @@ public class ConversationServiceImpl implements ConversationService {
 
         checkMessageRateLimit(viewer.getId());
 
+        checkMessageRateLimit(viewer.getId());
+
         Conversation conversation = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new IllegalArgumentException(CONVERSATION_NOT_FOUND));
         requireParticipant(viewer, conversation);

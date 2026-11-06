@@ -308,6 +308,26 @@ public class ConversationServiceImpl implements ConversationService {
         }
     }
 
+    private static void validateImageUrls(List<String> imageUrls) {
+        for (String url : imageUrls) {
+            if (!isOwnCloudinaryUrl(url)) {
+                throw new BadRequestException("imageUrls chỉ được chứa ảnh đã upload qua hệ thống.");
+            }
+        }
+    }
+
+    private static boolean isOwnCloudinaryUrl(String url) {
+        if (!StringUtils.hasText(url)) {
+            return false;
+        }
+        try {
+            URI uri = new URI(url);
+            return "https".equals(uri.getScheme()) && CLOUDINARY_DELIVERY_HOST.equals(uri.getHost());
+        } catch (URISyntaxException e) {
+            return false;
+        }
+    }
+
     private static String maskSensitiveContent(String content) {
         if (!StringUtils.hasText(content)) {
             return content;

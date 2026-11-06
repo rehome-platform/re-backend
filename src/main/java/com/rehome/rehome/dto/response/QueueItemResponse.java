@@ -1,7 +1,9 @@
 package com.rehome.rehome.dto.response;
 
 import com.rehome.rehome.entity.auth.OrganizationLegalChangeRequest;
+import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.QueueType;
+import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.QueueItem;
 import java.time.Instant;
@@ -29,6 +31,13 @@ public class QueueItemResponse {
     private String recipientName;
     private Integer itemCount;
     private Long waitingMinutes;
+
+    // Chung cho mọi loại việc (trừ VIOLATION_REPORT): tên đối tượng hiển thị trên queue và dòng phụ
+    //   PACKING / RETURN: mã đơn / người nhận hoặc người bán - người mua
+    //   FORM_REVIEW / INSPECTION: tên sản phẩm ký gửi / tên người gửi
+    //   ORG_VERIFICATION / LEGAL_CHANGE: tên tổ chức / người đại diện
+    private String targetName;
+    private String subjectSubtitle;
 
     // Chỉ có giá trị với QueueType.LEGAL_CHANGE
     private String requestId;
@@ -58,7 +67,38 @@ public class QueueItemResponse {
         response.setRecipientName(order.getShippingRecipientName());
         response.setItemCount(itemCount);
         response.setWaitingMinutes(waitingMinutes);
+        response.setTargetName(order.getOrderNo());
+        response.setSubjectSubtitle(order.getShippingRecipientName());
         return response;
+    }
+
+    public static QueueItemResponse fromReturn(
+            QueueItem q, Order order, String sellerName, String buyerName) {
+        QueueItemResponse response = from(q);
+        response.setOrderNo(order.getOrderNo());
+        response.setTargetName(order.getOrderNo());
+        response.setSubjectSubtitle(sellerName + " / " + buyerName);
+        return response;
+    }
+
+    // FORM_REVIEW / INSPECTION: refId là id form ký gửi; memberName null thì dùng mã form làm dòng phụ
+    public static QueueItemResponse fromConsignmentForm(QueueItem q, ConsignmentForm form, String memberName) {
+        QueueItemResponse response = from(q);
+        response.setTargetName(form.getProductName());
+        response.setSubjectSubtitle(memberName != null ? memberName : form.getFormNo());
+        return response;
+    }
+
+    // ORG_VERIFICATION: refId là accountId của tổ chức
+    public static QueueItemResponse fromOrganization(QueueItem q, OrganizationProfile org) {
+        QueueItemResponse response = from(q);
+        response.setTargetName(org.getDisplayName());
+        response.setSubjectSubtitle(representativeName(org));
+        return response;
+    }
+
+    private static String representativeName(OrganizationProfile org) {
+        return org.getRepresentative() == null ? null : org.getRepresentative().getFullName();
     }
 
     public static QueueItemResponse fromLegalChange(QueueItem q, OrganizationLegalChangeRequest request,
@@ -66,6 +106,8 @@ public class QueueItemResponse {
         QueueItemResponse response = from(q);
         response.setRequestId(request.getId().toString());
         response.setOrgName(request.getOrganization().getDisplayName());
+        response.setTargetName(request.getOrganization().getDisplayName());
+        response.setSubjectSubtitle(representativeName(request.getOrganization()));
         response.setStatus(request.getStatus().name());
         response.setFieldChanged(fieldChanged);
         response.setOldValue(oldValue);

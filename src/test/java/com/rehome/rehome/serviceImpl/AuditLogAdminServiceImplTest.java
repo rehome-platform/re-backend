@@ -33,6 +33,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -80,7 +81,7 @@ class AuditLogAdminServiceImplTest {
         when(moderatorProfileRepository.findAllById(any())).thenReturn(List.of(
                 ModeratorProfile.builder().accountId(mod.getId()).fullName("Trần Mod").build()));
 
-        PageResponse<AuditLogResponse> result = service.search(null, null, null, null, null, null, null, 0, 20);
+        PageResponse<AuditLogResponse> result = service.search(null, null, null, null, null, null, null, null, 0, 20);
 
         assertThat(result.getContent()).hasSize(3);
         AuditLogResponse first = result.getContent().get(0);
@@ -113,7 +114,7 @@ class AuditLogAdminServiceImplTest {
         when(moderatorProfileRepository.findAllById(any())).thenReturn(List.of());
         when(memberProfileRepository.findAllById(any())).thenReturn(List.of());
 
-        AuditLogResponse row = service.search(null, null, null, null, null, null, null, 0, 20)
+        AuditLogResponse row = service.search(null, null, null, null, null, null, null, null, 0, 20)
                 .getContent().get(0);
 
         assertThat(row.getDetail().get("reason").asText()).isEqualTo("Spam");
@@ -127,7 +128,7 @@ class AuditLogAdminServiceImplTest {
         when(auditLogRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
-        PageResponse<AuditLogResponse> result = service.search(null, null, null, null, null, null, null, 0, 20);
+        PageResponse<AuditLogResponse> result = service.search(null, null, null, null, null, null, null, null, 0, 20);
 
         assertThat(result.getContent()).isEmpty();
         verifyNoInteractions(accountRepository, memberProfileRepository, moderatorProfileRepository,
@@ -140,7 +141,7 @@ class AuditLogAdminServiceImplTest {
         Instant from = Instant.parse("2026-11-05T00:00:00Z");
         Instant to = Instant.parse("2026-11-01T00:00:00Z");
 
-        assertThatThrownBy(() -> service.search(null, null, null, null, null, from, to, 0, 20))
+        assertThatThrownBy(() -> service.search(null, null, null, null, null, null, from, to, 0, 20))
                 .isInstanceOf(AppException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DATE_RANGE);
         verify(auditLogRepository, never()).findAll(any(Specification.class), any(Pageable.class));
@@ -149,12 +150,42 @@ class AuditLogAdminServiceImplTest {
     @Test
     @DisplayName("search: page/size sai -> INVALID_PAGINATION")
     void search_invalidPagination() {
-        assertThatThrownBy(() -> service.search(null, null, null, null, null, null, null, -1, 20))
+        assertThatThrownBy(() -> service.search(null, null, null, null, null, null, null, null, -1, 20))
                 .isInstanceOf(AppException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_PAGINATION);
-        assertThatThrownBy(() -> service.search(null, null, null, null, null, null, null, 0, 101))
+        assertThatThrownBy(() -> service.search(null, null, null, null, null, null, null, null, 0, 101))
                 .isInstanceOf(AppException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_PAGINATION);
+    }
+
+    @Test
+    @DisplayName("search: có từ khoá -> chuẩn hóa chữ thường, tra id tài khoản theo tên đúng 1 lần")
+    @SuppressWarnings("unchecked")
+    void search_withKeyword_resolvesAccountsByName() {
+        UUID matched = UUID.randomUUID();
+        when(accountRepository.findIdsByProfileNameLike(eq("%nguyen an%"), any(Pageable.class)))
+                .thenReturn(List.of(matched));
+        when(auditLogRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        PageResponse<AuditLogResponse> result =
+                service.search(null, "  Nguyen An ", null, null, null, null, null, null, 0, 20);
+
+        assertThat(result.getContent()).isEmpty();
+        verify(accountRepository, times(1)).findIdsByProfileNameLike(eq("%nguyen an%"), any(Pageable.class));
+        verify(auditLogRepository).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("search: từ khoá rỗng hoặc toàn khoảng trắng -> coi như không tìm, không tra tên")
+    @SuppressWarnings("unchecked")
+    void search_blankKeyword_skipsNameLookup() {
+        when(auditLogRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        service.search(null, "   ", null, null, null, null, null, null, 0, 20);
+
+        verify(accountRepository, never()).findIdsByProfileNameLike(any(), any(Pageable.class));
     }
 
     @Test

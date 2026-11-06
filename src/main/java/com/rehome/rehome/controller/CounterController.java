@@ -47,8 +47,11 @@ public class CounterController {
     }
     // API 25
     @PostMapping("/lookup")
-    public ApiResponse<List<MemberLookupItemResponse>> lookup(@RequestBody CounterLookupRequest request) {
-        return ApiResponse.success(counterService.lookup(request));
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ApiResponse<List<MemberLookupItemResponse>> lookup(
+            @AuthenticationPrincipal Account moderator,
+            @RequestBody CounterLookupRequest request) {
+        return ApiResponse.success(counterService.lookup(moderator, request));
     }
 
     // API 27

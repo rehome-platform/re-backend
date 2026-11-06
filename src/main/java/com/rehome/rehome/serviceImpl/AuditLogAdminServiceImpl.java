@@ -42,6 +42,8 @@ import java.util.stream.Collectors;
 public class AuditLogAdminServiceImpl implements AuditLogAdminService {
 
     static final int MAX_PAGE_SIZE = 100;
+    // Số tài khoản tối đa lấy ra khi khớp tên với từ khoá tìm kiếm
+    static final int MAX_NAME_MATCHES = 100;
 
     private final AuditLogRepository auditLogRepository;
     private final AccountRepository accountRepository;
@@ -51,9 +53,9 @@ public class AuditLogAdminServiceImpl implements AuditLogAdminService {
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<AuditLogResponse> search(UUID actorAccountId, String actionType, List<String> actionTypes,
-                                                 String targetType, String targetId, Instant from, Instant to,
-                                                 int page, int size) {
+    public PageResponse<AuditLogResponse> search(UUID actorAccountId, String search, String actionType,
+                                                 List<String> actionTypes, String targetType, String targetId,
+                                                 Instant from, Instant to, int page, int size) {
         if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
             throw new AppException(ErrorCode.INVALID_PAGINATION);
         }
@@ -61,10 +63,18 @@ public class AuditLogAdminServiceImpl implements AuditLogAdminService {
             throw new AppException(ErrorCode.INVALID_DATE_RANGE);
         }
 
+        String keyword = search == null || search.isBlank() ? null : search.trim().toLowerCase(Locale.ROOT);
+        // Tìm theo tên: tra trước id các tài khoản có họ tên/tên tổ chức khớp, rồi so với actor và targetId.
+        // Không có từ khoá thì không truy vấn thêm.
+        List<UUID> matchedAccountIds = keyword == null
+                ? List.of()
+                : accountRepository.findIdsByProfileNameLike("%" + keyword + "%",
+                        PageRequest.of(0, MAX_NAME_MATCHES));
+
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<AuditLog> logs = auditLogRepository.findAll(
-                AuditLogSpecifications.filter(actorAccountId, mergeActionTypes(actionType, actionTypes),
-                        targetType, targetId, from, to),
+                AuditLogSpecifications.filter(actorAccountId, keyword, matchedAccountIds,
+                        mergeActionTypes(actionType, actionTypes), targetType, targetId, from, to),
                 pageable);
 
         // Nạp actor theo lô cho cả trang (4 truy vấn cố định) thay vì từng dòng log

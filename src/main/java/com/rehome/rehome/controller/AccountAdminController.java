@@ -31,15 +31,19 @@ public class AccountAdminController {
     private final AccountAdminService accountAdminService;
 
     @GetMapping
-    @Operation(summary = "API 135 - Tìm và xem tài khoản (theo email/họ tên, lọc role, status)")
+    @Operation(summary = "API 135 - Tìm và xem tài khoản (theo email/họ tên, lọc role, status, sắp xếp theo createdAt/status)")
     public ResponseEntity<ApiResponse<PageResponse<AdminAccountResponse>>> search(
             @RequestParam(required = false) String search,
             @RequestParam(required = false) Role role,
             @RequestParam(required = false) AccountStatus status,
+            // createdAt (mặc định) hoặc status
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            // desc (mặc định) hoặc asc
+            @RequestParam(defaultValue = "desc") String sortDir,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(ApiResponse.success(
-                accountAdminService.search(search, role, status, page, size)));
+                accountAdminService.search(search, role, status, sortBy, sortDir, page, size)));
     }
 
     @PostMapping("/{accountId}/ban")

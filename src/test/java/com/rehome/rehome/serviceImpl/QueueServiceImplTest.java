@@ -12,7 +12,10 @@ import com.rehome.rehome.dto.response.QueueClaimResponse;
 import com.rehome.rehome.dto.response.QueueItemResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.OrganizationLegalChangeRequest;
+import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
+import com.rehome.rehome.entity.auth.OrganizationRepresentative;
+import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.enums.LegalChangeRequestStatus;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.marketplace.QueueItem;
@@ -23,9 +26,12 @@ import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.OrganizationLegalChangeMapper;
+import com.rehome.rehome.repository.ConsignmentFormRepository;
+import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.OrganizationLegalChangeRequestRepository;
+import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.QueueItemRepository;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.time.Instant;
@@ -53,6 +59,9 @@ class QueueServiceImplTest {
     @Mock private OrderItemRepository orderItemRepository;
     @Mock private OrganizationLegalChangeRequestRepository organizationLegalChangeRequestRepository;
     @Mock private OrganizationLegalChangeMapper organizationLegalChangeMapper;
+    @Mock private MemberProfileRepository memberProfileRepository;
+    @Mock private ConsignmentFormRepository consignmentFormRepository;
+    @Mock private OrganizationProfileRepository organizationProfileRepository;
 
     @InjectMocks private QueueServiceImpl queueService;
 
@@ -285,6 +294,134 @@ class QueueServiceImplTest {
             assertThat(response.getFieldChanged()).isEqualTo("Tên pháp lý");
             assertThat(response.getOldValue()).isEqualTo("Hội Chia Sẻ");
             assertThat(response.getNewValue()).isEqualTo("Quỹ Mới");
+        }
+
+        @Test
+        @DisplayName("FORM_REVIEW / INSPECTION: targetName = tên sản phẩm, subjectSubtitle = tên người gửi (nạp theo lô)")
+        void consignmentFormItems_enrichedWithProductAndMemberName() {
+            Warehouse wh = warehouse(1);
+            Account mod = moderator(wh);
+            UUID memberId = UUID.randomUUID();
+            Account member = Account.builder().id(memberId).build();
+            UUID formA = UUID.randomUUID();
+            UUID formB = UUID.randomUUID();
+            ConsignmentForm a = ConsignmentForm.builder().id(formA).member(member).productName("Áo khoác len")
+                    .formNo("KG-000001").build();
+            ConsignmentForm b = ConsignmentForm.builder().id(formB).member(member).productName("Giày da")
+                    .formNo("KG-000002").build();
+
+            QueueItem review = QueueItem.builder().id("q-1").type(QueueType.FORM_REVIEW)
+                    .refId(formA.toString()).warehouse(wh).createdAt(Instant.parse("2026-10-13T08:00:00Z")).build();
+            QueueItem inspection = QueueItem.builder().id("q-2").type(QueueType.INSPECTION)
+                    .refId(formB.toString()).warehouse(wh).createdAt(Instant.parse("2026-10-13T08:01:00Z")).build();
+
+            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of(review, inspection));
+            when(consignmentFormRepository.findAllById(List.of(formA, formB))).thenReturn(List.of(a, b));
+            when(memberProfileRepository.findAllByAccount_IdIn(List.of(memberId))).thenReturn(List.of(
+                    MemberProfile.builder().accountId(memberId).account(member).fullName("Tạ Thị Ngọc Anh")
+                            .memberCode("MB-000123").build()));
+
+            List<QueueItemResponse> result = queueService.list(null, mod);
+
+            assertThat(result).hasSize(2);
+            assertThat(result.get(0).getTargetName()).isEqualTo("Áo khoác len");
+            assertThat(result.get(0).getSubjectSubtitle()).isEqualTo("Tạ Thị Ngọc Anh");
+            assertThat(result.get(1).getTargetName()).isEqualTo("Giày da");
+            assertThat(result.get(1).getSubjectSubtitle()).isEqualTo("Tạ Thị Ngọc Anh");
+            // 2 form cùng 1 người gửi: mỗi repository đúng 1 lần
+            verify(consignmentFormRepository).findAllById(List.of(formA, formB));
+            verify(memberProfileRepository).findAllByAccount_IdIn(List.of(memberId));
+        }
+
+        @Test
+        @DisplayName("FORM_REVIEW: không có hồ sơ Member -> dòng phụ dùng mã form")
+        void consignmentFormItem_memberProfileMissing_usesFormNo() {
+            Warehouse wh = warehouse(1);
+            Account mod = moderator(wh);
+            UUID memberId = UUID.randomUUID();
+            UUID formId = UUID.randomUUID();
+            ConsignmentForm form = ConsignmentForm.builder().id(formId).member(Account.builder().id(memberId).build())
+                    .productName("Áo khoác len").formNo("KG-000001").build();
+            QueueItem review = QueueItem.builder().id("q-1").type(QueueType.FORM_REVIEW)
+                    .refId(formId.toString()).warehouse(wh).createdAt(Instant.parse("2026-10-13T08:00:00Z")).build();
+
+            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of(review));
+            when(consignmentFormRepository.findAllById(List.of(formId))).thenReturn(List.of(form));
+            when(memberProfileRepository.findAllByAccount_IdIn(List.of(memberId))).thenReturn(List.of());
+
+            QueueItemResponse response = queueService.list(null, mod).get(0);
+
+            assertThat(response.getTargetName()).isEqualTo("Áo khoác len");
+            assertThat(response.getSubjectSubtitle()).isEqualTo("KG-000001");
+        }
+
+        @Test
+        @DisplayName("ORG_VERIFICATION: targetName = tên tổ chức, subjectSubtitle = người đại diện")
+        void orgVerificationItem_enrichedWithOrganizationAndRepresentative() {
+            Warehouse wh = warehouse(1);
+            Account mod = moderator(wh);
+            UUID orgId = UUID.randomUUID();
+            OrganizationRepresentative rep = new OrganizationRepresentative();
+            rep.setFullName("Lê Văn Đại");
+            OrganizationProfile org = OrganizationProfile.builder().accountId(orgId)
+                    .displayName("Quỹ Chia Sẻ").representative(rep).build();
+            QueueItem item = QueueItem.builder().id("q-1").type(QueueType.ORG_VERIFICATION)
+                    .refId(orgId.toString()).warehouse(null).createdAt(Instant.parse("2026-10-13T08:00:00Z")).build();
+
+            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of(item));
+            when(organizationProfileRepository.findAllById(List.of(orgId))).thenReturn(List.of(org));
+
+            QueueItemResponse response = queueService.list(null, mod).get(0);
+
+            assertThat(response.getTargetName()).isEqualTo("Quỹ Chia Sẻ");
+            assertThat(response.getSubjectSubtitle()).isEqualTo("Lê Văn Đại");
+        }
+
+        @Test
+        @DisplayName("ORG_VERIFICATION: tổ chức chưa có người đại diện -> subjectSubtitle null, không lỗi")
+        void orgVerificationItem_noRepresentative() {
+            Warehouse wh = warehouse(1);
+            Account mod = moderator(wh);
+            UUID orgId = UUID.randomUUID();
+            OrganizationProfile org = OrganizationProfile.builder().accountId(orgId).displayName("Quỹ Chia Sẻ").build();
+            QueueItem item = QueueItem.builder().id("q-1").type(QueueType.ORG_VERIFICATION)
+                    .refId(orgId.toString()).warehouse(null).createdAt(Instant.parse("2026-10-13T08:00:00Z")).build();
+
+            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of(item));
+            when(organizationProfileRepository.findAllById(List.of(orgId))).thenReturn(List.of(org));
+
+            QueueItemResponse response = queueService.list(null, mod).get(0);
+
+            assertThat(response.getTargetName()).isEqualTo("Quỹ Chia Sẻ");
+            assertThat(response.getSubjectSubtitle()).isNull();
+        }
+
+        @Test
+        @DisplayName("LEGAL_CHANGE: ngoài orgName còn có targetName và subjectSubtitle (người đại diện)")
+        void legalChangeItem_hasTargetNameAndSubtitle() {
+            Warehouse wh = warehouse(1);
+            Account mod = moderator(wh);
+            UUID requestId = UUID.randomUUID();
+            OrganizationRepresentative rep = new OrganizationRepresentative();
+            rep.setFullName("Lê Văn Đại");
+            OrganizationProfile org = OrganizationProfile.builder().accountId(UUID.randomUUID())
+                    .displayName("Quỹ Chia Sẻ").representative(rep).build();
+            OrganizationLegalChangeRequest request = OrganizationLegalChangeRequest.builder()
+                    .id(requestId).organization(org).status(LegalChangeRequestStatus.PENDING)
+                    .proposedChanges(JsonNodeFactory.instance.objectNode().put("legalName", "Quỹ Mới")).build();
+            QueueItem item = QueueItem.builder().id("q-1").type(QueueType.LEGAL_CHANGE)
+                    .refId(requestId.toString()).warehouse(null).createdAt(Instant.parse("2026-10-13T08:00:00Z")).build();
+
+            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of(item));
+            when(organizationLegalChangeRequestRepository.findAllById(List.of(requestId)))
+                    .thenReturn(List.of(request));
+            when(organizationLegalChangeMapper.summarize(request.getProposedChanges(), org))
+                    .thenReturn(new OrganizationLegalChangeMapper.LegalChangeSummary("Tên pháp lý", "Cũ", "Mới"));
+
+            QueueItemResponse response = queueService.list(null, mod).get(0);
+
+            assertThat(response.getTargetName()).isEqualTo("Quỹ Chia Sẻ");
+            assertThat(response.getSubjectSubtitle()).isEqualTo("Lê Văn Đại");
         }
 
         @Test

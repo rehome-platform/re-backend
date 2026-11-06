@@ -32,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -50,10 +51,14 @@ public class AccountAdminServiceImpl implements AccountAdminService {
 
     private static final int MAX_PAGE_SIZE = 100;
 
+    private static final String DEFAULT_SORT_PROPERTY = "createdAt";
+    // Chỉ cho sắp xếp theo các thuộc tính này: không đưa thẳng tham số của client vào Sort
+    private static final Set<String> SORTABLE_PROPERTIES = Set.of("createdAt", "status");
+
     @Override
     @Transactional(readOnly = true)
     public PageResponse<AdminAccountResponse> search(String search, Role role, AccountStatus status,
-                                                     int page, int size) {
+                                                     String sortBy, String sortDir, int page, int size) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
         // Từ khoá giống số điện thoại (+84 912 345 678, 0912-345-678...) được chuẩn hóa về 0912345678
@@ -63,7 +68,7 @@ public class AccountAdminServiceImpl implements AccountAdminService {
         String pattern = "%" + keyword + "%";
 
         Page<Account> result = accountRepository.searchForAdmin(role, status, pattern,
-                PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt")));
+                PageRequest.of(safePage, safeSize, buildSort(sortBy, sortDir)));
 
         List<UUID> ids = result.getContent().stream().map(Account::getId).toList();
         Map<UUID, MemberProfile> members = memberProfileRepository.findAllById(ids).stream()
@@ -74,6 +79,19 @@ public class AccountAdminServiceImpl implements AccountAdminService {
                 .collect(Collectors.toMap(OrganizationProfile::getAccountId, Function.identity()));
 
         return PageResponse.from(result.map(a -> toAdminResponse(a, members, moderators, organizations)));
+    }
+
+    // sortBy/sortDir ngoài danh sách cho phép được đưa về mặc định (createdAt, desc).
+    // Sắp theo status có ít giá trị nên thêm createdAt giảm dần làm khoá phụ để các trang không bị lặp/sót dòng.
+    static Sort buildSort(String sortBy, String sortDir) {
+        String property = sortBy != null && SORTABLE_PROPERTIES.contains(sortBy.trim())
+                ? sortBy.trim() : DEFAULT_SORT_PROPERTY;
+        Sort.Direction direction = sortDir != null && "asc".equalsIgnoreCase(sortDir.trim())
+                ? Sort.Direction.ASC : Sort.Direction.DESC;
+        Sort sort = Sort.by(direction, property);
+        return DEFAULT_SORT_PROPERTY.equals(property)
+                ? sort
+                : sort.and(Sort.by(Sort.Direction.DESC, DEFAULT_SORT_PROPERTY));
     }
 
     private AdminAccountResponse toAdminResponse(Account a,

@@ -11,7 +11,9 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Các câu tổng hợp cho dashboard Admin (F-158/F-159). Không gắn với một entity nên dùng EntityManager,
@@ -88,6 +90,42 @@ public class AdminDashboardQueryRepository {
         return orZero(em.createQuery("select sum(f.balance) from PlatformFund f", BigDecimal.class)
                 .getSingleResult());
     }
+
+    // Doanh thu bán và hoa hồng theo kỳ của các món thuộc đơn COMPLETED hoàn thành trong [from, to).
+    // Hoa hồng = giá chốt * tỷ lệ hoa hồng đã áp dụng lúc đặt đơn. Món không có termApplied bị bỏ qua.
+    public List<TermSales> sumCompletedSalesByTerm(Instant from, Instant to) {
+        List<Object[]> rows = em.createQuery(
+                        "select oi.termApplied, sum(oi.priceAtOrder), "
+                                + "sum(oi.priceAtOrder * oi.commissionRateApplied), count(oi) "
+                                + "from OrderItem oi join oi.order o "
+                                + "where o.status = :status and o.completedAt >= :from and o.completedAt < :to "
+                                + "and oi.termApplied is not null "
+                                + "group by oi.termApplied", Object[].class)
+                .setParameter("status", OrderStatus.COMPLETED)
+                .setParameter("from", from)
+                .setParameter("to", to)
+                .getResultList();
+        return rows.stream()
+                .map(r -> new TermSales(((Number) r[0]).shortValue(),
+                        orZero((BigDecimal) r[1]), orZero((BigDecimal) r[2]), ((Number) r[3]).longValue()))
+                .toList();
+    }
+
+    // Số món còn nằm trong kho theo kỳ hiện tại của sản phẩm; chỉ trả các kỳ thực sự có hàng
+    public Map<Short, Long> countStockedProductsByTerm() {
+        List<Object[]> rows = em.createQuery(
+                        "select p.currentTerm, count(p) from Product p "
+                                + "where p.status in :statuses and p.currentTerm is not null "
+                                + "group by p.currentTerm", Object[].class)
+                .setParameter("statuses", STOCK_STATUSES)
+                .getResultList();
+        Map<Short, Long> result = new HashMap<>();
+        rows.forEach(r -> result.put(((Number) r[0]).shortValue(), ((Number) r[1]).longValue()));
+        return result;
+    }
+
+    /** Một dòng tổng hợp doanh thu bán theo kỳ: tổng giá bán, tổng hoa hồng, số món. */
+    public record TermSales(short term, BigDecimal salesRevenue, BigDecimal commission, long itemCount) {}
 
     // Việc còn trong hàng đợi (xong thì dòng bị gỡ) mà vào hàng đợi trước mốc deadline
     public long countQueueItemsCreatedBefore(Instant deadline) {

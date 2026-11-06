@@ -7,6 +7,7 @@ import com.rehome.rehome.dto.response.MemberTasksResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.counter.CounterIdentityConfirmation;
+import com.rehome.rehome.entity.enums.AccountStatus;
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
 import com.rehome.rehome.entity.enums.EndOfTermChoice;
 import com.rehome.rehome.entity.enums.InvalidReturnChoice;
@@ -25,6 +26,7 @@ import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.repository.AuditLogRepository;
 import com.rehome.rehome.repository.ConsignmentFormRepository;
 import com.rehome.rehome.repository.CounterIdentityConfirmationRepository;
 import com.rehome.rehome.repository.EndOfTermDecisionRepository;
@@ -71,6 +73,7 @@ class CounterServiceImplTest {
     @Mock private ReturnRequestRepository returnRequestRepository;
     @Mock private ProductRepository productRepository;
     @Mock private StockMovementLogRepository stockMovementLogRepository;
+    @Mock private AuditLogRepository auditLogRepository;
 
     @InjectMocks private CounterServiceImpl service;
 
@@ -79,12 +82,16 @@ class CounterServiceImplTest {
     private final UUID refId = UUID.randomUUID();
 
     private Account moderator;
+    private Account moderatorWithWarehouse;
+    private final UUID warehouseId = UUID.randomUUID();
     private Account member;
     private CounterIdentityConfirmation validConfirmation;
 
     @BeforeEach
     void setUp() {
         moderator = Account.builder().id(moderatorId).build();
+        moderatorWithWarehouse = Account.builder().id(moderatorId)
+                .warehouse(Warehouse.builder().id(warehouseId).build()).build();
         member = Account.builder().id(memberId).build();
 
         validConfirmation = CounterIdentityConfirmation.builder()
@@ -115,8 +122,15 @@ class CounterServiceImplTest {
     }
 
     private MemberProfile profile(UUID accountId, String memberCode) {
+        Account account = Account.builder()
+                .id(accountId)
+                .email("anh.ta@example.com")
+                .phone("0912345678")
+                .createdAt(Instant.parse("2026-01-15T03:00:00Z"))
+                .build();
         return MemberProfile.builder()
                 .accountId(accountId)
+                .account(account)
                 .fullName("Tạ Thị Ngọc Anh")
                 .avatarUrl("https://cdn.rehome.vn/uploads/avatar.jpg")
                 .memberCode(memberCode)
@@ -144,7 +158,7 @@ class CounterServiceImplTest {
         when(memberProfileRepository.findByAccount_Phone("0912345678"))
                 .thenReturn(List.of(profile(memberId, "MB-000123")));
 
-        List<MemberLookupItemResponse> result = service.lookup(lookupRequest(null, "0912345678", null));
+        List<MemberLookupItemResponse> result = service.lookup(moderatorWithWarehouse, lookupRequest(null, "0912345678", null));
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getAccountId()).isEqualTo(memberId);
@@ -159,7 +173,7 @@ class CounterServiceImplTest {
         when(memberProfileRepository.findByMemberCode("MB-000123"))
                 .thenReturn(Optional.of(profile(memberId, "MB-000123")));
 
-        List<MemberLookupItemResponse> result = service.lookup(lookupRequest("MB-000123", null, null));
+        List<MemberLookupItemResponse> result = service.lookup(moderatorWithWarehouse, lookupRequest("MB-000123", null, null));
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getMemberCode()).isEqualTo("MB-000123");
@@ -171,10 +185,114 @@ class CounterServiceImplTest {
         when(memberProfileRepository.findByMemberCode("MB-000123"))
                 .thenReturn(Optional.of(profile(memberId, "MB-000123")));
 
-        List<MemberLookupItemResponse> result = service.lookup(lookupRequest(null, null, "MB-000123"));
+        List<MemberLookupItemResponse> result = service.lookup(moderatorWithWarehouse, lookupRequest(null, null, "MB-000123"));
 
         assertThat(result).hasSize(1);
         verify(memberProfileRepository).findByMemberCode("MB-000123");
+    }
+
+    @Test
+    @DisplayName("lookup: Moderator chưa gán kho -> MODERATOR_NO_WAREHOUSE, không truy vấn Member")
+    void lookup_moderatorWithoutWarehouse_throws() {
+        assertErrorCode(() -> service.lookup(moderator, lookupRequest("MB-000123", null, null)),
+                ErrorCode.MODERATOR_NO_WAREHOUSE);
+
+        verifyNoInteractions(memberProfileRepository);
+    }
+
+    @Test
+    @DisplayName("lookup: trả email (không mask), phone, joinedAt từ Account")
+    void lookup_returnsContactInfo() {
+        when(memberProfileRepository.findByMemberCode("MB-000123"))
+                .thenReturn(Optional.of(profile(memberId, "MB-000123")));
+
+        MemberLookupItemResponse r = service.lookup(moderatorWithWarehouse, lookupRequest("MB-000123", null, null)).get(0);
+
+        assertThat(r.getEmail()).isEqualTo("anh.ta@example.com");
+        assertThat(r.getPhone()).isEqualTo("0912345678");
+        assertThat(r.getJoinedAt()).isEqualTo(Instant.parse("2026-01-15T03:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("lookup: lastWarehouseVisit lấy từ CounterIdentityConfirmation; chưa từng đến quầy thì null")
+    void lookup_lastWarehouseVisit() {
+        when(memberProfileRepository.findByMemberCode("MB-000123"))
+                .thenReturn(Optional.of(profile(memberId, "MB-000123")));
+        Instant confirmedAt = Instant.parse("2026-11-03T09:30:00Z");
+        when(identityConfirmationRepository.findAllById(List.of(memberId)))
+                .thenReturn(List.of(CounterIdentityConfirmation.builder()
+                        .accountId(memberId).confirmedAt(confirmedAt)
+                        .expiresAt(confirmedAt.plus(15, ChronoUnit.MINUTES)).confirmedBy(moderator).build()));
+
+        MemberLookupItemResponse withVisit = service.lookup(moderatorWithWarehouse,
+                lookupRequest("MB-000123", null, null)).get(0);
+        assertThat(withVisit.getLastWarehouseVisit()).isEqualTo(confirmedAt);
+
+        when(identityConfirmationRepository.findAllById(List.of(memberId))).thenReturn(List.of());
+        MemberLookupItemResponse neverVisited = service.lookup(moderatorWithWarehouse,
+                lookupRequest("MB-000123", null, null)).get(0);
+        assertThat(neverVisited.getLastWarehouseVisit()).isNull();
+    }
+
+    @Test
+    @DisplayName("lookup: violationSummary đếm audit log BAN_ACCOUNT, kèm trạng thái khoá hiện tại")
+    void lookup_violationSummary_fromAuditLog() {
+        MemberProfile banned = profile(memberId, "MB-000123");
+        banned.getAccount().setStatus(AccountStatus.BANNED);
+        banned.getAccount().setBanReason("Bán hàng giả");
+        when(memberProfileRepository.findByMemberCode("MB-000123")).thenReturn(Optional.of(banned));
+        Instant lastBan = Instant.parse("2026-10-20T01:00:00Z");
+        when(auditLogRepository.summarizeByTarget(eq("BAN_ACCOUNT"), eq("ACCOUNT"), any()))
+                .thenReturn(List.<Object[]>of(new Object[]{memberId.toString(), 3L, lastBan}));
+
+        MemberLookupItemResponse.ViolationSummary v = service.lookup(moderatorWithWarehouse,
+                lookupRequest("MB-000123", null, null)).get(0).getViolationSummary();
+
+        assertThat(v.getTotalViolations()).isEqualTo(3);
+        assertThat(v.getIsCurrentlyBanned()).isTrue();
+        assertThat(v.getBanReason()).isEqualTo("Bán hàng giả");
+        assertThat(v.getLastViolationAt()).isEqualTo(lastBan);
+    }
+
+    @Test
+    @DisplayName("lookup: chưa từng bị khoá -> totalViolations = 0, không banReason, lastViolationAt null")
+    void lookup_violationSummary_clean() {
+        MemberProfile clean = profile(memberId, "MB-000123");
+        clean.getAccount().setStatus(AccountStatus.ACTIVE);
+        clean.getAccount().setBanReason("lý do cũ không được lộ khi không bị khoá");
+        when(memberProfileRepository.findByMemberCode("MB-000123")).thenReturn(Optional.of(clean));
+
+        MemberLookupItemResponse.ViolationSummary v = service.lookup(moderatorWithWarehouse,
+                lookupRequest("MB-000123", null, null)).get(0).getViolationSummary();
+
+        assertThat(v.getTotalViolations()).isZero();
+        assertThat(v.getIsCurrentlyBanned()).isFalse();
+        assertThat(v.getBanReason()).isNull();
+        assertThat(v.getLastViolationAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("lookup: activeConsignments chỉ nạp form PENDING/APPROVED/INSPECTING trong kho của Moderator")
+    void lookup_activeConsignments_scopedToModeratorWarehouse() {
+        when(memberProfileRepository.findByMemberCode("MB-000123"))
+                .thenReturn(Optional.of(profile(memberId, "MB-000123")));
+        ConsignmentForm form = ConsignmentForm.builder()
+                .id(UUID.randomUUID()).member(member).formNo("KG-000123").productName("Áo khoác len")
+                .desiredPrice(new BigDecimal("250000")).status(ConsignmentFormStatus.APPROVED)
+                .createdAt(Instant.parse("2026-11-01T00:00:00Z")).build();
+        when(consignmentFormRepository.findByMember_IdInAndWarehouse_IdAndStatusInOrderByCreatedAtAsc(
+                eq(List.of(memberId)), eq(warehouseId),
+                eq(List.of(ConsignmentFormStatus.PENDING, ConsignmentFormStatus.APPROVED,
+                        ConsignmentFormStatus.INSPECTING))))
+                .thenReturn(List.of(form));
+
+        List<MemberLookupItemResponse.ActiveConsignmentItem> items = service.lookup(moderatorWithWarehouse,
+                lookupRequest("MB-000123", null, null)).get(0).getActiveConsignments();
+
+        assertThat(items).hasSize(1);
+        assertThat(items.get(0).getFormNo()).isEqualTo("KG-000123");
+        assertThat(items.get(0).getProductName()).isEqualTo("Áo khoác len");
+        assertThat(items.get(0).getStatus()).isEqualTo(ConsignmentFormStatus.APPROVED);
     }
 
     @Test
@@ -183,7 +301,7 @@ class CounterServiceImplTest {
         when(memberProfileRepository.findByAccount_Phone("0912345678"))
                 .thenReturn(List.of(profile(memberId, "MB-000123")));
 
-        service.lookup(lookupRequest(null, "  0912345678  ", null));
+        service.lookup(moderatorWithWarehouse, lookupRequest(null, "  0912345678  ", null));
 
         verify(memberProfileRepository).findByAccount_Phone("0912345678");
     }
@@ -191,7 +309,7 @@ class CounterServiceImplTest {
     @Test
     @DisplayName("lookup: không gửi field nào -> LOOKUP_INVALID_INPUT")
     void lookup_noneProvided_throws() {
-        assertErrorCode(() -> service.lookup(lookupRequest(null, null, null)), ErrorCode.LOOKUP_INVALID_INPUT);
+        assertErrorCode(() -> service.lookup(moderatorWithWarehouse, lookupRequest(null, null, null)), ErrorCode.LOOKUP_INVALID_INPUT);
 
         verifyNoInteractions(memberProfileRepository);
     }
@@ -199,7 +317,7 @@ class CounterServiceImplTest {
     @Test
     @DisplayName("lookup: field rỗng hoặc toàn khoảng trắng coi như không gửi -> LOOKUP_INVALID_INPUT")
     void lookup_blankFields_throws() {
-        assertErrorCode(() -> service.lookup(lookupRequest("", "   ", null)), ErrorCode.LOOKUP_INVALID_INPUT);
+        assertErrorCode(() -> service.lookup(moderatorWithWarehouse, lookupRequest("", "   ", null)), ErrorCode.LOOKUP_INVALID_INPUT);
 
         verifyNoInteractions(memberProfileRepository);
     }
@@ -207,7 +325,7 @@ class CounterServiceImplTest {
     @Test
     @DisplayName("lookup: gửi 2 field -> LOOKUP_INVALID_INPUT")
     void lookup_twoProvided_throws() {
-        assertErrorCode(() -> service.lookup(lookupRequest("MB-000123", "0912345678", null)),
+        assertErrorCode(() -> service.lookup(moderatorWithWarehouse, lookupRequest("MB-000123", "0912345678", null)),
                 ErrorCode.LOOKUP_INVALID_INPUT);
 
         verifyNoInteractions(memberProfileRepository);
@@ -216,7 +334,7 @@ class CounterServiceImplTest {
     @Test
     @DisplayName("lookup: gửi đủ 3 field -> LOOKUP_INVALID_INPUT")
     void lookup_threeProvided_throws() {
-        assertErrorCode(() -> service.lookup(lookupRequest("MB-000123", "0912345678", "MB-000123")),
+        assertErrorCode(() -> service.lookup(moderatorWithWarehouse, lookupRequest("MB-000123", "0912345678", "MB-000123")),
                 ErrorCode.LOOKUP_INVALID_INPUT);
 
         verifyNoInteractions(memberProfileRepository);
@@ -227,7 +345,7 @@ class CounterServiceImplTest {
     void lookup_phoneNotFound_throws() {
         when(memberProfileRepository.findByAccount_Phone("0900000000")).thenReturn(List.of());
 
-        assertErrorCode(() -> service.lookup(lookupRequest(null, "0900000000", null)), ErrorCode.MEMBER_NOT_FOUND);
+        assertErrorCode(() -> service.lookup(moderatorWithWarehouse, lookupRequest(null, "0900000000", null)), ErrorCode.MEMBER_NOT_FOUND);
     }
 
     @Test
@@ -235,7 +353,7 @@ class CounterServiceImplTest {
     void lookup_memberCodeNotFound_throws() {
         when(memberProfileRepository.findByMemberCode("MB-999999")).thenReturn(Optional.empty());
 
-        assertErrorCode(() -> service.lookup(lookupRequest("MB-999999", null, null)), ErrorCode.MEMBER_NOT_FOUND);
+        assertErrorCode(() -> service.lookup(moderatorWithWarehouse, lookupRequest("MB-999999", null, null)), ErrorCode.MEMBER_NOT_FOUND);
     }
 
     // ---------------------------------------------------------------- getTasks (API 27)

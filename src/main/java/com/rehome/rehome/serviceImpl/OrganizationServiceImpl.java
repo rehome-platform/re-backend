@@ -368,6 +368,8 @@ public class OrganizationServiceImpl implements OrganizationService {
         if (proposedChanges == null || proposedChanges.isNull() || proposedChanges.isEmpty()) {
             throw new BadRequestException("proposedChanges là bắt buộc.");
         }
+        // Kiểm trường lạ ngay lúc nộp, không để tới lúc Moderator duyệt mới phát hiện
+        organizationLegalChangeMapper.validate(proposedChanges);
 
         // Wireframe OP-05: mỗi lần chỉ 1 yêu cầu đang chờ duyệt
         if (organizationLegalChangeRequestRepository.existsByOrganization_AccountIdAndStatus(

@@ -32,12 +32,17 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -47,6 +52,18 @@ public class ConversationServiceImpl implements ConversationService {
     private static final int MAX_PAGE_SIZE = 50;
     private static final String CONVERSATION_NOT_FOUND = "Không tìm thấy hội thoại.";
     private static final String NOT_A_PARTICIPANT = "Bạn không thuộc hội thoại này.";
+
+    // Che email/số điện thoại/số tài khoản ngân hàng trong nội dung tin nhắn trước khi lưu,
+    // để tránh giao dịch ngoài sàn (F-089/F-090/F-091).
+    private static final Pattern EMAIL_PATTERN =
+            Pattern.compile("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
+    private static final Pattern PHONE_PATTERN = Pattern.compile("(?:\\+84|0)\\d{9,10}\\b");
+    private static final Pattern BANK_ACCOUNT_PATTERN = Pattern.compile("\\b\\d{9,19}\\b");
+
+    // Rate limit gửi tin nhắn: tối đa 10 tin / 30 giây / Member, giữ trong bộ nhớ theo accountId.
+    private static final int MESSAGE_RATE_LIMIT_MAX = 10;
+    private static final Duration MESSAGE_RATE_LIMIT_WINDOW = Duration.ofSeconds(30);
+    private final Map<UUID, Deque<Instant>> messageSendTimestamps = new ConcurrentHashMap<>();
 
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
@@ -185,9 +202,13 @@ public class ConversationServiceImpl implements ConversationService {
     @Override
     @Transactional
     public MessageResponse sendMessage(Account viewer, UUID conversationId, SendMessageRequest request) {
-        if (!StringUtils.hasText(request.getContent())) {
-            throw new BadRequestException("content là bắt buộc.");
+        List<String> imageUrls = request.getImageUrls() == null ? List.of() : request.getImageUrls();
+        boolean hasImages = !imageUrls.isEmpty();
+        if (!StringUtils.hasText(request.getContent()) && !hasImages) {
+            throw new BadRequestException("content hoặc imageUrls là bắt buộc.");
         }
+
+        checkMessageRateLimit(viewer.getId());
 
         Conversation conversation = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new IllegalArgumentException(CONVERSATION_NOT_FOUND));
@@ -199,12 +220,38 @@ public class ConversationServiceImpl implements ConversationService {
         Message message = Message.builder()
                 .conversation(conversation)
                 .senderAccount(sender)
-                .content(request.getContent())
+                .content(maskSensitiveContent(request.getContent()))
+                .imageUrls(imageUrls)
                 .sentAt(Instant.now())
                 .build();
         messageRepository.save(message);
 
         return toMessageResponse(message, viewer.getId());
+    }
+
+    private static String maskSensitiveContent(String content) {
+        if (!StringUtils.hasText(content)) {
+            return content;
+        }
+        String masked = EMAIL_PATTERN.matcher(content).replaceAll("***");
+        masked = PHONE_PATTERN.matcher(masked).replaceAll("***");
+        masked = BANK_ACCOUNT_PATTERN.matcher(masked).replaceAll("***");
+        return masked;
+    }
+
+    private void checkMessageRateLimit(UUID senderId) {
+        Deque<Instant> timestamps = messageSendTimestamps.computeIfAbsent(senderId, id -> new ArrayDeque<>());
+        synchronized (timestamps) {
+            Instant now = Instant.now();
+            Instant windowStart = now.minus(MESSAGE_RATE_LIMIT_WINDOW);
+            while (!timestamps.isEmpty() && timestamps.peekFirst().isBefore(windowStart)) {
+                timestamps.pollFirst();
+            }
+            if (timestamps.size() >= MESSAGE_RATE_LIMIT_MAX) {
+                throw new AppException(ErrorCode.MESSAGE_RATE_LIMITED);
+            }
+            timestamps.addLast(now);
+        }
     }
 
     // Hộp thư theo vai trò: Moderator thấy hộp thư chung của kho mình, không phân theo từng người (F-091)
@@ -297,6 +344,7 @@ public class ConversationServiceImpl implements ConversationService {
                 .id(message.getId().toString())
                 .senderId(message.getSenderAccount().getId().toString())
                 .content(message.getContent())
+                .imageUrls(message.getImageUrls() == null ? List.of() : message.getImageUrls())
                 .createdAt(message.getSentAt())
                 .isMine(message.getSenderAccount().getId().equals(viewerId))
                 .build();

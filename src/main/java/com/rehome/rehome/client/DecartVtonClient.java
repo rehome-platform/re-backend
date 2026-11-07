@@ -8,6 +8,7 @@ import java.time.Instant;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -35,6 +36,7 @@ public class DecartVtonClient {
     // null khi chưa cấu hình decart.api.key -> mọi lần gọi trả 502 TRYON_LIVE_TOKEN_FAILED
     private final RestClient client;
 
+    @Autowired
     public DecartVtonClient(
             RestClient.Builder restClientBuilder,
             @Value("${decart.api.base-url:https://api.decart.ai}") String baseUrl,

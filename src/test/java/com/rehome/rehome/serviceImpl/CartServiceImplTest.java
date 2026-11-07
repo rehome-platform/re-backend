@@ -452,7 +452,7 @@ class CartServiceImplTest {
     }
 
     @Test
-    void checkoutPreview_groupsByWarehouse_splitsUnavailableItems_andUsesGhnFee() {
+    void checkoutPreview_splitsOneOrderPerProduct_splitsUnavailableItems_andUsesGhnFee() {
         UUID addressId = UUID.randomUUID();
         ShippingAddress address = ShippingAddress.builder()
                 .id(addressId).member(member)
@@ -506,5 +506,52 @@ class CartServiceImplTest {
         assertThat(order.getTotal()).isEqualTo(new BigDecimal("239500"));
 
         verify(ghnShippingFeeCalculator, never()).calculate(eq(warehouse2), any(), any());
+    }
+
+    @Test
+    // Giống Shopee: preview phải khớp với createOrders thật - 2 món chung 1 kho vẫn ra 2 đơn riêng.
+    void checkoutPreview_splitsOneOrderPerProduct_evenWhenSameWarehouse() {
+        UUID addressId = UUID.randomUUID();
+        ShippingAddress address = ShippingAddress.builder()
+                .id(addressId).member(member)
+                .wardName("Phường Bến Nghé").provinceName("TP.HCM")
+                .build();
+
+        Cart cart = Cart.builder().id(UUID.randomUUID()).member(member).build();
+
+        Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).name("Kho Quận 7")
+                .wardName("Phường Tân Phú").provinceName("TP.HCM").isNewAddress(true).build();
+
+        Product product1 = Product.builder()
+                .id("Q7-AK-000845")
+                .currentPrice(new BigDecimal("220000"))
+                .status(ProductStatus.ON_SALE)
+                .warehouse(warehouse)
+                .build();
+
+        Product product2 = Product.builder()
+                .id("Q7-AK-000912")
+                .currentPrice(new BigDecimal("380000"))
+                .status(ProductStatus.ON_SALE)
+                .warehouse(warehouse)
+                .build();
+
+        CartItem item1 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(product1).build();
+        CartItem item2 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(product2).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(address));
+        when(cartRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(cart));
+        when(cartItemRepository.findAllByCartIdWithProduct(cart.getId())).thenReturn(List.of(item1, item2));
+        when(ghnShippingFeeCalculator.calculate(eq(warehouse), eq("Phường Bến Nghé"), eq("TP.HCM")))
+                .thenReturn(new BigDecimal("19500"));
+
+        CheckoutPreviewResponse response = cartService.checkoutPreview(email, addressId.toString());
+
+        assertThat(response.getUnavailableItems()).isEmpty();
+        assertThat(response.getOrders()).hasSize(2);
+        assertThat(response.getOrders()).extracting(o -> o.getItems().get(0))
+                .containsExactlyInAnyOrder("Q7-AK-000845", "Q7-AK-000912");
+        assertThat(response.getOrders()).allSatisfy(o -> assertThat(o.getItems()).hasSize(1));
     }
 }

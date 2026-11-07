@@ -418,7 +418,7 @@ class OrderServiceImplTest {
     }
 
     @Test
-    void createOrders_splitsCartIntoOneOrderPerWarehouse_andClearsOrderedCartItems() {
+    void createOrders_splitsCartIntoOneOrderPerProduct_acrossDifferentWarehouses_andClearsOrderedCartItems() {
         Cart cart = Cart.builder().id(UUID.randomUUID()).member(member).build();
         CartItem item1 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(product1).build();
         CartItem item2 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(product2).build();
@@ -445,6 +445,37 @@ class OrderServiceImplTest {
         ArgumentCaptor<List<String>> idsCaptor = ArgumentCaptor.forClass(List.class);
         verify(cartItemRepository).deleteByCart_IdAndProduct_IdIn(eq(cart.getId()), idsCaptor.capture());
         assertThat(idsCaptor.getValue()).containsExactlyInAnyOrder("Q7-AK-000845", "Q7-AK-000912");
+    }
+
+    @Test
+    // Giống Shopee: dù 2 món chung 1 kho vẫn phải ra 2 đơn riêng, không gộp - để trả hàng
+    // được từng món độc lập.
+    void createOrders_splitsCartIntoOneOrderPerProduct_evenWhenSameWarehouse() {
+        product2.setWarehouse(warehouse1);
+        Cart cart = Cart.builder().id(UUID.randomUUID()).member(member).build();
+        CartItem item1 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(product1).build();
+        CartItem item2 = CartItem.builder().id(UUID.randomUUID()).cart(cart).product(product2).build();
+        CreateOrderRequest request = new CreateOrderRequest(address.getId().toString(), null, null);
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
+        when(cartRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(cart));
+        when(cartItemRepository.findAllByCartIdWithProduct(cart.getId())).thenReturn(List.of(item1, item2));
+        when(productRepository.findByIdForUpdate("Q7-AK-000845")).thenReturn(Optional.of(product1));
+        when(productRepository.findByIdForUpdate("Q7-AK-000912")).thenReturn(Optional.of(product2));
+        when(ghnShippingFeeCalculator.calculate(any(), any(), any())).thenReturn(new BigDecimal("25000"));
+        stubOrderSaveAssignsId();
+
+        List<OrderResponse> responses = orderService.createOrders(email, request);
+
+        assertThat(responses).hasSize(2);
+        assertThat(responses).extracting(OrderResponse::getWarehouseId)
+                .containsExactly(warehouse1.getId().toString(), warehouse1.getId().toString());
+        assertThat(responses).extracting(OrderResponse::getSubtotal)
+                .containsExactlyInAnyOrder(new BigDecimal("220000"), new BigDecimal("380000"));
+
+        verify(orderRepository, times(2)).save(any());
+        verify(orderItemRepository, times(2)).save(any());
     }
 
     @Test

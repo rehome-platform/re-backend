@@ -221,7 +221,7 @@ public class CartServiceImpl implements CartService {
         }
 
         List<CheckoutPreviewUnavailableItemResponse> unavailableItems = new ArrayList<>();
-        Map<Warehouse, List<Product>> availableByWarehouse = new LinkedHashMap<>();
+        List<Product> availableProducts = new ArrayList<>();
 
         for (CartItem ci : items) {
             Product product = ci.getProduct();
@@ -232,24 +232,22 @@ public class CartServiceImpl implements CartService {
                         .build());
                 continue;
             }
-            availableByWarehouse.computeIfAbsent(product.getWarehouse(), w -> new ArrayList<>()).add(product);
+            availableProducts.add(product);
         }
 
+        // Mỗi sản phẩm là 1 đơn riêng (giống Shopee), kể cả khi nhiều món cùng kho -
+        // preview này phải khớp với cách createOrders thật sự tách đơn.
         List<CheckoutPreviewOrderResponse> orders = new ArrayList<>();
-        for (Map.Entry<Warehouse, List<Product>> entry : availableByWarehouse.entrySet()) {
-            Warehouse warehouse = entry.getKey();
-            List<Product> products = entry.getValue();
-
-            BigDecimal subtotal = products.stream()
-                    .map(Product::getCurrentPrice)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+        for (Product product : availableProducts) {
+            Warehouse warehouse = product.getWarehouse();
+            BigDecimal subtotal = product.getCurrentPrice();
 
             BigDecimal shippingFee = ghnShippingFeeCalculator.calculate(
                     warehouse, shippingAddress.getWardName(), shippingAddress.getProvinceName());
 
             orders.add(CheckoutPreviewOrderResponse.builder()
                     .warehouseId(warehouse.getId().toString())
-                    .items(products.stream().map(Product::getId).toList())
+                    .items(List.of(product.getId()))
                     .subtotal(subtotal)
                     .shippingFee(shippingFee)
                     .total(subtotal.add(shippingFee))

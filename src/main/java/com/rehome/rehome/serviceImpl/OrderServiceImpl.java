@@ -241,20 +241,14 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        // Giỏ nhiều kho bị tách thành nhiều đơn, mỗi đơn đúng 1 kho (F-053)
-        Map<Warehouse, List<Product>> productsByWarehouse = lockedProducts.stream()
-                .collect(Collectors.groupingBy(Product::getWarehouse, LinkedHashMap::new, Collectors.toList()));
-
+        // Mỗi sản phẩm là 1 đơn riêng (giống Shopee), kể cả khi nhiều món cùng kho, để
+        // trả hàng/đổi trạng thái được từng món độc lập - không còn gộp theo kho (F-053 cũ).
         Instant paymentDeadline = Instant.now().plus(paymentDeadlineMinutes, ChronoUnit.MINUTES);
         List<OrderResponse> responses = new ArrayList<>();
 
-        for (Map.Entry<Warehouse, List<Product>> entry : productsByWarehouse.entrySet()) {
-            Warehouse warehouse = entry.getKey();
-            List<Product> products = entry.getValue();
-
-            BigDecimal subtotal = products.stream()
-                    .map(Product::getCurrentPrice)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+        for (Product product : lockedProducts) {
+            Warehouse warehouse = product.getWarehouse();
+            BigDecimal subtotal = product.getCurrentPrice();
 
             // F-054: phí ship thật theo tuyến kho -> địa chỉ nhận, không còn số cố định
             BigDecimal shippingFee = ghnShippingFeeCalculator.calculate(
@@ -281,21 +275,19 @@ public class OrderServiceImpl implements OrderService {
                     .build();
             orderRepository.save(order);
 
-            for (Product product : products) {
-                OrderItem item = OrderItem.builder()
-                        .order(order)
-                        .product(product)
-                        .priceAtOrder(product.getCurrentPrice())
-                        .commissionRateApplied(commissionRateForTerm(product))
-                        .taxRateApplied(taxRate)
-                        .termApplied(product.getCurrentTerm())
-                        .build();
-                orderItemRepository.save(item);
+            OrderItem item = OrderItem.builder()
+                    .order(order)
+                    .product(product)
+                    .priceAtOrder(product.getCurrentPrice())
+                    .commissionRateApplied(commissionRateForTerm(product))
+                    .taxRateApplied(taxRate)
+                    .termApplied(product.getCurrentTerm())
+                    .build();
+            orderItemRepository.save(item);
 
-                // F-055: RESERVED ngay lúc đặt hàng, không phải từ lúc thêm giỏ
-                product.setStatus(ProductStatus.RESERVED);
-                productRepository.save(product);
-            }
+            // F-055: RESERVED ngay lúc đặt hàng, không phải từ lúc thêm giỏ
+            product.setStatus(ProductStatus.RESERVED);
+            productRepository.save(product);
 
             responses.add(OrderResponse.builder()
                     .id(order.getId().toString())

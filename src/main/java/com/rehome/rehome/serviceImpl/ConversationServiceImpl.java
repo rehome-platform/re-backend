@@ -24,6 +24,7 @@ import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.ConversationService;
 import com.rehome.rehome.service.PushNotificationService;
+import com.rehome.rehome.util.CloudinaryImageUrls;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -34,8 +35,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -65,10 +64,6 @@ public class ConversationServiceImpl implements ConversationService {
     private static final Pattern PHONE_PATTERN =
             Pattern.compile("(?:\\+84|0)(?:[\\s.-]?\\d){9,10}\\b");
     private static final Pattern BANK_ACCOUNT_PATTERN = Pattern.compile("\\b\\d{9,19}\\b");
-
-    // imageUrls chỉ được chấp nhận URL do chính Cloudinary của hệ thống phân phối, không nhận
-    // link ngoài — tránh client tự gắn URL ảnh bất kỳ (SSRF/nội dung không kiểm soát) vào tin nhắn.
-    private static final String CLOUDINARY_DELIVERY_HOST = "res.cloudinary.com";
 
     // Rate limit gửi tin nhắn: tối đa 10 tin / 30 giây / Member, giữ trong bộ nhớ theo accountId.
     private static final int MESSAGE_RATE_LIMIT_MAX = 10;
@@ -289,23 +284,7 @@ public class ConversationServiceImpl implements ConversationService {
     }
 
     private static void validateImageUrls(List<String> imageUrls) {
-        for (String url : imageUrls) {
-            if (!isOwnCloudinaryUrl(url)) {
-                throw new BadRequestException("imageUrls chỉ được chứa ảnh đã upload qua hệ thống.");
-            }
-        }
-    }
-
-    private static boolean isOwnCloudinaryUrl(String url) {
-        if (!StringUtils.hasText(url)) {
-            return false;
-        }
-        try {
-            URI uri = new URI(url);
-            return "https".equals(uri.getScheme()) && CLOUDINARY_DELIVERY_HOST.equals(uri.getHost());
-        } catch (URISyntaxException e) {
-            return false;
-        }
+        CloudinaryImageUrls.requireOwnUrls(imageUrls, "imageUrls chỉ được chứa ảnh đã upload qua hệ thống.");
     }
 
     private static String maskSensitiveContent(String content) {

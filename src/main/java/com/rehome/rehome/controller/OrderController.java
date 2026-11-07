@@ -19,6 +19,7 @@ import com.rehome.rehome.dto.response.PayOrdersResponse;
 import com.rehome.rehome.dto.response.SoldOrderListResponse;
 import com.rehome.rehome.dto.response.WarehouseOrderListResponse;
 import com.rehome.rehome.service.OrderService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -182,7 +183,7 @@ public class OrderController {
     public ResponseEntity<ApiResponse<OrderRatingResponse>> rateOrder(
             Authentication authentication,
             @PathVariable UUID id,
-            @RequestBody RateOrderRequest request) {
+            @Valid @RequestBody RateOrderRequest request) {
 
         String email = authentication.getName();
         OrderRatingResponse result = orderService.rateOrder(email, id, request);

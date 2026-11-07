@@ -78,6 +78,7 @@ import com.rehome.rehome.repository.ShippingAddressRepository;
 import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.repository.WalletTransactionRepository;
 import com.rehome.rehome.service.OrderService;
+import com.rehome.rehome.util.CloudinaryImageUrls;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -714,6 +715,7 @@ public class OrderServiceImpl implements OrderService {
                 .addressChangedAt(order.getAddressChangedAt())
                 .completedAt(order.getCompletedAt())
                 .ratingComment(order.getRatingComment())
+                .ratingImageUrls(order.getRatingImageUrls())
                 .scannedProductIds(scannedProductIds)
                 .scannedCount(scannedCount)
                 .totalCount(totalCount)
@@ -1245,8 +1247,12 @@ public class OrderServiceImpl implements OrderService {
             throw new ConflictException("Chỉ đánh giá đơn đã hoàn tất.", "ORDER_NOT_COMPLETED");
         }
 
+        List<String> imageUrls = request.getImageUrls() == null ? List.of() : request.getImageUrls();
+        CloudinaryImageUrls.requireOwnUrls(imageUrls, "imageUrls chỉ được chứa ảnh đã upload qua hệ thống.");
+
         order.setServiceRating(request.getServiceRating());
         order.setRatingComment(request.getComment());
+        order.setRatingImageUrls(imageUrls);
         order.setRatedAt(Instant.now());
         orderRepository.save(order);
 

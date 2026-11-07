@@ -50,6 +50,7 @@ public class OrderDetailResponse {
     private Short serviceRating;
     private Instant ratedAt;
     private String ratingComment;
+    private List<String> ratingImageUrls;
 
     private String cancelReason;
     private Instant cancelledAt;

@@ -39,7 +39,10 @@ public enum UploadFolder {
     ORGANIZATION_DOCUMENTS("organization-documents", true),
 
     /** Ảnh gửi kèm tin nhắn chat - Message.imageUrls */
-    CHAT_IMAGES("chat-images", false);
+    CHAT_IMAGES("chat-images", false),
+
+    /** Ảnh bằng chứng kèm đánh giá đơn hàng - Order.ratingImageUrls */
+    ORDER_RATINGS("order-ratings", false);
 
     /** Đường dẫn thật trên storage */
     private final String path;

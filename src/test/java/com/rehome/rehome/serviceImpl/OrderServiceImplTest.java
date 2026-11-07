@@ -1433,7 +1433,7 @@ class OrderServiceImplTest {
         UUID orderId = UUID.randomUUID();
         when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest((short) 5, "Tốt")))
+        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest((short) 5, "Tốt", null)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Account không tồn tại");
 
@@ -1446,7 +1446,7 @@ class OrderServiceImplTest {
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest((short) 5, "Tốt")))
+        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest((short) 5, "Tốt", null)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Không tìm thấy đơn hàng.");
     }
@@ -1460,7 +1460,7 @@ class OrderServiceImplTest {
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
 
-        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest((short) 5, "Tốt")))
+        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest((short) 5, "Tốt", null)))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessage("Bạn không có quyền đánh giá đơn này.");
 
@@ -1475,7 +1475,7 @@ class OrderServiceImplTest {
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
 
-        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest(null, "Tốt")))
+        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest(null, "Tốt", null)))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("serviceRating phải từ 1 đến 5.");
 
@@ -1490,7 +1490,7 @@ class OrderServiceImplTest {
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
 
-        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest((short) 6, "Tốt")))
+        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest((short) 6, "Tốt", null)))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("serviceRating phải từ 1 đến 5.");
 
@@ -1505,13 +1505,46 @@ class OrderServiceImplTest {
         when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
 
-        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest((short) 5, "Tốt")))
+        assertThatThrownBy(() -> orderService.rateOrder(email, orderId, new RateOrderRequest((short) 5, "Tốt", null)))
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("Chỉ đánh giá đơn đã hoàn tất.")
                 .satisfies(ex -> assertThat(((ConflictException) ex).getCode())
                         .isEqualTo("ORDER_NOT_COMPLETED"));
 
         verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void rateOrder_throwsBadRequest_whenImageUrlIsNotOwnCloudinaryUrl() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).buyer(member).status(OrderStatus.COMPLETED).build();
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.rateOrder(email, orderId,
+                new RateOrderRequest((short) 5, "Tốt", List.of("https://evil.com/x.jpg"))))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("imageUrls chỉ được chứa ảnh đã upload qua hệ thống.");
+
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void rateOrder_savesRatingImageUrls_whenAllUrlsAreOwnCloudinaryUrls() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).buyer(member).status(OrderStatus.COMPLETED).build();
+        List<String> imageUrls = List.of(
+                "https://res.cloudinary.com/demo/image/upload/v1/order-ratings/a.jpg",
+                "https://res.cloudinary.com/demo/image/upload/v1/order-ratings/b.jpg");
+
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        orderService.rateOrder(email, orderId, new RateOrderRequest((short) 5, "Tốt", imageUrls));
+
+        assertThat(order.getRatingImageUrls()).isEqualTo(imageUrls);
+        verify(orderRepository).save(order);
     }
 
     @Test
@@ -1523,7 +1556,7 @@ class OrderServiceImplTest {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
 
         OrderRatingResponse response = orderService.rateOrder(
-                email, orderId, new RateOrderRequest((short) 5, "Đóng gói cẩn thận, giao nhanh"));
+                email, orderId, new RateOrderRequest((short) 5, "Đóng gói cẩn thận, giao nhanh", null));
 
         assertThat(response.getId()).isEqualTo(orderId.toString());
         assertThat(response.getServiceRating()).isEqualTo((short) 5);
@@ -1549,7 +1582,7 @@ class OrderServiceImplTest {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
 
         OrderRatingResponse response = orderService.rateOrder(
-                email, orderId, new RateOrderRequest((short) 5, "Sửa lại, giao ổn"));
+                email, orderId, new RateOrderRequest((short) 5, "Sửa lại, giao ổn", null));
 
         assertThat(response.getServiceRating()).isEqualTo((short) 5);
         assertThat(response.getComment()).isEqualTo("Sửa lại, giao ổn");

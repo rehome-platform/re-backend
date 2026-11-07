@@ -7,6 +7,8 @@ import com.rehome.rehome.entity.enums.OrderStatus;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import lombok.*;
 import org.hibernate.annotations.ColumnDefault;
@@ -158,6 +160,14 @@ public class Order {
     // Nhận xét của Member khi đánh giá — F-066
     @Column(name = "rating_comment", nullable = true, columnDefinition = "text")
     private String ratingComment;
+
+    // Ảnh bằng chứng Member gửi kèm đánh giá, tối đa 5 ảnh — F-066
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "order_rating_image_urls", joinColumns = @JoinColumn(name = "order_id"))
+    @Column(name = "image_url", nullable = false, length = 2048)
+    @OrderColumn(name = "position")
+    @Builder.Default
+    private List<String> ratingImageUrls = new ArrayList<>();
 
     // Ghi chú của người mua lúc đặt hàng, hiển thị cho Moderator khi đóng gói - DG-01
     @Column(name = "buyer_note", nullable = true, columnDefinition = "text")

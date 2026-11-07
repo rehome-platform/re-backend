@@ -239,7 +239,17 @@ public enum ErrorCode {
     VIOLATION_WORD_ALREADY_EXISTS(HttpStatus.CONFLICT, "Từ khóa vi phạm này đã tồn tại."),
 
     // Chat: giới hạn tốc độ gửi tin nhắn
-    MESSAGE_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Bạn gửi quá nhanh, thử lại sau ít giây.");
+    MESSAGE_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Bạn gửi quá nhanh, thử lại sau ít giây."),
+
+    // Thử đồ AI real-time (Decart Lucy VTON) - giới hạn 2 lượt/ngày, 10 giây/lượt
+    TRYON_LIVE_QUOTA_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS,
+            "Bạn đã dùng hết lượt thử đồ AI real-time hôm nay. Vui lòng quay lại vào ngày mai."),
+    TRYON_LIVE_TOKEN_FAILED(HttpStatus.BAD_GATEWAY,
+            "Không thể kết nối tới dịch vụ thử đồ AI real-time lúc này, vui lòng thử lại sau."),
+    TRYON_LIVE_SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy phiên thử đồ AI real-time."),
+    TRYON_LIVE_SESSION_FORBIDDEN(HttpStatus.FORBIDDEN, "Phiên thử đồ AI real-time này không thuộc về bạn."),
+    TRYON_LIVE_SESSION_ALREADY_FINISHED(HttpStatus.CONFLICT, "Phiên thử đồ AI real-time này đã kết thúc."),
+    TRYON_LIVE_VIDEO_INVALID(HttpStatus.BAD_REQUEST, "File video không hợp lệ.");
 
     private final HttpStatus status;
     private final String defaultMessage;

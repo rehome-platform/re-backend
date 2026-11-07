@@ -221,3 +221,26 @@ tryon:
     connect-timeout-seconds: ${TRYON_AI_CONNECT_TIMEOUT_SECONDS:5}
     # AI chạy đồng bộ 2 bước diffusion (áo rồi quần), lần đầu còn nạp model: để dư
     read-timeout-seconds: ${TRYON_AI_READ_TIMEOUT_SECONDS:120}
+
+  # Thử đồ AI real-time qua camera (Decart Lucy VTON) - giới hạn chi phí
+  live:
+    # Tối đa bao nhiêu lượt / ngày / account (giờ VN) - trừ ngay lúc mint token, xem LiveTryOnQuotaGuard
+    daily-limit: ${TRYON_LIVE_DAILY_LIMIT:2}
+    # Decart tự cắt phiên phía server họ sau đúng N giây (constraints.realtime.maxSessionDuration,
+    # tối thiểu 10 theo Decart) - đây là chốt chặn thời lượng thật, không phụ thuộc client
+    max-session-seconds: ${TRYON_LIVE_MAX_SESSION_SECONDS:10}
+    # TTL của client token: chỉ cần đủ thời gian app mở camera + kết nối WebRTC, không phải thời lượng stream
+    token-ttl-seconds: ${TRYON_LIVE_TOKEN_TTL_SECONDS:30}
+    # Video 10s client ghi lại (WebM/MP4), clip 720p 10s thường chỉ 1-4MB - PHẢI <= spring.servlet.multipart.max-file-size
+    max-video-size-bytes: ${TRYON_LIVE_MAX_VIDEO_SIZE_BYTES:8388608}
+
+# ==================== DECART AI (Lucy VTON realtime) ====================
+# Permanent key (dct_...) lấy ở platform.decart.ai > API keys. CHỈ set qua env var, không commit.
+# Thiếu decart.api.key thì POST /tryon/live/sessions trả 502 TRYON_LIVE_TOKEN_FAILED.
+decart:
+  api:
+    base-url: ${DECART_API_BASE_URL:https://api.decart.ai}
+    key: ${DECART_API_KEY:}
+  vton:
+    # Ghim version cụ thể, KHÔNG dùng alias "lucy-vton-latest" để tránh bị đổi version/giá âm thầm
+    model-id: ${DECART_VTON_MODEL_ID:lucy-vton-3.5}

@@ -519,6 +519,6 @@ public class ProductServiceImpl implements ProductService {
                 account.getWarehouse().getId(), status, degradedOnly, pageable);
 
         return PageResponse.from(result.map(p -> new InventoryItemResponse(
-                p.getId(), p.getName(), p.getStatus())));
+                p.getId(), p.getName(), p.getStatus(), p.getConsignmentReceipt().getAgreedPrice(), p.getConsignmentReceipt().getTermLengthDays())));
     }
 }

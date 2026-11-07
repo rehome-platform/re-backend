@@ -241,6 +241,9 @@ decart:
   api:
     base-url: ${DECART_API_BASE_URL:https://api.decart.ai}
     key: ${DECART_API_KEY:}
+    # Mint token là 1 call REST ngắn - timeout thấp để mobile không đứng ở "Đang kết nối AI..." quá lâu
+    connect-timeout-seconds: ${DECART_API_CONNECT_TIMEOUT_SECONDS:5}
+    read-timeout-seconds: ${DECART_API_READ_TIMEOUT_SECONDS:10}
   vton:
     # Ghim version cụ thể, KHÔNG dùng alias "lucy-vton-latest" để tránh bị đổi version/giá âm thầm
     model-id: ${DECART_VTON_MODEL_ID:lucy-vton-3.5}

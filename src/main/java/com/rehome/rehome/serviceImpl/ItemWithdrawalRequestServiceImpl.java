@@ -12,6 +12,7 @@ import com.rehome.rehome.dto.response.PayItemWithdrawalFeeResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.enums.TransactionStatus;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
 import com.rehome.rehome.entity.enums.WalletType;
@@ -35,6 +36,7 @@ import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.repository.WalletTransactionRepository;
 import com.rehome.rehome.service.ItemWithdrawalRequestService;
+import com.rehome.rehome.service.QueueService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -77,6 +79,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
     private final PlatformFundRepository platformFundRepository;
     private final MomoApi momoApi;
     private final VnPayApi vnPayApi;
+    private final QueueService queueService;
 
     @Value("${app.item-withdrawal.pickup-deadline-days}")
     private long pickupDeadlineDays;
@@ -156,6 +159,9 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 .build();
 
         itemWithdrawalRequestRepository.save(withdrawal);
+
+        // API 90: việc mới cho Moderator của kho đang giữ sản phẩm - đóng lại ở API 72 (bàn giao tại quầy)
+        queueService.enqueue(QueueType.WITHDRAWAL, withdrawal.getId().toString(), product.getWarehouse());
 
         // F-032: "so that I can stop selling it" - sản phẩm ngừng bán ngay khi gửi yêu cầu, không
         // chờ tới lúc bàn giao (F-034) mới gỡ. Hàng vẫn nằm đúng vị trí kệ cho tới khi Member thật

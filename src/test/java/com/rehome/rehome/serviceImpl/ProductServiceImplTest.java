@@ -1170,4 +1170,230 @@ class ProductServiceImplTest {
         // F-036 chưa có hạn quyết định
         assertNull(res.getDegradedCase().decisionDeadline());
     }
+
+    // ==================== getInventory (Moderator Dashboard: lọc tồn kho theo kho) ====================
+
+    private static final UUID INVENTORY_WAREHOUSE_ID = UUID.randomUUID();
+
+    private Account moderatorOf(Warehouse warehouse) {
+        return Account.builder()
+                .id(UUID.randomUUID())
+                .role(Role.MODERATOR)
+                .warehouse(warehouse)
+                .build();
+    }
+
+    private Account inventoryModerator() {
+        return moderatorOf(Warehouse.builder().id(INVENTORY_WAREHOUSE_ID).code("Q7").build());
+    }
+
+    private Product inventoryProduct(String id, String name, ProductStatus status,
+                                     String agreedPrice, Integer termLengthDays) {
+        ConsignmentReceipt receipt = ConsignmentReceipt.builder()
+                .agreedPrice(new BigDecimal(agreedPrice))
+                .termLengthDays(termLengthDays)
+                .build();
+        return Product.builder()
+                .id(id)
+                .name(name)
+                .status(status)
+                .consignmentReceipt(receipt)
+                .build();
+    }
+
+    private void stubInventory(Page<Product> page) {
+        when(productRepository.findInventory(any(), any(), anyBoolean(), any(Pageable.class))).thenReturn(page);
+    }
+
+    private Pageable captureInventoryPageable() {
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(productRepository).findInventory(any(), any(), anyBoolean(), captor.capture());
+        return captor.getValue();
+    }
+
+    @Test
+    @DisplayName("getInventory: map đúng id, tên, trạng thái, giá thỏa thuận và số ngày mỗi kỳ")
+    void getInventory_mapsAllFields() {
+        Product p = inventoryProduct("Q7-AK-000845", "Áo sơ mi Zara trắng",
+                ProductStatus.ON_SALE, "450000.00", 30);
+        stubInventory(new PageImpl<>(List.of(p)));
+
+        PageResponse<InventoryItemResponse> res =
+                service.getInventory(inventoryModerator(), ProductStatus.ON_SALE, false, 0, 20);
+
+        assertEquals(1, res.getContent().size());
+        InventoryItemResponse item = res.getContent().get(0);
+        assertEquals("Q7-AK-000845", item.getId());
+        assertEquals("Áo sơ mi Zara trắng", item.getName());
+        assertEquals(ProductStatus.ON_SALE, item.getStatus());
+        assertEquals(0, new BigDecimal("450000.00").compareTo(item.getAgreedPrice()));
+        assertEquals(30, item.getTermLengthDays());
+    }
+
+    @Test
+    @DisplayName("getInventory: giữ nguyên thứ tự và map đủ nhiều món")
+    void getInventory_multipleItems_keepsOrder() {
+        Product p1 = inventoryProduct("Q7-AK-000846", "Áo B", ProductStatus.PLATFORM_OWNED, "100000", 30);
+        Product p2 = inventoryProduct("Q7-AK-000845", "Áo A", ProductStatus.ON_SALE, "200000", 60);
+        stubInventory(new PageImpl<>(List.of(p1, p2)));
+
+        PageResponse<InventoryItemResponse> res =
+                service.getInventory(inventoryModerator(), null, false, 0, 20);
+
+        assertThat(res.getContent()).extracting(InventoryItemResponse::getId)
+                .containsExactly("Q7-AK-000846", "Q7-AK-000845");
+        assertThat(res.getContent()).extracting(InventoryItemResponse::getTermLengthDays)
+                .containsExactly(30, 60);
+    }
+
+    @Test
+    @DisplayName("getInventory: luôn giới hạn theo kho của Moderator đang đăng nhập")
+    void getInventory_scopedToModeratorWarehouse() {
+        stubInventory(Page.empty());
+
+        service.getInventory(inventoryModerator(), null, false, 0, 20);
+
+        verify(productRepository).findInventory(
+                eq(INVENTORY_WAREHOUSE_ID), isNull(), eq(false), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("getInventory: hai Moderator khác kho -> mỗi người chỉ truy vấn đúng kho của mình")
+    void getInventory_differentModerators_differentWarehouses() {
+        UUID warehouseA = UUID.randomUUID();
+        UUID warehouseB = UUID.randomUUID();
+        stubInventory(Page.empty());
+
+        service.getInventory(moderatorOf(Warehouse.builder().id(warehouseA).build()), null, false, 0, 20);
+        service.getInventory(moderatorOf(Warehouse.builder().id(warehouseB).build()), null, false, 0, 20);
+
+        verify(productRepository).findInventory(eq(warehouseA), any(), anyBoolean(), any(Pageable.class));
+        verify(productRepository).findInventory(eq(warehouseB), any(), anyBoolean(), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("getInventory: Moderator chưa gán kho -> MODERATOR_NO_WAREHOUSE, không đụng DB")
+    void getInventory_noWarehouse_throws() {
+        AppException ex = assertThrows(AppException.class,
+                () -> service.getInventory(moderatorOf(null), null, false, 0, 20));
+
+        assertEquals(ErrorCode.MODERATOR_NO_WAREHOUSE, ex.getErrorCode());
+        verifyNoInteractions(productRepository);
+    }
+
+    @Test
+    @DisplayName("getInventory: lọc PLATFORM_OWNED -> truyền đúng status xuống repository")
+    void getInventory_platformOwnedStatus_passedToRepository() {
+        stubInventory(Page.empty());
+
+        service.getInventory(inventoryModerator(), ProductStatus.PLATFORM_OWNED, false, 0, 20);
+
+        verify(productRepository).findInventory(
+                eq(INVENTORY_WAREHOUSE_ID), eq(ProductStatus.PLATFORM_OWNED), eq(false), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("getInventory: degradedOnly = true (status DEGRADED) -> truyền cờ xuống repository")
+    void getInventory_degradedOnly_passedToRepository() {
+        stubInventory(Page.empty());
+
+        service.getInventory(inventoryModerator(), null, true, 0, 20);
+
+        verify(productRepository).findInventory(
+                eq(INVENTORY_WAREHOUSE_ID), isNull(), eq(true), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("getInventory: không gửi status -> truyền null (lấy tất cả trạng thái trong kho)")
+    void getInventory_nullStatus_passesNull() {
+        stubInventory(Page.empty());
+
+        service.getInventory(inventoryModerator(), null, false, 0, 20);
+
+        verify(productRepository).findInventory(
+                eq(INVENTORY_WAREHOUSE_ID), isNull(), eq(false), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("getInventory: page âm -> về 0")
+    void getInventory_negativePage_clampedToZero() {
+        stubInventory(Page.empty());
+
+        service.getInventory(inventoryModerator(), null, false, -5, 20);
+
+        assertEquals(0, captureInventoryPageable().getPageNumber());
+    }
+
+    @Test
+    @DisplayName("getInventory: size < 1 -> mặc định 20")
+    void getInventory_sizeBelowOne_usesDefault() {
+        stubInventory(Page.empty());
+
+        service.getInventory(inventoryModerator(), null, false, 0, 0);
+
+        assertEquals(20, captureInventoryPageable().getPageSize());
+    }
+
+    @Test
+    @DisplayName("getInventory: size vượt trần -> bị chặn ở 50")
+    void getInventory_sizeAboveMax_cappedAtFifty() {
+        stubInventory(Page.empty());
+
+        service.getInventory(inventoryModerator(), null, false, 2, 1000);
+
+        Pageable pageable = captureInventoryPageable();
+        assertEquals(2, pageable.getPageNumber());
+        assertEquals(50, pageable.getPageSize());
+    }
+
+    @Test
+    @DisplayName("getInventory: size hợp lệ được giữ nguyên")
+    void getInventory_validSize_kept() {
+        stubInventory(Page.empty());
+
+        service.getInventory(inventoryModerator(), null, false, 3, 35);
+
+        Pageable pageable = captureInventoryPageable();
+        assertEquals(3, pageable.getPageNumber());
+        assertEquals(35, pageable.getPageSize());
+    }
+
+    @Test
+    @DisplayName("getInventory: sắp xếp theo createdAt giảm dần")
+    void getInventory_sortedByCreatedAtDesc() {
+        stubInventory(Page.empty());
+
+        service.getInventory(inventoryModerator(), null, false, 0, 20);
+
+        assertEquals(Sort.by(Sort.Direction.DESC, "createdAt"), captureInventoryPageable().getSort());
+    }
+
+    @Test
+    @DisplayName("getInventory: kho trống -> trả danh sách rỗng, tổng bằng 0")
+    void getInventory_emptyWarehouse_returnsEmptyPage() {
+        stubInventory(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+        PageResponse<InventoryItemResponse> res =
+                service.getInventory(inventoryModerator(), null, false, 0, 20);
+
+        assertTrue(res.getContent().isEmpty());
+        assertEquals(0, res.getTotalElements());
+        assertEquals(0, res.getTotalPages());
+    }
+
+    @Test
+    @DisplayName("getInventory: giữ nguyên thông tin phân trang từ repository")
+    void getInventory_keepsPagingInfo() {
+        Pageable page1 = PageRequest.of(1, 2);
+        Product p = inventoryProduct("Q7-AK-000846", "Áo B", ProductStatus.ON_SALE, "100000", 30);
+        stubInventory(new PageImpl<>(List.of(p), page1, 5));
+
+        PageResponse<InventoryItemResponse> res =
+                service.getInventory(inventoryModerator(), null, false, 1, 2);
+
+        assertEquals(1, res.getPage());
+        assertEquals(2, res.getSize());
+        assertEquals(5, res.getTotalElements());
+        assertEquals(3, res.getTotalPages());
+    }
 }

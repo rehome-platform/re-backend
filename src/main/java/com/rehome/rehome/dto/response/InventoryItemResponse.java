@@ -1,10 +1,11 @@
 package com.rehome.rehome.dto.response;
 
 import com.rehome.rehome.entity.enums.ProductStatus;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import jakarta.persistence.Column;
+import lombok.*;
+import org.hibernate.annotations.ColumnDefault;
+
+import java.math.BigDecimal;
 
 @Getter
 @Setter
@@ -14,4 +15,7 @@ public class InventoryItemResponse {
     private String id;
     private String name;
     private ProductStatus status;
+    private BigDecimal agreedPrice;
+    private Integer termLengthDays;
+
 }

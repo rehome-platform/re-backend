@@ -2,10 +2,12 @@ package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.repository.ItemWithdrawalRequestRepository;
 import com.rehome.rehome.repository.ProductRepository;
+import com.rehome.rehome.service.QueueService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,6 +39,7 @@ class ItemWithdrawalAutoExpireServiceImplTest {
 
     @Mock ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
     @Mock ProductRepository productRepository;
+    @Mock QueueService queueService;
 
     @InjectMocks
     ItemWithdrawalAutoExpireServiceImpl service;
@@ -106,6 +109,9 @@ class ItemWithdrawalAutoExpireServiceImplTest {
         assertThat(product2.getStatus()).isEqualTo(ProductStatus.ON_SALE);
         verify(productRepository).save(product);
         verify(productRepository).save(product2);
+
+        verify(queueService).dequeue(QueueType.WITHDRAWAL, expired1.getId().toString());
+        verify(queueService).dequeue(QueueType.WITHDRAWAL, expired2.getId().toString());
     }
 
     @Test

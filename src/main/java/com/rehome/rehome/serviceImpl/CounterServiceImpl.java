@@ -17,6 +17,7 @@ import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.*;
 import com.rehome.rehome.service.CounterService;
+import com.rehome.rehome.service.QueueService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -46,6 +47,7 @@ public class CounterServiceImpl implements CounterService {
     private final ProductRepository productRepository;
     private final StockMovementLogRepository stockMovementLogRepository;
     private final AuditLogRepository auditLogRepository;
+    private final QueueService queueService;
 
     private static final List<ConsignmentFormStatus> OPEN_FORM_STATUSES =
             List.of(ConsignmentFormStatus.PENDING, ConsignmentFormStatus.APPROVED);
@@ -128,6 +130,9 @@ public class CounterServiceImpl implements CounterService {
         withdrawal.setStatus(ItemWithdrawalStatus.COMPLETED);
         withdrawal.setCompletedAt(Instant.now());
         itemWithdrawalRequestRepository.save(withdrawal);
+
+        // API 72: việc trong hàng đợi (mở ở API 90 lúc tạo yêu cầu) đã xử lý xong
+        queueService.dequeue(QueueType.WITHDRAWAL, withdrawal.getId().toString());
 
         Product product = productRepository.findByIdForUpdate(withdrawal.getProduct().getId())
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));

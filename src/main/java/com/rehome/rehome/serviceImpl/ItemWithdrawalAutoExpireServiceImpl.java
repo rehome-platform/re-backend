@@ -2,11 +2,13 @@ package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.repository.ItemWithdrawalRequestRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.service.ItemWithdrawalAutoExpireService;
+import com.rehome.rehome.service.QueueService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -24,6 +26,7 @@ public class ItemWithdrawalAutoExpireServiceImpl implements ItemWithdrawalAutoEx
 
     private final ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
     private final ProductRepository productRepository;
+    private final QueueService queueService;
 
     @Override
     @Scheduled(fixedRateString = "${app.item-withdrawal.auto-expire-check-interval-ms}")
@@ -46,6 +49,9 @@ public class ItemWithdrawalAutoExpireServiceImpl implements ItemWithdrawalAutoEx
         for (ItemWithdrawalRequest withdrawal : withdrawals) {
             withdrawal.setStatus(ItemWithdrawalStatus.EXPIRED);
             itemWithdrawalRequestRepository.save(withdrawal);
+
+            // Quá hạn thì Moderator không còn gì để bàn giao (API 72) - đóng việc trong hàng đợi
+            queueService.dequeue(QueueType.WITHDRAWAL, withdrawal.getId().toString());
 
             // Hàng chưa rời kho thật (F-034 mới ghi nhận lúc bàn giao), nên chỉ cần đổi
             // trạng thái niêm yết về lại ON_SALE - không có gì để ghi StockMovementLog ở đây

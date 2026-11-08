@@ -11,6 +11,7 @@ import com.rehome.rehome.dto.response.PayItemWithdrawalFeeResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.WithdrawalFeePaymentMethod;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
@@ -28,6 +29,7 @@ import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.repository.WalletTransactionRepository;
+import com.rehome.rehome.service.QueueService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -70,6 +72,7 @@ class ItemWithdrawalRequestServiceImplTest {
     @Mock PlatformFundRepository platformFundRepository;
     @Mock MomoApi momoApi;
     @Mock VnPayApi vnPayApi;
+    @Mock QueueService queueService;
 
     @InjectMocks
     ItemWithdrawalRequestServiceImpl service;
@@ -245,6 +248,14 @@ class ItemWithdrawalRequestServiceImplTest {
 
         assertThat(product.getStatus()).isEqualTo(ProductStatus.WITHDRAWN);
         verify(productRepository).save(product);
+    }
+
+    @Test
+    @DisplayName("create: thành công -> mở việc WITHDRAWAL trong hàng đợi của kho giữ sản phẩm")
+    void create_success_enqueuesWithdrawalQueueItem() {
+        ItemWithdrawalResponse response = service.create(owner, request(PRODUCT_ID));
+
+        verify(queueService).enqueue(QueueType.WITHDRAWAL, response.getId(), product.getWarehouse());
     }
 
     @Test

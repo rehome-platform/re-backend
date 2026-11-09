@@ -170,11 +170,14 @@ public class OrganizationServiceImpl implements OrganizationService {
 
     @Override
     @Transactional(readOnly = true)
-    public OrganizationPublicProfileResponse getPublicProfile(UUID organizationId, UUID viewerId) {
+    public OrganizationPublicProfileResponse getPublicProfile(UUID organizationId, Account viewer) {
+        boolean isModerator = viewer != null && viewer.getRole() == Role.MODERATOR;
+
         OrganizationProfile profile = organizationProfileRepository.findById(organizationId)
-                .filter(p -> p.getVerificationStatus() == VerificationStatus.VERIFIED)
+                .filter(p -> isModerator || p.getVerificationStatus() == VerificationStatus.VERIFIED)
                 .orElseThrow(() -> new IllegalArgumentException(ORGANIZATION_NOT_FOUND));
 
+        UUID viewerId = viewer != null ? viewer.getId() : null;
         boolean isFollowing = viewerId != null
                 && followRepository.existsByMember_IdAndOrganization_AccountId(viewerId, organizationId);
         long followerCount = followRepository.countByOrganization_AccountId(organizationId);

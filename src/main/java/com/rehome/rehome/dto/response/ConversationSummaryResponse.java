@@ -25,6 +25,13 @@ public class ConversationSummaryResponse {
     private LastMessageInfo lastMessage;
     private long unreadCount;
 
+    // Thống kê của Member đối diện, chỉ gắn khi người xem là Moderator (hộp thư kho F-089/F-091);
+    // null với Member/Organization xem hội thoại của chính mình.
+    private String phone;
+    private Long consignCount;
+    private Long shippingCount;
+    private Long returnCount;
+
     @Data
     @NoArgsConstructor
     @AllArgsConstructor

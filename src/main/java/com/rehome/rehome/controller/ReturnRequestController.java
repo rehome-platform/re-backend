@@ -101,16 +101,17 @@ public class ReturnRequestController {
         return ResponseEntity.ok(ApiResponse.success(result, "Đã ghi nhận lựa chọn"));
     }
 
-    // Hàng đợi xử lý của Moderator
+    // Hàng đợi xử lý của Moderator, giới hạn theo kho moderator phụ trách (không thấy chéo kho)
     @GetMapping("/queue")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<PageResponse<ReturnRequestResponse>>> getQueue(
+            @AuthenticationPrincipal Account moderator,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
         return ResponseEntity.ok(ApiResponse.success(
-                returnRequestService.getQueue(status, page, size)));
+                returnRequestService.getQueue(moderator, status, page, size)));
     }
 
     @GetMapping("/{id}/detail")

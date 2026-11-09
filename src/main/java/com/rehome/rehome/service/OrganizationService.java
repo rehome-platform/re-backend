@@ -30,8 +30,10 @@ public interface OrganizationService {
     OrganizationProfileResponse getMyProfile(UUID accountId);
     OrganizationOptionsResponse getOptions();
 
-    // F-082: trang công khai của 1 tổ chức đã VERIFIED. viewerId == null khi Guest (không có token).
-    OrganizationPublicProfileResponse getPublicProfile(UUID organizationId, UUID viewerId);
+    // F-082: trang công khai của 1 tổ chức đã VERIFIED. viewer == null khi Guest (không có
+    // token). Moderator là ngoại lệ: được xem hồ sơ bất kể trạng thái xác minh (PENDING/REJECTED
+    // cũng xem được), vì cần tra cứu tổ chức từ các luồng duyệt/hộp thư trước khi tổ chức VERIFIED.
+    OrganizationPublicProfileResponse getPublicProfile(UUID organizationId, Account viewer);
 
     // F-085: theo dõi / bỏ theo dõi 1 tổ chức. Cả 2 đều idempotent (gọi lại không báo lỗi).
     void follow(UUID memberId, UUID organizationId);

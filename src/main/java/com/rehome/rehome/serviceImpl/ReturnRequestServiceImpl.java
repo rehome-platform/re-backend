@@ -27,8 +27,10 @@ import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.entity.marketplace.ReturnRequestPhoto;
 import com.rehome.rehome.entity.marketplace.Warehouse;
+import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
+import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.exception.GhnException;
 import com.rehome.rehome.repository.AccountRepository;
@@ -215,7 +217,9 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     }
 
     @Override
-    public PageResponse<ReturnRequestResponse> getQueue(String status, int page, int size) {
+    public PageResponse<ReturnRequestResponse> getQueue(Account moderator, String status, int page, int size) {
+
+        Warehouse warehouse = requireWarehouse(moderator);
 
         List<ReturnRequestStatus> statuses = StringUtils.hasText(status)
                 ? List.of(parseStatus(status))
@@ -223,9 +227,16 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1));
         Page<ReturnRequest> result = returnRequestRepository
-                .findByStatusInOrderByCreatedAtAsc(statuses, pageable);
+                .findByOrder_Warehouse_IdAndStatusInOrderByCreatedAtAsc(warehouse.getId(), statuses, pageable);
 
         return PageResponse.from(result.map(this::toResponseWithPhotos));
+    }
+
+    private Warehouse requireWarehouse(Account moderator) {
+        if (moderator.getWarehouse() == null) {
+            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);
+        }
+        return moderator.getWarehouse();
     }
 
     @Override

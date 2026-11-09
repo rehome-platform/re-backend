@@ -50,6 +50,15 @@ public interface ConsignmentFormRepository extends JpaRepository<ConsignmentForm
 
     long countByMember_IdAndStatus(UUID memberId, ConsignmentFormStatus status);
 
+    // Thống kê hộp thư Moderator: số phiếu ký gửi còn đang xử lý theo Member, gom nhiều Member 1 query
+    @Query("select f.member.id, count(f) from ConsignmentForm f "
+            + "where f.member.id in :memberIds and f.status in ("
+            + "com.rehome.rehome.entity.enums.ConsignmentFormStatus.PENDING, "
+            + "com.rehome.rehome.entity.enums.ConsignmentFormStatus.APPROVED, "
+            + "com.rehome.rehome.entity.enums.ConsignmentFormStatus.INSPECTING) "
+            + "group by f.member.id")
+    List<Object[]> countActiveFormsByMemberIds(@Param("memberIds") List<UUID> memberIds);
+
     @EntityGraph(attributePaths = {"warehouse", "category", "brand"})
     Optional<ConsignmentForm> findWithDetailsById(UUID id);
 

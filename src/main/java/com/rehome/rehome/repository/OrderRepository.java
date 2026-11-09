@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -63,4 +64,10 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     @Query("select o.status, count(o) from Order o where o.warehouse.id = :warehouseId group by o.status")
     List<Object[]> countGroupedByStatusForWarehouse(@Param("warehouseId") UUID warehouseId);
+
+    // Thống kê hộp thư Moderator: số đơn đang trong luồng giao hàng theo người mua, gom nhiều Member 1 query
+    @Query("select o.buyer.id, count(o) from Order o "
+            + "where o.buyer.id in :buyerIds and o.status in :statuses group by o.buyer.id")
+    List<Object[]> countByBuyerIdsInAndStatusIn(@Param("buyerIds") Collection<UUID> buyerIds,
+                                                 @Param("statuses") Collection<OrderStatus> statuses);
 }

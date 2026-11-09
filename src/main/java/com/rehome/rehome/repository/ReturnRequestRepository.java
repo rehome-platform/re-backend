@@ -33,6 +33,16 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UU
 
     Page<ReturnRequest> findByStatusInOrderByCreatedAtAsc(List<ReturnRequestStatus> statuses, Pageable pageable);
 
+    // Hàng đợi xử lý của Moderator, giới hạn theo kho phụ trách để tránh thấy chéo kho
+    Page<ReturnRequest> findByOrder_Warehouse_IdAndStatusInOrderByCreatedAtAsc(
+            UUID warehouseId, List<ReturnRequestStatus> statuses, Pageable pageable);
+
+    // Thống kê hộp thư Moderator: số yêu cầu trả hàng đang xử lý theo người mua, gom nhiều Member 1 query
+    @Query("select r.order.buyer.id, count(r) from ReturnRequest r "
+            + "where r.order.buyer.id in :buyerIds and r.status in :statuses group by r.order.buyer.id")
+    List<Object[]> countByOrderBuyerIdsInAndStatusIn(@Param("buyerIds") Collection<UUID> buyerIds,
+                                                      @Param("statuses") Collection<ReturnRequestStatus> statuses);
+
     List<ReturnRequest> findAllByStatusAndHandoverDeadlineBefore(ReturnRequestStatus status, Instant deadline);
 
     List<ReturnRequest> findAllByStatusAndPickupDeadlineBeforeAndResolvedAtIsNull(

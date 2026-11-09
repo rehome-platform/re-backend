@@ -20,10 +20,13 @@ import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.repository.ConsignmentFormRepository;
 import com.rehome.rehome.repository.ConversationRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.MessageRepository;
+import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
+import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -58,6 +61,9 @@ class ConversationServiceImplTest {
     @Mock private WarehouseRepository warehouseRepository;
     @Mock private MemberProfileRepository memberProfileRepository;
     @Mock private AccountRepository accountRepository;
+    @Mock private ConsignmentFormRepository consignmentFormRepository;
+    @Mock private OrderRepository orderRepository;
+    @Mock private ReturnRequestRepository returnRequestRepository;
     @Mock private SimpMessagingTemplate messagingTemplate;
     @Mock private com.rehome.rehome.service.PushNotificationService pushNotificationService;
 
@@ -190,6 +196,53 @@ class ConversationServiceImplTest {
         assertThat(result).hasSize(1);
         verify(conversationRepository).findByTypeAndCounterpartIdOrderByCreatedAtDesc(
                 ConversationType.MEMBER_WAREHOUSE, warehouseId);
+    }
+
+    @Test
+    void listConversations_moderator_includesMemberStatsBatchedByMemberIds() {
+        UUID moderatorId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID convId = UUID.randomUUID();
+        Conversation conv = conversation(convId, memberId, ConversationType.MEMBER_WAREHOUSE, warehouseId);
+        Account memberAccount = Account.builder().id(memberId).role(Role.MEMBER).phone("0901234567").build();
+
+        when(conversationRepository.findByTypeAndCounterpartIdOrderByCreatedAtDesc(
+                ConversationType.MEMBER_WAREHOUSE, warehouseId)).thenReturn(List.of(conv));
+        when(accountRepository.findAllById(List.of(memberId))).thenReturn(List.of(memberAccount));
+        when(consignmentFormRepository.countActiveFormsByMemberIds(List.of(memberId)))
+                .thenReturn(List.<Object[]>of(new Object[]{memberId, 2L}));
+        when(orderRepository.countByBuyerIdsInAndStatusIn(eq(List.of(memberId)), any()))
+                .thenReturn(List.<Object[]>of(new Object[]{memberId, 1L}));
+        when(returnRequestRepository.countByOrderBuyerIdsInAndStatusIn(eq(List.of(memberId)), any()))
+                .thenReturn(List.<Object[]>of(new Object[]{memberId, 3L}));
+
+        List<ConversationSummaryResponse> result =
+                service.listConversations(moderator(moderatorId, warehouseId));
+
+        assertThat(result).hasSize(1);
+        ConversationSummaryResponse summary = result.get(0);
+        assertThat(summary.getPhone()).isEqualTo("0901234567");
+        assertThat(summary.getConsignCount()).isEqualTo(2L);
+        assertThat(summary.getShippingCount()).isEqualTo(1L);
+        assertThat(summary.getReturnCount()).isEqualTo(3L);
+    }
+
+    @Test
+    void listConversations_member_doesNotPopulateCounterpartStats() {
+        UUID memberId = UUID.randomUUID();
+        UUID orgAccountId = UUID.randomUUID();
+        UUID convId = UUID.randomUUID();
+        Conversation conv = conversation(convId, memberId, ConversationType.MEMBER_ORGANIZATION, orgAccountId);
+
+        when(conversationRepository.findByMember_IdOrderByCreatedAtDesc(memberId)).thenReturn(List.of(conv));
+
+        List<ConversationSummaryResponse> result = service.listConversations(account(memberId, Role.MEMBER));
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getPhone()).isNull();
+        assertThat(result.get(0).getConsignCount()).isNull();
+        verifyNoInteractions(consignmentFormRepository, orderRepository, returnRequestRepository);
     }
 
     @Test

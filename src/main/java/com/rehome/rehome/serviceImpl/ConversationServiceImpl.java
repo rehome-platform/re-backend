@@ -10,6 +10,8 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.chat.Conversation;
 import com.rehome.rehome.entity.chat.Message;
 import com.rehome.rehome.entity.enums.ConversationType;
+import com.rehome.rehome.entity.enums.OrderStatus;
+import com.rehome.rehome.entity.enums.ReturnRequestStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.VerificationStatus;
 import com.rehome.rehome.exception.AppException;
@@ -17,10 +19,13 @@ import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.repository.ConsignmentFormRepository;
 import com.rehome.rehome.repository.ConversationRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.MessageRepository;
+import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
+import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.ConversationService;
 import com.rehome.rehome.service.PushNotificationService;
@@ -70,12 +75,25 @@ public class ConversationServiceImpl implements ConversationService {
     private static final Duration MESSAGE_RATE_LIMIT_WINDOW = Duration.ofSeconds(30);
     private final Map<UUID, Deque<Instant>> messageSendTimestamps = new ConcurrentHashMap<>();
 
+    // Đơn đang trong luồng giao hàng, dùng cho shippingCount ở hộp thư Moderator
+    private static final List<OrderStatus> SHIPPING_ORDER_STATUSES = List.of(
+            OrderStatus.PACKING, OrderStatus.SHIPPING);
+
+    // Yêu cầu trả hàng còn đang xử lý, dùng cho returnCount ở hộp thư Moderator - cùng tập
+    // trạng thái "mở" với ReturnRequestServiceImpl.OPEN_STATUSES
+    private static final List<ReturnRequestStatus> OPEN_RETURN_STATUSES = List.of(
+            ReturnRequestStatus.PENDING, ReturnRequestStatus.APPROVED,
+            ReturnRequestStatus.SHIPPED_BACK, ReturnRequestStatus.INSPECTING);
+
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
     private final OrganizationProfileRepository organizationProfileRepository;
     private final WarehouseRepository warehouseRepository;
     private final MemberProfileRepository memberProfileRepository;
     private final AccountRepository accountRepository;
+    private final ConsignmentFormRepository consignmentFormRepository;
+    private final OrderRepository orderRepository;
+    private final ReturnRequestRepository returnRequestRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final PushNotificationService pushNotificationService;
 
@@ -121,6 +139,9 @@ public class ConversationServiceImpl implements ConversationService {
                 .countUnreadByConversationIds(conversationIds, viewer.getId()).stream()
                 .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
         Map<UUID, CounterpartDisplay> counterpartDisplays = resolveCounterpartDisplays(conversations, viewer.getRole());
+        Map<UUID, MemberStats> memberStatsById = viewer.getRole() == Role.MODERATOR
+                ? resolveMemberStats(conversations)
+                : Map.of();
 
         // Sắp theo thời điểm hoạt động gần nhất (tin cuối), không phải lúc tạo hội thoại;
         // hội thoại chưa có tin nhắn nào thì dùng lúc tạo làm mốc
@@ -132,6 +153,7 @@ public class ConversationServiceImpl implements ConversationService {
                     UUID counterpartId = counterpartIdFor(conversation, viewer.getRole());
                     CounterpartDisplay display = counterpartDisplays.get(counterpartId);
                     LastMessageInfo lastMessage = lastMessageByConversationId.get(conversation.getId());
+                    MemberStats stats = memberStatsById.get(conversation.getMember().getId());
                     return ConversationSummaryResponse.builder()
                             .id(conversation.getId().toString())
                             .type(conversation.getType().name())
@@ -147,8 +169,43 @@ public class ConversationServiceImpl implements ConversationService {
                                     .senderId(lastMessage.senderId().toString())
                                     .build())
                             .unreadCount(unreadByConversationId.getOrDefault(conversation.getId(), 0L))
+                            .phone(stats == null ? null : stats.phone())
+                            .consignCount(stats == null ? null : stats.consignCount())
+                            .shippingCount(stats == null ? null : stats.shippingCount())
+                            .returnCount(stats == null ? null : stats.returnCount())
                             .build();
                 }).toList();
+    }
+
+    private record MemberStats(String phone, long consignCount, long shippingCount, long returnCount) {
+    }
+
+    // Hộp thư Moderator (F-089/F-091): phone + 3 chỉ số của từng Member đối diện, gom theo
+    // memberIds của cả trang để tránh N+1 (1 câu/chỉ số thay vì 1 câu/hội thoại).
+    private Map<UUID, MemberStats> resolveMemberStats(List<Conversation> conversations) {
+        List<UUID> memberIds = conversations.stream().map(c -> c.getMember().getId()).distinct().toList();
+
+        Map<UUID, String> phoneByMemberId = accountRepository.findAllById(memberIds).stream()
+                .collect(Collectors.toMap(Account::getId, Account::getPhone));
+        Map<UUID, Long> consignCountByMemberId = consignmentFormRepository.countActiveFormsByMemberIds(memberIds)
+                .stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
+        Map<UUID, Long> shippingCountByMemberId = orderRepository
+                .countByBuyerIdsInAndStatusIn(memberIds, SHIPPING_ORDER_STATUSES).stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
+        Map<UUID, Long> returnCountByMemberId = returnRequestRepository
+                .countByOrderBuyerIdsInAndStatusIn(memberIds, OPEN_RETURN_STATUSES).stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
+
+        Map<UUID, MemberStats> result = new HashMap<>();
+        for (UUID memberId : memberIds) {
+            result.put(memberId, new MemberStats(
+                    phoneByMemberId.get(memberId),
+                    consignCountByMemberId.getOrDefault(memberId, 0L),
+                    shippingCountByMemberId.getOrDefault(memberId, 0L),
+                    returnCountByMemberId.getOrDefault(memberId, 0L)));
+        }
+        return result;
     }
 
     private static Instant lastActivityAt(Conversation conversation, LastMessageInfo lastMessage) {

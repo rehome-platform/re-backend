@@ -201,13 +201,15 @@ public class OrganizationProfileController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
+    // Public (Guest xem được, F-082); Moderator được xem thêm cả tổ chức chưa VERIFIED
+    // (PENDING/REJECTED) vì cần tra cứu hồ sơ từ luồng duyệt/hộp thư trước khi tổ chức được xác minh.
     @GetMapping("/{id}")
-    @Operation(summary = "Xem hồ sơ công khai của 1 tổ chức đã VERIFIED (F-082)")
+    @PreAuthorize("permitAll()")
+    @Operation(summary = "Xem hồ sơ của 1 tổ chức; VERIFIED thì ai cũng xem được, Moderator xem được mọi trạng thái (F-082)")
     public ResponseEntity<ApiResponse<OrganizationPublicProfileResponse>> getPublicProfile(
             @PathVariable UUID id,
             @AuthenticationPrincipal Account account) {
-        OrganizationPublicProfileResponse result = organizationService.getPublicProfile(
-                id, account != null ? account.getId() : null);
+        OrganizationPublicProfileResponse result = organizationService.getPublicProfile(id, account);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 

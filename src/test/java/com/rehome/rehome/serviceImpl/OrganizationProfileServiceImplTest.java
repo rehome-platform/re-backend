@@ -474,7 +474,7 @@ class OrganizationProfileServiceImplTest {
         when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
         when(followRepository.existsByMember_IdAndOrganization_AccountId(viewerId, orgId)).thenReturn(true);
 
-        OrganizationPublicProfileResponse res = service.getPublicProfile(orgId, viewerId);
+        OrganizationPublicProfileResponse res = service.getPublicProfile(orgId, account(viewerId, Role.MEMBER));
 
         assertThat(res.isFollowing()).isTrue();
     }
@@ -489,9 +489,26 @@ class OrganizationProfileServiceImplTest {
         when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
         when(followRepository.existsByMember_IdAndOrganization_AccountId(viewerId, orgId)).thenReturn(false);
 
-        OrganizationPublicProfileResponse res = service.getPublicProfile(orgId, viewerId);
+        OrganizationPublicProfileResponse res = service.getPublicProfile(orgId, account(viewerId, Role.MEMBER));
 
         assertThat(res.isFollowing()).isFalse();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = VerificationStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "VERIFIED")
+    void getPublicProfile_notVerified_moderatorViewer_bypassesVerifiedFilter(VerificationStatus status) {
+        UUID orgId = UUID.randomUUID();
+        UUID moderatorId = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(orgId)
+                .verificationStatus(status)
+                .build();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+        when(followRepository.countByOrganization_AccountId(orgId)).thenReturn(0L);
+
+        OrganizationPublicProfileResponse res = service.getPublicProfile(
+                orgId, account(moderatorId, Role.MODERATOR));
+
+        assertThat(res.getId()).isEqualTo(orgId.toString());
     }
 
     @Test

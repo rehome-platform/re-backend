@@ -24,11 +24,17 @@ public interface AccountRepository extends JpaRepository<Account, UUID>, JpaSpec
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from Account u where u.id = :id")
     Optional<Account> findByIdForUpdate(@Param("id") UUID id);
+    // JWT/WebSocket auth giữ Account này trong SecurityContext suốt đời request (REST) hoặc suốt
+    // kết nối (STOMP) - warehouse phải là entity thật nạp sẵn ở đây, không phải proxy lazy, vì
+    // phiên Hibernate đã tạo ra nó đóng lại trước khi ConversationServiceImpl chạm tới warehouse
+    // trong transaction khác (LazyInitializationException, xem requireWarehouseId/isParticipant).
+    @EntityGraph(attributePaths = {"warehouse"})
     Optional<Account> findByEmail(String email);
     boolean existsByEmail(String email);
     boolean existsByEmailIgnoreCase(String email);
     boolean existsByRole(Role role);
     long countByRole(Role role);
+    @EntityGraph(attributePaths = {"warehouse"})
     Optional<Account> findByEmailIgnoreCase(String email);
     Optional<Account> findFirstByRole(Role role);
     boolean existsByPhone(String phone);

@@ -330,6 +330,11 @@ public class ConversationServiceImpl implements ConversationService {
         }
     }
 
+    // viewer luôn là Account lấy từ SecurityContext (JwtAuthenticationFilter/WebSocketAuthChannelInterceptor,
+    // cả hai đi qua AccountDetailsServiceImpl.loadUserByUsername). Chỉ an toàn gọi viewer.getWarehouse()
+    // ở đây vì AccountRepository.findByEmail/findByEmailIgnoreCase có @EntityGraph nạp sẵn warehouse -
+    // phiên Hibernate lúc đăng nhập đã đóng từ lâu khi tới đây (nhất là STOMP, sống suốt kết nối), nên
+    // nếu warehouse còn là proxy lazy thì sẽ LazyInitializationException.
     private static boolean isParticipant(Account viewer, Conversation conversation) {
         return switch (viewer.getRole()) {
             case MEMBER -> conversation.getMember().getId().equals(viewer.getId());
@@ -402,6 +407,7 @@ public class ConversationServiceImpl implements ConversationService {
         return viewerRole == Role.MEMBER ? conversation.getCounterpartId() : conversation.getMember().getId();
     }
 
+    // Cùng lý do an toàn như isParticipant() ở trên - dựa vào @EntityGraph trên AccountRepository.
     private UUID requireWarehouseId(Account moderator) {
         if (moderator.getWarehouse() == null) {
             throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);

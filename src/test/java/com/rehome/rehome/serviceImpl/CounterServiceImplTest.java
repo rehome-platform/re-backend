@@ -13,6 +13,7 @@ import com.rehome.rehome.entity.enums.EndOfTermChoice;
 import com.rehome.rehome.entity.enums.InvalidReturnChoice;
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
 import com.rehome.rehome.entity.enums.StockMovementType;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
@@ -35,6 +36,7 @@ import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.repository.StockMovementLogRepository;
+import com.rehome.rehome.service.QueueService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -74,6 +76,7 @@ class CounterServiceImplTest {
     @Mock private ProductRepository productRepository;
     @Mock private StockMovementLogRepository stockMovementLogRepository;
     @Mock private AuditLogRepository auditLogRepository;
+    @Mock private QueueService queueService;
 
     @InjectMocks private CounterServiceImpl service;
 
@@ -591,6 +594,8 @@ class CounterServiceImplTest {
         assertThat(log.getWarehouse()).isEqualTo(product.getWarehouse());
         assertThat(log.getMovementType()).isEqualTo(StockMovementType.WITHDRAWAL_OUT);
         assertThat(log.getModerator()).isEqualTo(moderator);
+
+        verify(queueService).dequeue(QueueType.WITHDRAWAL, refId.toString());
     }
 
     @Test

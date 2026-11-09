@@ -7,5 +7,6 @@ public enum QueueType {
     RETURN,
     ORG_VERIFICATION,
     LEGAL_CHANGE,
-    VIOLATION_REPORT
+    VIOLATION_REPORT,
+    WITHDRAWAL
 }

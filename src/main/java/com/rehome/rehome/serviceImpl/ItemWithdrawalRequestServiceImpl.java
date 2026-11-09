@@ -177,10 +177,22 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
     // hình không ảnh hưởng hợp đồng cũ (xem docs/OVERVIEW.md).
     private BigDecimal computeFee(Product product) {
         ConsignmentReceipt receipt = product.getConsignmentReceipt();
-        Instant freeWindowEnd = product.getTermStartedAt()
-                .plus(receipt.getFreeWithdrawalWindowDays(), ChronoUnit.DAYS);
+        Instant termStartedAt = product.getTermStartedAt();
+        // Dữ liệu cũ/seed có thể thiếu biên nhận hoặc mốc bắt đầu kỳ: trả lỗi có mã (409) thay vì NPE -> 500
+        if (receipt == null || termStartedAt == null || receipt.getFreeWithdrawalWindowDays() == null) {
+            throw new AppException(ErrorCode.PRODUCT_RECEIPT_INCOMPLETE);
+        }
 
-        return Instant.now().isAfter(freeWindowEnd) ? receipt.getWithdrawalFee() : BigDecimal.ZERO;
+        Instant freeWindowEnd = termStartedAt.plus(receipt.getFreeWithdrawalWindowDays(), ChronoUnit.DAYS);
+        if (!Instant.now().isAfter(freeWindowEnd)) {
+            return BigDecimal.ZERO;
+        }
+
+        // Chỉ cần phí đã snapshot khi rút ngoài cửa sổ miễn phí
+        if (receipt.getWithdrawalFee() == null) {
+            throw new AppException(ErrorCode.PRODUCT_RECEIPT_INCOMPLETE);
+        }
+        return receipt.getWithdrawalFee();
     }
 
     // API 91 (F-033): trả phí rút hàng (nếu có) bằng đúng 1 phương thức - ví, MoMo hoặc VNPay,

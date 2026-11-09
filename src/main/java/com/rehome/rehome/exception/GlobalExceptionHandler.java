@@ -3,6 +3,8 @@ package com.rehome.rehome.exception;
 import com.rehome.rehome.dto.response.ApiError;
 import com.rehome.rehome.dto.response.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -17,6 +19,8 @@ import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(OtpException.class)
     public ResponseEntity<ApiError> handleOtp(OtpException ex, HttpServletRequest req) {
@@ -105,8 +109,16 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Object> handleDataIntegrity(
             org.springframework.dao.DataIntegrityViolationException ex, HttpServletRequest req) {
         String detail = ex.getMostSpecificCause().getMessage();
-        if (detail != null && detail.toLowerCase().contains("phone")) {
+        String lowerDetail = detail == null ? "" : detail.toLowerCase();
+        if (lowerDetail.contains("phone")) {
             ErrorCode ec = ErrorCode.PHONE_TAKEN;
+            return ResponseEntity.status(ec.getStatus()).body(ApiResponse.error(ec));
+        }
+        // CHECK / NOT NULL: lỗi dữ liệu hoặc schema lệch với code (vd giá trị enum mới chưa có trong CHECK của DB).
+        // Trả lỗi có mã để app hiện đúng nguyên nhân thay vì 500 chung; tên constraint chỉ ghi log, không lộ ra response.
+        if (lowerDetail.contains("violates check constraint") || lowerDetail.contains("violates not-null constraint")) {
+            log.error("Vi phạm ràng buộc DB ({}): {}", req.getRequestURI(), detail, ex);
+            ErrorCode ec = ErrorCode.DATA_CONSTRAINT_VIOLATION;
             return ResponseEntity.status(ec.getStatus()).body(ApiResponse.error(ec));
         }
         ex.printStackTrace(); // tạm thời để debug, giống handler Exception chung bên dưới

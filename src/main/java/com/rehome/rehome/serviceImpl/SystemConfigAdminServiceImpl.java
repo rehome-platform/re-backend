@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.constant.SystemConfigCatalog;
 import com.rehome.rehome.constant.SystemConfigCatalog.Spec;
+import com.rehome.rehome.dto.response.SystemConfigItemResponse;
 import com.rehome.rehome.dto.response.SystemConfigResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.marketplace.SystemConfig;
@@ -17,7 +18,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -26,6 +31,21 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
     private final SystemConfigRepository systemConfigRepository;
     private final AuditLogger auditLogger;
     private final ObjectMapper objectMapper;
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<SystemConfigItemResponse> list() {
+        Map<String, SystemConfig> stored = systemConfigRepository.findAll().stream()
+                .collect(Collectors.toMap(SystemConfig::getKey, Function.identity(), (a, b) -> a));
+
+        // Chỉ liệt kê key trong catalog (Admin được chỉnh), không lộ các key nội bộ như force_payout_failure
+        return SystemConfigCatalog.defaults().entrySet().stream()
+                .map(e -> SystemConfigItemResponse.of(
+                        SystemConfigCatalog.find(e.getKey()).orElseThrow(),
+                        e.getValue(),
+                        stored.get(e.getKey())))
+                .toList();
+    }
 
     @Override
     @Transactional

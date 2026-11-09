@@ -133,6 +133,9 @@ public enum ErrorCode {
     // API 39 - tem SKU
     SKU_LABEL_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo file PDF tem SKU."),
     PHONE_TAKEN(HttpStatus.CONFLICT, "Số điện thoại này đã được sử dụng."),
+    // Vi phạm CHECK / NOT NULL ở DB (dữ liệu hoặc schema lệch với code), chi tiết nằm trong log server
+    DATA_CONSTRAINT_VIOLATION(HttpStatus.CONFLICT,
+            "DATA_CONSTRAINT_VIOLATION: dữ liệu vi phạm ràng buộc của hệ thống, vui lòng thử lại sau hoặc liên hệ hỗ trợ."),
     // Admin khoá / mở khoá tài khoản
     CANNOT_BAN_ADMIN_OR_SELF(HttpStatus.FORBIDDEN, "Không thể khoá tài khoản Admin hoặc chính bạn."),
     ACCOUNT_NOT_BANNED(HttpStatus.CONFLICT, "Tài khoản này đang không bị khoá."),
@@ -195,6 +198,9 @@ public enum ErrorCode {
     // API 90 - F-032: Member yêu cầu rút lại hàng ký gửi giữa kỳ
     PRODUCT_ALREADY_ORDERED(HttpStatus.CONFLICT, "PRODUCT_ALREADY_ORDERED: sản phẩm đã có đơn mua, không thể rút."),
     ITEM_WITHDRAWAL_ALREADY_PENDING(HttpStatus.CONFLICT, "Sản phẩm đang có yêu cầu rút hàng chờ xử lý."),
+    // Dữ liệu cũ/seed thiếu biên nhận ký gửi hoặc mốc bắt đầu kỳ nên không tính được phí rút
+    PRODUCT_RECEIPT_INCOMPLETE(HttpStatus.CONFLICT,
+            "PRODUCT_RECEIPT_INCOMPLETE: sản phẩm thiếu dữ liệu biên nhận ký gửi (kỳ ký gửi hoặc phí rút), chưa thể rút hàng."),
 
     // API 91 - F-033: Member trả phí rút hàng
     ITEM_WITHDRAWAL_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy yêu cầu rút hàng."),

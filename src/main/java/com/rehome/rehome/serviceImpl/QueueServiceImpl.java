@@ -8,6 +8,7 @@ import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
+import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.QueueItem;
@@ -17,6 +18,7 @@ import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.OrganizationLegalChangeMapper;
 import com.rehome.rehome.repository.ConsignmentFormRepository;
+import com.rehome.rehome.repository.ItemWithdrawalRequestRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
@@ -50,6 +52,7 @@ public class QueueServiceImpl implements QueueService {
     private final MemberProfileRepository memberProfileRepository;
     private final ConsignmentFormRepository consignmentFormRepository;
     private final OrganizationProfileRepository organizationProfileRepository;
+    private final ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -67,7 +70,7 @@ public class QueueServiceImpl implements QueueService {
 
     // DG-01: QueueItemResponse của PACKING cần kèm dữ liệu đơn hàng (mã đơn, người nhận,
     // số món, vị trí kệ, thời gian chờ); LEGAL_CHANGE kèm nội dung xin đổi (xem bên dưới);
-    // FORM_REVIEW / INSPECTION / ORG_VERIFICATION kèm targetName + subjectSubtitle.
+    // FORM_REVIEW / INSPECTION / ORG_VERIFICATION / WITHDRAWAL kèm targetName + subjectSubtitle.
     // Mọi dữ liệu nạp theo lô từ danh sách refId nên số truy vấn cố định, không phụ thuộc số dòng hàng đợi.
     private List<QueueItemResponse> toResponses(List<QueueItem> items) {
         List<UUID> packingOrderIds = items.stream()
@@ -191,6 +194,31 @@ public class QueueServiceImpl implements QueueService {
                     .forEach(o -> organizationsById.put(o.getAccountId(), o));
         }
 
+        // Nhánh rút hàng: WITHDRAWAL có refId là id yêu cầu rút hàng; tên món lấy từ product (fetch sẵn),
+        // tên người ký gửi lấy theo lô từ MemberProfile (getId() trên proxy lazy không kích hoạt query)
+        List<UUID> withdrawalIds = items.stream()
+                .filter(i -> i.getType() == QueueType.WITHDRAWAL)
+                .map(i -> parseUuid(i.getRefId()))
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        Map<UUID, ItemWithdrawalRequest> withdrawalsById = new HashMap<>();
+        Map<UUID, String> withdrawalMemberNameByAccountId = new HashMap<>();
+        if (!withdrawalIds.isEmpty()) {
+            itemWithdrawalRequestRepository.findAllWithProductByIdIn(withdrawalIds)
+                    .forEach(w -> withdrawalsById.put(w.getId(), w));
+
+            List<UUID> withdrawalMemberIds = withdrawalsById.values().stream()
+                    .map(w -> w.getMember().getId())
+                    .distinct()
+                    .toList();
+            if (!withdrawalMemberIds.isEmpty()) {
+                memberProfileRepository.findAllByAccount_IdIn(withdrawalMemberIds)
+                        .forEach(p -> withdrawalMemberNameByAccountId.put(p.getAccountId(), p.getFullName()));
+            }
+        }
+
         Instant now = Instant.now();
         return items.stream().map(q -> {
             if (q.getType() == QueueType.PACKING) {
@@ -241,6 +269,15 @@ public class QueueServiceImpl implements QueueService {
                     return QueueItemResponse.from(q);
                 }
                 return QueueItemResponse.fromOrganization(q, organization);
+            }
+            if (q.getType() == QueueType.WITHDRAWAL) {
+                UUID withdrawalId = parseUuid(q.getRefId());
+                ItemWithdrawalRequest withdrawal = withdrawalId == null ? null : withdrawalsById.get(withdrawalId);
+                if (withdrawal == null) {
+                    return QueueItemResponse.from(q);
+                }
+                String memberName = withdrawalMemberNameByAccountId.get(withdrawal.getMember().getId());
+                return QueueItemResponse.fromWithdrawal(q, withdrawal, memberName);
             }
             return QueueItemResponse.from(q);
         }).toList();

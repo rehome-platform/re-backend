@@ -15,4 +15,6 @@ public interface CategoryService {
     // CategoryService
     CatalogStatusResponse hide(UUID id);
     List<CategoryResponse> list(String status, Account account);
+    // Xóa cứng; 404 nếu không có, 409 CATEGORY_IN_USE nếu còn sản phẩm / phiếu ký gửi dùng
+    void delete(UUID id);
 }

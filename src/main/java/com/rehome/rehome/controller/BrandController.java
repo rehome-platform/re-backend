@@ -47,6 +47,14 @@ public class BrandController {
     public ResponseEntity<ApiResponse<CatalogStatusResponse>> hide(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(brandService.hide(id), 200, "Đã ẩn"));
     }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable UUID id) {
+        brandService.delete(id);
+        return ResponseEntity.ok(ApiResponse.success(null, 200, "Đã xóa thương hiệu"));
+    }
+
     @GetMapping
     public ResponseEntity<ApiResponse<List<BrandResponse>>> list(
             @RequestParam(required = false) String status,

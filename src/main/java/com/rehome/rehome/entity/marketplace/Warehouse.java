@@ -77,6 +77,14 @@ public class Warehouse {
     @Column(name = "province_name", nullable = true, length = 255)
     private String provinceName;
 
+    // Mã tỉnh/thành theo danh mục GHN hệ 2 cấp, đi cùng provinceName
+    @Column(name = "province_id", nullable = true)
+    private Integer provinceId;
+
+    // Mã phường/xã theo danh mục GHN hệ 2 cấp, đi cùng wardName
+    @Column(name = "ward_code", nullable = true, length = 50)
+    private String wardCode;
+
     // true = theo đơn vị hành chính mới (sau 01/07/2025, không còn quận/huyện) khi gửi cho GHN
     @Column(name = "is_new_address", nullable = false)
     @ColumnDefault("false")

@@ -81,6 +81,10 @@ class WarehouseAdminServiceImplTest {
         CreateWarehouseRequest r = new CreateWarehouseRequest();
         r.setName(name);
         r.setAddress(" 12 Lê Lợi, Q.1 ");
+        r.setProvinceName(" Thành phố Hồ Chí Minh ");
+        r.setWardName(" Phường Bến Nghé ");
+        r.setProvinceId(202);
+        r.setWardCode(" 20308 ");
         r.setLatitude(new BigDecimal("10.7710000"));
         r.setLongitude(new BigDecimal("106.6900000"));
         r.setOpeningHours("08:00 - 20:00");
@@ -91,6 +95,10 @@ class WarehouseAdminServiceImplTest {
         UpdateWarehouseRequest r = new UpdateWarehouseRequest();
         r.setName(name);
         r.setAddress("200 Điện Biên Phủ");
+        r.setProvinceName("Thành phố Hồ Chí Minh");
+        r.setWardName("Phường Đa Kao");
+        r.setProvinceId(202);
+        r.setWardCode("20309");
         r.setLatitude(new BigDecimal("10.7900000"));
         r.setLongitude(new BigDecimal("106.6900000"));
         r.setOpeningHours("09:00 - 18:00");
@@ -143,10 +151,18 @@ class WarehouseAdminServiceImplTest {
         assertThat(saved.getCode()).isEqualTo("Q10");
         assertThat(saved.getAddress()).isEqualTo("12 Lê Lợi, Q.1");
         assertThat(saved.getStatus()).isEqualTo(CatalogStatus.ACTIVE);
+        assertThat(saved.getProvinceName()).isEqualTo("Thành phố Hồ Chí Minh");
+        assertThat(saved.getWardName()).isEqualTo("Phường Bến Nghé");
+        assertThat(saved.getProvinceId()).isEqualTo(202);
+        assertThat(saved.getWardCode()).isEqualTo("20308");
+        assertThat(saved.getIsNewAddress()).isTrue();
 
         verify(auditLogger).log(eq(admin), eq("CREATE_WAREHOUSE"), eq("WAREHOUSE"),
                 eq(saved.getId().toString()), any(JsonNode.class));
         assertThat(response.getCode()).isEqualTo("Q10");
+        assertThat(response.getWardName()).isEqualTo("Phường Bến Nghé");
+        assertThat(response.getProvinceName()).isEqualTo("Thành phố Hồ Chí Minh");
+        assertThat(response.getIsNewAddress()).isTrue();
     }
 
     @Test
@@ -193,13 +209,38 @@ class WarehouseAdminServiceImplTest {
         assertThat(warehouse.getOpeningHours()).isEqualTo("09:00 - 18:00");
         assertThat(warehouse.getCode()).isEqualTo("Q7");
         assertThat(warehouse.getStatus()).isEqualTo(CatalogStatus.ACTIVE);
+        assertThat(warehouse.getProvinceName()).isEqualTo("Thành phố Hồ Chí Minh");
+        assertThat(warehouse.getWardName()).isEqualTo("Phường Đa Kao");
+        assertThat(warehouse.getProvinceId()).isEqualTo(202);
+        assertThat(warehouse.getWardCode()).isEqualTo("20309");
+        assertThat(warehouse.getIsNewAddress()).isTrue();
+        assertThat(warehouse.getDistrictName()).isNull();
 
         ArgumentCaptor<JsonNode> detail = ArgumentCaptor.forClass(JsonNode.class);
         verify(auditLogger).log(eq(admin), eq("UPDATE_WAREHOUSE"), eq("WAREHOUSE"),
                 eq(warehouseId.toString()), detail.capture());
         assertThat(detail.getValue().get("before").get("name").asText()).isEqualTo("Kho Quận 7");
         assertThat(detail.getValue().get("after").get("name").asText()).isEqualTo("Kho Điện Biên Phủ");
+        assertThat(detail.getValue().get("after").get("wardCode").asText()).isEqualTo("20309");
+        assertThat(detail.getValue().get("after").get("isNewAddress").asBoolean()).isTrue();
         assertThat(response.getName()).isEqualTo("Kho Điện Biên Phủ");
+        assertThat(response.getWardName()).isEqualTo("Phường Đa Kao");
+        assertThat(response.getIsNewAddress()).isTrue();
+    }
+
+    @Test
+    @DisplayName("update: kho cũ khai hệ 3 cấp (isNewAddress=false, có quận/huyện) -> chuyển sang hệ 2 cấp, xóa districtName")
+    void update_legacyWarehouse_switchesToNewAddress() {
+        warehouse.setIsNewAddress(false);
+        warehouse.setDistrictName("Quận 7");
+        when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
+        when(warehouseRepository.existsByNameIgnoreCaseAndIdNot("Kho Quận 7", warehouseId)).thenReturn(false);
+        when(warehouseRepository.save(warehouse)).thenReturn(warehouse);
+
+        service.update(admin, warehouseId, updateRequest("Kho Quận 7"));
+
+        assertThat(warehouse.getIsNewAddress()).isTrue();
+        assertThat(warehouse.getDistrictName()).isNull();
     }
 
     @Test

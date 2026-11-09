@@ -23,6 +23,11 @@ import java.util.UUID;
 public interface ConsignmentFormRepository extends JpaRepository<ConsignmentForm, UUID> {
 
     // API 144: còn phiếu ký gửi đang xử lý tại kho thì không ẩn kho
+    // DELETE /categories/{id}, /brands/{id}: chặn xóa khi còn phiếu ký gửi tham chiếu
+    boolean existsByCategory_Id(UUID categoryId);
+
+    boolean existsByBrand_Id(UUID brandId);
+
     boolean existsByWarehouse_IdAndStatusIn(UUID warehouseId, Collection<ConsignmentFormStatus> statuses);
 
 

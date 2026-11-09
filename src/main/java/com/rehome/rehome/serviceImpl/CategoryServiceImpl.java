@@ -11,6 +11,8 @@ import com.rehome.rehome.entity.marketplace.Category;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.CategoryRepository;
+import com.rehome.rehome.repository.ConsignmentFormRepository;
+import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.service.CategoryService;
 import com.rehome.rehome.util.CatalogStatusParser;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +27,8 @@ import java.util.UUID;
 public class CategoryServiceImpl implements CategoryService {
 
     private final CategoryRepository categoryRepository;
+    private final ProductRepository productRepository;
+    private final ConsignmentFormRepository consignmentFormRepository;
 
     @Override
     @Transactional
@@ -101,5 +105,19 @@ public class CategoryServiceImpl implements CategoryService {
         return categoryRepository.findByStatusOrderByNameAsc(s).stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    public void delete(UUID id) {
+        Category category = categoryRepository.findById(id)
+                .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));   // 404
+
+        // Product và ConsignmentForm đều có FK category_id NOT NULL: còn dùng thì không xóa được
+        if (productRepository.existsByCategory_Id(id) || consignmentFormRepository.existsByCategory_Id(id)) {
+            throw new AppException(ErrorCode.CATEGORY_IN_USE);                        // 409
+        }
+
+        categoryRepository.delete(category);
     }
 }

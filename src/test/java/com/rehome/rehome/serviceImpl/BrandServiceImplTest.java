@@ -11,6 +11,8 @@ import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.BrandRepository;
+import com.rehome.rehome.repository.ConsignmentFormRepository;
+import com.rehome.rehome.repository.ProductRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,6 +32,8 @@ import static org.mockito.Mockito.*;
 class BrandServiceImplTest {
 
     @Mock private BrandRepository brandRepository;
+    @Mock private ProductRepository productRepository;
+    @Mock private ConsignmentFormRepository consignmentFormRepository;
     @InjectMocks private BrandServiceImpl brandService;
 
     private CreateBrandRequest createReq(String name) {
@@ -217,5 +221,60 @@ class BrandServiceImplTest {
 
         assertEquals(ErrorCode.INVALID_STATUS, ex.getErrorCode());
         verifyNoInteractions(brandRepository);
+    }
+
+    // ==================== DELETE /brands/{id} ====================
+
+    @Test
+    @DisplayName("delete: không tồn tại -> BRAND_NOT_FOUND, không xóa")
+    void delete_notFound() {
+        UUID id = UUID.randomUUID();
+        when(brandRepository.findById(id)).thenReturn(Optional.empty());
+
+        AppException ex = assertThrows(AppException.class, () -> brandService.delete(id));
+
+        assertEquals(ErrorCode.BRAND_NOT_FOUND, ex.getErrorCode());
+        verify(brandRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("delete: còn sản phẩm dùng -> 409 BRAND_IN_USE, không xóa")
+    void delete_usedByProduct() {
+        UUID id = UUID.randomUUID();
+        when(brandRepository.findById(id)).thenReturn(Optional.of(brand(id, "Nike", CatalogStatus.ACTIVE)));
+        when(productRepository.existsByBrand_Id(id)).thenReturn(true);
+
+        AppException ex = assertThrows(AppException.class, () -> brandService.delete(id));
+
+        assertEquals(ErrorCode.BRAND_IN_USE, ex.getErrorCode());
+        verify(brandRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("delete: còn phiếu ký gửi dùng -> 409 BRAND_IN_USE, không xóa")
+    void delete_usedByConsignmentForm() {
+        UUID id = UUID.randomUUID();
+        when(brandRepository.findById(id)).thenReturn(Optional.of(brand(id, "Nike", CatalogStatus.ACTIVE)));
+        when(productRepository.existsByBrand_Id(id)).thenReturn(false);
+        when(consignmentFormRepository.existsByBrand_Id(id)).thenReturn(true);
+
+        AppException ex = assertThrows(AppException.class, () -> brandService.delete(id));
+
+        assertEquals(ErrorCode.BRAND_IN_USE, ex.getErrorCode());
+        verify(brandRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("delete: không ai dùng -> xóa cứng (kể cả đang HIDDEN)")
+    void delete_success() {
+        UUID id = UUID.randomUUID();
+        Brand b = brand(id, "Nike", CatalogStatus.HIDDEN);
+        when(brandRepository.findById(id)).thenReturn(Optional.of(b));
+        when(productRepository.existsByBrand_Id(id)).thenReturn(false);
+        when(consignmentFormRepository.existsByBrand_Id(id)).thenReturn(false);
+
+        brandService.delete(id);
+
+        verify(brandRepository).delete(b);
     }
 }

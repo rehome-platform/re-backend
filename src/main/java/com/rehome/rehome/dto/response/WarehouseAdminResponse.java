@@ -19,6 +19,9 @@ public class WarehouseAdminResponse {
     private final String code;
     private final String name;
     private final String address;
+    private final String wardName;
+    private final String provinceName;
+    private final Boolean isNewAddress;
     private final BigDecimal latitude;
     private final BigDecimal longitude;
     private final String openingHours;
@@ -31,6 +34,9 @@ public class WarehouseAdminResponse {
                 .code(w.getCode())
                 .name(w.getName())
                 .address(w.getAddress())
+                .wardName(w.getWardName())
+                .provinceName(w.getProvinceName())
+                .isNewAddress(w.getIsNewAddress())
                 .latitude(w.getLatitude())
                 .longitude(w.getLongitude())
                 .openingHours(w.getOpeningHours())

@@ -15,6 +15,11 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface ProductRepository extends JpaRepository<Product, String>, JpaSpecificationExecutor<Product> {
+    // DELETE /categories/{id}, /brands/{id}: chặn xóa khi còn sản phẩm tham chiếu
+    boolean existsByCategory_Id(UUID categoryId);
+
+    boolean existsByBrand_Id(UUID brandId);
+
 
     // API 144: còn hàng nào đang nằm ở kho theo các trạng thái này không
     @Query("select count(p) from Product p where p.warehouse.id = :warehouseId and p.status in :statuses")

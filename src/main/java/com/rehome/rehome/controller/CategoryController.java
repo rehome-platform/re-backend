@@ -46,6 +46,14 @@ public class CategoryController {
     public ResponseEntity<ApiResponse<CatalogStatusResponse>> hide(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(categoryService.hide(id), 200, "Đã ẩn"));
     }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable UUID id) {
+        categoryService.delete(id);
+        return ResponseEntity.ok(ApiResponse.success(null, 200, "Đã xóa danh mục"));
+    }
+
     @GetMapping
     public ResponseEntity<ApiResponse<List<CategoryResponse>>> list(
             @RequestParam(required = false) String status,

@@ -85,7 +85,7 @@ public class SecurityConfig {
                         // Giữ hành vi cũ cho các path literal trước khi mở public /api/organizations/{id} (F-082) -
                         // {id} khớp cả "following" nếu đứng sau, nên rule hẹp này phải đứng TRƯỚC
                         .requestMatchers(HttpMethod.GET, "/api/organizations/me", "/api/organizations/options")
-                                .authenticated()
+                        .authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/organizations/following").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/organizations").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/organizations/{id}").permitAll()
@@ -100,6 +100,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/posts", "/posts/{id}", "/posts/{id}/comments").permitAll()
                         // API kho gần nhất (F-015) chỉ dành cho Member
                         // MỚI: API kho gần nhất (F-015) chỉ dành cho Member
+                        // API 142/143: alias đường dẫn ngắn tạo/sửa kho (ADMIN); phải đứng TRƯỚC rule /warehouses/** (MEMBER)
+                        .requestMatchers(HttpMethod.POST, "/warehouses").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/warehouses/{id}").hasRole("ADMIN")
                         .requestMatchers("/warehouses/moderator").hasRole("MODERATOR")
                         // Phải đứng TRƯỚC rule /warehouses/** (hasRole MEMBER) để Moderator không bị 403
                         // (F-163/F-164/F-165). Liệt kê cả 2 pattern: "{id}/donations" không khớp sub-path.

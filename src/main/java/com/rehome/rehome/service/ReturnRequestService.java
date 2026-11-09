@@ -22,8 +22,8 @@ public interface ReturnRequestService {
 
     ReturnRequestResponse getMyReturnRequest(String email, UUID id);
 
-    // Hàng đợi xử lý của Moderator
-    PageResponse<ReturnRequestResponse> getQueue(String status, int page, int size);
+    // Hàng đợi xử lý của Moderator, giới hạn theo kho moderator phụ trách
+    PageResponse<ReturnRequestResponse> getQueue(Account moderator, String status, int page, int size);
 
     ReturnRequestResponse getDetailForModerator(UUID id);
 

@@ -454,45 +454,63 @@ class ReturnRequestServiceImplTest {
                 ReturnRequestStatus.SHIPPED_BACK,
                 ReturnRequestStatus.INSPECTING);
 
+        private final Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).build();
+        private final Account moderator = Account.builder().id(UUID.randomUUID()).warehouse(warehouse).build();
+
         @Test
         void getQueue_noStatus_usesOpenStatuses() {
-            when(returnRequestRepository.findByStatusInOrderByCreatedAtAsc(anyList(), any(Pageable.class)))
+            when(returnRequestRepository.findByOrder_Warehouse_IdAndStatusInOrderByCreatedAtAsc(
+                    any(UUID.class), anyList(), any(Pageable.class)))
                     .thenReturn(new PageImpl<>(List.of()));
 
-            service.getQueue(null, 0, 10);
+            service.getQueue(moderator, null, 0, 10);
 
-            verify(returnRequestRepository).findByStatusInOrderByCreatedAtAsc(eq(openStatuses), any(Pageable.class));
+            verify(returnRequestRepository).findByOrder_Warehouse_IdAndStatusInOrderByCreatedAtAsc(
+                    eq(warehouse.getId()), eq(openStatuses), any(Pageable.class));
         }
 
         @Test
         void getQueue_withStatus_filtersByThatStatus() {
-            when(returnRequestRepository.findByStatusInOrderByCreatedAtAsc(anyList(), any(Pageable.class)))
+            when(returnRequestRepository.findByOrder_Warehouse_IdAndStatusInOrderByCreatedAtAsc(
+                    any(UUID.class), anyList(), any(Pageable.class)))
                     .thenReturn(new PageImpl<>(List.of()));
 
-            service.getQueue(" approved ", 0, 10);
+            service.getQueue(moderator, " approved ", 0, 10);
 
-            verify(returnRequestRepository).findByStatusInOrderByCreatedAtAsc(
-                    eq(List.of(ReturnRequestStatus.APPROVED)), any(Pageable.class));
+            verify(returnRequestRepository).findByOrder_Warehouse_IdAndStatusInOrderByCreatedAtAsc(
+                    eq(warehouse.getId()), eq(List.of(ReturnRequestStatus.APPROVED)), any(Pageable.class));
         }
 
         @Test
         void getQueue_invalidStatus_throwsBadRequest() {
-            assertThatThrownBy(() -> service.getQueue("WHATEVER", 0, 10))
+            assertThatThrownBy(() -> service.getQueue(moderator, "WHATEVER", 0, 10))
                     .isInstanceOf(BadRequestException.class)
                     .hasMessageContaining("status");
         }
 
         @Test
         void getQueue_clampsPaging() {
-            when(returnRequestRepository.findByStatusInOrderByCreatedAtAsc(anyList(), any(Pageable.class)))
+            when(returnRequestRepository.findByOrder_Warehouse_IdAndStatusInOrderByCreatedAtAsc(
+                    any(UUID.class), anyList(), any(Pageable.class)))
                     .thenReturn(new PageImpl<>(List.of()));
 
-            service.getQueue("", -1, -1);
+            service.getQueue(moderator, "", -1, -1);
 
             ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-            verify(returnRequestRepository).findByStatusInOrderByCreatedAtAsc(anyList(), captor.capture());
+            verify(returnRequestRepository).findByOrder_Warehouse_IdAndStatusInOrderByCreatedAtAsc(
+                    eq(warehouse.getId()), anyList(), captor.capture());
             assertThat(captor.getValue().getPageNumber()).isZero();
             assertThat(captor.getValue().getPageSize()).isEqualTo(1);
+        }
+
+        @Test
+        void getQueue_moderatorWithoutWarehouse_throwsForbidden() {
+            Account noWarehouseModerator = Account.builder().id(UUID.randomUUID()).build();
+
+            assertThatThrownBy(() -> service.getQueue(noWarehouseModerator, null, 0, 10))
+                    .isInstanceOf(com.rehome.rehome.exception.AppException.class);
+
+            verifyNoInteractions(returnRequestRepository);
         }
 
         @Test

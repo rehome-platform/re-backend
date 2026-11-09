@@ -1,6 +1,7 @@
 package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.CreateOrderRequest;
+import com.rehome.rehome.dto.request.CreateReturnRequestRequest;
 import com.rehome.rehome.dto.request.PackScanRequest;
 import com.rehome.rehome.dto.request.PayOrdersRequest;
 import com.rehome.rehome.dto.request.RateOrderRequest;
@@ -16,11 +17,14 @@ import com.rehome.rehome.dto.response.OrderResponse;
 import com.rehome.rehome.dto.response.OrderTrackingResponse;
 import com.rehome.rehome.dto.response.PackScanResponse;
 import com.rehome.rehome.dto.response.PayOrdersResponse;
+import com.rehome.rehome.dto.response.ReturnRequestResponse;
 import com.rehome.rehome.dto.response.SoldOrderListResponse;
 import com.rehome.rehome.dto.response.WarehouseOrderListResponse;
 import com.rehome.rehome.service.OrderService;
+import com.rehome.rehome.service.ReturnRequestService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -42,6 +46,7 @@ import java.util.UUID;
 public class OrderController {
 
     private final OrderService orderService;
+    private final ReturnRequestService returnRequestService;
 
     @PostMapping
     @PreAuthorize("hasRole('MEMBER')")
@@ -135,6 +140,24 @@ public class OrderController {
                 : "Đã hủy đơn";
 
         return ResponseEntity.ok(ApiResponse.success(result, message));
+    }
+
+    // F-067: tạo yêu cầu trả hàng gắn thẳng theo đơn qua path; giữ POST /return-requests
+    // (orderId trong body) ở ReturnRequestController cho tương thích ngược, cùng chạy qua
+    // ReturnRequestService.create nên queue_items vẫn được gắn đúng kho của đơn (order.getWarehouse()).
+    @PostMapping("/{id}/return-requests")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<ReturnRequestResponse>> createReturnRequest(
+            Authentication authentication,
+            @PathVariable UUID id,
+            @RequestBody CreateReturnRequestRequest request) {
+
+        String email = authentication.getName();
+        request.setOrderId(id.toString());
+        ReturnRequestResponse result = returnRequestService.create(email, request);
+
+        return ResponseEntity.ok(ApiResponse.success(result, HttpStatus.CREATED.value(),
+                "Đã gửi yêu cầu trả hàng"));
     }
 
     @PatchMapping("/{id}/shipping-address")

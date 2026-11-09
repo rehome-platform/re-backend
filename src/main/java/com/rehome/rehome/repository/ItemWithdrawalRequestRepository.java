@@ -62,4 +62,9 @@ public interface ItemWithdrawalRequestRepository extends JpaRepository<ItemWithd
             + "where r.product.warehouse.id = :warehouseId and r.status = :status")
     List<ItemWithdrawalRequest> findAllByWarehouseIdAndStatus(
             @Param("warehouseId") UUID warehouseId, @Param("status") ItemWithdrawalStatus status);
+
+    // Hàng đợi Moderator (API 28, nhánh WITHDRAWAL): fetch sẵn product theo lô id để QueueServiceImpl
+    // dựng targetName (product.getName()) không phát sinh N+1
+    @Query("select r from ItemWithdrawalRequest r join fetch r.product where r.id in :ids")
+    List<ItemWithdrawalRequest> findAllWithProductByIdIn(@Param("ids") Collection<UUID> ids);
 }

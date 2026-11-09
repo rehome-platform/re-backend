@@ -53,6 +53,11 @@ public class OrganizationProfileResponse {
 
     // Dữ liệu để app điền sẵn form nộp lại khi hồ sơ bị từ chối
     private Instant submittedAt;
+
+    // Hạn mức chiến dịch đang chạy (OPEN) để app báo trước kiểu "đang có 2/3 chiến dịch"; null khi chưa nộp hồ sơ
+    private Integer maxConcurrentCampaigns;
+    private Long runningCampaigns;
+
     private RepresentativeInfo representative;
     private List<DocumentInfo> documents;
 
@@ -85,6 +90,10 @@ public class OrganizationProfileResponse {
     }
 
     public static OrganizationProfileResponse from(OrganizationProfile p) {
+        return from(p, null, null);
+    }
+
+    public static OrganizationProfileResponse from(OrganizationProfile p, Integer maxConcurrentCampaigns, Long runningCampaigns) {
         return OrganizationProfileResponse.builder()
                 .verificationStatus(p.getVerificationStatus())
                 .rejectionReason(p.getRejectionReason())
@@ -108,6 +117,8 @@ public class OrganizationProfileResponse {
                 .donationPointContactPhone(p.getDonationPointContactPhone())
                 .verifiedAt(p.getVerifiedAt())
                 .submittedAt(p.getSubmittedAt())
+                .maxConcurrentCampaigns(maxConcurrentCampaigns)
+                .runningCampaigns(runningCampaigns)
                 .representative(p.getRepresentative() == null ? null : RepresentativeInfo.builder()
                         .fullName(p.getRepresentative().getFullName())
                         .position(p.getRepresentative().getPosition())

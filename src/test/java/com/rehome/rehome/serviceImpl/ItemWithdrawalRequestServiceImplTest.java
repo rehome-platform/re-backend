@@ -214,6 +214,61 @@ class ItemWithdrawalRequestServiceImplTest {
         verify(itemWithdrawalRequestRepository, never()).save(any());
     }
 
+    private void assertCreateRejectedAsIncomplete() {
+        AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
+                () -> service.create(owner, request(PRODUCT_ID)));
+
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.PRODUCT_RECEIPT_INCOMPLETE);
+        // Không để lại dấu vết dở dang: không tạo yêu cầu, không vào hàng đợi, sản phẩm vẫn đang bán
+        verify(itemWithdrawalRequestRepository, never()).save(any());
+        verify(queueService, never()).enqueue(any(), any(), any());
+        assertThat(product.getStatus()).isEqualTo(ProductStatus.ON_SALE);
+    }
+
+    @Test
+    @DisplayName("sản phẩm thiếu biên nhận ký gửi -> 409 PRODUCT_RECEIPT_INCOMPLETE, không phải NPE")
+    void create_missingReceipt_throwsIncomplete() {
+        product.setConsignmentReceipt(null);
+
+        assertCreateRejectedAsIncomplete();
+    }
+
+    @Test
+    @DisplayName("sản phẩm thiếu termStartedAt -> 409 PRODUCT_RECEIPT_INCOMPLETE")
+    void create_missingTermStartedAt_throwsIncomplete() {
+        product.setTermStartedAt(null);
+
+        assertCreateRejectedAsIncomplete();
+    }
+
+    @Test
+    @DisplayName("biên nhận thiếu freeWithdrawalWindowDays -> 409 PRODUCT_RECEIPT_INCOMPLETE")
+    void create_missingFreeWindowDays_throwsIncomplete() {
+        receipt.setFreeWithdrawalWindowDays(null);
+
+        assertCreateRejectedAsIncomplete();
+    }
+
+    @Test
+    @DisplayName("ngoài cửa sổ miễn phí mà biên nhận thiếu withdrawalFee -> 409 PRODUCT_RECEIPT_INCOMPLETE")
+    void create_afterFreeWindow_missingFee_throwsIncomplete() {
+        product.setTermStartedAt(Instant.now().minus(30, ChronoUnit.DAYS));
+        receipt.setWithdrawalFee(null);
+
+        assertCreateRejectedAsIncomplete();
+    }
+
+    @Test
+    @DisplayName("trong cửa sổ miễn phí thì biên nhận thiếu withdrawalFee vẫn rút được (phí = 0)")
+    void create_withinFreeWindow_missingFee_stillFree() {
+        product.setTermStartedAt(Instant.now().minus(1, ChronoUnit.DAYS));
+        receipt.setWithdrawalFee(null);
+
+        ItemWithdrawalResponse response = service.create(owner, request(PRODUCT_ID));
+
+        assertThat(response.getFeeCharged()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
     @Test
     @DisplayName("rút trong cửa sổ miễn phí -> feeCharged = 0, PENDING_PICKUP, pickupDeadline +7 ngày")
     void create_withinFreeWindow_feeIsZero() {

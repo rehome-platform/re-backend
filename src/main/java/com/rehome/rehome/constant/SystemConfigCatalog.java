@@ -1,6 +1,7 @@
 package com.rehome.rehome.constant;
 
 import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -8,7 +9,7 @@ import static com.rehome.rehome.constant.SystemConfigKeys.*;
 
 /**
  * Danh sách tham số Admin được phép chỉnh (F-157), kèm kiểu và khoảng hợp lệ để trả 422 khi nhập sai.
- * Muốn mở thêm tham số: thêm hằng vào SystemConfigKeys rồi thêm một dòng ở đây.
+ * Muốn mở thêm tham số: thêm hằng vào SystemConfigKeys, thêm một dòng ở SPECS và một dòng ở defaults().
  */
 public final class SystemConfigCatalog {
 
@@ -28,6 +29,9 @@ public final class SystemConfigCatalog {
             int_(MAX_CONCURRENT_CAMPAIGNS, 1, 100),
             int_(LEGAL_IMAGE_RETENTION_DAYS, 1, 365),
             int_(OVERDUE_TASK_HOURS, 1, 720),
+            // Ví và rút tiền: số tiền là đồng
+            dec(MIN_PAYOUT_AMOUNT, ONE, new BigDecimal("10000000")),
+            int_(MAX_PAYOUT_REQUESTS_PER_DAY, 1, 100),
             // Tỷ lệ lưu dạng phân số: 0.10 = 10%
             dec(COMMISSION_RATE_TERM1, ZERO, ONE),
             dec(COMMISSION_RATE_TERM2, ZERO, ONE),
@@ -38,6 +42,30 @@ public final class SystemConfigCatalog {
 
     public static Optional<Spec> find(String key) {
         return Optional.ofNullable(SPECS.get(key));
+    }
+
+    /**
+     * Giá trị mặc định của mọi tham số trong catalog, giữ thứ tự khai báo.
+     * Dùng chung cho seed DB (SystemConfigInitializer) và API xem cấu hình (GET /api/admin/config),
+     * lấy từ các DEFAULT_* trong SystemConfigKeys để các nơi không bao giờ lệch nhau.
+     */
+    public static Map<String, String> defaults() {
+        Map<String, String> m = new LinkedHashMap<>();
+        m.put(TERM_LENGTH_DAYS, String.valueOf(DEFAULT_TERM_LENGTH_DAYS));
+        m.put(MAX_RENEWALS, String.valueOf(DEFAULT_MAX_RENEWALS));
+        m.put(FREE_WITHDRAWAL_WINDOW_DAYS, String.valueOf(DEFAULT_FREE_WITHDRAWAL_WINDOW_DAYS));
+        m.put(COMMISSION_RATE_TERM1, DEFAULT_COMMISSION_RATE_TERM1.toPlainString());
+        m.put(COMMISSION_RATE_TERM2, DEFAULT_COMMISSION_RATE_TERM2.toPlainString());
+        m.put(COMMISSION_RATE_TERM3, DEFAULT_COMMISSION_RATE_TERM3.toPlainString());
+        m.put(DEGRADED_COMPENSATION_RATE, DEFAULT_DEGRADED_COMPENSATION_RATE.toPlainString());
+        m.put(FLOOR_PRICE_RATIO, DEFAULT_FLOOR_PRICE_RATIO.toPlainString());
+        m.put(WITHDRAWAL_FEE, DEFAULT_WITHDRAWAL_FEE.toPlainString());
+        m.put(MAX_CONCURRENT_CAMPAIGNS, String.valueOf(DEFAULT_MAX_CONCURRENT_CAMPAIGNS));
+        m.put(LEGAL_IMAGE_RETENTION_DAYS, String.valueOf(DEFAULT_LEGAL_IMAGE_RETENTION_DAYS));
+        m.put(OVERDUE_TASK_HOURS, String.valueOf(DEFAULT_OVERDUE_TASK_HOURS));
+        m.put(MIN_PAYOUT_AMOUNT, DEFAULT_MIN_PAYOUT_AMOUNT.toPlainString());
+        m.put(MAX_PAYOUT_REQUESTS_PER_DAY, String.valueOf(DEFAULT_MAX_PAYOUT_REQUESTS_PER_DAY));
+        return m;
     }
 
     private static Map.Entry<String, Spec> int_(String key, long min, long max) {

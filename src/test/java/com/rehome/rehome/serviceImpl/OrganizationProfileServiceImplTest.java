@@ -3,6 +3,7 @@ package com.rehome.rehome.serviceImpl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.NullNode;
+import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.CreateLegalChangeRequestRequest;
 import com.rehome.rehome.dto.request.RejectLegalChangeRequest;
 import com.rehome.rehome.dto.request.RejectOrganizationRequest;
@@ -48,6 +49,7 @@ import com.rehome.rehome.repository.FollowRepository;
 import com.rehome.rehome.repository.OrganizationLegalChangeRequestRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.service.NotificationService;
+import com.rehome.rehome.service.SystemConfigReader;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -88,6 +90,7 @@ class OrganizationProfileServiceImplTest {
     @Mock private OrganizationLegalChangeMapper organizationLegalChangeMapper;
     @Mock private NotificationService notificationService;
     @Mock private CampaignRepository campaignRepository;
+    @Mock private SystemConfigReader systemConfigReader;
 
     @InjectMocks private OrganizationServiceImpl service;
 
@@ -335,6 +338,36 @@ class OrganizationProfileServiceImplTest {
         assertThat(res).isNotNull();
         assertThat(res.getVerificationStatus()).isNull();
         assertThat(res).hasAllNullFieldsOrProperties();
+    }
+
+    @Test
+    void getMyProfile_notSubmitted_doesNotReadCampaignQuota() {
+        UUID id = UUID.randomUUID();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.empty());
+
+        OrganizationProfileResponse res = service.getMyProfile(id);
+
+        assertThat(res.getMaxConcurrentCampaigns()).isNull();
+        assertThat(res.getRunningCampaigns()).isNull();
+        verifyNoInteractions(systemConfigReader);
+        verify(campaignRepository, never()).countByOrganization_AccountIdAndStatus(any(), any());
+    }
+
+    @Test
+    void getMyProfile_returnsCampaignQuota_maxFromConfig_runningCountsOpenCampaigns() {
+        UUID id = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(id)
+                .verificationStatus(VerificationStatus.VERIFIED)
+                .build();
+        when(organizationProfileRepository.findById(id)).thenReturn(Optional.of(profile));
+        when(systemConfigReader.getInt(SystemConfigKeys.MAX_CONCURRENT_CAMPAIGNS,
+                SystemConfigKeys.DEFAULT_MAX_CONCURRENT_CAMPAIGNS)).thenReturn(3);
+        when(campaignRepository.countByOrganization_AccountIdAndStatus(id, CampaignStatus.OPEN)).thenReturn(2L);
+
+        OrganizationProfileResponse res = service.getMyProfile(id);
+
+        assertThat(res.getMaxConcurrentCampaigns()).isEqualTo(3);
+        assertThat(res.getRunningCampaigns()).isEqualTo(2L);
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.CreateLegalChangeRequestRequest;
 import com.rehome.rehome.dto.request.RejectLegalChangeRequest;
 import com.rehome.rehome.dto.request.RejectOrganizationRequest;
@@ -36,6 +37,7 @@ import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.service.NotificationService;
 import com.rehome.rehome.service.QueueService;
+import com.rehome.rehome.service.SystemConfigReader;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
@@ -83,6 +85,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     private final OrganizationLegalChangeMapper organizationLegalChangeMapper;
     private final NotificationService notificationService;
     private final CampaignRepository campaignRepository;
+    private final SystemConfigReader systemConfigReader;
 
     private static final double EARTH_RADIUS_KM = 6371.0;
     private static final int NEARBY_LIMIT = 20;
@@ -158,8 +161,15 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Transactional(readOnly = true)
     public OrganizationProfileResponse getMyProfile(UUID accountId) {
         // OrganizationProfile dùng @MapsId nên accountId chính là khóa chính
+        // Hạn mức và số chiến dịch đang chạy dùng đúng nguồn với lúc tạo chiến dịch (CampaignServiceImpl),
+        // nên số app hiện "2/3" khớp với lúc bị chặn CAMPAIGN_LIMIT_REACHED
         return organizationProfileRepository.findById(accountId)
-                .map(OrganizationProfileResponse::from)
+                .map(p -> OrganizationProfileResponse.from(
+                        p,
+                        systemConfigReader.getInt(
+                                SystemConfigKeys.MAX_CONCURRENT_CAMPAIGNS,
+                                SystemConfigKeys.DEFAULT_MAX_CONCURRENT_CAMPAIGNS),
+                        campaignRepository.countByOrganization_AccountIdAndStatus(accountId, CampaignStatus.OPEN)))
                 .orElseGet(OrganizationProfileResponse::notSubmitted);
     }
 
@@ -183,8 +193,8 @@ public class OrganizationServiceImpl implements OrganizationService {
     }
 
     private static OrganizationPublicProfileResponse toPublicProfileResponse(OrganizationProfile profile,
-                                                                              boolean isFollowing,
-                                                                              long followerCount) {
+                                                                             boolean isFollowing,
+                                                                             long followerCount) {
         return OrganizationPublicProfileResponse.builder()
                 .id(profile.getAccountId().toString())
                 .displayName(profile.getDisplayName())
@@ -218,12 +228,12 @@ public class OrganizationServiceImpl implements OrganizationService {
         Map<UUID, List<OrganizationNearbyCampaignResponse>> activeCampaignsByOrgId = organizationIds.isEmpty()
                 ? Map.of()
                 : campaignRepository
-                        .findAllByOrganization_AccountIdInAndStatus(organizationIds, CampaignStatus.OPEN).stream()
-                        .collect(Collectors.groupingBy(
-                                c -> c.getOrganization().getAccountId(),
-                                Collectors.mapping(
-                                        c -> new OrganizationNearbyCampaignResponse(c.getId(), c.getEndTime()),
-                                        Collectors.toList())));
+                .findAllByOrganization_AccountIdInAndStatus(organizationIds, CampaignStatus.OPEN).stream()
+                .collect(Collectors.groupingBy(
+                        c -> c.getOrganization().getAccountId(),
+                        Collectors.mapping(
+                                c -> new OrganizationNearbyCampaignResponse(c.getId(), c.getEndTime()),
+                                Collectors.toList())));
 
         return organizations.stream()
                 .map(org -> new OrganizationNearbyResponse(
@@ -274,7 +284,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Override
     @Transactional(readOnly = true)
     public PageResponse<OrganizationPublicProfileResponse> listPublicOrganizations(String search, UUID viewerId,
-                                                                                     int page, int size) {
+                                                                                   int page, int size) {
         Pageable pageable = PageRequest.of(
                 Math.max(page, 0),
                 Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
@@ -473,7 +483,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Override
     @Transactional
     public OrganizationRejectResponse rejectOrganization(Account moderator, UUID organizationId,
-                                                          RejectOrganizationRequest request) {
+                                                         RejectOrganizationRequest request) {
         if (!StringUtils.hasText(request.getReason())) {
             throw new BadRequestException("reason là bắt buộc.");
         }
@@ -549,7 +559,7 @@ public class OrganizationServiceImpl implements OrganizationService {
         // Mã số thuế là định danh duy nhất giữa các tổ chức, đổi sang mã của tổ chức khác thì chặn
         if (StringUtils.hasText(profile.getTaxCode())
                 && organizationProfileRepository.existsByTaxCodeAndAccountIdNot(
-                        profile.getTaxCode(), profile.getAccountId())) {
+                profile.getTaxCode(), profile.getAccountId())) {
             throw new AppException(ErrorCode.ORGANIZATION_TAX_CODE_TAKEN);
         }
 
@@ -584,7 +594,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Override
     @Transactional
     public LegalChangeRequestResponse rejectLegalChange(Account moderator, UUID requestId,
-                                                       RejectLegalChangeRequest request) {
+                                                        RejectLegalChangeRequest request) {
         if (request == null || !StringUtils.hasText(request.getReason())) {
             throw new BadRequestException("reason là bắt buộc khi từ chối.");
         }

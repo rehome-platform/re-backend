@@ -19,9 +19,11 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
-// Tách khỏi WarehouseController (/warehouses, API cho Member/Moderator) để không đụng rule /warehouses/** trong SecurityConfig
+// Tách khỏi WarehouseController (/warehouses, API cho Member/Moderator) để không đụng rule /warehouses/** trong SecurityConfig.
+// API 142/143 có thêm alias đường dẫn ngắn POST /warehouses và PUT /warehouses/{id} (ADMIN): rule ADMIN tương ứng
+// đứng trước rule /warehouses/** (MEMBER) trong SecurityConfig. Không alias cả controller vì GET /warehouses
+// đã thuộc WarehouseController (trùng mapping).
 @RestController
-@RequestMapping("/api/admin/warehouses")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
 @Tag(name = "Admin - Warehouses")
@@ -29,14 +31,14 @@ public class WarehouseAdminController {
 
     private final WarehouseAdminService warehouseAdminService;
 
-    @GetMapping
+    @GetMapping("/api/admin/warehouses")
     @Operation(summary = "API 141 - Danh sách kho (gồm cả kho đã ẩn), lọc theo status")
     public ResponseEntity<ApiResponse<List<WarehouseAdminResponse>>> list(
             @RequestParam(required = false) CatalogStatus status) {
         return ResponseEntity.ok(ApiResponse.success(warehouseAdminService.list(status)));
     }
 
-    @PostMapping
+    @PostMapping({"/api/admin/warehouses", "/warehouses"})
     @Operation(summary = "API 142 - Tạo kho")
     public ResponseEntity<ApiResponse<WarehouseAdminResponse>> create(
             @AuthenticationPrincipal Account admin,
@@ -45,7 +47,7 @@ public class WarehouseAdminController {
                 warehouseAdminService.create(admin, request), 201, "Đã tạo kho"));
     }
 
-    @PutMapping("/{warehouseId}")
+    @PutMapping({"/api/admin/warehouses/{warehouseId}", "/warehouses/{warehouseId}"})
     @Operation(summary = "API 143 - Sửa thông tin kho")
     public ResponseEntity<ApiResponse<WarehouseAdminResponse>> update(
             @AuthenticationPrincipal Account admin,
@@ -55,7 +57,7 @@ public class WarehouseAdminController {
                 warehouseAdminService.update(admin, warehouseId, request), "Đã cập nhật kho"));
     }
 
-    @PostMapping("/{warehouseId}/hide")
+    @PostMapping("/api/admin/warehouses/{warehouseId}/hide")
     @Operation(summary = "API 144 - Ẩn kho (409 WAREHOUSE_HAS_STOCK nếu kho còn hàng)")
     public ResponseEntity<ApiResponse<WarehouseAdminResponse>> hide(
             @AuthenticationPrincipal Account admin,

@@ -4,6 +4,7 @@ import com.rehome.rehome.entity.auth.OrganizationLegalChangeRequest;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
+import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.QueueItem;
 import java.time.Instant;
@@ -36,6 +37,7 @@ public class QueueItemResponse {
     //   PACKING / RETURN: mã đơn / người nhận hoặc người bán - người mua
     //   FORM_REVIEW / INSPECTION: tên sản phẩm ký gửi / tên người gửi
     //   ORG_VERIFICATION / LEGAL_CHANGE: tên tổ chức / người đại diện
+    //   WITHDRAWAL: tên sản phẩm cần rút / tên người ký gửi
     private String targetName;
     private String subjectSubtitle;
 
@@ -89,6 +91,15 @@ public class QueueItemResponse {
         return response;
     }
 
+    // WITHDRAWAL: refId là id yêu cầu rút hàng; productName là tên món cần rút, memberName là người ký gửi
+    public static QueueItemResponse fromWithdrawal(
+            QueueItem q, ItemWithdrawalRequest withdrawal, String memberName) {
+        QueueItemResponse response = from(q);
+        response.setTargetName(withdrawal.getProduct().getName());
+        response.setSubjectSubtitle(memberName);
+        return response;
+    }
+
     // ORG_VERIFICATION: refId là accountId của tổ chức
     public static QueueItemResponse fromOrganization(QueueItem q, OrganizationProfile org) {
         QueueItemResponse response = from(q);
@@ -102,7 +113,7 @@ public class QueueItemResponse {
     }
 
     public static QueueItemResponse fromLegalChange(QueueItem q, OrganizationLegalChangeRequest request,
-            String fieldChanged, String oldValue, String newValue) {
+                                                    String fieldChanged, String oldValue, String newValue) {
         QueueItemResponse response = from(q);
         response.setRequestId(request.getId().toString());
         response.setOrgName(request.getOrganization().getDisplayName());

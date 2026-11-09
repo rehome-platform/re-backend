@@ -120,6 +120,9 @@ public enum ErrorCode {
     PRODUCT_NOT_UNCLAIMED(HttpStatus.CONFLICT, "Sản phẩm chưa ở trạng thái vô thừa nhận."),
     // API 46 - tạo thương hiệu (F-143, F-121)
     BRAND_NAME_ALREADY_EXISTS(HttpStatus.CONFLICT, "Tên thương hiệu đã tồn tại."),
+    // DELETE /brands/{id}, /categories/{id} - đang có sản phẩm / phiếu ký gửi dùng thì không xóa được
+    BRAND_IN_USE(HttpStatus.CONFLICT, "Thương hiệu đang được sử dụng, không thể xóa."),
+    CATEGORY_IN_USE(HttpStatus.CONFLICT, "Danh mục đang được sử dụng, không thể xóa."),
     // API 45, 47 - danh mục
     INVALID_TRYON_SLOT(HttpStatus.BAD_REQUEST, "tryonSlot phải là TOP, BOTTOM hoặc DRESS."),
     CATEGORY_NAME_ALREADY_EXISTS(HttpStatus.CONFLICT, "Tên danh mục đã tồn tại."),

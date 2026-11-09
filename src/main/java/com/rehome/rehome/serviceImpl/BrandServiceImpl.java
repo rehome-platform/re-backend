@@ -10,6 +10,8 @@ import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.BrandRepository;
+import com.rehome.rehome.repository.ConsignmentFormRepository;
+import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.service.BrandService;
 import com.rehome.rehome.util.CatalogStatusParser;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +26,8 @@ import java.util.UUID;
 public class BrandServiceImpl implements BrandService {
 
     private final BrandRepository brandRepository;
+    private final ProductRepository productRepository;
+    private final ConsignmentFormRepository consignmentFormRepository;
 
     @Override
     @Transactional
@@ -84,5 +88,19 @@ public class BrandServiceImpl implements BrandService {
         return brandRepository.findByStatusOrderByNameAsc(s).stream()
                 .map(b -> new BrandResponse(b.getId(), b.getName(), b.getStatus()))
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    public void delete(UUID id) {
+        Brand brand = brandRepository.findById(id)
+                .orElseThrow(() -> new AppException(ErrorCode.BRAND_NOT_FOUND));      // 404
+
+        // Product và ConsignmentForm đều có FK brand_id NOT NULL: còn dùng thì không xóa được
+        if (productRepository.existsByBrand_Id(id) || consignmentFormRepository.existsByBrand_Id(id)) {
+            throw new AppException(ErrorCode.BRAND_IN_USE);                           // 409
+        }
+
+        brandRepository.delete(brand);
     }
 }

@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -54,4 +55,15 @@ public interface ItemWithdrawalRequestRepository extends JpaRepository<ItemWithd
             + "where r.product.id in :productIds and r.status = :status")
     List<ItemWithdrawalRequest> findByProductIdsAndStatus(
             @Param("productIds") List<String> productIds, @Param("status") ItemWithdrawalStatus status);
+
+    // API 72: danh sách yêu cầu rút hàng đang chờ bàn giao tại quầy của một kho (warehouse đọc qua
+    // product.warehouse vì request không giữ cột warehouse riêng)
+    @Query("select r from ItemWithdrawalRequest r "
+            + "where r.product.warehouse.id = :warehouseId and r.status = :status")
+    List<ItemWithdrawalRequest> findAllByWarehouseIdAndStatus(
+            @Param("warehouseId") UUID warehouseId, @Param("status") ItemWithdrawalStatus status);
+
+    // API 28: hàng đợi WITHDRAWAL - nạp theo lô cả product để lấy tên món, tránh N+1
+    @Query("select r from ItemWithdrawalRequest r join fetch r.product where r.id in :ids")
+    List<ItemWithdrawalRequest> findAllWithProductByIdIn(@Param("ids") Collection<UUID> ids);
 }

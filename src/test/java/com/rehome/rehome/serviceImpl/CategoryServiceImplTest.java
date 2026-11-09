@@ -12,6 +12,8 @@ import com.rehome.rehome.entity.marketplace.Category;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.CategoryRepository;
+import com.rehome.rehome.repository.ConsignmentFormRepository;
+import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.serviceImpl.CategoryServiceImpl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,6 +35,8 @@ import static org.mockito.Mockito.*;
 class CategoryServiceImplTest {
 
     @Mock private CategoryRepository categoryRepository;
+    @Mock private ProductRepository productRepository;
+    @Mock private ConsignmentFormRepository consignmentFormRepository;
     @InjectMocks private CategoryServiceImpl categoryService;
 
     private CreateCategoryRequest createReq(String name, TryOnSlot slot) {
@@ -242,5 +246,62 @@ class CategoryServiceImplTest {
 
         assertEquals(ErrorCode.INVALID_STATUS, ex.getErrorCode());
         verifyNoInteractions(categoryRepository);
+    }
+
+    // ==================== DELETE /categories/{id} ====================
+
+    @Test
+    @DisplayName("delete: không tồn tại -> CATEGORY_NOT_FOUND, không xóa")
+    void delete_notFound() {
+        UUID id = UUID.randomUUID();
+        when(categoryRepository.findById(id)).thenReturn(Optional.empty());
+
+        AppException ex = assertThrows(AppException.class, () -> categoryService.delete(id));
+
+        assertEquals(ErrorCode.CATEGORY_NOT_FOUND, ex.getErrorCode());
+        verify(categoryRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("delete: còn sản phẩm dùng -> 409 CATEGORY_IN_USE, không xóa")
+    void delete_usedByProduct() {
+        UUID id = UUID.randomUUID();
+        when(categoryRepository.findById(id))
+                .thenReturn(Optional.of(category(id, "Áo khoác", TryOnSlot.TOP, CatalogStatus.ACTIVE)));
+        when(productRepository.existsByCategory_Id(id)).thenReturn(true);
+
+        AppException ex = assertThrows(AppException.class, () -> categoryService.delete(id));
+
+        assertEquals(ErrorCode.CATEGORY_IN_USE, ex.getErrorCode());
+        verify(categoryRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("delete: còn phiếu ký gửi dùng -> 409 CATEGORY_IN_USE, không xóa")
+    void delete_usedByConsignmentForm() {
+        UUID id = UUID.randomUUID();
+        when(categoryRepository.findById(id))
+                .thenReturn(Optional.of(category(id, "Áo khoác", TryOnSlot.TOP, CatalogStatus.ACTIVE)));
+        when(productRepository.existsByCategory_Id(id)).thenReturn(false);
+        when(consignmentFormRepository.existsByCategory_Id(id)).thenReturn(true);
+
+        AppException ex = assertThrows(AppException.class, () -> categoryService.delete(id));
+
+        assertEquals(ErrorCode.CATEGORY_IN_USE, ex.getErrorCode());
+        verify(categoryRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("delete: không ai dùng -> xóa cứng (kể cả đang HIDDEN)")
+    void delete_success() {
+        UUID id = UUID.randomUUID();
+        Category c = category(id, "Áo khoác", TryOnSlot.TOP, CatalogStatus.HIDDEN);
+        when(categoryRepository.findById(id)).thenReturn(Optional.of(c));
+        when(productRepository.existsByCategory_Id(id)).thenReturn(false);
+        when(consignmentFormRepository.existsByCategory_Id(id)).thenReturn(false);
+
+        categoryService.delete(id);
+
+        verify(categoryRepository).delete(c);
     }
 }

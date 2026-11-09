@@ -72,6 +72,12 @@ public class WarehouseAdminServiceImpl implements WarehouseAdminService {
                 .name(name)
                 .code(code)
                 .address(request.getAddress().trim())
+                .wardName(request.getWardName().trim())
+                .provinceName(request.getProvinceName().trim())
+                .provinceId(request.getProvinceId())
+                .wardCode(request.getWardCode().trim())
+                // Kho luôn khai theo hành chính 2 cấp (sau 01/07/2025, không còn quận/huyện)
+                .isNewAddress(true)
                 .latitude(request.getLatitude())
                 .longitude(request.getLongitude())
                 .openingHours(request.getOpeningHours().trim())
@@ -102,6 +108,13 @@ public class WarehouseAdminServiceImpl implements WarehouseAdminService {
         // Mã kho (code) giữ nguyên khi đổi tên: code đã in/đi vào dữ liệu cũ
         warehouse.setName(name);
         warehouse.setAddress(request.getAddress().trim());
+        warehouse.setWardName(request.getWardName().trim());
+        warehouse.setProvinceName(request.getProvinceName().trim());
+        warehouse.setProvinceId(request.getProvinceId());
+        warehouse.setWardCode(request.getWardCode().trim());
+        // Hệ 2 cấp không có quận/huyện: xóa giá trị cũ của hệ 3 cấp để khỏi lệch với isNewAddress
+        warehouse.setDistrictName(null);
+        warehouse.setIsNewAddress(true);
         warehouse.setLatitude(request.getLatitude());
         warehouse.setLongitude(request.getLongitude());
         warehouse.setOpeningHours(request.getOpeningHours().trim());
@@ -143,6 +156,11 @@ public class WarehouseAdminServiceImpl implements WarehouseAdminService {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("name", w.getName());
         node.put("address", w.getAddress());
+        node.put("wardName", w.getWardName());
+        node.put("provinceName", w.getProvinceName());
+        node.put("provinceId", w.getProvinceId());
+        node.put("wardCode", w.getWardCode());
+        node.put("isNewAddress", w.getIsNewAddress());
         node.put("latitude", w.getLatitude());
         node.put("longitude", w.getLongitude());
         node.put("openingHours", w.getOpeningHours());

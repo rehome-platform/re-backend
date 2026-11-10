@@ -21,4 +21,7 @@ public class ItemWithdrawalResponse {
 
     // Hạn trả phí (feeCharged > 0); null khi miễn phí - không có gì phải trả
     private Instant feePaymentDeadline;
+
+    // Lý do Moderator từ chối; null trừ khi status = REJECTED
+    private String rejectReason;
 }

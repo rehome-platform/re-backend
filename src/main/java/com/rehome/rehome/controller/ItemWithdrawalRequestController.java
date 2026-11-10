@@ -2,6 +2,7 @@ package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.CreateItemWithdrawalRequest;
 import com.rehome.rehome.dto.request.PayItemWithdrawalFeeRequest;
+import com.rehome.rehome.dto.request.RejectItemWithdrawalRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.ItemWithdrawalDetailResponse;
 import com.rehome.rehome.dto.response.ItemWithdrawalResponse;
@@ -9,6 +10,7 @@ import com.rehome.rehome.dto.response.PayItemWithdrawalFeeResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.ItemWithdrawalRequestService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -61,6 +63,29 @@ public class ItemWithdrawalRequestController {
         String message = StringUtils.hasText(result.getPayUrl()) ? "" : "Đã thanh toán phí rút hàng";
 
         return ResponseEntity.ok(ApiResponse.success(result, message));
+    }
+
+    // Moderator của kho giữ sản phẩm duyệt yêu cầu rút hàng
+    @PostMapping("/{id}/approve")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<ItemWithdrawalResponse>> approve(
+            @AuthenticationPrincipal Account account,
+            @PathVariable UUID id) {
+
+        ItemWithdrawalResponse result = itemWithdrawalRequestService.approve(account, id);
+        return ResponseEntity.ok(ApiResponse.success(result, 200, "Đã duyệt yêu cầu rút hàng"));
+    }
+
+    // Moderator từ chối, bắt buộc có lý do
+    @PostMapping("/{id}/reject")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<ItemWithdrawalResponse>> reject(
+            @AuthenticationPrincipal Account account,
+            @PathVariable UUID id,
+            @Valid @RequestBody RejectItemWithdrawalRequest request) {
+
+        ItemWithdrawalResponse result = itemWithdrawalRequestService.reject(account, id, request);
+        return ResponseEntity.ok(ApiResponse.success(result, 200, "Đã từ chối yêu cầu rút hàng"));
     }
 
     private String clientIp(HttpServletRequest request) {

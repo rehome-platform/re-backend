@@ -8,6 +8,7 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.DegradedItemCaseStatus;
 import com.rehome.rehome.entity.enums.DegradedItemChoice;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.TransactionStatus;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
 import com.rehome.rehome.entity.enums.WalletType;
@@ -74,6 +75,9 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
         if (!product.getWarehouse().getId().equals(moderator.getWarehouse().getId())) {
             throw new AppException(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);
         }
+        if (product.getStatus() != ProductStatus.ON_SALE) {
+            throw new AppException(ErrorCode.DEGRADED_ITEM_CASE_PRODUCT_NOT_ON_SALE);
+        }
         if (degradedItemCaseRepository.existsByProduct_IdAndChoiceIsNull(product.getId())) {
             throw new ConflictException(
                     "Sản phẩm đã có ca xử lý hàng xuống cấp đang chờ quyết định.", "DEGRADED_ITEM_CASE_ALREADY_OPEN");
@@ -92,6 +96,10 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
                 .build();
 
         degradedItemCaseRepository.save(degradedCase);
+
+        // Tạm ẩn khỏi sàn chờ Member quyết định (F-036) - hàng vẫn nằm trong kho, không phải WITHDRAWN
+        product.setStatus(ProductStatus.WAREHOUSE);
+        productRepository.save(product);
 
         return toDetailResponse(degradedCase);
     }
@@ -241,10 +249,29 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
         DegradedItemCase degradedCase = degradedItemCaseRepository.findDetailById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.DEGRADED_ITEM_CASE_NOT_FOUND));
 
-        if (!degradedCase.getProduct().getMember().getId().equals(account.getId())) {
-            throw new AppException(ErrorCode.DEGRADED_ITEM_CASE_FORBIDDEN);
-        }
+        authorizeRead(account, degradedCase);
         return toDetailResponse(degradedCase);
+    }
+
+    // Member chỉ xem ca của chính mình; Moderator xem ca thuộc kho mình quản lý (cùng quy tắc
+    // với listByWarehouse) để xử lý được ca Moderator khác mở lúc kiểm kho
+    private void authorizeRead(Account account, DegradedItemCase degradedCase) {
+        switch (account.getRole()) {
+            case MODERATOR -> {
+                if (account.getWarehouse() == null) {
+                    throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);
+                }
+                if (!degradedCase.getProduct().getWarehouse().getId().equals(account.getWarehouse().getId())) {
+                    throw new AppException(ErrorCode.DEGRADED_ITEM_CASE_FORBIDDEN);
+                }
+            }
+            case MEMBER -> {
+                if (!degradedCase.getProduct().getMember().getId().equals(account.getId())) {
+                    throw new AppException(ErrorCode.DEGRADED_ITEM_CASE_FORBIDDEN);
+                }
+            }
+            default -> throw new AppException(ErrorCode.DEGRADED_ITEM_CASE_FORBIDDEN);
+        }
     }
 
     @Override

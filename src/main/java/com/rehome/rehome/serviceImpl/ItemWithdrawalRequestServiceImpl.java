@@ -5,6 +5,7 @@ import com.rehome.rehome.client.VnPayApi;
 import com.rehome.rehome.dto.request.CreateItemWithdrawalRequest;
 import com.rehome.rehome.dto.request.CreateMomoRequest;
 import com.rehome.rehome.dto.request.PayItemWithdrawalFeeRequest;
+import com.rehome.rehome.dto.request.RejectItemWithdrawalRequest;
 import com.rehome.rehome.dto.response.CreateMomoResponse;
 import com.rehome.rehome.dto.response.ItemWithdrawalDetailResponse;
 import com.rehome.rehome.dto.response.ItemWithdrawalResponse;
@@ -70,6 +71,10 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 @Slf4j
 public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestService {
+
+    // Trạng thái còn sống của một yêu cầu rút hàng - chặn tạo yêu cầu thứ hai cho cùng sản phẩm
+    private static final List<ItemWithdrawalStatus> ACTIVE_WITHDRAWAL_STATUSES =
+            List.of(ItemWithdrawalStatus.PENDING_APPROVAL, ItemWithdrawalStatus.PENDING_PICKUP);
 
     private final ProductRepository productRepository;
     private final ProductPhotoRepository productPhotoRepository;
@@ -139,28 +144,27 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
             throw new AppException(ErrorCode.PRODUCT_ALREADY_ORDERED);
         }
 
-        if (itemWithdrawalRequestRepository.existsByProduct_IdAndStatus(
-                product.getId(), ItemWithdrawalStatus.PENDING_PICKUP)) {
+        if (itemWithdrawalRequestRepository.existsByProduct_IdAndStatusIn(
+                product.getId(), ACTIVE_WITHDRAWAL_STATUSES)) {
             throw new AppException(ErrorCode.ITEM_WITHDRAWAL_ALREADY_PENDING);
         }
 
         BigDecimal fee = computeFee(product);
 
+        // pickupDeadline/feePaymentDeadline chưa tính ở đây: cả hai chỉ có ý nghĩa cho Member hành
+        // động sau khi Moderator duyệt, đặt ngay bây giờ thì thời gian Moderator xử lý cũng bị trừ
+        // vào hạn của Member, thậm chí có thể hết hạn trả phí (15 phút) trước khi Moderator kịp duyệt
         ItemWithdrawalRequest withdrawal = ItemWithdrawalRequest.builder()
                 .product(product)
                 .member(account)
                 .feeCharged(fee)
-                .status(ItemWithdrawalStatus.PENDING_PICKUP)
-                .pickupDeadline(Instant.now().plus(pickupDeadlineDays, ChronoUnit.DAYS))
-                // Chỉ đặt hạn khi có gì phải trả; miễn phí thì không có gì để hết hạn
-                .feePaymentDeadline(fee.compareTo(BigDecimal.ZERO) > 0
-                        ? Instant.now().plus(feePaymentDeadlineMinutes, ChronoUnit.MINUTES)
-                        : null)
+                .status(ItemWithdrawalStatus.PENDING_APPROVAL)
                 .build();
 
         itemWithdrawalRequestRepository.save(withdrawal);
 
-        // API 90: việc mới cho Moderator của kho đang giữ sản phẩm - đóng lại ở API 72 (bàn giao tại quầy)
+        // Việc mới cho Moderator của kho đang giữ sản phẩm - duyệt/từ chối, đóng lại ở approve()/reject();
+        // nếu duyệt thì cùng việc này tiếp tục đại diện cho bước bàn giao tại quầy (API 72)
         queueService.enqueue(QueueType.WITHDRAWAL, withdrawal.getId().toString(), product.getWarehouse());
 
         // F-032: "so that I can stop selling it" - sản phẩm ngừng bán ngay khi gửi yêu cầu, không
@@ -170,6 +174,79 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         productRepository.save(product);
 
         return toResponse(withdrawal);
+    }
+
+    // Moderator của kho giữ sản phẩm duyệt yêu cầu: PENDING_APPROVAL -> PENDING_PICKUP. Hạn lấy
+    // hàng và hạn trả phí (nếu có) chỉ tính từ đây, không phải từ lúc Member tạo yêu cầu.
+    @Override
+    @Transactional
+    public ItemWithdrawalResponse approve(Account moderator, UUID id) {
+        ItemWithdrawalRequest withdrawal = itemWithdrawalRequestRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new AppException(ErrorCode.ITEM_WITHDRAWAL_NOT_FOUND));
+        assertModeratorOwnsWarehouse(moderator, withdrawal);
+
+        if (withdrawal.getStatus() != ItemWithdrawalStatus.PENDING_APPROVAL) {
+            throw new AppException(ErrorCode.ITEM_WITHDRAWAL_NOT_PENDING_APPROVAL);
+        }
+
+        withdrawal.setStatus(ItemWithdrawalStatus.PENDING_PICKUP);
+        withdrawal.setModerator(moderator);
+        withdrawal.setReviewedAt(Instant.now());
+        withdrawal.setPickupDeadline(Instant.now().plus(pickupDeadlineDays, ChronoUnit.DAYS));
+        // Chỉ đặt hạn khi có gì phải trả; miễn phí thì không có gì để hết hạn
+        withdrawal.setFeePaymentDeadline(withdrawal.getFeeCharged().compareTo(BigDecimal.ZERO) > 0
+                ? Instant.now().plus(feePaymentDeadlineMinutes, ChronoUnit.MINUTES)
+                : null);
+
+        itemWithdrawalRequestRepository.save(withdrawal);
+        return toResponse(withdrawal);
+    }
+
+    // Moderator từ chối: PENDING_APPROVAL -> REJECTED (trạng thái cuối). Hàng chưa rời kho thật
+    // (chỉ WITHDRAWN niêm yết từ lúc tạo yêu cầu - F-032), nên trả sản phẩm lại ON_SALE ngay,
+    // giống cách ItemWithdrawalAutoExpireServiceImpl trả hàng khi hết hạn.
+    @Override
+    @Transactional
+    public ItemWithdrawalResponse reject(Account moderator, UUID id, RejectItemWithdrawalRequest request) {
+        if (request == null || !StringUtils.hasText(request.getReason())) {
+            throw new BadRequestException("reason là bắt buộc.");
+        }
+
+        ItemWithdrawalRequest withdrawal = itemWithdrawalRequestRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new AppException(ErrorCode.ITEM_WITHDRAWAL_NOT_FOUND));
+        assertModeratorOwnsWarehouse(moderator, withdrawal);
+
+        if (withdrawal.getStatus() != ItemWithdrawalStatus.PENDING_APPROVAL) {
+            throw new AppException(ErrorCode.ITEM_WITHDRAWAL_NOT_PENDING_APPROVAL);
+        }
+
+        withdrawal.setStatus(ItemWithdrawalStatus.REJECTED);
+        withdrawal.setModerator(moderator);
+        withdrawal.setRejectReason(request.getReason().trim());
+        withdrawal.setReviewedAt(Instant.now());
+        itemWithdrawalRequestRepository.save(withdrawal);
+
+        // Không còn gì để Moderator bàn giao (API 72) - đóng việc trong hàng đợi, mở ở create()
+        queueService.dequeue(QueueType.WITHDRAWAL, withdrawal.getId().toString());
+
+        Product product = productRepository.findByIdForUpdate(withdrawal.getProduct().getId())
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+        if (product.getStatus() == ProductStatus.WITHDRAWN) {
+            product.setStatus(ProductStatus.ON_SALE);
+            productRepository.save(product);
+        }
+
+        return toResponse(withdrawal);
+    }
+
+    private void assertModeratorOwnsWarehouse(Account moderator, ItemWithdrawalRequest withdrawal) {
+        if (moderator.getWarehouse() == null) {
+            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);
+        }
+        Warehouse productWarehouse = withdrawal.getProduct().getWarehouse();
+        if (productWarehouse == null || !productWarehouse.getId().equals(moderator.getWarehouse().getId())) {
+            throw new AppException(ErrorCode.ITEM_WITHDRAWAL_FORBIDDEN);
+        }
     }
 
     // F-032: miễn phí trong freeWithdrawalWindowDays đầu mỗi kỳ (tính từ termStartedAt); sau đó
@@ -578,7 +655,8 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         try {
             return ItemWithdrawalStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
-            throw new BadRequestException("status phải là PENDING_PICKUP, COMPLETED hoặc EXPIRED.");
+            throw new BadRequestException(
+                    "status phải là PENDING_APPROVAL, PENDING_PICKUP, REJECTED, COMPLETED hoặc EXPIRED.");
         }
     }
 
@@ -590,6 +668,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 .productId(product.getId())
                 .productName(product.getName())
                 .status(w.getStatus().name())
+                .rejectReason(w.getRejectReason())
                 .feeAmount(w.getFeeCharged())
                 // Cùng điều kiện mà payFee dùng để biết "không còn gì phải trả"
                 .feePaid(w.getFeeCharged().compareTo(BigDecimal.ZERO) == 0 || w.getFeePaidAt() != null)
@@ -613,6 +692,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 .status(withdrawal.getStatus().name())
                 .pickupDeadline(withdrawal.getPickupDeadline())
                 .feePaymentDeadline(withdrawal.getFeePaymentDeadline())
+                .rejectReason(withdrawal.getRejectReason())
                 .build();
     }
 }

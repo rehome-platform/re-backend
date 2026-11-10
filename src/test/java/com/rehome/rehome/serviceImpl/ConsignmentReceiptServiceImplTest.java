@@ -17,11 +17,15 @@ import com.rehome.rehome.dto.response.ConsignmentReceiptResponse;
 import com.rehome.rehome.dto.response.PdfDownload;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
+import com.rehome.rehome.entity.enums.EndOfTermChoice;
+import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceiptPdf;
+import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
+import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
@@ -37,6 +41,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.Year;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -356,6 +361,62 @@ class ConsignmentReceiptServiceImplTest {
         assertThat(saved.getValue().getSha256())
                 .isEqualTo(sha256Hex(pdf))
                 .hasSize(64);
+    }
+
+    @Test
+    void confirmReceipt_reConsignReceipt_activatesProductOnSale() {
+        Account owner = member();
+        ConsignmentReceipt newReceipt = unconfirmedReceiptOf(owner);
+        newReceipt.setAgreedPrice(new BigDecimal("300000"));
+        byte[] pdf = "%PDF-snapshot".getBytes(StandardCharsets.US_ASCII);
+
+        // Sản phẩm đã hết 90 ngày, đang WAREHOUSE (chờ quyết định) ở kỳ 3, giá cũ 250000
+        Product product = Product.builder()
+                .id("Q7-AK-000845")
+                .status(ProductStatus.WAREHOUSE)
+                .currentPrice(new BigDecimal("250000"))
+                .currentTerm((short) 3)
+                .termStartedAt(Instant.parse("2026-09-01T00:00:00Z"))
+                .build();
+        EndOfTermDecision reConsignDecision = EndOfTermDecision.builder()
+                .id(UUID.randomUUID()).product(product)
+                .decision(EndOfTermChoice.RE_CONSIGN).newReceipt(newReceipt).build();
+
+        when(consignmentReceiptRepository.findByIdForUpdate(newReceipt.getId()))
+                .thenReturn(Optional.of(newReceipt));
+        when(receiptPdfService.generate(newReceipt)).thenReturn(pdf);
+        when(endOfTermDecisionRepository.findByNewReceipt_Id(newReceipt.getId()))
+                .thenReturn(Optional.of(reConsignDecision));
+
+        Instant before = Instant.now();
+        service.confirmReceipt(owner, newReceipt.getId());
+        Instant after = Instant.now();
+
+        // F-030: ký gửi lại xong thì sản phẩm trỏ sang biên nhận mới, giá mới, kỳ 1, và bán lại ngay
+        assertThat(product.getConsignmentReceipt()).isSameAs(newReceipt);
+        assertThat(product.getCurrentPrice()).isEqualByComparingTo("300000");
+        assertThat(product.getCurrentTerm()).isEqualTo((short) 1);
+        assertThat(product.getTermStartedAt()).isBetween(before.minusSeconds(1), after.plusSeconds(1));
+        assertThat(product.getEndOfTermDeadline())
+                .isAfter(before.plus(89, ChronoUnit.DAYS))
+                .isBefore(after.plus(91, ChronoUnit.DAYS));
+        assertThat(product.getStatus()).isEqualTo(ProductStatus.ON_SALE);
+        verify(productRepository).save(product);
+    }
+
+    @Test
+    void confirmReceipt_firstTimeReceipt_doesNotTouchProduct() {
+        Account owner = member();
+        ConsignmentReceipt receipt = unconfirmedReceiptOf(owner);
+        when(consignmentReceiptRepository.findByIdForUpdate(receipt.getId()))
+                .thenReturn(Optional.of(receipt));
+        when(receiptPdfService.generate(receipt)).thenReturn("%PDF".getBytes(StandardCharsets.US_ASCII));
+        when(endOfTermDecisionRepository.findByNewReceipt_Id(receipt.getId())).thenReturn(Optional.empty());
+
+        service.confirmReceipt(owner, receipt.getId());
+
+        // Biên nhận lần ký gửi đầu: chưa có Product (chỉ tạo ở bước nhập kho) - không được chạm vào
+        verifyNoInteractions(productRepository);
     }
 
     @Test

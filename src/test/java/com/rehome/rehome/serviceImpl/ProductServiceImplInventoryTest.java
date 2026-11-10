@@ -13,6 +13,8 @@ import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.repository.DegradedItemCaseRepository;
+import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
@@ -50,6 +52,8 @@ class ProductServiceImplInventoryTest {
     @Mock private ProductPhotoRepository productPhotoRepository;
     @Mock private MemberProfileRepository memberProfileRepository;
     @Mock private SkuLabelPdfService skuLabelPdfService;
+    @Mock private EndOfTermDecisionRepository endOfTermDecisionRepository;
+    @Mock private DegradedItemCaseRepository degradedItemCaseRepository;
 
     // Các dependency còn lại của ProductServiceImpl không dùng trong test này, Mockito truyền null
     @InjectMocks
@@ -135,6 +139,32 @@ class ProductServiceImplInventoryTest {
         assertEquals("Nguyễn Văn A", res.getMemberFullName());
         assertEquals(createdAt, res.getStockInDate());
         assertEquals(List.of("https://img/1.jpg", "https://img/2.jpg"), res.getPhotos());
+        // Không có quyết định cuối kỳ hay ca xuống cấp nào đang mở
+        assertNull(res.getDecisionId());
+        assertNull(res.getDegradedCaseId());
+    }
+
+    @Test
+    @DisplayName("getBySku: có quyết định cuối kỳ và ca xuống cấp đang mở -> trả kèm id")
+    void getBySku_hasOpenDecisionAndDegradedCase() {
+        UUID decisionId = UUID.randomUUID();
+        UUID degradedCaseId = UUID.randomUUID();
+        com.rehome.rehome.entity.marketplace.EndOfTermDecision decision =
+                com.rehome.rehome.entity.marketplace.EndOfTermDecision.builder().id(decisionId).build();
+        com.rehome.rehome.entity.marketplace.DegradedItemCase degradedCase =
+                com.rehome.rehome.entity.marketplace.DegradedItemCase.builder().id(degradedCaseId).build();
+
+        when(productRepository.findById(SKU)).thenReturn(Optional.of(product));
+        when(productPhotoRepository.findByProduct_IdOrderByDisplayOrderAscIdAsc(SKU)).thenReturn(List.of());
+        when(memberProfileRepository.findByAccountId(member.getId())).thenReturn(Optional.empty());
+        when(endOfTermDecisionRepository.findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc(SKU))
+                .thenReturn(Optional.of(decision));
+        when(degradedItemCaseRepository.findPendingByProductIds(List.of(SKU))).thenReturn(List.of(degradedCase));
+
+        ProductSkuLookupResponse res = productService.getBySku(moderator, SKU);
+
+        assertEquals(decisionId, res.getDecisionId());
+        assertEquals(degradedCaseId, res.getDegradedCaseId());
     }
 
     @Test

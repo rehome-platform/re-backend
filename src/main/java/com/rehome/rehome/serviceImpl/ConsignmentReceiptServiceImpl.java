@@ -8,6 +8,7 @@ import com.rehome.rehome.dto.response.ConsignmentReceiptResponse;
 import com.rehome.rehome.dto.response.PdfDownload;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
+import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
@@ -35,6 +36,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.Year;
 import java.time.ZoneId;
@@ -111,7 +113,24 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
                 .generatedAt(now)
                 .build());
 
+        // F-030: biên nhận này là biên nhận ký gửi lại (được tạo ở setReConsignTerms) - sản phẩm
+        // đã có SKU từ lần ký gửi đầu, chỉ cần đổi biên nhận/điều khoản và bán lại ngay, không phải
+        // chờ Moderator nhập kho lại như lần ký gửi đầu tiên
+        endOfTermDecisionRepository.findByNewReceipt_Id(receipt.getId())
+                .ifPresent(reConsign -> activateReConsignedProduct(reConsign.getProduct(), receipt, now));
+
         return ConsignmentReceiptMapper.toConfirmResponse(receipt);
+    }
+
+    private void activateReConsignedProduct(Product product, ConsignmentReceipt newReceipt, Instant now) {
+        product.setConsignmentReceipt(newReceipt);
+        product.setCurrentPrice(newReceipt.getAgreedPrice());
+        product.setCurrentTerm((short) 1);
+        product.setTermStartedAt(now);
+        product.setEndOfTermDeadline(now.plus(Duration.ofDays(
+                (long) newReceipt.getTermLengthDays() * (newReceipt.getMaxRenewals() + 1))));
+        product.setStatus(ProductStatus.ON_SALE);
+        productRepository.save(product);
     }
 
     @Override

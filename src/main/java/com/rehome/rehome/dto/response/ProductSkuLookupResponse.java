@@ -10,6 +10,7 @@ import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 @Getter
 @Setter
@@ -38,4 +39,9 @@ public class ProductSkuLookupResponse {
 
     private Instant stockInDate;
     private List<String> photos;
+
+    // Quyết định hết hạn 3 kỳ đang chờ Member chọn (F-029); null = chưa tới cuối kỳ hoặc đã quyết định xong
+    private UUID decisionId;
+    // Ca xử lý hàng xuống cấp đang chờ Member quyết định (F-036); null = không có ca nào đang mở
+    private UUID degradedCaseId;
 }

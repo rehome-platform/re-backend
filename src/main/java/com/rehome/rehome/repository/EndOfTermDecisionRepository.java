@@ -1,5 +1,6 @@
 package com.rehome.rehome.repository;
 
+import com.rehome.rehome.entity.enums.EndOfTermChoice;
 import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -7,6 +8,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -41,4 +43,10 @@ public interface EndOfTermDecisionRepository extends JpaRepository<EndOfTermDeci
             + "and d.decision = com.rehome.rehome.entity.enums.EndOfTermChoice.TAKE_BACK "
             + "and d.takenBackAt is null order by d.deadline asc")
     List<EndOfTermDecision> findPendingTakeBackByMemberId(@Param("memberId") UUID memberId);
+
+    // Job quét TAKE_BACK chưa đến kho nhận hàng quá hạn (Điều 8.3) -> đánh dấu vô thừa nhận
+    @Query("select d from EndOfTermDecision d join fetch d.product p "
+            + "where d.decision = :decision and d.takenBackAt is null and d.decidedAt < :cutoff")
+    List<EndOfTermDecision> findAllByDecisionAndTakenBackAtIsNullAndDecidedAtBefore(
+            @Param("decision") EndOfTermChoice decision, @Param("cutoff") Instant cutoff);
 }

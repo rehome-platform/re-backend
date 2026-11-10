@@ -4,6 +4,7 @@ import com.rehome.rehome.client.MomoApi;
 import com.rehome.rehome.client.VnPayApi;
 import com.rehome.rehome.dto.request.CreateItemWithdrawalRequest;
 import com.rehome.rehome.dto.request.PayItemWithdrawalFeeRequest;
+import com.rehome.rehome.dto.request.RejectItemWithdrawalRequest;
 import com.rehome.rehome.dto.response.CreateMomoResponse;
 import com.rehome.rehome.dto.response.ItemWithdrawalDetailResponse;
 import com.rehome.rehome.dto.response.ItemWithdrawalResponse;
@@ -82,6 +83,7 @@ class ItemWithdrawalRequestServiceImplTest {
     static final String PRODUCT_ID = "Q7-AK-000845";
 
     Account owner;
+    Account moderator;
     ConsignmentReceipt receipt;
     Product product;
     UUID withdrawalId;
@@ -104,6 +106,9 @@ class ItemWithdrawalRequestServiceImplTest {
 
         owner = Account.builder().id(UUID.randomUUID()).role(Role.MEMBER).build();
 
+        Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).build();
+        moderator = Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR).warehouse(warehouse).build();
+
         receipt = ConsignmentReceipt.builder()
                 .freeWithdrawalWindowDays(7)
                 .withdrawalFee(new BigDecimal("50000"))
@@ -115,6 +120,7 @@ class ItemWithdrawalRequestServiceImplTest {
                 .consignmentReceipt(receipt)
                 .status(ProductStatus.ON_SALE)
                 .termStartedAt(Instant.now())
+                .warehouse(warehouse)
                 .build();
 
         when(productRepository.findByIdForUpdate(PRODUCT_ID)).thenReturn(Optional.of(product));
@@ -204,8 +210,9 @@ class ItemWithdrawalRequestServiceImplTest {
     @Test
     @DisplayName("sản phẩm đang có yêu cầu rút hàng chờ xử lý -> ITEM_WITHDRAWAL_ALREADY_PENDING")
     void create_alreadyPending_throws() {
-        when(itemWithdrawalRequestRepository.existsByProduct_IdAndStatus(
-                PRODUCT_ID, ItemWithdrawalStatus.PENDING_PICKUP)).thenReturn(true);
+        when(itemWithdrawalRequestRepository.existsByProduct_IdAndStatusIn(
+                PRODUCT_ID, List.of(ItemWithdrawalStatus.PENDING_APPROVAL, ItemWithdrawalStatus.PENDING_PICKUP)))
+                .thenReturn(true);
 
         AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
                 () -> service.create(owner, request(PRODUCT_ID)));
@@ -270,19 +277,17 @@ class ItemWithdrawalRequestServiceImplTest {
     }
 
     @Test
-    @DisplayName("rút trong cửa sổ miễn phí -> feeCharged = 0, PENDING_PICKUP, pickupDeadline +7 ngày")
+    @DisplayName("rút trong cửa sổ miễn phí -> feeCharged = 0, PENDING_APPROVAL, chưa có hạn (chưa duyệt)")
     void create_withinFreeWindow_feeIsZero() {
         product.setTermStartedAt(Instant.now().minus(2, ChronoUnit.DAYS));
 
-        Instant before = Instant.now();
         ItemWithdrawalResponse response = service.create(owner, request(PRODUCT_ID));
 
         assertThat(response.getProductId()).isEqualTo(PRODUCT_ID);
-        assertThat(response.getStatus()).isEqualTo("PENDING_PICKUP");
+        assertThat(response.getStatus()).isEqualTo("PENDING_APPROVAL");
         assertThat(response.getFeeCharged()).isEqualByComparingTo(BigDecimal.ZERO);
-        assertThat(response.getPickupDeadline())
-                .isAfter(before.plus(PICKUP_DEADLINE_DAYS, ChronoUnit.DAYS).minusSeconds(5))
-                .isBefore(Instant.now().plus(PICKUP_DEADLINE_DAYS, ChronoUnit.DAYS).plusSeconds(5));
+        // Chưa duyệt -> chưa có hạn lấy hàng
+        assertThat(response.getPickupDeadline()).isNull();
 
         ArgumentCaptor<ItemWithdrawalRequest> captor = ArgumentCaptor.forClass(ItemWithdrawalRequest.class);
         verify(itemWithdrawalRequestRepository).save(captor.capture());
@@ -290,7 +295,8 @@ class ItemWithdrawalRequestServiceImplTest {
         assertThat(saved.getProduct()).isEqualTo(product);
         assertThat(saved.getMember()).isEqualTo(owner);
         assertThat(saved.getFeeCharged()).isEqualByComparingTo(BigDecimal.ZERO);
-        assertThat(saved.getStatus()).isEqualTo(ItemWithdrawalStatus.PENDING_PICKUP);
+        assertThat(saved.getStatus()).isEqualTo(ItemWithdrawalStatus.PENDING_APPROVAL);
+        assertThat(saved.getPickupDeadline()).isNull();
         // Miễn phí -> không có gì phải trả, không cần hạn trả phí
         assertThat(saved.getFeePaymentDeadline()).isNull();
         assertThat(response.getFeePaymentDeadline()).isNull();
@@ -338,21 +344,18 @@ class ItemWithdrawalRequestServiceImplTest {
     }
 
     @Test
-    @DisplayName("có phí phải trả -> đặt hạn trả phí +15 phút, ngắn hơn pickupDeadline")
-    void create_withFee_setsFeePaymentDeadline() {
+    @DisplayName("có phí phải trả -> create() chưa đặt hạn trả phí, chờ Moderator duyệt")
+    void create_withFee_doesNotSetFeePaymentDeadlineYet() {
         product.setTermStartedAt(Instant.now().minus(10, ChronoUnit.DAYS));
 
-        Instant before = Instant.now();
         ItemWithdrawalResponse response = service.create(owner, request(PRODUCT_ID));
-        Instant after = Instant.now();
 
-        assertThat(response.getFeePaymentDeadline())
-                .isAfter(before.plus(FEE_PAYMENT_DEADLINE_MINUTES, ChronoUnit.MINUTES).minusSeconds(5))
-                .isBefore(after.plus(FEE_PAYMENT_DEADLINE_MINUTES, ChronoUnit.MINUTES).plusSeconds(5));
+        assertThat(response.getFeePaymentDeadline()).isNull();
 
         ArgumentCaptor<ItemWithdrawalRequest> captor = ArgumentCaptor.forClass(ItemWithdrawalRequest.class);
         verify(itemWithdrawalRequestRepository).save(captor.capture());
-        assertThat(captor.getValue().getFeePaymentDeadline()).isBefore(captor.getValue().getPickupDeadline());
+        assertThat(captor.getValue().getFeePaymentDeadline()).isNull();
+        assertThat(captor.getValue().getPickupDeadline()).isNull();
     }
 
     @Test
@@ -364,6 +367,192 @@ class ItemWithdrawalRequestServiceImplTest {
         ItemWithdrawalResponse response = service.create(owner, request(PRODUCT_ID));
 
         assertThat(response.getFeeCharged()).isEqualByComparingTo(new BigDecimal("123456"));
+    }
+
+    // ==================== approve / reject (Moderator duyệt / từ chối) ====================
+
+    private ItemWithdrawalRequest pendingApproval(BigDecimal feeCharged) {
+        ItemWithdrawalRequest r = ItemWithdrawalRequest.builder()
+                .id(withdrawalId)
+                .product(product)
+                .member(owner)
+                .feeCharged(feeCharged)
+                .status(ItemWithdrawalStatus.PENDING_APPROVAL)
+                .build();
+        when(itemWithdrawalRequestRepository.findByIdForUpdate(withdrawalId)).thenReturn(Optional.of(r));
+        return r;
+    }
+
+    private RejectItemWithdrawalRequest rejectRequest(String reason) {
+        RejectItemWithdrawalRequest req = new RejectItemWithdrawalRequest();
+        req.setReason(reason);
+        return req;
+    }
+
+    @Test
+    @DisplayName("approve: không tìm thấy -> ITEM_WITHDRAWAL_NOT_FOUND")
+    void approve_notFound_throws() {
+        when(itemWithdrawalRequestRepository.findByIdForUpdate(withdrawalId)).thenReturn(Optional.empty());
+
+        AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
+                () -> service.approve(moderator, withdrawalId));
+
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.ITEM_WITHDRAWAL_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("approve: Moderator chưa được gán kho -> MODERATOR_NO_WAREHOUSE")
+    void approve_moderatorNoWarehouse_throws() {
+        pendingApproval(new BigDecimal("50000"));
+        Account noWarehouseModerator = Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR).build();
+
+        AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
+                () -> service.approve(noWarehouseModerator, withdrawalId));
+
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.MODERATOR_NO_WAREHOUSE);
+        verify(itemWithdrawalRequestRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("approve: Moderator thuộc kho khác -> ITEM_WITHDRAWAL_FORBIDDEN")
+    void approve_wrongWarehouse_throws() {
+        pendingApproval(new BigDecimal("50000"));
+        Account otherModerator = Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR)
+                .warehouse(Warehouse.builder().id(UUID.randomUUID()).build()).build();
+
+        AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
+                () -> service.approve(otherModerator, withdrawalId));
+
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.ITEM_WITHDRAWAL_FORBIDDEN);
+        verify(itemWithdrawalRequestRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("approve: không còn PENDING_APPROVAL -> ITEM_WITHDRAWAL_NOT_PENDING_APPROVAL")
+    void approve_notPendingApproval_throws() {
+        ItemWithdrawalRequest r = pendingApproval(new BigDecimal("50000"));
+        r.setStatus(ItemWithdrawalStatus.PENDING_PICKUP);
+
+        AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
+                () -> service.approve(moderator, withdrawalId));
+
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.ITEM_WITHDRAWAL_NOT_PENDING_APPROVAL);
+    }
+
+    @Test
+    @DisplayName("approve: miễn phí -> PENDING_PICKUP, gắn moderator, đặt pickupDeadline +7 ngày, không có hạn trả phí")
+    void approve_freeFee_setsPickupDeadlineOnly() {
+        ItemWithdrawalRequest r = pendingApproval(BigDecimal.ZERO);
+
+        Instant before = Instant.now();
+        ItemWithdrawalResponse response = service.approve(moderator, withdrawalId);
+
+        assertThat(response.getStatus()).isEqualTo("PENDING_PICKUP");
+        assertThat(r.getStatus()).isEqualTo(ItemWithdrawalStatus.PENDING_PICKUP);
+        assertThat(r.getModerator()).isEqualTo(moderator);
+        assertThat(r.getReviewedAt()).isNotNull();
+        assertThat(r.getPickupDeadline())
+                .isAfter(before.plus(PICKUP_DEADLINE_DAYS, ChronoUnit.DAYS).minusSeconds(5))
+                .isBefore(Instant.now().plus(PICKUP_DEADLINE_DAYS, ChronoUnit.DAYS).plusSeconds(5));
+        assertThat(r.getFeePaymentDeadline()).isNull();
+        verify(itemWithdrawalRequestRepository).save(r);
+    }
+
+    @Test
+    @DisplayName("approve: có phí -> đặt hạn trả phí +15 phút, ngắn hơn pickupDeadline")
+    void approve_withFee_setsFeePaymentDeadline() {
+        ItemWithdrawalRequest r = pendingApproval(new BigDecimal("50000"));
+
+        Instant before = Instant.now();
+        service.approve(moderator, withdrawalId);
+
+        assertThat(r.getFeePaymentDeadline())
+                .isAfter(before.plus(FEE_PAYMENT_DEADLINE_MINUTES, ChronoUnit.MINUTES).minusSeconds(5))
+                .isBefore(Instant.now().plus(FEE_PAYMENT_DEADLINE_MINUTES, ChronoUnit.MINUTES).plusSeconds(5));
+        assertThat(r.getFeePaymentDeadline()).isBefore(r.getPickupDeadline());
+    }
+
+    @Test
+    @DisplayName("reject: thiếu reason -> BadRequestException, không lưu, không đổi gì")
+    void reject_missingReason_throws() {
+        pendingApproval(new BigDecimal("50000"));
+
+        assertThatThrownBy(() -> service.reject(moderator, withdrawalId, rejectRequest(null)))
+                .isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> service.reject(moderator, withdrawalId, rejectRequest("  ")))
+                .isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> service.reject(moderator, withdrawalId, null))
+                .isInstanceOf(BadRequestException.class);
+
+        verify(itemWithdrawalRequestRepository, never()).save(any());
+        verify(queueService, never()).dequeue(any(), any());
+    }
+
+    @Test
+    @DisplayName("reject: không tìm thấy -> ITEM_WITHDRAWAL_NOT_FOUND")
+    void reject_notFound_throws() {
+        when(itemWithdrawalRequestRepository.findByIdForUpdate(withdrawalId)).thenReturn(Optional.empty());
+
+        AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
+                () -> service.reject(moderator, withdrawalId, rejectRequest("Hàng không khớp mô tả")));
+
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.ITEM_WITHDRAWAL_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("reject: Moderator thuộc kho khác -> ITEM_WITHDRAWAL_FORBIDDEN")
+    void reject_wrongWarehouse_throws() {
+        pendingApproval(new BigDecimal("50000"));
+        Account otherModerator = Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR)
+                .warehouse(Warehouse.builder().id(UUID.randomUUID()).build()).build();
+
+        AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
+                () -> service.reject(otherModerator, withdrawalId, rejectRequest("Sai kho")));
+
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.ITEM_WITHDRAWAL_FORBIDDEN);
+        verify(itemWithdrawalRequestRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("reject: không còn PENDING_APPROVAL -> ITEM_WITHDRAWAL_NOT_PENDING_APPROVAL")
+    void reject_notPendingApproval_throws() {
+        ItemWithdrawalRequest r = pendingApproval(new BigDecimal("50000"));
+        r.setStatus(ItemWithdrawalStatus.PENDING_PICKUP);
+
+        AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
+                () -> service.reject(moderator, withdrawalId, rejectRequest("Sai")));
+
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.ITEM_WITHDRAWAL_NOT_PENDING_APPROVAL);
+    }
+
+    @Test
+    @DisplayName("reject: thành công -> REJECTED, lưu lý do, đóng việc trong hàng đợi, trả sản phẩm về ON_SALE")
+    void reject_success_relistsProduct() {
+        ItemWithdrawalRequest r = pendingApproval(new BigDecimal("50000"));
+        product.setStatus(ProductStatus.WITHDRAWN);
+
+        ItemWithdrawalResponse response = service.reject(
+                moderator, withdrawalId, rejectRequest("Hàng không khớp mô tả"));
+
+        assertThat(response.getStatus()).isEqualTo("REJECTED");
+        assertThat(response.getRejectReason()).isEqualTo("Hàng không khớp mô tả");
+        assertThat(r.getStatus()).isEqualTo(ItemWithdrawalStatus.REJECTED);
+        assertThat(r.getModerator()).isEqualTo(moderator);
+        assertThat(r.getReviewedAt()).isNotNull();
+        assertThat(product.getStatus()).isEqualTo(ProductStatus.ON_SALE);
+        verify(queueService).dequeue(QueueType.WITHDRAWAL, withdrawalId.toString());
+        verify(productRepository).save(product);
+    }
+
+    @Test
+    @DisplayName("reject: sản phẩm không còn WITHDRAWN -> không ghi đè lại trạng thái niêm yết")
+    void reject_productNotWithdrawn_doesNotOverwriteStatus() {
+        pendingApproval(new BigDecimal("50000"));
+        product.setStatus(ProductStatus.ON_SALE);
+
+        service.reject(moderator, withdrawalId, rejectRequest("Sai"));
+
+        verify(productRepository, never()).save(product);
     }
 
     // ==================== payFee (API 91) ====================

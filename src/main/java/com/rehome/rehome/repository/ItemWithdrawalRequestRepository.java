@@ -3,9 +3,11 @@ package com.rehome.rehome.repository;
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
@@ -16,7 +18,13 @@ public interface ItemWithdrawalRequestRepository extends JpaRepository<ItemWithd
     List<ItemWithdrawalRequest> findByMember_IdAndStatusOrderByCreatedAtAsc(
             UUID memberId, ItemWithdrawalStatus status);
 
-    boolean existsByProduct_IdAndStatus(String productId, ItemWithdrawalStatus status);
+    // create(): một sản phẩm không được có 2 yêu cầu rút hàng còn sống (chờ duyệt hoặc chờ lấy) cùng lúc
+    boolean existsByProduct_IdAndStatusIn(String productId, Collection<ItemWithdrawalStatus> statuses);
+
+    // approve()/reject(): khóa dòng để 2 Moderator không cùng xử lý một yêu cầu
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from ItemWithdrawalRequest r where r.id = :id")
+    Optional<ItemWithdrawalRequest> findByIdForUpdate(@Param("id") UUID id);
 
     // API 91 (F-033) - map IPN MoMo/VNPay về đúng yêu cầu rút hàng khi không khớp Payment nào
     Optional<ItemWithdrawalRequest> findByMomoOrderId(String momoOrderId);
@@ -50,11 +58,12 @@ public interface ItemWithdrawalRequestRepository extends JpaRepository<ItemWithd
             @Param("memberId") UUID memberId, @Param("status") ItemWithdrawalStatus status);
 
     // /products/mine: gắn yêu cầu đang chờ nhận hàng vào từng món, một query cho cả trang.
-    // Chỉ PENDING_PICKUP vì create() đã chặn 2 yêu cầu PENDING_PICKUP cho cùng một món
+    // PENDING_APPROVAL + PENDING_PICKUP vì cả hai đều đang giữ sản phẩm ở trạng thái WITHDRAWN -
+    // create() đã chặn 2 yêu cầu còn sống cho cùng một món (xem ACTIVE_WITHDRAWAL_STATUSES)
     @Query("select r from ItemWithdrawalRequest r "
-            + "where r.product.id in :productIds and r.status = :status")
-    List<ItemWithdrawalRequest> findByProductIdsAndStatus(
-            @Param("productIds") List<String> productIds, @Param("status") ItemWithdrawalStatus status);
+            + "where r.product.id in :productIds and r.status in :statuses")
+    List<ItemWithdrawalRequest> findByProductIdsAndStatusIn(
+            @Param("productIds") List<String> productIds, @Param("statuses") Collection<ItemWithdrawalStatus> statuses);
 
     // API 72: danh sách yêu cầu rút hàng đang chờ bàn giao tại quầy của một kho (warehouse đọc qua
     // product.warehouse vì request không giữ cột warehouse riêng)

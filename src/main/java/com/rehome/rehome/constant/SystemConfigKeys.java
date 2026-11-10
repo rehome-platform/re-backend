@@ -48,4 +48,12 @@ public final class SystemConfigKeys {
     // Việc nằm trong hàng đợi Moderator quá số giờ này thì tính là quá hạn trên dashboard (F-158/F-095)
     public static final String OVERDUE_TASK_HOURS = "overdue_task_hours";
     public static final int DEFAULT_OVERDUE_TASK_HOURS = 48;
+
+    // Số tiền rút tối thiểu mỗi lần của Member, đơn vị đồng (UC rút tiền)
+    public static final String MIN_PAYOUT_AMOUNT = "min_payout_amount";
+    public static final BigDecimal DEFAULT_MIN_PAYOUT_AMOUNT = new BigDecimal("50000");
+
+    // Số yêu cầu rút tiền tối đa mỗi ngày của một Member
+    public static final String MAX_PAYOUT_REQUESTS_PER_DAY = "max_payout_requests_per_day";
+    public static final int DEFAULT_MAX_PAYOUT_REQUESTS_PER_DAY = 3;
 }

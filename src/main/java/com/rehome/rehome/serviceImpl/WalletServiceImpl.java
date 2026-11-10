@@ -14,6 +14,7 @@ import com.rehome.rehome.entity.enums.WalletType;
 import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.PayoutRequest;
 import com.rehome.rehome.entity.marketplace.PlatformFund;
+import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.entity.marketplace.SystemConfig;
 import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.entity.marketplace.WalletTransaction;
@@ -53,11 +54,11 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class WalletServiceImpl implements WalletService {
 
-    private static final String CONFIG_MIN_PAYOUT_AMOUNT = "min_payout_amount";
-    private static final String CONFIG_MAX_PAYOUT_PER_DAY = "max_payout_requests_per_day";
+    private static final String CONFIG_MIN_PAYOUT_AMOUNT = SystemConfigKeys.MIN_PAYOUT_AMOUNT;
+    private static final String CONFIG_MAX_PAYOUT_PER_DAY = SystemConfigKeys.MAX_PAYOUT_REQUESTS_PER_DAY;
     private static final String CONFIG_FORCE_PAYOUT_FAILURE = "force_payout_failure";
-    private static final BigDecimal DEFAULT_MIN_PAYOUT_AMOUNT = new BigDecimal("50000");
-    private static final int DEFAULT_MAX_PAYOUT_PER_DAY = 3;
+    private static final BigDecimal DEFAULT_MIN_PAYOUT_AMOUNT = SystemConfigKeys.DEFAULT_MIN_PAYOUT_AMOUNT;
+    private static final int DEFAULT_MAX_PAYOUT_PER_DAY = SystemConfigKeys.DEFAULT_MAX_PAYOUT_REQUESTS_PER_DAY;
 
     private final AccountRepository accountRepository;
     private final WalletRepository walletRepository;

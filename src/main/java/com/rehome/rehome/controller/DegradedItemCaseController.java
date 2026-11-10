@@ -55,9 +55,10 @@ public class DegradedItemCaseController {
         return ResponseEntity.ok(ApiResponse.success(result, "Đã ghi nhận quyết định"));
     }
 
-    // Chi tiết một ca hàng xuống cấp của chính Member, xem trước khi quyết định (API 95)
+    // Chi tiết một ca hàng xuống cấp: Member xem ca của chính mình trước khi quyết định (API 95),
+    // Moderator xem ca thuộc kho mình quản lý (vd. mở trực tiếp lúc kiểm kho)
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('MEMBER')")
+    @PreAuthorize("hasAnyRole('MEMBER','MODERATOR')")
     public ResponseEntity<ApiResponse<DegradedItemCaseDetailResponse>> getMine(
             @AuthenticationPrincipal Account account,
             @PathVariable UUID id) {

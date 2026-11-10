@@ -26,7 +26,7 @@ public class AdminDashboardQueryRepository {
     // Hàng còn nằm trong kho, cùng định nghĩa với WarehouseAdminServiceImpl.STOCK_STATUSES
     private static final List<ProductStatus> STOCK_STATUSES = List.of(
             ProductStatus.ON_SALE, ProductStatus.RESERVED, ProductStatus.UNCLAIMED,
-            ProductStatus.PLATFORM_OWNED, ProductStatus.RETURNED);
+            ProductStatus.PLATFORM_OWNED, ProductStatus.RETURNED, ProductStatus.WAREHOUSE);
 
     // Đơn đã thanh toán: bỏ chờ thanh toán và đã hủy
     private static final List<OrderStatus> PAID_STATUSES = List.of(

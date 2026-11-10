@@ -12,5 +12,8 @@ public enum ProductStatus {
     // trả về người ký gửi hay tiêu hủy (F-133, chưa triển khai) - xem OrderServiceImpl.refundOrderForReturn
     RETURNED,
     // Hàng xuống cấp, Member chọn FULL_COMPENSATION (F-036/API 95) - tài sản nền tảng, chờ thanh lý hoặc hủy
-    PLATFORM_OWNED
+    PLATFORM_OWNED,
+    // Moderator phát hiện hàng xuống cấp lúc kiểm kho, mở DegradedItemCase trực tiếp (F-036) - hàng
+    // vẫn nằm trong kho nhưng tạm ẩn khỏi sàn chờ Member chọn FULL_COMPENSATION/PARTIAL_WITH_ITEM_BACK
+    WAREHOUSE
 }

@@ -103,6 +103,8 @@ public class QueueItemResponse {
         response.setTargetName(withdrawal.getProduct().getName());
         response.setSubjectSubtitle(memberName);
         response.setStatus(withdrawal.getStatus().name());
+        response.setAccountId(withdrawal.getMember().getId().toString());
+        response.setMemberCode(memberCode);
         return response;
     }
 

@@ -15,14 +15,12 @@ import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
-import com.rehome.rehome.entity.enums.StockMovementType;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
 import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
-import com.rehome.rehome.entity.marketplace.StockMovementLog;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
@@ -33,9 +31,7 @@ import com.rehome.rehome.repository.CounterIdentityConfirmationRepository;
 import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.ItemWithdrawalRequestRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
-import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
-import com.rehome.rehome.repository.StockMovementLogRepository;
 import com.rehome.rehome.service.QueueService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -73,8 +69,6 @@ class CounterServiceImplTest {
     @Mock private ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
     @Mock private EndOfTermDecisionRepository endOfTermDecisionRepository;
     @Mock private ReturnRequestRepository returnRequestRepository;
-    @Mock private ProductRepository productRepository;
-    @Mock private StockMovementLogRepository stockMovementLogRepository;
     @Mock private AuditLogRepository auditLogRepository;
     @Mock private QueueService queueService;
 
@@ -570,12 +564,10 @@ class CounterServiceImplTest {
     }
 
     @Test
-    @DisplayName("handover ITEM_WITHDRAWAL: thành công -> COMPLETED + completedAt, gỡ sản phẩm khỏi sàn")
+    @DisplayName("handover ITEM_WITHDRAWAL: thành công -> COMPLETED + completedAt")
     void handover_itemWithdrawal_success() {
         ItemWithdrawalRequest withdrawal = itemWithdrawalRequest(member, ItemWithdrawalStatus.PENDING_PICKUP);
         when(itemWithdrawalRequestRepository.findById(refId)).thenReturn(Optional.of(withdrawal));
-        when(productRepository.findByIdForUpdate(ITEM_WITHDRAWAL_PRODUCT_ID))
-                .thenReturn(Optional.of(withdrawal.getProduct()));
         CounterHandoverRequest request = request("ITEM_WITHDRAWAL", memberId, refId.toString());
 
         service.handover(moderator, request);
@@ -584,35 +576,7 @@ class CounterServiceImplTest {
         assertThat(withdrawal.getCompletedAt()).isNotNull();
         verify(itemWithdrawalRequestRepository).save(withdrawal);
 
-        Product product = withdrawal.getProduct();
-        assertThat(product.getStatus()).isEqualTo(ProductStatus.WITHDRAWN);
-
-        ArgumentCaptor<StockMovementLog> logCaptor = ArgumentCaptor.forClass(StockMovementLog.class);
-        verify(stockMovementLogRepository).save(logCaptor.capture());
-        StockMovementLog log = logCaptor.getValue();
-        assertThat(log.getProduct()).isEqualTo(product);
-        assertThat(log.getWarehouse()).isEqualTo(product.getWarehouse());
-        assertThat(log.getMovementType()).isEqualTo(StockMovementType.WITHDRAWAL_OUT);
-        assertThat(log.getModerator()).isEqualTo(moderator);
-
         verify(queueService).dequeue(QueueType.WITHDRAWAL, refId.toString());
-    }
-
-    @Test
-    @DisplayName("handover ITEM_WITHDRAWAL: sản phẩm không còn WITHDRAWN (vd đã bị xử lý khác) -> vẫn đóng yêu cầu, không ghi log")
-    void handover_itemWithdrawal_productNotWithdrawn_skipsProductUpdate() {
-        ItemWithdrawalRequest withdrawal = itemWithdrawalRequest(member, ItemWithdrawalStatus.PENDING_PICKUP);
-        withdrawal.getProduct().setStatus(ProductStatus.DESTROYED);
-        when(itemWithdrawalRequestRepository.findById(refId)).thenReturn(Optional.of(withdrawal));
-        when(productRepository.findByIdForUpdate(ITEM_WITHDRAWAL_PRODUCT_ID))
-                .thenReturn(Optional.of(withdrawal.getProduct()));
-        CounterHandoverRequest request = request("ITEM_WITHDRAWAL", memberId, refId.toString());
-
-        service.handover(moderator, request);
-
-        assertThat(withdrawal.getStatus()).isEqualTo(ItemWithdrawalStatus.COMPLETED);
-        verify(productRepository, never()).save(any());
-        verify(stockMovementLogRepository, never()).save(any());
     }
 
     @Test

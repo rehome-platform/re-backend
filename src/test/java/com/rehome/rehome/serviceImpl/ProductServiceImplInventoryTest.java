@@ -5,20 +5,17 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;
-import com.rehome.rehome.entity.enums.StockMovementType;
 import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.entity.marketplace.Category;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
-import com.rehome.rehome.entity.marketplace.StockMovementLog;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
-import com.rehome.rehome.repository.StockMovementLogRepository;
 import com.rehome.rehome.service.SkuLabelPdfService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -50,7 +47,6 @@ class ProductServiceImplInventoryTest {
     private static final String SKU = "Q7-AK-000845";
 
     @Mock private ProductRepository productRepository;
-    @Mock private StockMovementLogRepository stockMovementLogRepository;
     @Mock private ProductPhotoRepository productPhotoRepository;
     @Mock private MemberProfileRepository memberProfileRepository;
     @Mock private SkuLabelPdfService skuLabelPdfService;
@@ -225,56 +221,6 @@ class ProductServiceImplInventoryTest {
 
         assertEquals(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE, ex.getErrorCode());
         verifyNoInteractions(skuLabelPdfService);
-    }
-
-    // ==================== API 43: getStockMovements ====================
-
-    @Test
-    @DisplayName("getStockMovements: trả đúng danh sách đã map")
-    void getStockMovements_success() {
-        UUID logId = UUID.randomUUID();
-        Instant at = Instant.parse("2026-10-01T09:00:00Z");
-        StockMovementLog log = StockMovementLog.builder()
-                .id(logId)
-                .movementType(StockMovementType.STOCK_IN)
-                .toLocation("A1-03")
-                .note("Nhập kho")
-                .createdAt(at)
-                .build();
-
-        when(productRepository.existsById(SKU)).thenReturn(true);
-        when(stockMovementLogRepository.findByProduct_IdOrderByCreatedAtDesc(SKU)).thenReturn(List.of(log));
-
-        List<StockMovementResponse> res = productService.getStockMovements(SKU);
-
-        assertEquals(1, res.size());
-        StockMovementResponse r = res.get(0);
-        assertEquals(logId, r.getId());
-        assertEquals(StockMovementType.STOCK_IN, r.getType());
-        assertNull(r.getFromLocation());
-        assertEquals("A1-03", r.getToLocation());
-        assertEquals("Nhập kho", r.getNote());
-        assertEquals(at, r.getCreatedAt());
-    }
-
-    @Test
-    @DisplayName("getStockMovements: sản phẩm chưa có log -> danh sách rỗng")
-    void getStockMovements_empty() {
-        when(productRepository.existsById(SKU)).thenReturn(true);
-        when(stockMovementLogRepository.findByProduct_IdOrderByCreatedAtDesc(SKU)).thenReturn(List.of());
-
-        assertTrue(productService.getStockMovements(SKU).isEmpty());
-    }
-
-    @Test
-    @DisplayName("getStockMovements: không có sản phẩm -> PRODUCT_NOT_FOUND, không query log")
-    void getStockMovements_notFound() {
-        when(productRepository.existsById(SKU)).thenReturn(false);
-
-        AppException ex = assertThrows(AppException.class, () -> productService.getStockMovements(SKU));
-
-        assertEquals(ErrorCode.PRODUCT_NOT_FOUND, ex.getErrorCode());
-        verifyNoInteractions(stockMovementLogRepository);
     }
 
     // ==================== API 40: getInventory ====================

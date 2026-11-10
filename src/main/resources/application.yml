@@ -126,6 +126,23 @@ app:
     # F-035: chu kỳ job quét yêu cầu quá hạn đến kho nhận hàng / quá hạn trả phí
     auto-expire-check-interval-ms: 60000
 
+  # Xử lý cuối kỳ ký gửi F-029 (Điều 8 hợp đồng)
+  end-of-term:
+    # Điều 8.3: hạn đến kho nhận hàng sau khi chọn TAKE_BACK, tính từ ngày quyết định; quá hạn
+    # thành hàng vô thừa nhận
+    take-back-pickup-deadline-days: 30
+    # Chu kỳ job quét 3 việc: lên kỳ (currentTerm++), hết 90 ngày (mở EndOfTermDecision, gỡ khỏi
+    # sàn), và TAKE_BACK quá hạn lấy hàng
+    auto-process-check-interval-ms: 60000
+
+  # Hàng xuống cấp F-036
+  degraded-item:
+    # Cách bao nhiêu ngày nhắc Member chốt phương án đền bù 1 lần, cho tới hạn 30 ngày
+    # (degraded_item_decision_days trong system_configs)
+    reminder-interval-days: 7
+    # Chu kỳ job quét 2 việc: gửi nhắc nhở và đánh dấu vô thừa nhận khi quá hạn chọn phương án
+    auto-process-check-interval-ms: 60000
+
   # Chiến dịch quyên góp F-098 -> F-102
   campaign:
     # F-102: chu kỳ job quét chiến dịch còn OPEN nhưng đã qua endTime để tự đóng

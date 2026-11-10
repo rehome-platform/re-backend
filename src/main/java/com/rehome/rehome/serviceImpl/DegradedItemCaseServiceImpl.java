@@ -1,5 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.DecideDegradedItemCaseRequest;
 import com.rehome.rehome.dto.request.OpenDegradedItemCaseRequest;
 import com.rehome.rehome.dto.response.DegradedItemCaseDetailResponse;
@@ -31,6 +32,7 @@ import com.rehome.rehome.repository.ReturnRequestPhotoRepository;
 import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.repository.WalletTransactionRepository;
 import com.rehome.rehome.service.DegradedItemCaseService;
+import com.rehome.rehome.service.SystemConfigReader;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +40,7 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.Year;
 import java.time.ZoneOffset;
@@ -56,6 +59,7 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
     private final WalletTransactionRepository walletTransactionRepository;
     private final PlatformFundRepository platformFundRepository;
     private final ReturnRequestPhotoRepository returnRequestPhotoRepository;
+    private final SystemConfigReader systemConfigReader;
 
     // Moderator mở ca trực tiếp lúc kiểm kho (không qua yêu cầu trả hàng): compensationAmount
     // snapshot từ giá đang bán - hoa hồng kỳ hiện tại, cùng công thức áp dụng lúc bán (F-036).
@@ -93,6 +97,7 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
                 .compensationAmount(compensationAmount)
                 .notes(request.getNotes())
                 .photos(request.getPhotos() == null ? List.of() : request.getPhotos())
+                .decisionDeadline(Instant.now().plus(Duration.ofDays(decisionDeadlineDays())))
                 .build();
 
         degradedItemCaseRepository.save(degradedCase);
@@ -102,6 +107,12 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
         productRepository.save(product);
 
         return toDetailResponse(degradedCase);
+    }
+
+    private int decisionDeadlineDays() {
+        return systemConfigReader.getInt(
+                SystemConfigKeys.DEGRADED_ITEM_DECISION_DAYS,
+                SystemConfigKeys.DEFAULT_DEGRADED_ITEM_DECISION_DAYS);
     }
 
     private BigDecimal commissionRateForTerm(Product product) {
@@ -126,15 +137,24 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
 
         DegradedItemChoice choice = parseChoice(request.getChoice());
 
-        DegradedItemCase degradedCase = degradedItemCaseRepository.findById(id)
+        // Khóa dòng để Member bấm chọn và job quét quá hạn (tự gán UNCLAIMED) không cùng xử lý một ca
+        DegradedItemCase degradedCase = degradedItemCaseRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new AppException(ErrorCode.DEGRADED_ITEM_CASE_NOT_FOUND));
 
         if (!degradedCase.getProduct().getMember().getId().equals(account.getId())) {
             throw new AppException(ErrorCode.DEGRADED_ITEM_CASE_FORBIDDEN);
         }
 
+        // Job đã đánh dấu vô thừa nhận vì quá hạn - không cho chọn trễ
+        if (degradedCase.getChoice() == DegradedItemChoice.UNCLAIMED) {
+            throw new AppException(ErrorCode.DECISION_EXPIRED);
+        }
         if (degradedCase.getChoice() != null) {
             throw new AppException(ErrorCode.DEGRADED_ITEM_CASE_ALREADY_DECIDED);
+        }
+        // Quá hạn nhưng job chưa kịp chạy
+        if (degradedCase.getDecisionDeadline() != null && Instant.now().isAfter(degradedCase.getDecisionDeadline())) {
+            throw new AppException(ErrorCode.DECISION_EXPIRED);
         }
 
         Product product = productRepository.findByIdForUpdate(degradedCase.getProduct().getId())
@@ -164,12 +184,19 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
         return toResponse(degradedCase);
     }
 
+    // UNCLAIMED không nằm trong whitelist: đó là giá trị hệ thống tự gán khi quá hạn
+    // (DegradedItemCaseLifecycleServiceImpl), không phải lựa chọn Member được gửi lên qua API này
     private DegradedItemChoice parseChoice(String value) {
+        DegradedItemChoice choice;
         try {
-            return DegradedItemChoice.valueOf(value.trim().toUpperCase(Locale.ROOT));
+            choice = DegradedItemChoice.valueOf(value.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ex) {
+            choice = null;
+        }
+        if (choice != DegradedItemChoice.FULL_COMPENSATION && choice != DegradedItemChoice.PARTIAL_WITH_ITEM_BACK) {
             throw new BadRequestException("choice phải là FULL_COMPENSATION hoặc PARTIAL_WITH_ITEM_BACK.");
         }
+        return choice;
     }
 
     // F-162: cộng tiền đền vào ví người bán như một bút toán, không phải chuyển tiền thật
@@ -332,10 +359,10 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
                 .paidAmount(c.getPaidAmount())
                 .receivedAt(c.getCreatedAt())
                 .decidedAt(c.getDecidedAt())
-                // Chưa có hạn quyết định/lấy hàng hay auto-decide trong hệ thống - xem javadoc của DTO
-                .decisionDeadline(null)
+                .decisionDeadline(c.getDecisionDeadline())
+                // F-036 chưa quy định hạn lấy hàng riêng cho PARTIAL_WITH_ITEM_BACK
                 .pickupDeadline(null)
-                .autoDecided(false)
+                .autoDecided(c.getChoice() == DegradedItemChoice.UNCLAIMED)
                 .status(c.getChoice() == null
                         ? DegradedItemCaseStatus.PENDING_DECISION.name()
                         : DegradedItemCaseStatus.DECIDED.name())

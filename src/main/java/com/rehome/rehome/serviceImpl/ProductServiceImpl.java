@@ -468,6 +468,13 @@ public class ProductServiceImpl implements ProductService {
         int daysIntoTerm = Math.max(1, (int) ChronoUnit.DAYS.between(
                 product.getTermStartedAt(), Instant.now()));
 
+        UUID decisionId = endOfTermDecisionRepository
+                .findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc(product.getId())
+                .map(EndOfTermDecision::getId)
+                .orElse(null);
+        UUID degradedCaseId = degradedItemCaseRepository.findPendingByProductIds(List.of(product.getId()))
+                .stream().findFirst().map(DegradedItemCase::getId).orElse(null);
+
         return ProductSkuLookupResponse.builder()
                 .id(product.getId())
                 .name(product.getName())
@@ -485,6 +492,8 @@ public class ProductServiceImpl implements ProductService {
                 .memberFullName(profile != null ? profile.getFullName() : null)
                 .stockInDate(product.getCreatedAt())
                 .photos(photos)
+                .decisionId(decisionId)
+                .degradedCaseId(degradedCaseId)
                 .build();
     }
 

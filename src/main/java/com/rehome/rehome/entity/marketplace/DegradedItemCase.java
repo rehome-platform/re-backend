@@ -77,6 +77,15 @@ public class DegradedItemCase {
     @Column(name = "picked_up_at", nullable = true)
     private Instant pickedUpAt;
 
+    // Hạn Member chọn phương án đền bù, mặc định 30 ngày kể từ lúc mở ca; quá hạn thành vô thừa
+    // nhận (choice = UNCLAIMED, Product.status = UNCLAIMED)
+    @Column(name = "decision_deadline", nullable = true)
+    private Instant decisionDeadline;
+
+    // Lần gần nhất hệ thống gửi thông báo nhắc chốt phương án (cách 7 ngày 1 lần); null = chưa gửi lần nào
+    @Column(name = "last_reminder_sent_at", nullable = true)
+    private Instant lastReminderSentAt;
+
     @PrePersist
     private void onCreate() {
         Instant now = Instant.now();

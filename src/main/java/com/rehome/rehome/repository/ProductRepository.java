@@ -9,6 +9,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -108,4 +109,15 @@ WHERE p.warehouse.id = :warehouseId
                            @Param("pendingDecision") boolean pendingDecision,
                            Pageable pageable);
 
+    // F-029: còn ON_SALE và chưa tới kỳ cuối (maxRenewals là snapshot trên biên nhận, không phải
+    // cấu hình sống, nên phải join mới so sánh được) - lọc chính xác ngày đến hạn sang kỳ ở tầng
+    // service vì term_length_days cũng là snapshot trên biên nhận
+    @Query("select p from Product p join fetch p.consignmentReceipt r "
+            + "where p.status = com.rehome.rehome.entity.enums.ProductStatus.ON_SALE "
+            + "and p.currentTerm <= r.maxRenewals")
+    List<Product> findOnSaleNotYetFinalTerm();
+
+    // F-029: đã qua hạn kỳ cuối (ngày 90, cột endOfTermDeadline đã tính sẵn lúc nhập kho/ký gửi lại)
+    // nhưng vẫn còn ON_SALE - job quét để gỡ khỏi sàn và mở EndOfTermDecision
+    List<Product> findAllByStatusAndEndOfTermDeadlineBefore(ProductStatus status, Instant deadline);
 }

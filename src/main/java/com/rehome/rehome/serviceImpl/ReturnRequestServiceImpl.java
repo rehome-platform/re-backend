@@ -41,8 +41,10 @@ import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ReturnRequestPhotoRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
+import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.service.OrderService;
 import com.rehome.rehome.service.ReturnRequestService;
+import com.rehome.rehome.service.SystemConfigReader;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -54,6 +56,7 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -87,6 +90,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     private final OrderService orderService;
     private final QueueService queueService;
     private final GhnApi ghnApi;
+    private final SystemConfigReader systemConfigReader;
 
     @Value("${app.return.request-window-days}")
     private long requestWindowDays;
@@ -505,11 +509,15 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         BigDecimal baseCompensation = item.getPriceAtOrder()
                 .subtract(item.getPriceAtOrder().multiply(item.getCommissionRateApplied()));
 
+        int decisionDeadlineDays = systemConfigReader.getInt(
+                SystemConfigKeys.DEGRADED_ITEM_DECISION_DAYS, SystemConfigKeys.DEFAULT_DEGRADED_ITEM_DECISION_DAYS);
+
         DegradedItemCase degradedCase = DegradedItemCase.builder()
                 .product(item.getProduct())
                 .returnRequest(returnRequest)
                 .compensationAmount(baseCompensation)
                 .moderator(moderator)
+                .decisionDeadline(Instant.now().plus(Duration.ofDays(decisionDeadlineDays)))
                 .build();
 
         degradedItemCaseRepository.save(degradedCase);

@@ -8,8 +8,10 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.counter.CounterIdentityConfirmation;
 import com.rehome.rehome.entity.enums.*;
+import com.rehome.rehome.entity.marketplace.DegradedItemCase;
 import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
 import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
+import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
@@ -22,6 +24,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -42,6 +45,8 @@ public class CounterServiceImpl implements CounterService {
     private final AccountRepository accountRepository;
     private final CounterIdentityConfirmationRepository identityConfirmationRepository;
     private final ReturnRequestRepository returnRequestRepository;
+    private final DegradedItemCaseRepository degradedItemCaseRepository;
+    private final OrderItemRepository orderItemRepository;
     private final AuditLogRepository auditLogRepository;
     private final QueueService queueService;
 
@@ -86,6 +91,7 @@ public class CounterServiceImpl implements CounterService {
             case ITEM_WITHDRAWAL -> handoverItemWithdrawal(request.getAccountId(), refId);
             case END_OF_TERM_TAKE_BACK -> handoverEndOfTermTakeBack(request.getAccountId(), refId);
             case INVALID_RETURN_PICKUP -> handoverInvalidReturnPickup(request.getAccountId(), refId);
+            case DEGRADED_ITEM_PICKUP -> handoverDegradedItemPickup(request.getAccountId(), refId);
         }
     }
 
@@ -153,6 +159,18 @@ public class CounterServiceImpl implements CounterService {
         returnRequest.setPickedUpAt(Instant.now());
         returnRequestRepository.save(returnRequest);
     }
+
+    private void handoverDegradedItemPickup(UUID accountId, UUID refId) {
+        DegradedItemCase degradedCase = degradedItemCaseRepository.findById(refId)
+                .filter(c -> c.getProduct().getMember().getId().equals(accountId))
+                .filter(c -> c.getChoice() == DegradedItemChoice.PARTIAL_WITH_ITEM_BACK)
+                .filter(c -> c.getPickedUpAt() == null)
+                .orElseThrow(() -> new AppException(ErrorCode.COUNTER_RECORD_NOT_FOUND));
+
+        degradedCase.setPickedUpAt(Instant.now());
+        degradedItemCaseRepository.save(degradedCase);
+    }
+
     @Override
     @Transactional
     public List<MemberLookupItemResponse> lookup(Account moderator, CounterLookupRequest req) {
@@ -266,7 +284,7 @@ public class CounterServiceImpl implements CounterService {
                 .toList();
 
         List<MemberTasksResponse.PendingEndOfTermItem> endOfTerm =
-                endOfTermDecisionRepository.findUndecidedByMemberId(accountId).stream()
+                endOfTermDecisionRepository.findPendingTakeBackByMemberId(accountId).stream()
                         .map(d -> MemberTasksResponse.PendingEndOfTermItem.builder()
                                 .id(d.getId())
                                 .productId(d.getProduct().getId())
@@ -275,11 +293,55 @@ public class CounterServiceImpl implements CounterService {
                                 .build())
                         .toList();
 
+        List<MemberTasksResponse.PendingDegradedItemItem> degradedItems =
+                degradedItemCaseRepository.findPendingPickupByMemberId(accountId).stream()
+                        .map(c -> MemberTasksResponse.PendingDegradedItemItem.builder()
+                                .id(c.getId())
+                                .productId(c.getProduct().getId())
+                                .productName(c.getProduct().getName())
+                                .paidAmount(c.getPaidAmount())
+                                .decidedAt(c.getDecidedAt())
+                                .build())
+                        .toList();
+
+        List<MemberTasksResponse.PendingInvalidReturnItem> invalidReturns = buildPendingInvalidReturns(accountId);
+
         return MemberTasksResponse.builder()
                 .pendingForms(forms)
                 .pendingWithdrawals(withdrawals)
                 .pendingEndOfTerm(endOfTerm)
+                .pendingDegradedItems(degradedItems)
+                .pendingInvalidReturns(invalidReturns)
                 .build();
+    }
+
+    // Trả hàng kết luận INVALID còn trong 7 ngày gần nhất - tên món lấy qua OrderItem, gộp 1
+    // query cho cả lô để tránh N+1 (mỗi đơn ở hệ thống này chỉ có 1 kho/1 món - xem Order)
+    private List<MemberTasksResponse.PendingInvalidReturnItem> buildPendingInvalidReturns(UUID accountId) {
+        List<ReturnRequest> invalidReturns = returnRequestRepository
+                .findRecentInvalidByBuyerId(accountId, Instant.now().minus(7, ChronoUnit.DAYS));
+        if (invalidReturns.isEmpty()) {
+            return List.of();
+        }
+
+        List<UUID> orderIds = invalidReturns.stream().map(r -> r.getOrder().getId()).toList();
+        Map<UUID, OrderItem> firstItemByOrderId = new HashMap<>();
+        for (OrderItem item : orderItemRepository.findAllByOrder_IdInOrderByIdAsc(orderIds)) {
+            firstItemByOrderId.putIfAbsent(item.getOrder().getId(), item);
+        }
+
+        return invalidReturns.stream()
+                .map(r -> {
+                    OrderItem item = firstItemByOrderId.get(r.getOrder().getId());
+                    return MemberTasksResponse.PendingInvalidReturnItem.builder()
+                            .id(r.getId())
+                            .productId(item == null ? null : item.getProduct().getId())
+                            .productName(item == null ? null : item.getProduct().getName())
+                            .pickupDeadline(r.getPickupDeadline())
+                            .createdAt(r.getCreatedAt())
+                            .build();
+                })
+                .toList();
     }
 
     private static String trimToNull(String s) {

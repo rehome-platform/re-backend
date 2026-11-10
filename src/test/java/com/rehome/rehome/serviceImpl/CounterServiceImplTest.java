@@ -9,6 +9,7 @@ import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.counter.CounterIdentityConfirmation;
 import com.rehome.rehome.entity.enums.AccountStatus;
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
+import com.rehome.rehome.entity.enums.DegradedItemChoice;
 import com.rehome.rehome.entity.enums.EndOfTermChoice;
 import com.rehome.rehome.entity.enums.InvalidReturnChoice;
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
@@ -16,9 +17,11 @@ import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
+import com.rehome.rehome.entity.marketplace.DegradedItemCase;
 import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
 import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.marketplace.Order;
+import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.entity.marketplace.Warehouse;
@@ -28,9 +31,11 @@ import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.AuditLogRepository;
 import com.rehome.rehome.repository.ConsignmentFormRepository;
 import com.rehome.rehome.repository.CounterIdentityConfirmationRepository;
+import com.rehome.rehome.repository.DegradedItemCaseRepository;
 import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.ItemWithdrawalRequestRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
+import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.service.QueueService;
 import org.junit.jupiter.api.BeforeEach;
@@ -69,6 +74,8 @@ class CounterServiceImplTest {
     @Mock private ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
     @Mock private EndOfTermDecisionRepository endOfTermDecisionRepository;
     @Mock private ReturnRequestRepository returnRequestRepository;
+    @Mock private DegradedItemCaseRepository degradedItemCaseRepository;
+    @Mock private OrderItemRepository orderItemRepository;
     @Mock private AuditLogRepository auditLogRepository;
     @Mock private QueueService queueService;
 
@@ -145,6 +152,7 @@ class CounterServiceImplTest {
         verifyNoInteractions(itemWithdrawalRequestRepository);
         verifyNoInteractions(endOfTermDecisionRepository);
         verifyNoInteractions(returnRequestRepository);
+        verifyNoInteractions(degradedItemCaseRepository);
     }
 
     // ---------------------------------------------------------------- lookup (API 25)
@@ -367,7 +375,7 @@ class CounterServiceImplTest {
     }
 
     @Test
-    @DisplayName("getTasks: chưa có việc nào -> 3 mảng rỗng, form được lấy với PENDING và APPROVED")
+    @DisplayName("getTasks: chưa có việc nào -> 5 mảng rỗng, form được lấy với PENDING và APPROVED")
     void getTasks_noTasks_returnsEmptyLists() {
         List<ConsignmentFormStatus> openStatuses =
                 List.of(ConsignmentFormStatus.PENDING, ConsignmentFormStatus.APPROVED);
@@ -376,18 +384,23 @@ class CounterServiceImplTest {
                 .thenReturn(List.of());
         when(itemWithdrawalRequestRepository.findByMember_IdAndStatusOrderByCreatedAtAsc(
                 memberId, ItemWithdrawalStatus.PENDING_PICKUP)).thenReturn(List.of());
-        when(endOfTermDecisionRepository.findUndecidedByMemberId(memberId)).thenReturn(List.of());
+        when(endOfTermDecisionRepository.findPendingTakeBackByMemberId(memberId)).thenReturn(List.of());
+        when(degradedItemCaseRepository.findPendingPickupByMemberId(memberId)).thenReturn(List.of());
+        when(returnRequestRepository.findRecentInvalidByBuyerId(eq(memberId), any())).thenReturn(List.of());
 
         MemberTasksResponse result = service.getTasks(memberId);
 
         assertThat(result.getPendingForms()).isEmpty();
         assertThat(result.getPendingWithdrawals()).isEmpty();
         assertThat(result.getPendingEndOfTerm()).isEmpty();
+        assertThat(result.getPendingDegradedItems()).isEmpty();
+        assertThat(result.getPendingInvalidReturns()).isEmpty();
+        verifyNoInteractions(orderItemRepository);
     }
 
     @Test
-    @DisplayName("getTasks: map đúng dữ liệu của cả 3 nhóm việc")
-    void getTasks_mapsAllThreeGroups() {
+    @DisplayName("getTasks: map đúng dữ liệu của cả 5 nhóm việc")
+    void getTasks_mapsAllGroups() {
         Instant now = Instant.parse("2026-10-13T08:00:00Z");
         Product product = Product.builder().id("Q7-AK-000845").name("Áo khoác denim").member(member).build();
 
@@ -408,15 +421,37 @@ class CounterServiceImplTest {
         EndOfTermDecision decision = EndOfTermDecision.builder()
                 .id(UUID.randomUUID())
                 .product(product)
+                .decision(EndOfTermChoice.TAKE_BACK)
                 .deadline(now.plusSeconds(7200))
                 .build();
+        DegradedItemCase degradedCase = DegradedItemCase.builder()
+                .id(UUID.randomUUID())
+                .product(product)
+                .choice(DegradedItemChoice.PARTIAL_WITH_ITEM_BACK)
+                .paidAmount(new BigDecimal("60000"))
+                .decidedAt(now.plusSeconds(1800))
+                .build();
+        Order order = Order.builder().id(UUID.randomUUID()).buyer(member).build();
+        ReturnRequest invalidReturn = ReturnRequest.builder()
+                .id(UUID.randomUUID())
+                .order(order)
+                .status(ReturnRequestStatus.INVALID)
+                .pickupDeadline(now.plusSeconds(600))
+                .createdAt(now)
+                .build();
+        OrderItem orderItem = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product).build();
 
         when(memberProfileRepository.existsById(memberId)).thenReturn(true);
         when(consignmentFormRepository.findByMember_IdAndStatusInOrderByCreatedAtAsc(eq(memberId), any()))
                 .thenReturn(List.of(form));
         when(itemWithdrawalRequestRepository.findByMember_IdAndStatusOrderByCreatedAtAsc(
                 memberId, ItemWithdrawalStatus.PENDING_PICKUP)).thenReturn(List.of(withdrawal));
-        when(endOfTermDecisionRepository.findUndecidedByMemberId(memberId)).thenReturn(List.of(decision));
+        when(endOfTermDecisionRepository.findPendingTakeBackByMemberId(memberId)).thenReturn(List.of(decision));
+        when(degradedItemCaseRepository.findPendingPickupByMemberId(memberId)).thenReturn(List.of(degradedCase));
+        when(returnRequestRepository.findRecentInvalidByBuyerId(eq(memberId), any()))
+                .thenReturn(List.of(invalidReturn));
+        when(orderItemRepository.findAllByOrder_IdInOrderByIdAsc(List.of(order.getId())))
+                .thenReturn(List.of(orderItem));
 
         MemberTasksResponse result = service.getTasks(memberId);
 
@@ -442,6 +477,22 @@ class CounterServiceImplTest {
         assertThat(e.getProductId()).isEqualTo("Q7-AK-000845");
         assertThat(e.getProductName()).isEqualTo("Áo khoác denim");
         assertThat(e.getDeadline()).isEqualTo(now.plusSeconds(7200));
+
+        assertThat(result.getPendingDegradedItems()).hasSize(1);
+        MemberTasksResponse.PendingDegradedItemItem d = result.getPendingDegradedItems().get(0);
+        assertThat(d.getId()).isEqualTo(degradedCase.getId());
+        assertThat(d.getProductId()).isEqualTo("Q7-AK-000845");
+        assertThat(d.getProductName()).isEqualTo("Áo khoác denim");
+        assertThat(d.getPaidAmount()).isEqualByComparingTo("60000");
+        assertThat(d.getDecidedAt()).isEqualTo(now.plusSeconds(1800));
+
+        assertThat(result.getPendingInvalidReturns()).hasSize(1);
+        MemberTasksResponse.PendingInvalidReturnItem r = result.getPendingInvalidReturns().get(0);
+        assertThat(r.getId()).isEqualTo(invalidReturn.getId());
+        assertThat(r.getProductId()).isEqualTo("Q7-AK-000845");
+        assertThat(r.getProductName()).isEqualTo("Áo khoác denim");
+        assertThat(r.getPickupDeadline()).isEqualTo(now.plusSeconds(600));
+        assertThat(r.getCreatedAt()).isEqualTo(now);
     }
 
     // ---------------------------------------------------------------- confirmIdentity
@@ -782,5 +833,79 @@ class CounterServiceImplTest {
         assertErrorCode(() -> service.handover(moderator, request), ErrorCode.COUNTER_RECORD_NOT_FOUND);
 
         verify(returnRequestRepository, never()).save(any());
+    }
+
+    // ---------------------------------------------------------------- handover - DEGRADED_ITEM_PICKUP
+
+    private DegradedItemCase degradedItemCase(Account owner, DegradedItemChoice choice, Instant pickedUpAt) {
+        Product product = Product.builder().id("SKU-002").member(owner).build();
+        return DegradedItemCase.builder()
+                .id(refId)
+                .product(product)
+                .choice(choice)
+                .pickedUpAt(pickedUpAt)
+                .build();
+    }
+
+    @Test
+    @DisplayName("handover DEGRADED_ITEM_PICKUP: thành công -> pickedUpAt được set")
+    void handover_degradedItemPickup_success() {
+        DegradedItemCase degradedCase = degradedItemCase(member, DegradedItemChoice.PARTIAL_WITH_ITEM_BACK, null);
+        when(degradedItemCaseRepository.findById(refId)).thenReturn(Optional.of(degradedCase));
+        CounterHandoverRequest request = request("DEGRADED_ITEM_PICKUP", memberId, refId.toString());
+
+        service.handover(moderator, request);
+
+        assertThat(degradedCase.getPickedUpAt()).isNotNull();
+        verify(degradedItemCaseRepository).save(degradedCase);
+    }
+
+    @Test
+    @DisplayName("handover DEGRADED_ITEM_PICKUP: không tìm thấy refId -> COUNTER_RECORD_NOT_FOUND")
+    void handover_degradedItemPickup_notFound_throws() {
+        when(degradedItemCaseRepository.findById(refId)).thenReturn(Optional.empty());
+        CounterHandoverRequest request = request("DEGRADED_ITEM_PICKUP", memberId, refId.toString());
+
+        assertErrorCode(() -> service.handover(moderator, request), ErrorCode.COUNTER_RECORD_NOT_FOUND);
+
+        verify(degradedItemCaseRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("handover DEGRADED_ITEM_PICKUP: choice là FULL_COMPENSATION (không có hàng để lấy) -> COUNTER_RECORD_NOT_FOUND")
+    void handover_degradedItemPickup_fullCompensation_throws() {
+        DegradedItemCase degradedCase = degradedItemCase(member, DegradedItemChoice.FULL_COMPENSATION, null);
+        when(degradedItemCaseRepository.findById(refId)).thenReturn(Optional.of(degradedCase));
+        CounterHandoverRequest request = request("DEGRADED_ITEM_PICKUP", memberId, refId.toString());
+
+        assertErrorCode(() -> service.handover(moderator, request), ErrorCode.COUNTER_RECORD_NOT_FOUND);
+
+        verify(degradedItemCaseRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("handover DEGRADED_ITEM_PICKUP: đã nhận hàng trước đó -> COUNTER_RECORD_NOT_FOUND")
+    void handover_degradedItemPickup_alreadyPickedUp_throws() {
+        DegradedItemCase degradedCase = degradedItemCase(member, DegradedItemChoice.PARTIAL_WITH_ITEM_BACK,
+                Instant.now().minus(1, ChronoUnit.DAYS));
+        when(degradedItemCaseRepository.findById(refId)).thenReturn(Optional.of(degradedCase));
+        CounterHandoverRequest request = request("DEGRADED_ITEM_PICKUP", memberId, refId.toString());
+
+        assertErrorCode(() -> service.handover(moderator, request), ErrorCode.COUNTER_RECORD_NOT_FOUND);
+
+        verify(degradedItemCaseRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("handover DEGRADED_ITEM_PICKUP: sản phẩm không thuộc member này -> COUNTER_RECORD_NOT_FOUND")
+    void handover_degradedItemPickup_wrongOwner_throws() {
+        Account other = Account.builder().id(UUID.randomUUID()).build();
+        DegradedItemCase degradedCase = degradedItemCase(other, DegradedItemChoice.PARTIAL_WITH_ITEM_BACK, null);
+        when(degradedItemCaseRepository.findById(refId)).thenReturn(Optional.of(degradedCase));
+        CounterHandoverRequest request = request("DEGRADED_ITEM_PICKUP", memberId, refId.toString());
+
+        assertErrorCode(() -> service.handover(moderator, request), ErrorCode.COUNTER_RECORD_NOT_FOUND);
+
+        verify(degradedItemCaseRepository, never()).save(any());
     }
 }

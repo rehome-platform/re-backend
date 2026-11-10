@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.dto.request.DecideDegradedItemCaseRequest;
+import com.rehome.rehome.dto.request.OpenDegradedItemCaseRequest;
 import com.rehome.rehome.dto.response.DegradedItemCaseDetailResponse;
 import com.rehome.rehome.dto.response.DegradedItemCaseResponse;
 import com.rehome.rehome.entity.auth.Account;
@@ -13,8 +14,10 @@ import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.entity.marketplace.ReturnRequestPhoto;
 import com.rehome.rehome.entity.marketplace.Wallet;
+import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.DegradedItemCaseRepository;
 import com.rehome.rehome.repository.PlatformFundRepository;
@@ -97,6 +100,123 @@ class DegradedItemCaseServiceImplTest {
         DecideDegradedItemCaseRequest req = new DecideDegradedItemCaseRequest();
         req.setChoice(choice);
         return req;
+    }
+
+    // ------------------------------------------------------------------
+    // Moderator mở ca trực tiếp lúc kiểm kho (open) - không qua yêu cầu trả hàng
+    // ------------------------------------------------------------------
+
+    private Account moderatorWithWarehouse() {
+        Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).build();
+        return Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR).warehouse(warehouse).build();
+    }
+
+    private OpenDegradedItemCaseRequest openRequest(String productId, String notes, List<String> photos) {
+        return new OpenDegradedItemCaseRequest(productId, notes, photos);
+    }
+
+    @Test
+    @DisplayName("open: thiếu productId -> BadRequestException")
+    void open_missingProductId_throws() {
+        assertThatThrownBy(() -> service.open(moderatorWithWarehouse(), openRequest(null, null, null)))
+                .isInstanceOf(BadRequestException.class);
+
+        verify(productRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("open: Moderator chưa được gán kho -> MODERATOR_NO_WAREHOUSE")
+    void open_moderatorNoWarehouse_throws() {
+        Account moderatorNoWarehouse = Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR).build();
+
+        AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
+                () -> service.open(moderatorNoWarehouse, openRequest(PRODUCT_ID, null, null)));
+
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.MODERATOR_NO_WAREHOUSE);
+        verify(productRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("open: không tìm thấy sản phẩm -> PRODUCT_NOT_FOUND")
+    void open_productNotFound_throws() {
+        Account moderator = moderatorWithWarehouse();
+        when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.empty());
+
+        AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
+                () -> service.open(moderator, openRequest(PRODUCT_ID, null, null)));
+
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.PRODUCT_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("open: sản phẩm thuộc kho khác -> PRODUCT_NOT_IN_YOUR_WAREHOUSE")
+    void open_wrongWarehouse_throws() {
+        Account moderator = moderatorWithWarehouse();
+        Product otherWarehouseProduct = Product.builder().id(PRODUCT_ID)
+                .warehouse(Warehouse.builder().id(UUID.randomUUID()).build()).build();
+        when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.of(otherWarehouseProduct));
+
+        AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
+                () -> service.open(moderator, openRequest(PRODUCT_ID, null, null)));
+
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);
+        verify(degradedItemCaseRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("open: sản phẩm đang có ca chưa quyết định -> ConflictException, không mở ca mới")
+    void open_alreadyOpenCase_throws() {
+        Account moderator = moderatorWithWarehouse();
+        Product p = Product.builder().id(PRODUCT_ID).warehouse(moderator.getWarehouse()).build();
+        when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.of(p));
+        when(degradedItemCaseRepository.existsByProduct_IdAndChoiceIsNull(PRODUCT_ID)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.open(moderator, openRequest(PRODUCT_ID, null, null)))
+                .isInstanceOf(ConflictException.class);
+
+        verify(degradedItemCaseRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("open: thành công -> snapshot giá đang bán - hoa hồng kỳ hiện tại, lưu notes/photos")
+    void open_success_computesCompensationFromCurrentPriceAndTerm() {
+        Account moderator = moderatorWithWarehouse();
+        ConsignmentReceipt r = ConsignmentReceipt.builder()
+                .commissionRateTerm1(new BigDecimal("0.10"))
+                .commissionRateTerm2(new BigDecimal("0.15"))
+                .commissionRateTerm3(new BigDecimal("0.20"))
+                .build();
+        Product p = Product.builder().id(PRODUCT_ID).warehouse(moderator.getWarehouse())
+                .consignmentReceipt(r).currentPrice(new BigDecimal("300000")).currentTerm((short) 2).build();
+        when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.of(p));
+        when(degradedItemCaseRepository.existsByProduct_IdAndChoiceIsNull(PRODUCT_ID)).thenReturn(false);
+        // GenerationType.UUID: Hibernate gán id thật lúc persist(), mock save() giả lập lại việc đó
+        when(degradedItemCaseRepository.save(any(DegradedItemCase.class))).thenAnswer(invocation -> {
+            DegradedItemCase arg = invocation.getArgument(0);
+            arg.setId(UUID.randomUUID());
+            return arg;
+        });
+
+        DegradedItemCaseDetailResponse res = service.open(moderator,
+                openRequest(PRODUCT_ID, "Rách tay áo", List.of("https://cdn/a.jpg")));
+
+        ArgumentCaptor<DegradedItemCase> captor = ArgumentCaptor.forClass(DegradedItemCase.class);
+        verify(degradedItemCaseRepository).save(captor.capture());
+        DegradedItemCase saved = captor.getValue();
+
+        assertThat(saved.getProduct()).isEqualTo(p);
+        assertThat(saved.getModerator()).isEqualTo(moderator);
+        // 300000 - 300000 * 0.15 (kỳ 2) = 255000
+        assertThat(saved.getCompensationAmount()).isEqualByComparingTo("255000");
+        assertThat(saved.getNotes()).isEqualTo("Rách tay áo");
+        assertThat(saved.getPhotos()).containsExactly("https://cdn/a.jpg");
+        assertThat(saved.getChoice()).isNull();
+
+        assertThat(res.getProductId()).isEqualTo(PRODUCT_ID);
+        assertThat(res.getCompensationAmount()).isEqualByComparingTo("255000");
+        assertThat(res.getModeratorNote()).isEqualTo("Rách tay áo");
+        assertThat(res.getPhotos()).containsExactly("https://cdn/a.jpg");
+        assertThat(res.getStatus()).isEqualTo("PENDING_DECISION");
     }
 
     @Test

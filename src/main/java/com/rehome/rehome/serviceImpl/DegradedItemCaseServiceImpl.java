@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.dto.request.DecideDegradedItemCaseRequest;
+import com.rehome.rehome.dto.request.OpenDegradedItemCaseRequest;
 import com.rehome.rehome.dto.response.DegradedItemCaseDetailResponse;
 import com.rehome.rehome.dto.response.DegradedItemCaseResponse;
 import com.rehome.rehome.entity.auth.Account;
@@ -10,6 +11,7 @@ import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.TransactionStatus;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
 import com.rehome.rehome.entity.enums.WalletType;
+import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.DegradedItemCase;
 import com.rehome.rehome.entity.marketplace.PlatformFund;
 import com.rehome.rehome.entity.marketplace.Product;
@@ -19,6 +21,7 @@ import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.entity.marketplace.WalletTransaction;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.DegradedItemCaseRepository;
 import com.rehome.rehome.repository.PlatformFundRepository;
@@ -52,6 +55,55 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
     private final WalletTransactionRepository walletTransactionRepository;
     private final PlatformFundRepository platformFundRepository;
     private final ReturnRequestPhotoRepository returnRequestPhotoRepository;
+
+    // Moderator mở ca trực tiếp lúc kiểm kho (không qua yêu cầu trả hàng): compensationAmount
+    // snapshot từ giá đang bán - hoa hồng kỳ hiện tại, cùng công thức áp dụng lúc bán (F-036).
+    @Override
+    @Transactional
+    public DegradedItemCaseDetailResponse open(Account moderator, OpenDegradedItemCaseRequest request) {
+        if (request == null || !StringUtils.hasText(request.getProductId())) {
+            throw new BadRequestException("productId là bắt buộc.");
+        }
+        if (moderator.getWarehouse() == null) {
+            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);
+        }
+
+        Product product = productRepository.findById(request.getProductId())
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+
+        if (!product.getWarehouse().getId().equals(moderator.getWarehouse().getId())) {
+            throw new AppException(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);
+        }
+        if (degradedItemCaseRepository.existsByProduct_IdAndChoiceIsNull(product.getId())) {
+            throw new ConflictException(
+                    "Sản phẩm đã có ca xử lý hàng xuống cấp đang chờ quyết định.", "DEGRADED_ITEM_CASE_ALREADY_OPEN");
+        }
+
+        BigDecimal compensationAmount = product.getCurrentPrice()
+                .subtract(product.getCurrentPrice().multiply(commissionRateForTerm(product)))
+                .setScale(2, RoundingMode.HALF_UP);
+
+        DegradedItemCase degradedCase = DegradedItemCase.builder()
+                .product(product)
+                .moderator(moderator)
+                .compensationAmount(compensationAmount)
+                .notes(request.getNotes())
+                .photos(request.getPhotos() == null ? List.of() : request.getPhotos())
+                .build();
+
+        degradedItemCaseRepository.save(degradedCase);
+
+        return toDetailResponse(degradedCase);
+    }
+
+    private BigDecimal commissionRateForTerm(Product product) {
+        ConsignmentReceipt receipt = product.getConsignmentReceipt();
+        return switch (product.getCurrentTerm()) {
+            case 1 -> receipt.getCommissionRateTerm1();
+            case 2 -> receipt.getCommissionRateTerm2();
+            default -> receipt.getCommissionRateTerm3();
+        };
+    }
 
     // API 95 (F-036): FULL_COMPENSATION -> đền đủ compensationAmount, hàng thành tài sản nền tảng;
     // PARTIAL_WITH_ITEM_BACK -> đền compensationAmount x degradedCompensationRate (snapshot biên
@@ -233,8 +285,9 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
     private DegradedItemCaseDetailResponse toDetailResponse(DegradedItemCase c) {
         ReturnRequest returnRequest = c.getReturnRequest();
 
-        // Ảnh và lý do nằm ở yêu cầu trả hàng dẫn đến ca này; ca mở không qua trả hàng thì không có
-        List<String> photos = returnRequest == null ? List.of()
+        // Ảnh và lý do nằm ở yêu cầu trả hàng dẫn đến ca này; ca mở trực tiếp lúc kiểm kho
+        // (không qua trả hàng) thì lấy ảnh/ghi chú Moderator nhập thẳng lúc mở ca
+        List<String> photos = returnRequest == null ? c.getPhotos()
                 : returnRequestPhotoRepository
                         .findAllByReturnRequest_IdOrderByIdAsc(returnRequest.getId()).stream()
                         .map(ReturnRequestPhoto::getImageUrl)
@@ -246,7 +299,7 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
                 .productName(c.getProduct().getName())
                 .photos(photos)
                 .reason(returnRequest == null ? null : returnRequest.getReason())
-                .moderatorNote(returnRequest == null ? null : returnRequest.getConditionNote())
+                .moderatorNote(returnRequest == null ? c.getNotes() : returnRequest.getConditionNote())
                 .compensationAmount(c.getCompensationAmount())
                 .degradedCompensationRate(c.getProduct().getConsignmentReceipt().getDegradedCompensationRate())
                 .paidAmount(c.getPaidAmount())

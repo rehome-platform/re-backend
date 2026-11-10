@@ -5,6 +5,8 @@ import com.rehome.rehome.entity.enums.DegradedItemChoice;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import lombok.*;
 
@@ -58,6 +60,22 @@ public class DegradedItemCase {
     // Thời điểm Member quyết định — API 95
     @Column(name = "decided_at", nullable = true)
     private Instant decidedAt;
+
+    // Ghi chú của Moderator khi mở ca trực tiếp lúc kiểm kho (không qua yêu cầu trả hàng)
+    @Column(name = "notes", nullable = true, columnDefinition = "text")
+    private String notes;
+
+    // Ảnh bằng chứng Moderator chụp khi mở ca trực tiếp; ca mở từ yêu cầu trả hàng thì ảnh nằm ở returnRequest
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "degraded_item_case_photos", joinColumns = @JoinColumn(name = "degraded_item_case_id"))
+    @Column(name = "image_url", nullable = false, length = 2048)
+    @OrderColumn(name = "position")
+    @Builder.Default
+    private List<String> photos = new ArrayList<>();
+
+    // Thời điểm Member đến kho lấy hàng tại quầy sau khi chọn PARTIAL_WITH_ITEM_BACK — Counter handover
+    @Column(name = "picked_up_at", nullable = true)
+    private Instant pickedUpAt;
 
     @PrePersist
     private void onCreate() {

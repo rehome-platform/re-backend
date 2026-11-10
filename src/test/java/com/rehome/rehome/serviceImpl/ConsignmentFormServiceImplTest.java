@@ -1,6 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
-import com.rehome.rehome.config.ConsignmentProperties;
+import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.ConsignmentFormRequest;
 import com.rehome.rehome.dto.request.RejectConsignmentFormRequest;
 import com.rehome.rehome.dto.request.ReturnOnsiteRequest;
@@ -30,6 +30,7 @@ import com.rehome.rehome.repository.ConsignmentFormRepository;
 import com.rehome.rehome.repository.ConsignmentReceiptRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.QueueService;
+import com.rehome.rehome.service.SystemConfigReader;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -89,7 +90,7 @@ class ConsignmentFormServiceImplTest {
     @Mock private AccountRepository accountRepository;
     @Mock private QueueService queueService;
 
-    private ConsignmentProperties consignmentProperties;
+    private SystemConfigReader systemConfigReader;
     private ConsignmentFormServiceImpl service;
 
     private int maxPending = 5;
@@ -106,14 +107,17 @@ class ConsignmentFormServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        consignmentProperties = mock(ConsignmentProperties.class, (Answer<Object>) inv -> {
-            String name = inv.getMethod().getName();
-            Class<?> rt = inv.getMethod().getReturnType();
-            if (name.equals("getMaxPendingForms")) {
-                return numberOf(rt, maxPending);
-            }
-            if (name.equals("getBringInDeadlineDays")) {
-                return numberOf(rt, bringInDays);
+        // Đọc cấu hình theo giá trị hiện tại của maxPending / bringInDays để từng test đổi được giữa chừng
+        systemConfigReader = mock(SystemConfigReader.class, (Answer<Object>) inv -> {
+            if (inv.getMethod().getName().equals("getInt")) {
+                String key = inv.getArgument(0);
+                if (SystemConfigKeys.MAX_PENDING_FORMS_PER_MEMBER.equals(key)) {
+                    return maxPending;
+                }
+                if (SystemConfigKeys.BRING_IN_DEADLINE_DAYS.equals(key)) {
+                    return bringInDays;
+                }
+                return inv.getArgument(1);
             }
             return null;
         });
@@ -121,7 +125,7 @@ class ConsignmentFormServiceImplTest {
         service = new ConsignmentFormServiceImpl(
                 consignmentFormRepository, categoryRepository, brandRepository, warehouseRepository,
                 photoRepository, consignmentFormMapper, consignmentReceiptRepository,
-                consignmentProperties, accountRepository, queueService);
+                systemConfigReader, accountRepository, queueService);
 
         memberId = UUID.randomUUID();
         member = mock(Account.class);

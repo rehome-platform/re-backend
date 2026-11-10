@@ -41,6 +41,10 @@ public class QueueItemResponse {
     private String targetName;
     private String subjectSubtitle;
 
+    // Chỉ có giá trị với QueueType.WITHDRAWAL: tài khoản và mã Member ký gửi món cần rút
+    private String accountId;
+    private String memberCode;
+
     // Chỉ có giá trị với QueueType.LEGAL_CHANGE
     private String requestId;
     private String orgName;
@@ -94,7 +98,7 @@ public class QueueItemResponse {
     // WITHDRAWAL: refId là id yêu cầu rút hàng; productName là tên món cần rút, memberName là người ký gửi.
     // status phân biệt PENDING_APPROVAL (cần duyệt/từ chối) với PENDING_PICKUP (cần bàn giao - API 72)
     public static QueueItemResponse fromWithdrawal(
-            QueueItem q, ItemWithdrawalRequest withdrawal, String memberName) {
+            QueueItem q, ItemWithdrawalRequest withdrawal, String memberName, String memberCode) {
         QueueItemResponse response = from(q);
         response.setTargetName(withdrawal.getProduct().getName());
         response.setSubjectSubtitle(memberName);

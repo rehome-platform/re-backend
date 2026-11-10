@@ -32,6 +32,17 @@ public final class SystemConfigCatalog {
             // Ví và rút tiền: số tiền là đồng
             dec(MIN_PAYOUT_AMOUNT, ONE, new BigDecimal("10000000")),
             int_(MAX_PAYOUT_REQUESTS_PER_DAY, 1, 100),
+            // Luồng ký gửi
+            int_(END_OF_TERM_DECISION_DAYS, 1, 365),
+            int_(BRING_IN_DEADLINE_DAYS, 1, 90),
+            int_(MAX_PENDING_FORMS_PER_MEMBER, 1, 50),
+            int_(MAX_PRICE_CHANGES_PER_DAY, 1, 20),
+            // Đơn hàng và trả hàng
+            int_(ORDER_PAYMENT_TIMEOUT_MINUTES, 1, 1440),
+            int_(ORDER_AUTO_COMPLETE_DAYS, 1, 30),
+            int_(RETURN_REQUEST_WINDOW_DAYS, 1, 30),
+            int_(RETURN_HANDOVER_CARRIER_DAYS, 1, 30),
+            int_(COUNTER_PICKUP_DAYS, 1, 90),
             // Tỷ lệ lưu dạng phân số: 0.10 = 10%
             dec(COMMISSION_RATE_TERM1, ZERO, ONE),
             dec(COMMISSION_RATE_TERM2, ZERO, ONE),
@@ -65,6 +76,15 @@ public final class SystemConfigCatalog {
         m.put(OVERDUE_TASK_HOURS, String.valueOf(DEFAULT_OVERDUE_TASK_HOURS));
         m.put(MIN_PAYOUT_AMOUNT, DEFAULT_MIN_PAYOUT_AMOUNT.toPlainString());
         m.put(MAX_PAYOUT_REQUESTS_PER_DAY, String.valueOf(DEFAULT_MAX_PAYOUT_REQUESTS_PER_DAY));
+        m.put(END_OF_TERM_DECISION_DAYS, String.valueOf(DEFAULT_END_OF_TERM_DECISION_DAYS));
+        m.put(BRING_IN_DEADLINE_DAYS, String.valueOf(DEFAULT_BRING_IN_DEADLINE_DAYS));
+        m.put(MAX_PENDING_FORMS_PER_MEMBER, String.valueOf(DEFAULT_MAX_PENDING_FORMS_PER_MEMBER));
+        m.put(MAX_PRICE_CHANGES_PER_DAY, String.valueOf(DEFAULT_MAX_PRICE_CHANGES_PER_DAY));
+        m.put(ORDER_PAYMENT_TIMEOUT_MINUTES, String.valueOf(DEFAULT_ORDER_PAYMENT_TIMEOUT_MINUTES));
+        m.put(ORDER_AUTO_COMPLETE_DAYS, String.valueOf(DEFAULT_ORDER_AUTO_COMPLETE_DAYS));
+        m.put(RETURN_REQUEST_WINDOW_DAYS, String.valueOf(DEFAULT_RETURN_REQUEST_WINDOW_DAYS));
+        m.put(RETURN_HANDOVER_CARRIER_DAYS, String.valueOf(DEFAULT_RETURN_HANDOVER_CARRIER_DAYS));
+        m.put(COUNTER_PICKUP_DAYS, String.valueOf(DEFAULT_COUNTER_PICKUP_DAYS));
         return m;
     }
 

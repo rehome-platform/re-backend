@@ -6,6 +6,7 @@ import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.marketplace.*;
 import com.rehome.rehome.repository.*;
+import com.rehome.rehome.service.EndOfTermDecisionService;
 import com.rehome.rehome.service.FileStorageService;
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -37,7 +38,7 @@ public class ProductInitializer implements CommandLineRunner {
     private final BrandRepository brandRepository;
     private final ConsignmentFormRepository consignmentFormRepository;
     private final ConsignmentReceiptRepository consignmentReceiptRepository;
-    private final EndOfTermDecisionRepository endOfTermDecisionRepository;
+    private final EndOfTermDecisionService endOfTermDecisionService;
     private final ProductPhotoRepository productPhotoRepository;
     private final FileStorageService fileStorageService;
 
@@ -150,10 +151,7 @@ public class ProductInitializer implements CommandLineRunner {
 
             // Sản phẩm đang chờ Member chọn cách xử lý cuối kỳ (decision = null)
             if ("Q7-AK-000849".equals(s.id())) {
-                endOfTermDecisionRepository.save(EndOfTermDecision.builder()
-                        .product(product)
-                        .deadline(now.plus(30, ChronoUnit.DAYS))
-                        .build());
+                endOfTermDecisionService.createDecision(product, now);
             }
         }
         log.info("ProductInitializer: đã tạo {} sản phẩm mẫu.", SEEDS.size());

@@ -8,7 +8,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.rehome.rehome.config.ConsignmentProperties;
+import com.rehome.rehome.constant.SystemConfigKeys;
+import com.rehome.rehome.service.SystemConfigReader;
 import com.rehome.rehome.dto.request.CompleteInspectionRequest;
 import com.rehome.rehome.dto.response.CompleteInspectionResponse;
 import com.rehome.rehome.dto.response.ConsignmentReceiptConfirmResponse;
@@ -81,10 +82,23 @@ class ConsignmentReceiptServiceImplTest {
     private EndOfTermDecisionRepository endOfTermDecisionRepository;
 
     @Spy
-    private ConsignmentProperties consignmentProperties = new ConsignmentProperties();
+    private SystemConfigReader systemConfigReader = new DefaultConfigReader();
 
     @InjectMocks
     private ConsignmentReceiptServiceImpl service;
+
+    // Bộ đọc cấu hình giả: luôn trả giá trị mặc định (như DB chưa có dòng nào trong system_configs)
+    static class DefaultConfigReader implements SystemConfigReader {
+        @Override
+        public int getInt(String key, int defaultValue) {
+            return defaultValue;
+        }
+
+        @Override
+        public BigDecimal getDecimal(String key, BigDecimal defaultValue) {
+            return defaultValue;
+        }
+    }
 
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final UUID NEW_RECEIPT_ID = UUID.randomUUID();
@@ -539,14 +553,14 @@ class ConsignmentReceiptServiceImplTest {
         assertThat(r.getTermLengthDays()).isEqualTo(45);
 
         // snapshot lấy từ cấu hình
-        assertThat(r.getMaxRenewals()).isEqualTo(consignmentProperties.getMaxRenewals());
-        assertThat(r.getFreeWithdrawalWindowDays()).isEqualTo(consignmentProperties.getFreeWithdrawalWindowDays());
-        assertThat(r.getCommissionRateTerm1()).isEqualByComparingTo(consignmentProperties.getCommissionRateTerm1());
-        assertThat(r.getCommissionRateTerm2()).isEqualByComparingTo(consignmentProperties.getCommissionRateTerm2());
-        assertThat(r.getCommissionRateTerm3()).isEqualByComparingTo(consignmentProperties.getCommissionRateTerm3());
-        assertThat(r.getWithdrawalFee()).isEqualByComparingTo(consignmentProperties.getWithdrawalFee());
+        assertThat(r.getMaxRenewals()).isEqualTo(SystemConfigKeys.DEFAULT_MAX_RENEWALS);
+        assertThat(r.getFreeWithdrawalWindowDays()).isEqualTo(SystemConfigKeys.DEFAULT_FREE_WITHDRAWAL_WINDOW_DAYS);
+        assertThat(r.getCommissionRateTerm1()).isEqualByComparingTo(SystemConfigKeys.DEFAULT_COMMISSION_RATE_TERM1);
+        assertThat(r.getCommissionRateTerm2()).isEqualByComparingTo(SystemConfigKeys.DEFAULT_COMMISSION_RATE_TERM2);
+        assertThat(r.getCommissionRateTerm3()).isEqualByComparingTo(SystemConfigKeys.DEFAULT_COMMISSION_RATE_TERM3);
+        assertThat(r.getWithdrawalFee()).isEqualByComparingTo(SystemConfigKeys.DEFAULT_WITHDRAWAL_FEE);
         assertThat(r.getDegradedCompensationRate())
-                .isEqualByComparingTo(consignmentProperties.getDegradedCompensationRate());
+                .isEqualByComparingTo(SystemConfigKeys.DEFAULT_DEGRADED_COMPENSATION_RATE);
 
         // phiếu mới tạo: chưa xác nhận, chưa có PDF (Member xác nhận ở API 20)
         assertThat(r.getConfirmedAt()).isNull();
@@ -561,7 +575,7 @@ class ConsignmentReceiptServiceImplTest {
         ConsignmentReceipt r = completeAndCapture(
                 formWithStatus(ConsignmentFormStatus.INSPECTING), completeRequest(new BigDecimal("100000"), null));
 
-        assertThat(r.getTermLengthDays()).isEqualTo(consignmentProperties.getTermLengthDays());
+        assertThat(r.getTermLengthDays()).isEqualTo(SystemConfigKeys.DEFAULT_TERM_LENGTH_DAYS);
     }
 
     @Test

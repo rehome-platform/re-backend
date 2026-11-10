@@ -48,6 +48,29 @@ class SystemConfigCatalogTest {
     }
 
     @Test
+    @DisplayName("9 key mới (ký gửi, đơn hàng, trả hàng): có Spec kiểu INT và giá trị mặc định đúng")
+    void newKeys_areRegisteredWithExpectedDefaults() {
+        assertThat(SystemConfigCatalog.defaults())
+                .containsEntry("end_of_term_decision_days", "30")
+                .containsEntry("bring_in_deadline_days", "7")
+                .containsEntry("max_pending_forms_per_member", "5")
+                .containsEntry("max_price_changes_per_day", "1")
+                .containsEntry("order_payment_timeout_minutes", "15")
+                .containsEntry("order_auto_complete_days", "3")
+                .containsEntry("return_request_window_days", "3")
+                .containsEntry("return_handover_carrier_days", "3")
+                .containsEntry("counter_pickup_days", "7");
+        SystemConfigCatalog.defaults().keySet().stream()
+                .filter(k -> k.equals("end_of_term_decision_days") || k.equals("bring_in_deadline_days")
+                        || k.equals("max_pending_forms_per_member") || k.equals("max_price_changes_per_day")
+                        || k.equals("order_payment_timeout_minutes") || k.equals("order_auto_complete_days")
+                        || k.equals("return_request_window_days") || k.equals("return_handover_carrier_days")
+                        || k.equals("counter_pickup_days"))
+                .forEach(k -> assertThat(SystemConfigCatalog.find(k).orElseThrow().type())
+                        .as(k).isEqualTo(ValueType.INT));
+    }
+
+    @Test
     @DisplayName("find: key ngoài catalog (vd force_payout_failure) -> không có Spec")
     void find_unknownKey_isEmpty() {
         assertThat(SystemConfigCatalog.find("force_payout_failure")).isEmpty();

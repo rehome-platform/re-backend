@@ -63,7 +63,7 @@ public enum ErrorCode {
     PRODUCT_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền giảm giá sản phẩm này."),
     PRODUCT_NOT_ON_SALE(HttpStatus.CONFLICT, "Chỉ giảm giá được sản phẩm đang bán."),
     BELOW_FLOOR_PRICE(HttpStatus.CONFLICT, "BELOW_FLOOR_PRICE: giá mới không được thấp hơn giá sàn."),
-    PRICE_CHANGE_LIMIT_REACHED(HttpStatus.CONFLICT, "PRICE_CHANGE_LIMIT_REACHED: mỗi sản phẩm chỉ giảm giá tối đa 1 lần/ngày."),
+    PRICE_CHANGE_LIMIT_REACHED(HttpStatus.CONFLICT, "PRICE_CHANGE_LIMIT_REACHED: sản phẩm đã đạt số lần giảm giá tối đa trong ngày."),
     // API 24 - quyết định cuối kỳ (F-029)
     END_OF_TERM_DECISION_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy yêu cầu quyết định cuối kỳ."),
     END_OF_TERM_DECISION_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền quyết định cho sản phẩm này."),

@@ -2,6 +2,7 @@ package com.rehome.rehome.repository;
 
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
+import com.rehome.rehome.entity.marketplace.Warehouse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -41,7 +42,13 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UU
     @Query("select r.order.buyer.id, count(r) from ReturnRequest r "
             + "where r.order.buyer.id in :buyerIds and r.status in :statuses group by r.order.buyer.id")
     List<Object[]> countByOrderBuyerIdsInAndStatusIn(@Param("buyerIds") Collection<UUID> buyerIds,
-                                                      @Param("statuses") Collection<ReturnRequestStatus> statuses);
+                                                     @Param("statuses") Collection<ReturnRequestStatus> statuses);
+
+    // Id các yêu cầu trả hàng đang PENDING của đơn thuộc kho này, dùng đồng bộ vào hàng đợi RETURN (API 28)
+    @Query("select r.id from ReturnRequest r "
+            + "where r.status = com.rehome.rehome.entity.enums.ReturnRequestStatus.PENDING "
+            + "and r.order.warehouse = :warehouse")
+    List<UUID> findPendingIdsByWarehouse(@Param("warehouse") Warehouse warehouse);
 
     List<ReturnRequest> findAllByStatusAndHandoverDeadlineBefore(ReturnRequestStatus status, Instant deadline);
 

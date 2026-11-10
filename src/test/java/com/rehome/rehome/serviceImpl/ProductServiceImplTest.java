@@ -30,6 +30,8 @@ import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.ProductMapper;
 import com.rehome.rehome.repository.*;
 import com.rehome.rehome.service.SkuLabelPdfService;
+import com.rehome.rehome.service.SystemConfigReader;
+import com.rehome.rehome.constant.SystemConfigKeys;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -84,6 +86,7 @@ class ProductServiceImplTest {
 
     // getMyProducts / getMyProduct dùng thêm hai repository này
     @Mock ProductPriceChangeRepository productPriceChangeRepository;
+    @Mock SystemConfigReader systemConfigReader;
     @Mock OrderItemRepository orderItemRepository;
     // /products/mine gắn thêm yêu cầu rút đang chờ và ca hàng xuống cấp đang chờ quyết định
     @Mock ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
@@ -110,6 +113,8 @@ class ProductServiceImplTest {
                 .build();
 
         stubRepositoryPage(Page.empty());
+        // Mặc định giảm giá tối đa 1 lần/ngày như cấu hình mặc định của Admin
+        stubMaxPriceChangesPerDay(1);
         owner = Account.builder()
                 .id(UUID.randomUUID())
                 .role(Role.MEMBER)
@@ -133,6 +138,16 @@ class ProductServiceImplTest {
         PriceReductionRequest req = new PriceReductionRequest();
         req.setNewPrice(new BigDecimal(newPrice));
         return req;
+    }
+
+    private void stubMaxPriceChangesPerDay(int max) {
+        when(systemConfigReader.getInt(eq(SystemConfigKeys.MAX_PRICE_CHANGES_PER_DAY), anyInt())).thenReturn(max);
+    }
+
+    // Số lần sản phẩm đã đổi giá trong ngày hôm nay (đếm từ lịch sử product_price_changes)
+    private void stubPriceChangesToday(long count) {
+        when(productPriceChangeRepository.countByProduct_IdAndChangedAtGreaterThanEqualAndChangedAtLessThan(
+                eq(PRODUCT_ID), any(Instant.class), any(Instant.class))).thenReturn(count);
     }
 
     private void stubFindProduct() {
@@ -262,7 +277,7 @@ class ProductServiceImplTest {
     @Test
     @DisplayName("Đã giảm giá hôm nay -> PRICE_CHANGE_LIMIT_REACHED")
     void reducePrice_alreadyReducedToday() {
-        product.setLastPriceReducedOn(LocalDate.now(VN_ZONE));
+        stubPriceChangesToday(1);
         stubFindProduct();
 
         assertError(ErrorCode.PRICE_CHANGE_LIMIT_REACHED,
@@ -272,13 +287,37 @@ class ProductServiceImplTest {
     @Test
     @DisplayName("Giá hợp lệ nhưng đã giảm hôm nay: giá sản phẩm không bị đổi")
     void reducePrice_limitReached_priceUnchanged() {
-        product.setLastPriceReducedOn(LocalDate.now(VN_ZONE));
+        stubPriceChangesToday(1);
         stubFindProduct();
 
         assertThrows(AppException.class,
                 () -> service.reducePrice(owner, PRODUCT_ID, request("200000")));
 
         assertEquals(0, new BigDecimal("300000.00").compareTo(product.getCurrentPrice()));
+    }
+
+    @Test
+    @DisplayName("Admin cho phép 3 lần/ngày: đã giảm 2 lần thì lần thứ 3 vẫn được")
+    void reducePrice_underConfiguredLimit_success() {
+        stubMaxPriceChangesPerDay(3);
+        stubPriceChangesToday(2);
+        stubFindProduct();
+
+        PriceReductionResponse res = service.reducePrice(owner, PRODUCT_ID, request("200000"));
+
+        assertEquals(0, new BigDecimal("200000.00").compareTo(res.getCurrentPrice()));
+        verify(productRepository).save(product);
+    }
+
+    @Test
+    @DisplayName("Admin cho phép 3 lần/ngày: đã giảm đủ 3 lần -> PRICE_CHANGE_LIMIT_REACHED")
+    void reducePrice_atConfiguredLimit_rejected() {
+        stubMaxPriceChangesPerDay(3);
+        stubPriceChangesToday(3);
+        stubFindProduct();
+
+        assertError(ErrorCode.PRICE_CHANGE_LIMIT_REACHED,
+                () -> service.reducePrice(owner, PRODUCT_ID, request("200000")));
     }
 
     // ==================== getProducts ====================

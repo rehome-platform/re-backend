@@ -31,9 +31,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -54,8 +56,9 @@ public class QueueServiceImpl implements QueueService {
     private final OrganizationProfileRepository organizationProfileRepository;
     private final ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
 
+    // Không đặt readOnly: tab RETURN có thể phải bù dòng hàng đợi còn thiếu (syncPendingReturnRequests)
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public List<QueueItemResponse> list(String type, Account moderator) {
         Warehouse warehouse = requireWarehouse(moderator);
 
@@ -63,9 +66,32 @@ public class QueueServiceImpl implements QueueService {
         if (type == null || type.isBlank()) {
             items = queueItemRepository.findAllVisible(warehouse);
         } else {
-            items = queueItemRepository.findVisibleByType(parseType(type), warehouse);
+            QueueType queueType = parseType(type);
+            if (queueType == QueueType.RETURN) {
+                syncPendingReturnRequests(warehouse);
+            }
+            items = queueItemRepository.findVisibleByType(queueType, warehouse);
         }
         return toResponses(items);
+    }
+
+    // Yêu cầu trả hàng PENDING tạo trước khi có hàng đợi (hoặc bị sót lúc tạo) không có dòng trong queue_items
+    // nên tab Trả hàng bị rỗng. Bù các dòng còn thiếu cho kho của Moderator; đã có dòng thì giữ nguyên.
+    private void syncPendingReturnRequests(Warehouse warehouse) {
+        List<String> pendingIds = returnRequestRepository.findPendingIdsByWarehouse(warehouse).stream()
+                .map(UUID::toString)
+                .toList();
+        if (pendingIds.isEmpty()) {
+            return;
+        }
+        Set<String> queuedRefIds = new HashSet<>();
+        queueItemRepository.findByTypesAndRefIds(List.of(QueueType.RETURN), pendingIds)
+                .forEach(q -> queuedRefIds.add(q.getRefId()));
+        for (String refId : pendingIds) {
+            if (!queuedRefIds.contains(refId)) {
+                enqueue(QueueType.RETURN, refId, warehouse);
+            }
+        }
     }
 
     // DG-01: QueueItemResponse của PACKING cần kèm dữ liệu đơn hàng (mã đơn, người nhận,
@@ -195,7 +221,7 @@ public class QueueServiceImpl implements QueueService {
         }
 
         // Nhánh rút hàng: WITHDRAWAL có refId là id yêu cầu rút hàng; tên món lấy từ product (fetch sẵn),
-        // tên người ký gửi lấy theo lô từ MemberProfile (getId() trên proxy lazy không kích hoạt query)
+        // tên và mã người ký gửi lấy theo lô từ MemberProfile (getId() trên proxy lazy không kích hoạt query)
         List<UUID> withdrawalIds = items.stream()
                 .filter(i -> i.getType() == QueueType.WITHDRAWAL)
                 .map(i -> parseUuid(i.getRefId()))
@@ -204,7 +230,7 @@ public class QueueServiceImpl implements QueueService {
                 .toList();
 
         Map<UUID, ItemWithdrawalRequest> withdrawalsById = new HashMap<>();
-        Map<UUID, String> withdrawalMemberNameByAccountId = new HashMap<>();
+        Map<UUID, MemberProfile> withdrawalMemberByAccountId = new HashMap<>();
         if (!withdrawalIds.isEmpty()) {
             itemWithdrawalRequestRepository.findAllWithProductByIdIn(withdrawalIds)
                     .forEach(w -> withdrawalsById.put(w.getId(), w));
@@ -215,7 +241,7 @@ public class QueueServiceImpl implements QueueService {
                     .toList();
             if (!withdrawalMemberIds.isEmpty()) {
                 memberProfileRepository.findAllByAccount_IdIn(withdrawalMemberIds)
-                        .forEach(p -> withdrawalMemberNameByAccountId.put(p.getAccountId(), p.getFullName()));
+                        .forEach(p -> withdrawalMemberByAccountId.put(p.getAccountId(), p));
             }
         }
 
@@ -276,8 +302,10 @@ public class QueueServiceImpl implements QueueService {
                 if (withdrawal == null) {
                     return QueueItemResponse.from(q);
                 }
-                String memberName = withdrawalMemberNameByAccountId.get(withdrawal.getMember().getId());
-                return QueueItemResponse.fromWithdrawal(q, withdrawal, memberName);
+                MemberProfile memberProfile = withdrawalMemberByAccountId.get(withdrawal.getMember().getId());
+                String memberName = memberProfile == null ? null : memberProfile.getFullName();
+                String memberCode = memberProfile == null ? null : memberProfile.getMemberCode();
+                return QueueItemResponse.fromWithdrawal(q, withdrawal, memberName, memberCode);
             }
             return QueueItemResponse.from(q);
         }).toList();

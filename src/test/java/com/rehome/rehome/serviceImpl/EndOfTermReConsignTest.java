@@ -18,6 +18,7 @@ import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.ConsignmentReceiptRepository;
 import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.ProductRepository;
+import com.rehome.rehome.service.SystemConfigReader;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -55,6 +56,7 @@ class EndOfTermReConsignTest {
     @Mock ProductRepository productRepository;
     @Mock ConsignmentReceiptRepository consignmentReceiptRepository;
     @Spy ConsignmentProperties consignmentProperties = new ConsignmentProperties();
+    @Mock SystemConfigReader systemConfigReader;
 
     @InjectMocks EndOfTermDecisionServiceImpl service;
 

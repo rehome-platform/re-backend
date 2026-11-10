@@ -142,12 +142,6 @@ public class ProductController {
                 .body(ApiResponse.success(result, 201, "Đã nhập kho"));
     }
 
-    @GetMapping("/{id}/stock-movements")
-    @PreAuthorize("hasRole('MODERATOR')")
-    public ResponseEntity<ApiResponse<List<StockMovementResponse>>> getStockMovements(@PathVariable String id) {
-        return ResponseEntity.ok(ApiResponse.success(productService.getStockMovements(id), 200, ""));
-    }
-
     // Trả thẳng file PDF để Moderator in tem, không qua URL trung gian
     @GetMapping("/{id}/sku-label")
     @PreAuthorize("hasRole('MODERATOR')")

@@ -165,7 +165,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
 
         // F-032: "so that I can stop selling it" - sản phẩm ngừng bán ngay khi gửi yêu cầu, không
         // chờ tới lúc bàn giao (F-034) mới gỡ. Hàng vẫn nằm đúng vị trí kệ cho tới khi Member thật
-        // sự đến lấy - không ghi StockMovementLog ở đây vì hàng chưa rời kho, chỉ đổi trạng thái niêm yết.
+        // sự đến lấy - ở đây chỉ đổi trạng thái niêm yết.
         product.setStatus(ProductStatus.WITHDRAWN);
         productRepository.save(product);
 

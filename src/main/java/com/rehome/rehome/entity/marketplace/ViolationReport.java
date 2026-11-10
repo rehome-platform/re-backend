@@ -3,6 +3,7 @@ package com.rehome.rehome.entity.marketplace;
 
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ViolationReportStatus;
+import com.rehome.rehome.entity.enums.ViolationResolutionAction;
 import com.rehome.rehome.entity.enums.ViolationTargetType;
 import jakarta.persistence.*;
 import java.time.Instant;
@@ -54,9 +55,14 @@ public class ViolationReport {
     @JoinColumn(name = "resolved_by", nullable = true)
     private Account resolvedBy;
 
-    // Hành động đã làm, ví dụ gỡ bài, ẩn chiến dịch
+    // Hành động đã làm; null khi chưa resolve hoặc bị dismiss (dismiss không có action trên nội dung)
+    @Enumerated(EnumType.STRING)
     @Column(name = "resolution_action", nullable = true, length = 255)
-    private String resolutionAction;
+    private ViolationResolutionAction resolutionAction;
+
+    // Lý do Moderator nhập lúc resolve/dismiss (khác reason - đó là lý do của người báo cáo)
+    @Column(name = "resolution_reason", nullable = true, columnDefinition = "text")
+    private String resolutionReason;
 
     // Thời điểm gửi báo cáo
     @Column(name = "created_at", nullable = false, updatable = false)

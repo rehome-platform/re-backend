@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.config.ConsignmentProperties;
+import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.DecideEndOfTermRequest;
 import com.rehome.rehome.dto.request.ReConsignTermsRequest;
 import com.rehome.rehome.dto.response.DecideEndOfTermResponse;
@@ -19,6 +20,7 @@ import com.rehome.rehome.repository.ConsignmentReceiptRepository;
 import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.service.EndOfTermDecisionService;
+import com.rehome.rehome.service.SystemConfigReader;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +28,7 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.Year;
 import java.time.ZoneId;
@@ -39,7 +42,28 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
     private final ProductRepository productRepository;
     private final ConsignmentReceiptRepository consignmentReceiptRepository;
     private final ConsignmentProperties consignmentProperties;
+    private final SystemConfigReader systemConfigReader;
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
+
+    @Override
+    @Transactional
+    public EndOfTermDecision createDecision(Product product, Instant now) {
+        // Chống tạo trùng: sản phẩm đã có quyết định đang chờ thì dùng lại
+        return decisionRepository.findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc(product.getId())
+                .orElseGet(() -> {
+                    int days = systemConfigReader.getInt(SystemConfigKeys.END_OF_TERM_DECISION_DAYS,
+                            SystemConfigKeys.DEFAULT_END_OF_TERM_DECISION_DAYS);
+                    Instant deadline = now.plus(Duration.ofDays(days));
+
+                    product.setUnclaimedDecisionDeadline(deadline);
+                    productRepository.save(product);
+
+                    return decisionRepository.save(EndOfTermDecision.builder()
+                            .product(product)
+                            .deadline(deadline)
+                            .build());
+                });
+    }
 
     @Override
     @Transactional

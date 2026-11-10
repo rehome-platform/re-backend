@@ -1,6 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
-import com.rehome.rehome.config.ConsignmentProperties;
+import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.ConsignmentFormRequest;
 import com.rehome.rehome.dto.request.RejectConsignmentFormRequest;
 import com.rehome.rehome.dto.request.SubmitConsignmentFormsRequest;
@@ -11,6 +11,7 @@ import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.service.QueueService;
+import com.rehome.rehome.service.SystemConfigReader;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.ConsignmentFormPhoto;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
@@ -49,7 +50,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     private final ConsignmentFormPhotoRepository photoRepository;
     private final ConsignmentFormMapper consignmentFormMapper;
     private final ConsignmentReceiptRepository consignmentReceiptRepository;
-    private final ConsignmentProperties consignmentProperties;
+    private final SystemConfigReader systemConfigReader;
     private final AccountRepository accountRepository;
     private final QueueService queueService;
 
@@ -72,7 +73,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
         // Khoá dòng Member rồi đếm, để hai request song song không cùng lọt qua giới hạn
         lockMember(account);
-        if (pendingCount(account) >= consignmentProperties.getMaxPendingForms()) {
+        if (pendingCount(account) >= maxPendingForms()) {
             throw new AppException(ErrorCode.TOO_MANY_PENDING_FORMS);                             // 409
         }
 
@@ -110,7 +111,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
         Page<ConsignmentForm> result = (status == null)
                 ? consignmentFormRepository.findByMemberIdAndStatusNot(
-                        account.getId(), ConsignmentFormStatus.DRAFT, pageable)
+                account.getId(), ConsignmentFormStatus.DRAFT, pageable)
                 : consignmentFormRepository.findByMemberIdAndStatus(account.getId(), status, pageable);
 
         // Một query lấy ảnh đầu của cả trang, tránh N+1
@@ -130,7 +131,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
                 .totalElements(p.getTotalElements())
                 .totalPages(p.getTotalPages())
                 .pendingCount(pendingCount(account))
-                .maxPending(consignmentProperties.getMaxPendingForms())
+                .maxPending(maxPendingForms())
                 .build();
     }
 
@@ -273,7 +274,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
         lockMember(account);
         long pending = pendingCount(account);
-        int max = consignmentProperties.getMaxPendingForms();
+        int max = maxPendingForms();
 
         List<SubmitConsignmentFormsResponse.Result> results = new ArrayList<>();
         int success = 0;
@@ -347,7 +348,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         form.setStatus(ConsignmentFormStatus.APPROVED);
         queueService.dequeue(QueueType.FORM_REVIEW, form.getId().toString());
         form.setBringInDeadline(
-                LocalDate.now(VN_ZONE).plusDays(consignmentProperties.getBringInDeadlineDays()));
+                LocalDate.now(VN_ZONE).plusDays(bringInDeadlineDays()));
         form.setRejectReason(null);
 
         return consignmentFormMapper.toResponse(consignmentFormRepository.save(form));
@@ -448,6 +449,18 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     private void lockMember(Account account) {
         accountRepository.findByIdForUpdate(account.getId())
                 .orElseThrow(() -> new AppException(ErrorCode.ACCOUNT_NOT_FOUND));
+    }
+
+    // Số form PENDING tối đa mỗi Member, Admin chỉnh được trong system_configs
+    private int maxPendingForms() {
+        return systemConfigReader.getInt(SystemConfigKeys.MAX_PENDING_FORMS_PER_MEMBER,
+                SystemConfigKeys.DEFAULT_MAX_PENDING_FORMS_PER_MEMBER);
+    }
+
+    // Số ngày Member phải mang đồ đến kho sau khi form được duyệt, Admin chỉnh được trong system_configs
+    private int bringInDeadlineDays() {
+        return systemConfigReader.getInt(SystemConfigKeys.BRING_IN_DEADLINE_DAYS,
+                SystemConfigKeys.DEFAULT_BRING_IN_DEADLINE_DAYS);
     }
 
     private long pendingCount(Account account) {

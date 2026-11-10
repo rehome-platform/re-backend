@@ -1,6 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
-import com.rehome.rehome.config.ConsignmentProperties;
+import com.rehome.rehome.service.SystemConfigReader;
 import com.rehome.rehome.dto.request.CompleteInspectionRequest;
 import com.rehome.rehome.dto.response.ConsignmentReceiptResponse;
 import com.rehome.rehome.dto.response.PdfDownload;
@@ -57,7 +57,7 @@ class ConsignmentReceiptReadAccessTest {
     @Mock AccountRepository accountRepository;
     @Mock ProductRepository productRepository;
     @Mock EndOfTermDecisionRepository endOfTermDecisionRepository;
-    @Mock ConsignmentProperties consignmentProperties;
+    @Mock SystemConfigReader systemConfigReader;
 
     @InjectMocks ConsignmentReceiptServiceImpl service;
 

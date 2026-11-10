@@ -16,6 +16,7 @@ import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.auth.OrganizationRepresentative;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
+import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.enums.LegalChangeRequestStatus;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.marketplace.QueueItem;
@@ -27,12 +28,14 @@ import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.OrganizationLegalChangeMapper;
 import com.rehome.rehome.repository.ConsignmentFormRepository;
+import com.rehome.rehome.repository.ItemWithdrawalRequestRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.OrganizationLegalChangeRequestRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.QueueItemRepository;
+import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.time.Instant;
 import java.util.List;
@@ -62,6 +65,8 @@ class QueueServiceImplTest {
     @Mock private MemberProfileRepository memberProfileRepository;
     @Mock private ConsignmentFormRepository consignmentFormRepository;
     @Mock private OrganizationProfileRepository organizationProfileRepository;
+    @Mock private ReturnRequestRepository returnRequestRepository;
+    @Mock private ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
 
     @InjectMocks private QueueServiceImpl queueService;
 
@@ -155,6 +160,118 @@ class QueueServiceImplTest {
             assertThat(result).hasSize(1);
             assertThat(result.get(0).getType()).isEqualTo(QueueType.FORM_REVIEW);
             verify(queueItemRepository, never()).findAllVisible(any());
+        }
+
+        @Test
+        @DisplayName("WITHDRAWAL: kèm accountId và memberCode của Member ký gửi")
+        void withdrawalItem_hasAccountIdAndMemberCode() {
+            Warehouse wh = warehouse(1);
+            Account mod = moderator(wh);
+            UUID memberId = UUID.randomUUID();
+            Account member = Account.builder().id(memberId).build();
+            UUID withdrawalId = UUID.randomUUID();
+            Product product = Product.builder().id("Q7-AK-000845").name("Áo khoác len").build();
+            ItemWithdrawalRequest withdrawal = ItemWithdrawalRequest.builder()
+                    .id(withdrawalId).product(product).member(member).build();
+            QueueItem q = QueueItem.builder().id("q-w").type(QueueType.WITHDRAWAL)
+                    .refId(withdrawalId.toString()).warehouse(wh)
+                    .createdAt(Instant.parse("2026-10-13T08:00:00Z")).build();
+            when(queueItemRepository.findVisibleByType(QueueType.WITHDRAWAL, wh)).thenReturn(List.of(q));
+            when(itemWithdrawalRequestRepository.findAllWithProductByIdIn(List.of(withdrawalId)))
+                    .thenReturn(List.of(withdrawal));
+            when(memberProfileRepository.findAllByAccount_IdIn(List.of(memberId)))
+                    .thenReturn(List.of(MemberProfile.builder().accountId(memberId).account(member)
+                            .fullName("Tạ Thị Ngọc Anh").memberCode("MB-000123").build()));
+
+            List<QueueItemResponse> result = queueService.list("WITHDRAWAL", mod);
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).getTargetName()).isEqualTo("Áo khoác len");
+            assertThat(result.get(0).getSubjectSubtitle()).isEqualTo("Tạ Thị Ngọc Anh");
+            assertThat(result.get(0).getAccountId()).isEqualTo(memberId.toString());
+            assertThat(result.get(0).getMemberCode()).isEqualTo("MB-000123");
+        }
+
+        @Test
+        @DisplayName("WITHDRAWAL: Member chưa có hồ sơ -> vẫn trả accountId, memberCode và tên là null")
+        void withdrawalItem_noProfile_stillHasAccountId() {
+            Warehouse wh = warehouse(1);
+            Account mod = moderator(wh);
+            UUID memberId = UUID.randomUUID();
+            Account member = Account.builder().id(memberId).build();
+            UUID withdrawalId = UUID.randomUUID();
+            ItemWithdrawalRequest withdrawal = ItemWithdrawalRequest.builder().id(withdrawalId)
+                    .product(Product.builder().id("Q7-AK-000845").name("Áo khoác len").build())
+                    .member(member).build();
+            QueueItem q = QueueItem.builder().id("q-w").type(QueueType.WITHDRAWAL)
+                    .refId(withdrawalId.toString()).warehouse(wh)
+                    .createdAt(Instant.parse("2026-10-13T08:00:00Z")).build();
+            when(queueItemRepository.findVisibleByType(QueueType.WITHDRAWAL, wh)).thenReturn(List.of(q));
+            when(itemWithdrawalRequestRepository.findAllWithProductByIdIn(List.of(withdrawalId)))
+                    .thenReturn(List.of(withdrawal));
+            when(memberProfileRepository.findAllByAccount_IdIn(List.of(memberId))).thenReturn(List.of());
+
+            List<QueueItemResponse> result = queueService.list("WITHDRAWAL", mod);
+
+            assertThat(result.get(0).getAccountId()).isEqualTo(memberId.toString());
+            assertThat(result.get(0).getMemberCode()).isNull();
+            assertThat(result.get(0).getSubjectSubtitle()).isNull();
+        }
+
+        @Test
+        @DisplayName("RETURN: Return Request PENDING chưa có dòng hàng đợi -> được bù vào queue")
+        void returnType_syncsMissingPendingRequests() {
+            Warehouse wh = warehouse(1);
+            Account mod = moderator(wh);
+            UUID missingId = UUID.randomUUID();
+            UUID queuedId = UUID.randomUUID();
+            when(returnRequestRepository.findPendingIdsByWarehouse(wh)).thenReturn(List.of(missingId, queuedId));
+            when(queueItemRepository.findByTypesAndRefIds(
+                    eq(List.of(QueueType.RETURN)), eq(List.of(missingId.toString(), queuedId.toString()))))
+                    .thenReturn(List.of(QueueItem.builder().id("q-r").type(QueueType.RETURN)
+                            .refId(queuedId.toString()).warehouse(wh).build()));
+            when(queueItemRepository.findByTypeAndRefId(QueueType.RETURN, missingId.toString()))
+                    .thenReturn(Optional.empty());
+            when(queueItemRepository.save(any(QueueItem.class))).thenAnswer(i -> i.getArgument(0));
+            when(queueItemRepository.findVisibleByType(QueueType.RETURN, wh)).thenReturn(List.of());
+
+            queueService.list("RETURN", mod);
+
+            ArgumentCaptor<QueueItem> saved = ArgumentCaptor.forClass(QueueItem.class);
+            verify(queueItemRepository).save(saved.capture());
+            assertThat(saved.getValue().getType()).isEqualTo(QueueType.RETURN);
+            assertThat(saved.getValue().getRefId()).isEqualTo(missingId.toString());
+            assertThat(saved.getValue().getWarehouse()).isSameAs(wh);
+        }
+
+        @Test
+        @DisplayName("RETURN: mọi yêu cầu PENDING đã có dòng hàng đợi -> không tạo thêm")
+        void returnType_allAlreadyQueued_noInsert() {
+            Warehouse wh = warehouse(1);
+            Account mod = moderator(wh);
+            UUID id = UUID.randomUUID();
+            when(returnRequestRepository.findPendingIdsByWarehouse(wh)).thenReturn(List.of(id));
+            when(queueItemRepository.findByTypesAndRefIds(
+                    eq(List.of(QueueType.RETURN)), eq(List.of(id.toString()))))
+                    .thenReturn(List.of(QueueItem.builder().id("q-r").type(QueueType.RETURN)
+                            .refId(id.toString()).warehouse(wh).build()));
+            when(queueItemRepository.findVisibleByType(QueueType.RETURN, wh)).thenReturn(List.of());
+
+            queueService.list("RETURN", mod);
+
+            verify(queueItemRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Không phải RETURN: không đồng bộ Return Request")
+        void otherType_doesNotSyncReturnRequests() {
+            Warehouse wh = warehouse(1);
+            Account mod = moderator(wh);
+            when(queueItemRepository.findVisibleByType(QueueType.FORM_REVIEW, wh)).thenReturn(List.of());
+
+            queueService.list("FORM_REVIEW", mod);
+
+            verify(returnRequestRepository, never()).findPendingIdsByWarehouse(any());
         }
 
         @Test

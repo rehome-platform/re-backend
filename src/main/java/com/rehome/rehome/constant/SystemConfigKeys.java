@@ -63,6 +63,10 @@ public final class SystemConfigKeys {
     public static final String END_OF_TERM_DECISION_DAYS = "end_of_term_decision_days";
     public static final int DEFAULT_END_OF_TERM_DECISION_DAYS = 30;
 
+    // Số ngày Member được chọn phương án đền bù hàng xuống cấp (F-036), quá hạn thành hàng vô thừa nhận
+    public static final String DEGRADED_ITEM_DECISION_DAYS = "degraded_item_decision_days";
+    public static final int DEFAULT_DEGRADED_ITEM_DECISION_DAYS = 30;
+
     // Số ngày Member phải mang đồ đến kho sau khi form ký gửi được duyệt
     public static final String BRING_IN_DEADLINE_DAYS = "bring_in_deadline_days";
     public static final int DEFAULT_BRING_IN_DEADLINE_DAYS = 7;

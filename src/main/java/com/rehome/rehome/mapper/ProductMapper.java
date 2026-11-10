@@ -89,10 +89,9 @@ public class ProductMapper {
                 .withdrawalRequest(w == null ? null
                         : new MyProductResponse.WithdrawalRef(
                         w.getId(), w.getStatus().name(), w.getPickupDeadline()))
-                // decisionDeadline để null: hệ thống chưa có hạn cho Member quyết định (F-036)
                 .degradedCase(dc == null ? null
                         : new MyProductResponse.DegradedCaseRef(
-                        dc.getId(), DegradedItemCaseStatus.PENDING_DECISION.name(), null,
+                        dc.getId(), DegradedItemCaseStatus.PENDING_DECISION.name(), dc.getDecisionDeadline(),
                         dc.getChoice() == null ? null : dc.getChoice().name()))
                 .receiptId(currentReceiptId(r, d))
                 .freeWithdrawalWindowDays(r.getFreeWithdrawalWindowDays())

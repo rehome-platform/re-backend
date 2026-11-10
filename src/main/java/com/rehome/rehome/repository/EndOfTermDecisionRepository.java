@@ -35,7 +35,10 @@ public interface EndOfTermDecisionRepository extends JpaRepository<EndOfTermDeci
             + "where p.id in :ids order by d.deadline desc")
     List<EndOfTermDecision> findByProductIds(@Param("ids") Collection<String> ids);
 
+    // Member Tasks (API 27): quyết định TAKE_BACK đã chốt nhưng chưa đến quầy nhận hàng
     @Query("select d from EndOfTermDecision d join fetch d.product p "
-            + "where p.member.id = :memberId and d.decision is null order by d.deadline asc")
-    List<EndOfTermDecision> findUndecidedByMemberId(@Param("memberId") UUID memberId);
+            + "where p.member.id = :memberId "
+            + "and d.decision = com.rehome.rehome.entity.enums.EndOfTermChoice.TAKE_BACK "
+            + "and d.takenBackAt is null order by d.deadline asc")
+    List<EndOfTermDecision> findPendingTakeBackByMemberId(@Param("memberId") UUID memberId);
 }

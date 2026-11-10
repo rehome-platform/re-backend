@@ -20,6 +20,8 @@ public class MemberTasksResponse {
     private List<PendingFormItem> pendingForms;
     private List<PendingWithdrawalItem> pendingWithdrawals;
     private List<PendingEndOfTermItem> pendingEndOfTerm;
+    private List<PendingDegradedItemItem> pendingDegradedItems;
+    private List<PendingInvalidReturnItem> pendingInvalidReturns;
 
     @Getter
     @Setter
@@ -57,5 +59,31 @@ public class MemberTasksResponse {
         private String productId;
         private String productName;
         private Instant deadline;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class PendingDegradedItemItem {
+        private UUID id;
+        private String productId;
+        private String productName;
+        private BigDecimal paidAmount;
+        private Instant decidedAt;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class PendingInvalidReturnItem {
+        private UUID id;
+        private String productId;
+        private String productName;
+        private Instant pickupDeadline;
+        private Instant createdAt;
     }
 }

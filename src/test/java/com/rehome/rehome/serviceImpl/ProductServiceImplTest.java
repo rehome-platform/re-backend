@@ -8,7 +8,6 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;
-import com.rehome.rehome.entity.enums.StockMovementType;
 import com.rehome.rehome.entity.enums.TryOnSlot;
 import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.entity.marketplace.Category;
@@ -22,7 +21,6 @@ import com.rehome.rehome.entity.marketplace.OrderItem;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPriceChange;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
-import com.rehome.rehome.entity.marketplace.StockMovementLog;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
@@ -75,7 +73,6 @@ class ProductServiceImplTest {
     @Mock ProductRepository productRepository;
     @Mock ProductPhotoRepository productPhotoRepository;
     @Mock ProductMapper productMapper;
-    @Mock StockMovementLogRepository stockMovementLogRepository;
     @Mock SkuLabelPdfService skuLabelPdfService;
 
     // Trước đây thiếu @Mock nên bị null
@@ -942,24 +939,6 @@ class ProductServiceImplTest {
     }
 
     @Test
-    void create_writesStockInLog() {
-        givenConfirmedReceipt(receiptOf(Instant.now()));
-
-        service.create(createRequest(null), moderator);
-
-        ArgumentCaptor<StockMovementLog> captor = ArgumentCaptor.forClass(StockMovementLog.class);
-        verify(stockMovementLogRepository).save(captor.capture());
-        StockMovementLog log = captor.getValue();
-
-        assertThat(log.getMovementType()).isEqualTo(StockMovementType.STOCK_IN);
-        assertThat(log.getModerator()).isSameAs(moderator);
-        assertThat(log.getProduct().getId()).isEqualTo("Q7-AK-000845");
-        assertThat(log.getWarehouse()).isNotNull();
-        assertThat(log.getToLocation()).isNull();
-        assertThat(log.getFromLocation()).isNull();
-    }
-
-    @Test
     void create_conditionNoteComesFromReceipt_notFromMemberDescription() {
         givenConfirmedReceipt(receiptOf(Instant.now()));
 
@@ -1032,7 +1011,6 @@ class ProductServiceImplTest {
         assertCreateError(() -> service.create(createRequest(null), moderator), ErrorCode.RECEIPT_NOT_FOUND);
 
         verify(productRepository, never()).save(any());
-        verifyNoInteractions(stockMovementLogRepository);
     }
 
     @Test
@@ -1042,7 +1020,6 @@ class ProductServiceImplTest {
         assertCreateError(() -> service.create(createRequest(null), moderator), ErrorCode.RECEIPT_NOT_CONFIRMED);
 
         verify(productRepository, never()).save(any());
-        verifyNoInteractions(stockMovementLogRepository);
     }
 
     @Test
@@ -1054,7 +1031,6 @@ class ProductServiceImplTest {
 
         verify(productRepository, never()).save(any());
         verify(productPhotoRepository, never()).saveAll(any());
-        verifyNoInteractions(stockMovementLogRepository);
     }
 
     // ---------- getShippingFeePreview ----------

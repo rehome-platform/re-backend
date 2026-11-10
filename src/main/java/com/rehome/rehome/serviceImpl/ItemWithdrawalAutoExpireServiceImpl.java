@@ -54,7 +54,7 @@ public class ItemWithdrawalAutoExpireServiceImpl implements ItemWithdrawalAutoEx
             queueService.dequeue(QueueType.WITHDRAWAL, withdrawal.getId().toString());
 
             // Hàng chưa rời kho thật (F-034 mới ghi nhận lúc bàn giao), nên chỉ cần đổi
-            // trạng thái niêm yết về lại ON_SALE - không có gì để ghi StockMovementLog ở đây
+            // trạng thái niêm yết về lại ON_SALE
             Product product = productRepository.findByIdForUpdate(withdrawal.getProduct().getId()).orElse(null);
             if (product != null && product.getStatus() == ProductStatus.WITHDRAWN) {
                 product.setStatus(ProductStatus.ON_SALE);

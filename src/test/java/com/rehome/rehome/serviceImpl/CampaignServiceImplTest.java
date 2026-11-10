@@ -61,6 +61,7 @@ class CampaignServiceImplTest {
     @Mock private WarehouseRepository warehouseRepository;
     @Mock private DonationRepository donationRepository;
     @Mock private DonationNoteRepository donationNoteRepository;
+    @Mock private com.rehome.rehome.repository.ViolationReportRepository violationReportRepository;
     @Mock private SystemConfigReader systemConfigReader;
     @Mock private NotificationService notificationService;
 
@@ -233,6 +234,50 @@ class CampaignServiceImplTest {
         verify(donationNoteRepository, never()).countByCampaign_Id(any());
     }
 
+    @Test
+    void getPublicDetail_hiddenCampaign_nonOwnerViewer_throwsNotFound() {
+        UUID id = UUID.randomUUID();
+        UUID orgId = UUID.randomUUID();
+        Campaign campaign = baseCampaign(id)
+                .organization(organizationWithDonationPoint(orgId))
+                .status(CampaignStatus.HIDDEN)
+                .build();
+        when(campaignRepository.findById(id)).thenReturn(Optional.of(campaign));
+
+        assertThatThrownBy(() -> service.getPublicDetail(id, UUID.randomUUID()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy chiến dịch.");
+
+        assertThatThrownBy(() -> service.getPublicDetail(id, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy chiến dịch.");
+    }
+
+    @Test
+    void getPublicDetail_hiddenCampaign_ownerViewer_includesHiddenReason() {
+        UUID id = UUID.randomUUID();
+        UUID orgId = UUID.randomUUID();
+        Campaign campaign = baseCampaign(id)
+                .organization(organizationWithDonationPoint(orgId))
+                .status(CampaignStatus.HIDDEN)
+                .build();
+        when(campaignRepository.findById(id)).thenReturn(Optional.of(campaign));
+        com.rehome.rehome.entity.marketplace.ViolationReport resolved =
+                com.rehome.rehome.entity.marketplace.ViolationReport.builder()
+                        .id(UUID.randomUUID())
+                        .resolutionReason("Nội dung kêu gọi quyên góp sai sự thật")
+                        .resolvedAt(Instant.parse("2026-11-05T00:00:00Z"))
+                        .build();
+        when(violationReportRepository.findByTargetTypeAndTargetIdOrderByCreatedAtAsc(
+                com.rehome.rehome.entity.enums.ViolationTargetType.CAMPAIGN, id))
+                .thenReturn(List.of(resolved));
+
+        CampaignPublicResponse res = service.getPublicDetail(id, orgId);
+
+        assertThat(res.getStatus()).isEqualTo("HIDDEN");
+        assertThat(res.getHiddenReason()).isEqualTo("Nội dung kêu gọi quyên góp sai sự thật");
+    }
+
     // =====================================================================
     // listPublicCampaigns (GET /campaigns?status=ACTIVE)
     // =====================================================================
@@ -354,7 +399,7 @@ class CampaignServiceImplTest {
                 .thenReturn(Optional.of(verifiedOrganization(orgId)));
         when(systemConfigReader.getInt(SystemConfigKeys.MAX_CONCURRENT_CAMPAIGNS,
                 SystemConfigKeys.DEFAULT_MAX_CONCURRENT_CAMPAIGNS)).thenReturn(max);
-        when(campaignRepository.countByOrganization_AccountIdAndStatus(orgId, CampaignStatus.OPEN))
+        when(campaignRepository.countActiveByOrganization(eq(orgId), any(Instant.class)))
                 .thenReturn(running);
     }
 
@@ -509,7 +554,8 @@ class CampaignServiceImplTest {
 
         assertThatThrownBy(() -> service.createCampaign(orgId, createRequest()))
                 .isInstanceOf(ConflictException.class)
-                .hasMessage("CAMPAIGN_LIMIT_REACHED: đã đạt số chiến dịch đang chạy tối đa.")
+                .hasMessage("CAMPAIGN_LIMIT_REACHED: đã đạt số chiến dịch đang chạy tối đa (tính cả"
+                        + " chiến dịch đang bị ẩn do vi phạm nhưng chưa hết hạn).")
                 .satisfies(e -> assertThat(((ConflictException) e).getCode())
                         .isEqualTo("CAMPAIGN_LIMIT_REACHED"));
 
@@ -536,9 +582,26 @@ class CampaignServiceImplTest {
 
         service.createCampaign(orgId, createRequest());
 
-        // Chiến dịch đã đóng không tính vào hạn mức
-        verify(campaignRepository).countByOrganization_AccountIdAndStatus(orgId, CampaignStatus.OPEN);
+        // Chiến dịch đã đóng không tính vào hạn mức (countActiveByOrganization chỉ tính OPEN +
+        // HIDDEN chưa hết hạn - xem CampaignRepository)
+        verify(campaignRepository).countActiveByOrganization(eq(orgId), any(Instant.class));
         verify(campaignRepository).save(any());
+    }
+
+    @Test
+    void createCampaign_hiddenCampaignNotYetExpired_countsTowardLimit() {
+        UUID orgId = UUID.randomUUID();
+        when(organizationProfileRepository.findById(orgId))
+                .thenReturn(Optional.of(verifiedOrganization(orgId)));
+        when(systemConfigReader.getInt(SystemConfigKeys.MAX_CONCURRENT_CAMPAIGNS,
+                SystemConfigKeys.DEFAULT_MAX_CONCURRENT_CAMPAIGNS)).thenReturn(1);
+        // 1 chiến dịch HIDDEN còn hạn -> service tự cộng vào "đang chạy" qua countActiveByOrganization
+        when(campaignRepository.countActiveByOrganization(eq(orgId), any(Instant.class))).thenReturn(1L);
+
+        assertThatThrownBy(() -> service.createCampaign(orgId, createRequest()))
+                .isInstanceOf(ConflictException.class);
+
+        verify(campaignRepository, never()).save(any());
     }
 
     @Test
@@ -833,6 +896,19 @@ class CampaignServiceImplTest {
         CampaignStatusResponse res = service.closeCampaign(orgId, campaignId);
 
         assertThat(res.getStatus()).isEqualTo("CLOSED");
+        verify(campaignRepository, never()).save(any());
+    }
+
+    @Test
+    void closeCampaign_hidden_throwsConflict_cannotEscapeModeration() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        when(campaignRepository.findById(campaignId))
+                .thenReturn(Optional.of(ownedCampaign(campaignId, orgId, CampaignStatus.HIDDEN)));
+
+        assertThatThrownBy(() -> service.closeCampaign(orgId, campaignId))
+                .isInstanceOf(ConflictException.class);
+
         verify(campaignRepository, never()).save(any());
     }
 

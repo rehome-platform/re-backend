@@ -10,7 +10,6 @@ import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;
-import com.rehome.rehome.entity.enums.StockMovementType;
 import com.rehome.rehome.entity.enums.TryOnSlot;
 import com.rehome.rehome.entity.marketplace.*;
 import com.rehome.rehome.exception.AppException;
@@ -61,7 +60,6 @@ public class ProductServiceImpl implements ProductService {
     private final DegradedItemCaseRepository degradedItemCaseRepository;
     private final ConsignmentReceiptRepository receiptRepository;
     private final OrderItemRepository orderItemRepository;
-    private final StockMovementLogRepository stockMovementLogRepository;
     private final SkuLabelPdfService skuLabelPdfService;
     private final GhnShippingFeeCalculator ghnShippingFeeCalculator;
     private final SystemConfigReader systemConfigReader;
@@ -413,13 +411,6 @@ public class ProductServiceImpl implements ProductService {
         productRepository.save(product);
         savePhotos(product, request.getPhotoUrls());
 
-        stockMovementLogRepository.save(StockMovementLog.builder()
-                .product(product)
-                .warehouse(product.getWarehouse())
-                .movementType(StockMovementType.STOCK_IN)
-                .moderator(account)
-                .build());
-
         return new ProductResponse(product.getId(), product.getName(), product.getStatus());
     }
 
@@ -440,17 +431,6 @@ public class ProductServiceImpl implements ProductService {
             photos.add(p);
         }
         productPhotoRepository.saveAll(photos);
-    }
-
-    @Override
-    public List<StockMovementResponse> getStockMovements(String productId) {
-        if (!productRepository.existsById(productId)) {
-            throw new AppException(ErrorCode.PRODUCT_NOT_FOUND);                  // 404
-        }
-        return stockMovementLogRepository.findByProduct_IdOrderByCreatedAtDesc(productId).stream()
-                .map(l -> new StockMovementResponse(l.getId(), l.getMovementType(),
-                        l.getFromLocation(), l.getToLocation(), l.getNote(), l.getCreatedAt()))
-                .toList();
     }
 
     // Moderator chỉ thao tác được sản phẩm thuộc kho của mình

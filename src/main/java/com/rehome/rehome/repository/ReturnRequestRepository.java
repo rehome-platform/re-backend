@@ -54,4 +54,11 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UU
 
     List<ReturnRequest> findAllByStatusAndPickupDeadlineBeforeAndResolvedAtIsNull(
             ReturnRequestStatus status, Instant deadline);
+
+    // Member Tasks (API 27): trả hàng bị kết luận không hợp lệ, còn trong 7 ngày gần nhất
+    @Query("select r from ReturnRequest r join fetch r.order o "
+            + "where o.buyer.id = :memberId "
+            + "and r.status = com.rehome.rehome.entity.enums.ReturnRequestStatus.INVALID "
+            + "and r.createdAt >= :since order by r.createdAt desc")
+    List<ReturnRequest> findRecentInvalidByBuyerId(@Param("memberId") UUID memberId, @Param("since") Instant since);
 }

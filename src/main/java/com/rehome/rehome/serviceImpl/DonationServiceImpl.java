@@ -11,6 +11,7 @@ import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.ModeratorProfile;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
+import com.rehome.rehome.entity.enums.CampaignStatus;
 import com.rehome.rehome.entity.enums.DonationStatus;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 import com.rehome.rehome.entity.enums.NotificationType;
@@ -21,6 +22,7 @@ import com.rehome.rehome.entity.marketplace.DonationNote;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.repository.CampaignRepository;
@@ -146,7 +148,18 @@ public class DonationServiceImpl implements DonationService {
         if (!servesThisWarehouse) {
             throw new IllegalArgumentException(CAMPAIGN_NOT_FOUND);
         }
+        requireNotHidden(campaign);
         return campaign;
+    }
+
+    // Chiến dịch bị Moderator ẩn do vi phạm thì không nhận thêm lượt quyên góp mới nào nữa, dù
+    // ghi nhận tại kho (recordDonation) hay tự ghi note (createDonationNote/createCampaignDonationNote)
+    private void requireNotHidden(Campaign campaign) {
+        if (campaign.getStatus() == CampaignStatus.HIDDEN) {
+            throw new ConflictException(
+                    "Chiến dịch đang bị ẩn do vi phạm, không thể ghi nhận quyên góp mới.",
+                    "CAMPAIGN_HIDDEN");
+        }
     }
 
     private String resolveModeratorCode(UUID moderatorAccountId) {
@@ -274,6 +287,9 @@ public class DonationServiceImpl implements DonationService {
                 .orElseThrow(() -> new AppException(ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND));
         // campaignId để trống nghĩa là nhận đồ ngoài chiến dịch nào
         Campaign campaign = resolveOwnCampaign(organizationAccountId, request.getCampaignId());
+        if (campaign != null) {
+            requireNotHidden(campaign);
+        }
 
         return saveDonationNote(organization, campaign, request.getDonorName(), anonymous, request.getNote());
     }
@@ -290,6 +306,7 @@ public class DonationServiceImpl implements DonationService {
         Campaign campaign = campaignRepository.findById(campaignId)
                 .filter(c -> c.getOrganization().getAccountId().equals(organizationAccountId))
                 .orElseThrow(() -> new IllegalArgumentException(CAMPAIGN_NOT_FOUND));
+        requireNotHidden(campaign);
 
         return saveDonationNote(organization, campaign, request.getDonorName(), anonymous, request.getNote());
     }
@@ -364,7 +381,9 @@ public class DonationServiceImpl implements DonationService {
                 .orElseThrow(() -> new IllegalArgumentException(CAMPAIGN_NOT_FOUND));
     }
 
-    // F-165: giống resolveOwnCampaign nhưng campaignId là bắt buộc khi bàn giao
+    // F-165: giống resolveOwnCampaign nhưng campaignId là bắt buộc khi bàn giao. Không chặn HIDDEN
+    // ở đây: bàn giao là trả hàng ĐÃ ghi nhận trước đó cho tổ chức, khác "ghi nhận quyên góp mới"
+    // (recordDonation/createDonationNote/createCampaignDonationNote) - chặn ở đây sẽ kẹt hàng tại kho.
     private Campaign requireOwnCampaign(UUID organizationAccountId, String rawCampaignId) {
         if (!StringUtils.hasText(rawCampaignId)) {
             throw new IllegalArgumentException(CAMPAIGN_NOT_FOUND);

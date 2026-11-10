@@ -208,6 +208,10 @@ public enum ErrorCode {
     ITEM_WITHDRAWAL_NOT_PENDING(HttpStatus.CONFLICT,
             "Yêu cầu rút hàng không còn ở trạng thái chờ lấy hàng (đã hết hạn)."),
 
+    // Moderator duyệt/từ chối yêu cầu rút hàng
+    ITEM_WITHDRAWAL_NOT_PENDING_APPROVAL(HttpStatus.CONFLICT,
+            "Yêu cầu rút hàng không còn ở trạng thái chờ duyệt."),
+
     // API 95 - F-036: Member quyết định cách xử lý hàng xuống cấp
     DEGRADED_ITEM_CASE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy ca xử lý hàng xuống cấp."),
     DEGRADED_ITEM_CASE_FORBIDDEN(HttpStatus.FORBIDDEN, "Ca xử lý hàng xuống cấp này không thuộc về bạn."),

@@ -1058,8 +1058,9 @@ class ProductServiceImplTest {
                 .build();
 
         when(productRepository.findMine(memberId, null, false, pageable)).thenReturn(repoPage);
-        when(itemWithdrawalRequestRepository.findByProductIdsAndStatus(
-                ids, ItemWithdrawalStatus.PENDING_PICKUP)).thenReturn(List.of(withdrawal));
+        when(itemWithdrawalRequestRepository.findByProductIdsAndStatusIn(
+                ids, List.of(ItemWithdrawalStatus.PENDING_APPROVAL, ItemWithdrawalStatus.PENDING_PICKUP)))
+                .thenReturn(List.of(withdrawal));
         when(degradedItemCaseRepository.findPendingByProductIds(ids)).thenReturn(List.of(degradedCase));
 
         service.getMyProducts(memberId, null, false, pageable);
@@ -1070,7 +1071,8 @@ class ProductServiceImplTest {
 
         // Một query cho cả trang, không phải mỗi món một query
         verify(itemWithdrawalRequestRepository, times(1))
-                .findByProductIdsAndStatus(ids, ItemWithdrawalStatus.PENDING_PICKUP);
+                .findByProductIdsAndStatusIn(
+                        ids, List.of(ItemWithdrawalStatus.PENDING_APPROVAL, ItemWithdrawalStatus.PENDING_PICKUP));
         verify(degradedItemCaseRepository, times(1)).findPendingByProductIds(ids);
     }
 
@@ -1089,8 +1091,9 @@ class ProductServiceImplTest {
                 .build();
 
         when(productRepository.findById("Q7-AK-000845")).thenReturn(Optional.of(p));
-        when(itemWithdrawalRequestRepository.findByProductIdsAndStatus(
-                List.of("Q7-AK-000845"), ItemWithdrawalStatus.PENDING_PICKUP))
+        when(itemWithdrawalRequestRepository.findByProductIdsAndStatusIn(
+                List.of("Q7-AK-000845"),
+                List.of(ItemWithdrawalStatus.PENDING_APPROVAL, ItemWithdrawalStatus.PENDING_PICKUP)))
                 .thenReturn(List.of(withdrawal));
         when(degradedItemCaseRepository.findPendingByProductIds(List.of("Q7-AK-000845")))
                 .thenReturn(List.of(degradedCase));

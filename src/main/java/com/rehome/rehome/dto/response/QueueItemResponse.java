@@ -91,12 +91,14 @@ public class QueueItemResponse {
         return response;
     }
 
-    // WITHDRAWAL: refId là id yêu cầu rút hàng; productName là tên món cần rút, memberName là người ký gửi
+    // WITHDRAWAL: refId là id yêu cầu rút hàng; productName là tên món cần rút, memberName là người ký gửi.
+    // status phân biệt PENDING_APPROVAL (cần duyệt/từ chối) với PENDING_PICKUP (cần bàn giao - API 72)
     public static QueueItemResponse fromWithdrawal(
             QueueItem q, ItemWithdrawalRequest withdrawal, String memberName) {
         QueueItemResponse response = from(q);
         response.setTargetName(withdrawal.getProduct().getName());
         response.setSubjectSubtitle(memberName);
+        response.setStatus(withdrawal.getStatus().name());
         return response;
     }
 

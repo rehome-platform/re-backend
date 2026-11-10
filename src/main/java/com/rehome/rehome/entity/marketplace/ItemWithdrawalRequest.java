@@ -49,9 +49,9 @@ public class ItemWithdrawalRequest {
     @Column(name = "fee_paid_at", nullable = true)
     private Instant feePaidAt;
 
-    // Hạn trả phí rút hàng, mặc định 15 phút kể từ lúc tạo yêu cầu; null khi feeCharged = 0
-    // (không có gì phải trả). Quá hạn mà feePaidAt vẫn null -> ItemWithdrawalAutoExpireServiceImpl
-    // hủy sớm, không chờ hết pickupDeadline (7 ngày) mới đăng bán lại sản phẩm.
+    // Hạn trả phí rút hàng, mặc định 15 phút kể từ lúc Moderator duyệt; null khi feeCharged = 0
+    // (không có gì phải trả) hoặc còn PENDING_APPROVAL. Quá hạn mà feePaidAt vẫn null ->
+    // ItemWithdrawalAutoExpireServiceImpl hủy sớm, không chờ hết pickupDeadline (7 ngày) mới đăng bán lại sản phẩm.
     @Column(name = "fee_payment_deadline", nullable = true)
     private Instant feePaymentDeadline;
 
@@ -75,16 +75,30 @@ public class ItemWithdrawalRequest {
     @Column(name = "vnp_create_date", nullable = true, length = 32)
     private String vnpCreateDate;
 
-    // PENDING_PICKUP / COMPLETED / EXPIRED
+    // PENDING_APPROVAL / PENDING_PICKUP / REJECTED / COMPLETED / EXPIRED
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
-    @ColumnDefault("'PENDING_PICKUP'")
+    @ColumnDefault("'PENDING_APPROVAL'")
     @Builder.Default
-    private ItemWithdrawalStatus status = ItemWithdrawalStatus.PENDING_PICKUP;
+    private ItemWithdrawalStatus status = ItemWithdrawalStatus.PENDING_APPROVAL;
 
-    // Hạn đến kho nhận hàng, mặc định 7 ngày; quá hạn hủy và đăng bán lại
-    @Column(name = "pickup_deadline", nullable = false)
+    // Hạn đến kho nhận hàng, mặc định 7 ngày kể từ lúc Moderator duyệt; quá hạn hủy và đăng bán lại.
+    // Null khi còn PENDING_APPROVAL - chưa duyệt thì chưa tính giờ cho Member
+    @Column(name = "pickup_deadline", nullable = true)
     private Instant pickupDeadline;
+
+    // Moderator đã duyệt hoặc từ chối yêu cầu
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "moderator_id", nullable = true)
+    private Account moderator;
+
+    // Lý do từ chối do Moderator nhập, để Member biết vì sao
+    @Column(name = "reject_reason", nullable = true, columnDefinition = "text")
+    private String rejectReason;
+
+    // Thời điểm Moderator duyệt hoặc từ chối
+    @Column(name = "reviewed_at", nullable = true)
+    private Instant reviewedAt;
 
     // Thời điểm tạo yêu cầu
     @Column(name = "created_at", nullable = false, updatable = false)

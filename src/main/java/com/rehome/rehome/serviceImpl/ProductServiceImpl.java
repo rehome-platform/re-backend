@@ -48,6 +48,10 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class ProductServiceImpl implements ProductService {
 
+    // Yêu cầu rút hàng còn sống (chờ duyệt hoặc đã duyệt, chờ lấy) - sản phẩm đang WITHDRAWN cả hai trường hợp
+    private static final List<ItemWithdrawalStatus> ACTIVE_WITHDRAWAL_STATUSES =
+            List.of(ItemWithdrawalStatus.PENDING_APPROVAL, ItemWithdrawalStatus.PENDING_PICKUP);
+
     private final ProductRepository productRepository;
     private final ProductPhotoRepository productPhotoRepository;
     private final MemberProfileRepository memberProfileRepository;
@@ -191,7 +195,7 @@ public class ProductServiceImpl implements ProductService {
         // Yêu cầu rút đang chờ nhận hàng và ca hàng xuống cấp đang chờ quyết định, để app
         // hiện được "món này đang chờ rút / chờ bạn quyết định" ngay trên danh sách
         Map<String, ItemWithdrawalRequest> withdrawals = itemWithdrawalRequestRepository
-                .findByProductIdsAndStatus(ids, ItemWithdrawalStatus.PENDING_PICKUP).stream()
+                .findByProductIdsAndStatusIn(ids, ACTIVE_WITHDRAWAL_STATUSES).stream()
                 .collect(Collectors.toMap(
                         w -> w.getProduct().getId(),
                         w -> w,
@@ -240,7 +244,7 @@ public class ProductServiceImpl implements ProductService {
                 : null;
 
         ItemWithdrawalRequest withdrawal = itemWithdrawalRequestRepository
-                .findByProductIdsAndStatus(List.of(id), ItemWithdrawalStatus.PENDING_PICKUP).stream()
+                .findByProductIdsAndStatusIn(List.of(id), ACTIVE_WITHDRAWAL_STATUSES).stream()
                 .findFirst().orElse(null);
 
         DegradedItemCase degradedCase = degradedItemCaseRepository

@@ -2,6 +2,7 @@ package com.rehome.rehome.service;
 
 import com.rehome.rehome.dto.request.CreateItemWithdrawalRequest;
 import com.rehome.rehome.dto.request.PayItemWithdrawalFeeRequest;
+import com.rehome.rehome.dto.request.RejectItemWithdrawalRequest;
 import com.rehome.rehome.dto.response.ItemWithdrawalDetailResponse;
 import com.rehome.rehome.dto.response.ItemWithdrawalResponse;
 import com.rehome.rehome.dto.response.PayItemWithdrawalFeeResponse;
@@ -14,6 +15,12 @@ public interface ItemWithdrawalRequestService {
 
     // API 90 (F-032) - Member yêu cầu rút lại một sản phẩm đang ký gửi
     ItemWithdrawalResponse create(Account account, CreateItemWithdrawalRequest request);
+
+    // Moderator của kho giữ sản phẩm duyệt yêu cầu rút hàng -> PENDING_PICKUP
+    ItemWithdrawalResponse approve(Account moderator, UUID id);
+
+    // Moderator từ chối, bắt buộc có lý do -> REJECTED, sản phẩm trả lại ON_SALE
+    ItemWithdrawalResponse reject(Account moderator, UUID id, RejectItemWithdrawalRequest request);
 
     // API 91 (F-033) - Member trả phí rút hàng bằng ví, MoMo hoặc VNPay (chọn đúng 1, không chia nhỏ)
     PayItemWithdrawalFeeResponse payFee(

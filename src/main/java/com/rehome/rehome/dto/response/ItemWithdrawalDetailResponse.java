@@ -23,8 +23,11 @@ public class ItemWithdrawalDetailResponse {
     private String productId;
     private String productName;
 
-    /** PENDING_PICKUP / COMPLETED / EXPIRED */
+    /** PENDING_APPROVAL / PENDING_PICKUP / REJECTED / COMPLETED / EXPIRED */
     private String status;
+
+    /** Lý do Moderator từ chối; null trừ khi status = REJECTED */
+    private String rejectReason;
 
     /** Phí rút hàng; 0 nếu rút trong cửa sổ 7 ngày miễn phí hoặc hàng được miễn phí */
     private BigDecimal feeAmount;

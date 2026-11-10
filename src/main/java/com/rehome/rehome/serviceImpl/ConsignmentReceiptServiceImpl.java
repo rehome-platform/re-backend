@@ -1,6 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
-import com.rehome.rehome.config.ConsignmentProperties;
+import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.CompleteInspectionRequest;
 import com.rehome.rehome.dto.response.CompleteInspectionResponse;
 import com.rehome.rehome.dto.response.ConsignmentReceiptConfirmResponse;
@@ -25,6 +25,7 @@ import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.service.ConsignmentReceiptService;
 import com.rehome.rehome.service.ReceiptPdfService;
+import com.rehome.rehome.service.SystemConfigReader;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -51,7 +52,7 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
     private final ProductRepository productRepository;
     private final EndOfTermDecisionRepository endOfTermDecisionRepository;
 
-    private final ConsignmentProperties consignmentProperties;
+    private final SystemConfigReader systemConfigReader;
 
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     @Override
@@ -196,10 +197,12 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
             throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);                         // 403
         }
 
-        ConsignmentProperties cfg = consignmentProperties;
         BigDecimal agreedPrice = request.getAgreedPrice().setScale(2, RoundingMode.HALF_UP);
         int termDays = request.getTermLengthDays() != null
-                ? request.getTermLengthDays() : cfg.getTermLengthDays();
+                ? request.getTermLengthDays()
+                : systemConfigReader.getInt(SystemConfigKeys.TERM_LENGTH_DAYS, SystemConfigKeys.DEFAULT_TERM_LENGTH_DAYS);
+        BigDecimal floorPriceRatio = systemConfigReader.getDecimal(
+                SystemConfigKeys.FLOOR_PRICE_RATIO, SystemConfigKeys.DEFAULT_FLOOR_PRICE_RATIO);
 
         ConsignmentReceipt receipt = ConsignmentReceipt.builder()
                 .receiptNo(generateReceiptNo())
@@ -211,15 +214,21 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
                 .moderatorNote(request.getModeratorNote() == null || request.getModeratorNote().isBlank()
                         ? null : request.getModeratorNote().trim())
                 .agreedPrice(agreedPrice)
-                .floorPrice(agreedPrice.multiply(cfg.getFloorPriceRate()).setScale(2, RoundingMode.HALF_UP))
+                .floorPrice(agreedPrice.multiply(floorPriceRatio).setScale(2, RoundingMode.HALF_UP))
                 .termLengthDays(termDays)
-                .maxRenewals(cfg.getMaxRenewals())
-                .freeWithdrawalWindowDays(cfg.getFreeWithdrawalWindowDays())
-                .commissionRateTerm1(cfg.getCommissionRateTerm1())
-                .commissionRateTerm2(cfg.getCommissionRateTerm2())
-                .commissionRateTerm3(cfg.getCommissionRateTerm3())
-                .withdrawalFee(cfg.getWithdrawalFee())
-                .degradedCompensationRate(cfg.getDegradedCompensationRate())
+                .maxRenewals(systemConfigReader.getInt(SystemConfigKeys.MAX_RENEWALS, SystemConfigKeys.DEFAULT_MAX_RENEWALS))
+                .freeWithdrawalWindowDays(systemConfigReader.getInt(
+                        SystemConfigKeys.FREE_WITHDRAWAL_WINDOW_DAYS, SystemConfigKeys.DEFAULT_FREE_WITHDRAWAL_WINDOW_DAYS))
+                .commissionRateTerm1(systemConfigReader.getDecimal(
+                        SystemConfigKeys.COMMISSION_RATE_TERM1, SystemConfigKeys.DEFAULT_COMMISSION_RATE_TERM1))
+                .commissionRateTerm2(systemConfigReader.getDecimal(
+                        SystemConfigKeys.COMMISSION_RATE_TERM2, SystemConfigKeys.DEFAULT_COMMISSION_RATE_TERM2))
+                .commissionRateTerm3(systemConfigReader.getDecimal(
+                        SystemConfigKeys.COMMISSION_RATE_TERM3, SystemConfigKeys.DEFAULT_COMMISSION_RATE_TERM3))
+                .withdrawalFee(systemConfigReader.getDecimal(
+                        SystemConfigKeys.WITHDRAWAL_FEE, SystemConfigKeys.DEFAULT_WITHDRAWAL_FEE))
+                .degradedCompensationRate(systemConfigReader.getDecimal(
+                        SystemConfigKeys.DEGRADED_COMPENSATION_RATE, SystemConfigKeys.DEFAULT_DEGRADED_COMPENSATION_RATE))
                 .confirmedAt(null)   // Member xác nhận ở API 20, PDF sinh lúc đó
                 .build();
 

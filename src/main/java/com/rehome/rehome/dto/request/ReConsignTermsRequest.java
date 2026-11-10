@@ -11,7 +11,7 @@ import lombok.Setter;
 import java.math.BigDecimal;
 
 // Moderator chốt giá và điều khoản cho đợt ký gửi lại. Chỉ agreedPrice bắt buộc,
-// trường nào bỏ trống thì lấy mặc định hệ thống (rehome.consignment.*).
+// trường nào bỏ trống thì lấy tham số hệ thống trong system_configs (Admin chỉnh được).
 @Getter
 @Setter
 public class ReConsignTermsRequest {

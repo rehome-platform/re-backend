@@ -56,4 +56,44 @@ public final class SystemConfigKeys {
     // Số yêu cầu rút tiền tối đa mỗi ngày của một Member
     public static final String MAX_PAYOUT_REQUESTS_PER_DAY = "max_payout_requests_per_day";
     public static final int DEFAULT_MAX_PAYOUT_REQUESTS_PER_DAY = 3;
+
+    // ---- Luồng ký gửi ----
+
+    // Số ngày Member được chọn cách xử lý cuối kỳ (lấy về / ký gửi lại), quá hạn thành hàng vô thừa nhận
+    public static final String END_OF_TERM_DECISION_DAYS = "end_of_term_decision_days";
+    public static final int DEFAULT_END_OF_TERM_DECISION_DAYS = 30;
+
+    // Số ngày Member phải mang đồ đến kho sau khi form ký gửi được duyệt
+    public static final String BRING_IN_DEADLINE_DAYS = "bring_in_deadline_days";
+    public static final int DEFAULT_BRING_IN_DEADLINE_DAYS = 7;
+
+    // Số form ký gửi đang chờ duyệt tối đa của mỗi Member
+    public static final String MAX_PENDING_FORMS_PER_MEMBER = "max_pending_forms_per_member";
+    public static final int DEFAULT_MAX_PENDING_FORMS_PER_MEMBER = 5;
+
+    // Số lần Member được giảm giá một sản phẩm trong một ngày
+    public static final String MAX_PRICE_CHANGES_PER_DAY = "max_price_changes_per_day";
+    public static final int DEFAULT_MAX_PRICE_CHANGES_PER_DAY = 1;
+
+    // ---- Đơn hàng và trả hàng ----
+
+    // Số phút người mua phải thanh toán đơn, quá hạn đơn tự hủy
+    public static final String ORDER_PAYMENT_TIMEOUT_MINUTES = "order_payment_timeout_minutes";
+    public static final int DEFAULT_ORDER_PAYMENT_TIMEOUT_MINUTES = 15;
+
+    // Số ngày sau khi giao hàng thì đơn tự hoàn thành
+    public static final String ORDER_AUTO_COMPLETE_DAYS = "order_auto_complete_days";
+    public static final int DEFAULT_ORDER_AUTO_COMPLETE_DAYS = 3;
+
+    // Số ngày người mua được gửi yêu cầu trả hàng sau khi nhận hàng
+    public static final String RETURN_REQUEST_WINDOW_DAYS = "return_request_window_days";
+    public static final int DEFAULT_RETURN_REQUEST_WINDOW_DAYS = 3;
+
+    // Số ngày người mua phải bàn giao hàng trả cho GHN sau khi yêu cầu được duyệt
+    public static final String RETURN_HANDOVER_CARRIER_DAYS = "return_handover_carrier_days";
+    public static final int DEFAULT_RETURN_HANDOVER_CARRIER_DAYS = 3;
+
+    // Số ngày đến kho nhận hàng rút/trả, quá hạn thì hủy
+    public static final String COUNTER_PICKUP_DAYS = "counter_pickup_days";
+    public static final int DEFAULT_COUNTER_PICKUP_DAYS = 7;
 }

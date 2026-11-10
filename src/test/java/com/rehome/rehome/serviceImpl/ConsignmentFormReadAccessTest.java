@@ -1,6 +1,5 @@
 package com.rehome.rehome.serviceImpl;
 
-import com.rehome.rehome.config.ConsignmentProperties;
 import com.rehome.rehome.dto.response.ConsignmentFormDetailResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
@@ -12,6 +11,7 @@ import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.ConsignmentFormMapper;
 import com.rehome.rehome.repository.*;
 import com.rehome.rehome.service.QueueService;
+import com.rehome.rehome.service.SystemConfigReader;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -41,7 +41,7 @@ class ConsignmentFormReadAccessTest {
     @Mock ConsignmentFormPhotoRepository photoRepository;
     @Mock ConsignmentFormMapper consignmentFormMapper;
     @Mock ConsignmentReceiptRepository consignmentReceiptRepository;
-    @Mock ConsignmentProperties consignmentProperties;
+    @Mock SystemConfigReader systemConfigReader;
     @Mock AccountRepository accountRepository;
     @Mock QueueService queueService;
 

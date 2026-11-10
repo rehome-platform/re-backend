@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.config.ConsignmentProperties;
+import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.DecideEndOfTermRequest;
 import com.rehome.rehome.dto.response.DecideEndOfTermResponse;
 import com.rehome.rehome.entity.auth.Account;
@@ -14,6 +15,7 @@ import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.ConsignmentReceiptRepository;
 import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.ProductRepository;
+import com.rehome.rehome.service.SystemConfigReader;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
@@ -30,6 +33,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -43,6 +48,7 @@ class EndOfTermDecisionServiceImplTest {
     @Mock private ProductRepository productRepository;
     @Mock private ConsignmentReceiptRepository consignmentReceiptRepository;
     @Mock private ConsignmentProperties consignmentProperties;
+    @Mock private SystemConfigReader systemConfigReader;
 
     @InjectMocks private EndOfTermDecisionServiceImpl service;
 
@@ -218,5 +224,41 @@ class EndOfTermDecisionServiceImplTest {
 
         assertThat(response.getDecision()).isEqualTo(EndOfTermChoice.RE_CONSIGN);
         assertThat(response.getNewReceiptId()).isNull();
+    }
+
+    // ==================== createDecision ====================
+
+    @Test
+    @DisplayName("createDecision: hạn chọn = now + end_of_term_decision_days (cấu hình), ghi cả vào Product")
+    void createDecision_usesConfiguredDays() {
+        Instant now = Instant.parse("2026-11-10T00:00:00Z");
+        when(product.getId()).thenReturn("Q7-AK-000849");
+        when(decisionRepository.findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc("Q7-AK-000849"))
+                .thenReturn(Optional.empty());
+        when(systemConfigReader.getInt(eq(SystemConfigKeys.END_OF_TERM_DECISION_DAYS), anyInt())).thenReturn(45);
+        when(decisionRepository.save(any(EndOfTermDecision.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        EndOfTermDecision created = service.createDecision(product, now);
+
+        Instant expected = now.plus(Duration.ofDays(45));
+        assertThat(created.getDeadline()).isEqualTo(expected);
+        assertThat(created.getProduct()).isSameAs(product);
+        assertThat(created.getDecision()).isNull();
+        verify(product).setUnclaimedDecisionDeadline(expected);
+        verify(productRepository).save(product);
+    }
+
+    @Test
+    @DisplayName("createDecision: sản phẩm đã có quyết định đang chờ -> dùng lại, không tạo trùng")
+    void createDecision_existingOpenDecision_reused() {
+        when(product.getId()).thenReturn("Q7-AK-000849");
+        when(decisionRepository.findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc("Q7-AK-000849"))
+                .thenReturn(Optional.of(decision));
+
+        EndOfTermDecision result = service.createDecision(product, Instant.now());
+
+        assertThat(result).isSameAs(decision);
+        verify(decisionRepository, never()).save(any());
+        verify(productRepository, never()).save(any());
     }
 }

@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
+import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.CreateProductRequest;
 import com.rehome.rehome.dto.request.PriceReductionRequest;
 import com.rehome.rehome.dto.response.*;
@@ -19,6 +20,7 @@ import com.rehome.rehome.repository.*;
 import com.rehome.rehome.repository.spec.ProductSpecifications;
 import com.rehome.rehome.service.ProductService;
 import com.rehome.rehome.service.SkuLabelPdfService;
+import com.rehome.rehome.service.SystemConfigReader;
 import com.rehome.rehome.util.ConsignmentCommission;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -60,6 +62,7 @@ public class ProductServiceImpl implements ProductService {
     private final OrderItemRepository orderItemRepository;
     private final SkuLabelPdfService skuLabelPdfService;
     private final GhnShippingFeeCalculator ghnShippingFeeCalculator;
+    private final SystemConfigReader systemConfigReader;
 
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
@@ -307,8 +310,16 @@ public class ProductServiceImpl implements ProductService {
             throw new AppException(ErrorCode.BELOW_FLOOR_PRICE);                                 // 409
         }
 
+        // Số lần giảm giá tối đa mỗi ngày do Admin cấu hình; đếm theo ngày VN từ lịch sử đổi giá
         LocalDate today = LocalDate.now(VN_ZONE);
-        if (today.equals(product.getLastPriceReducedOn())) {
+        int maxPerDay = systemConfigReader.getInt(SystemConfigKeys.MAX_PRICE_CHANGES_PER_DAY,
+                SystemConfigKeys.DEFAULT_MAX_PRICE_CHANGES_PER_DAY);
+        long reducedToday = productPriceChangeRepository
+                .countByProduct_IdAndChangedAtGreaterThanEqualAndChangedAtLessThan(
+                        product.getId(),
+                        today.atStartOfDay(VN_ZONE).toInstant(),
+                        today.plusDays(1).atStartOfDay(VN_ZONE).toInstant());
+        if (reducedToday >= maxPerDay) {
             throw new AppException(ErrorCode.PRICE_CHANGE_LIMIT_REACHED);                        // 409
         }
 

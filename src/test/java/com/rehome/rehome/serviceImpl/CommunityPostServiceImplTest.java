@@ -352,6 +352,39 @@ class CommunityPostServiceImplTest {
         verifyNoInteractions(postLikeRepository, postCommentRepository);
     }
 
+    @Test
+    void getDetail_removed_nonOwnerMember_throwsNotFound() {
+        UUID postId = UUID.randomUUID();
+        UUID orgId = UUID.randomUUID();
+        CommunityPost entity = post(postId, orgId, ContentStatus.REMOVED);
+        when(communityPostRepository.findById(postId)).thenReturn(Optional.of(entity));
+
+        assertThatThrownBy(() -> service.getDetail(postId, UUID.randomUUID()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không tìm thấy bài viết.");
+    }
+
+    @Test
+    void getDetail_removed_ownerOrganization_includesRemovalReason() {
+        UUID postId = UUID.randomUUID();
+        UUID orgId = UUID.randomUUID();
+        CommunityPost entity = post(postId, orgId, ContentStatus.REMOVED);
+        when(communityPostRepository.findById(postId)).thenReturn(Optional.of(entity));
+        com.rehome.rehome.entity.marketplace.ViolationReport resolved =
+                com.rehome.rehome.entity.marketplace.ViolationReport.builder()
+                        .id(UUID.randomUUID())
+                        .resolutionReason("Nội dung kêu gọi quyên góp sai sự thật")
+                        .resolvedAt(Instant.parse("2026-11-05T00:00:00Z"))
+                        .build();
+        when(violationReportRepository.findByTargetTypeAndTargetIdOrderByCreatedAtAsc(
+                ViolationTargetType.POST, postId)).thenReturn(List.of(resolved));
+
+        PostDetailResponse res = service.getDetail(postId, orgId);
+
+        assertThat(res.getStatus()).isEqualTo("REMOVED");
+        assertThat(res.getRemovalReason()).isEqualTo("Nội dung kêu gọi quyên góp sai sự thật");
+    }
+
     // =====================================================================
     // like / unlike  (F-087) — Member hoặc ORGANIZATION, không khác nhau ở tầng service
     // =====================================================================

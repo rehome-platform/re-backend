@@ -55,6 +55,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -181,8 +182,14 @@ public class CommunityPostServiceImpl implements CommunityPostService {
     @Transactional(readOnly = true)
     public PostDetailResponse getDetail(UUID postId, UUID viewerId) {
         CommunityPost post = communityPostRepository.findById(postId)
-                .filter(p -> p.getStatus() == ContentStatus.VISIBLE)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy bài viết."));
+
+        boolean isOwner = viewerId != null && post.getOrganization().getAccountId().equals(viewerId);
+        // REMOVED (Moderator gỡ do vi phạm): chỉ tổ chức sở hữu xem được, kèm lý do gỡ. Member/Guest
+        // coi như không tồn tại - giống hành vi với Campaign HIDDEN (CampaignServiceImpl.getPublicDetail)
+        if (post.getStatus() == ContentStatus.REMOVED && !isOwner) {
+            throw new IllegalArgumentException("Không tìm thấy bài viết.");
+        }
 
         long likeCount = postLikeRepository.countByPost_Id(postId);
         // Bình luận REMOVED vẫn chiếm 1 dòng trong danh sách (content null), nên vẫn tính vào tổng
@@ -210,7 +217,22 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                 .likeCount(likeCount)
                 .commentCount(commentCount)
                 .likedByMe(likedByMe)
+                .status(post.getStatus().name())
+                .removalReason(isOwner && post.getStatus() == ContentStatus.REMOVED
+                        ? latestResolutionReason(ViolationTargetType.POST, postId)
+                        : null)
                 .build();
+    }
+
+    // Báo cáo RESOLVED gần nhất của target này; null nếu không có (gỡ vì lý do khác chưa có
+    // trong hệ thống, hoặc dữ liệu cũ) - dùng chung logic với CampaignServiceImpl.latestResolutionReason
+    private String latestResolutionReason(ViolationTargetType targetType, UUID targetId) {
+        return violationReportRepository.findByTargetTypeAndTargetIdOrderByCreatedAtAsc(targetType, targetId)
+                .stream()
+                .filter(r -> r.getResolvedAt() != null)
+                .max(Comparator.comparing(com.rehome.rehome.entity.marketplace.ViolationReport::getResolvedAt))
+                .map(com.rehome.rehome.entity.marketplace.ViolationReport::getResolutionReason)
+                .orElse(null);
     }
 
     @Override

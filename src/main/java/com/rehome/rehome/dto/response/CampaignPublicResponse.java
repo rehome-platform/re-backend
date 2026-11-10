@@ -35,4 +35,8 @@ public class CampaignPublicResponse {
 
     // OC-08/F-167: chỉ trả khi người xem chính là tổ chức sở hữu chiến dịch; null với guest/member
     private Long donationNoteCount;
+
+    // Lý do Moderator ẩn chiến dịch (status = HIDDEN); chỉ trả cho tổ chức sở hữu, null với mọi
+    // viewer khác - Member/Guest nhận 404 trước khi tới được field này (xem CampaignServiceImpl)
+    private String hiddenReason;
 }

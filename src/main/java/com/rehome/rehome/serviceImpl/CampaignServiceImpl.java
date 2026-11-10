@@ -23,10 +23,13 @@ import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.exception.ForbiddenException;
+import com.rehome.rehome.entity.enums.ViolationTargetType;
+import com.rehome.rehome.entity.marketplace.ViolationReport;
 import com.rehome.rehome.repository.CampaignRepository;
 import com.rehome.rehome.repository.DonationNoteRepository;
 import com.rehome.rehome.repository.DonationRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
+import com.rehome.rehome.repository.ViolationReportRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.CampaignService;
 import com.rehome.rehome.service.NotificationService;
@@ -66,6 +69,7 @@ public class CampaignServiceImpl implements CampaignService {
     private final WarehouseRepository warehouseRepository;
     private final DonationRepository donationRepository;
     private final DonationNoteRepository donationNoteRepository;
+    private final ViolationReportRepository violationReportRepository;
     private final SystemConfigReader systemConfigReader;
     private final NotificationService notificationService;
 
@@ -76,6 +80,11 @@ public class CampaignServiceImpl implements CampaignService {
                 .orElseThrow(() -> new IllegalArgumentException(CAMPAIGN_NOT_FOUND));
         boolean isOwner = viewerAccountId != null
                 && campaign.getOrganization().getAccountId().equals(viewerAccountId);
+        // HIDDEN (bị Moderator xử lý vi phạm): chỉ tổ chức sở hữu xem được, Member/Guest coi như
+        // không tồn tại - giống hành vi với CommunityPost REMOVED (CommunityPostServiceImpl.getDetail)
+        if (campaign.getStatus() == CampaignStatus.HIDDEN && !isOwner) {
+            throw new IllegalArgumentException(CAMPAIGN_NOT_FOUND);
+        }
         return toPublicResponse(campaign, isOwner);
     }
 
@@ -106,11 +115,13 @@ public class CampaignServiceImpl implements CampaignService {
         int maxConcurrent = systemConfigReader.getInt(
                 SystemConfigKeys.MAX_CONCURRENT_CAMPAIGNS,
                 SystemConfigKeys.DEFAULT_MAX_CONCURRENT_CAMPAIGNS);
-        long running = campaignRepository.countByOrganization_AccountIdAndStatus(
-                organizationAccountId, CampaignStatus.OPEN);
+        // "Đang chạy" tính cả chiến dịch bị Moderator ẩn do vi phạm (HIDDEN) nhưng chưa hết hạn -
+        // không thì tổ chức bị ẩn 1 chiến dịch lại được lách hạn mức để mở thêm cái mới ngay lúc đó
+        long running = campaignRepository.countActiveByOrganization(organizationAccountId, Instant.now());
         if (running >= maxConcurrent) {
             throw new ConflictException(
-                    "CAMPAIGN_LIMIT_REACHED: đã đạt số chiến dịch đang chạy tối đa.",
+                    "CAMPAIGN_LIMIT_REACHED: đã đạt số chiến dịch đang chạy tối đa (tính cả"
+                            + " chiến dịch đang bị ẩn do vi phạm nhưng chưa hết hạn).",
                     "CAMPAIGN_LIMIT_REACHED");
         }
 
@@ -197,6 +208,13 @@ public class CampaignServiceImpl implements CampaignService {
     public CampaignStatusResponse closeCampaign(UUID organizationAccountId, UUID campaignId) {
         Campaign campaign = requireOwnCampaign(organizationAccountId, campaignId);
 
+        // Không cho tự đóng để "thoát" khỏi HIDDEN: CLOSED lại là trạng thái public listing chấp
+        // nhận lọc (parsePublicStatusFilter), tự đóng sẽ lộ ngược chiến dịch đang bị xử lý vi phạm
+        if (campaign.getStatus() == CampaignStatus.HIDDEN) {
+            throw new ConflictException(
+                    "Chiến dịch đang bị ẩn do vi phạm, không thể tự đóng.", "CAMPAIGN_HIDDEN");
+        }
+
         // Đóng lại chiến dịch đã đóng thì coi như không có gì xảy ra (spec không khai báo 409 ở đây)
         if (campaign.getStatus() != CampaignStatus.CLOSED) {
             campaign.setStatus(CampaignStatus.CLOSED);
@@ -259,7 +277,8 @@ public class CampaignServiceImpl implements CampaignService {
     }
 
     // Response dùng ACTIVE/CLOSED nên filter cũng nhận đúng bộ chữ đó; vẫn chấp nhận
-    // tên enum gốc OPEN để khớp với tài liệu API
+    // tên enum gốc OPEN để khớp với tài liệu API. Chỉ listMyCampaigns (màn quản lý của chính tổ
+    // chức) chấp nhận lọc HIDDEN - public listing (parsePublicStatusFilter) không có nhánh này.
     private static CampaignStatus parseStatusFilter(String status) {
         if (!StringUtils.hasText(status)) {
             return null;
@@ -267,6 +286,7 @@ public class CampaignServiceImpl implements CampaignService {
         return switch (status.trim().toUpperCase()) {
             case "ACTIVE", "OPEN" -> CampaignStatus.OPEN;
             case "CLOSED" -> CampaignStatus.CLOSED;
+            case "HIDDEN" -> CampaignStatus.HIDDEN;
             default -> throw new BadRequestException("status không hợp lệ.");
         };
     }
@@ -384,7 +404,23 @@ public class CampaignServiceImpl implements CampaignService {
                 .donationNoteCount(includeDonationNoteCount
                         ? donationNoteRepository.countByCampaign_Id(campaign.getId())
                         : null)
+                .hiddenReason(includeDonationNoteCount && campaign.getStatus() == CampaignStatus.HIDDEN
+                        ? latestResolutionReason(ViolationTargetType.CAMPAIGN, campaign.getId())
+                        : null)
                 .build();
+    }
+
+    // includeDonationNoteCount cũng chính là "isOwner" ở getPublicDetail (xem toPublicResponse
+    // 2-arg overload) - dùng lại thay vì thêm tham số riêng, vì cả hai field đều chỉ lộ cho tổ chức
+    // sở hữu. Lấy báo cáo RESOLVED gần nhất của target này, không có thì null (ẩn vì lý do khác
+    // chưa có trong hệ thống, hoặc dữ liệu cũ)
+    private String latestResolutionReason(ViolationTargetType targetType, UUID targetId) {
+        return violationReportRepository.findByTargetTypeAndTargetIdOrderByCreatedAtAsc(targetType, targetId)
+                .stream()
+                .filter(r -> r.getResolvedAt() != null)
+                .max(Comparator.comparing(ViolationReport::getResolvedAt))
+                .map(ViolationReport::getResolutionReason)
+                .orElse(null);
     }
 
     private static CampaignOrganizationSummaryResponse toOrganizationSummaryResponse(OrganizationProfile organization) {
@@ -438,8 +474,14 @@ public class CampaignServiceImpl implements CampaignService {
                 .toList();
     }
 
-    // FE hiển thị "ACTIVE"/"CLOSED"; DB giữ nguyên OPEN/CLOSED (xem F-098..F-102)
+    // FE hiển thị "ACTIVE"/"CLOSED"/"HIDDEN"; DB giữ nguyên OPEN/CLOSED/HIDDEN (xem F-098..F-102).
+    // HIDDEN chỉ bao giờ tới được đây cho tổ chức sở hữu (getPublicDetail đã chặn 404 ở trên) hoặc
+    // ở listMyCampaigns - không lộ nhầm cho Member/Guest thành "CLOSED".
     private static String toApiStatus(CampaignStatus status) {
-        return status == CampaignStatus.OPEN ? "ACTIVE" : "CLOSED";
+        return switch (status) {
+            case OPEN -> "ACTIVE";
+            case HIDDEN -> "HIDDEN";
+            case CLOSED -> "CLOSED";
+        };
     }
 }

@@ -19,6 +19,13 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
     // Đếm chiến dịch đang chạy của 1 tổ chức, để chặn vượt hạn mức (F-099)
     long countByOrganization_AccountIdAndStatus(UUID organizationId, CampaignStatus status);
 
+    // F-099 (mở rộng): "đang chạy" = OPEN, hoặc HIDDEN do vi phạm nhưng endTime chưa qua - tổ chức
+    // không được lợi dụng bị ẩn để lách hạn mức và mở thêm chiến dịch mới trong lúc đang bị xử lý
+    @Query("select count(c) from Campaign c where c.organization.accountId = :organizationId "
+            + "and (c.status = com.rehome.rehome.entity.enums.CampaignStatus.OPEN "
+            + "or (c.status = com.rehome.rehome.entity.enums.CampaignStatus.HIDDEN and c.endTime > :now))")
+    long countActiveByOrganization(@Param("organizationId") UUID organizationId, @Param("now") Instant now);
+
     // F-102: chiến dịch còn mở nhưng đã qua thời gian nhận đồ
     List<Campaign> findAllByStatusAndEndTimeBefore(CampaignStatus status, Instant endTime);
 

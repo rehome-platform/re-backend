@@ -26,6 +26,9 @@ public class CampaignAutoCloseServiceImpl implements CampaignAutoCloseService {
     @Transactional
     public void closeExpiredCampaigns() {
 
+        // Chỉ OPEN -> CLOSED. HIDDEN (Moderator ẩn do vi phạm) không được job này tự đóng, kể cả
+        // đã hết endTime - trạng thái xử lý vi phạm phải do Moderator/quy trình riêng quyết định,
+        // tự đóng ở đây sẽ xoá luôn dấu hiệu campaign này đang trong diện bị xử lý.
         List<Campaign> expired = campaignRepository
                 .findAllByStatusAndEndTimeBefore(CampaignStatus.OPEN, Instant.now());
 

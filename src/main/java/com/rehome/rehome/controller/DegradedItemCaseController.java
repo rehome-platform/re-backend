@@ -1,11 +1,13 @@
 package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.DecideDegradedItemCaseRequest;
+import com.rehome.rehome.dto.request.OpenDegradedItemCaseRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.DegradedItemCaseDetailResponse;
 import com.rehome.rehome.dto.response.DegradedItemCaseResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.DegradedItemCaseService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -27,6 +29,18 @@ import java.util.UUID;
 public class DegradedItemCaseController {
 
     private final DegradedItemCaseService degradedItemCaseService;
+
+    // Moderator mở ca hàng xuống cấp trực tiếp lúc kiểm kho, không qua yêu cầu trả hàng
+    @PostMapping
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<DegradedItemCaseDetailResponse>> open(
+            @AuthenticationPrincipal Account moderator,
+            @Valid @RequestBody OpenDegradedItemCaseRequest request) {
+
+        DegradedItemCaseDetailResponse result = degradedItemCaseService.open(moderator, request);
+
+        return ResponseEntity.ok(ApiResponse.success(result, "Đã mở ca xử lý hàng xuống cấp"));
+    }
 
     // API 95 (F-036)
     @PostMapping("/{id}/decide")

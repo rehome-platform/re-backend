@@ -258,7 +258,13 @@ public enum ErrorCode {
     TRYON_LIVE_SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy phiên thử đồ AI real-time."),
     TRYON_LIVE_SESSION_FORBIDDEN(HttpStatus.FORBIDDEN, "Phiên thử đồ AI real-time này không thuộc về bạn."),
     TRYON_LIVE_SESSION_ALREADY_FINISHED(HttpStatus.CONFLICT, "Phiên thử đồ AI real-time này đã kết thúc."),
-    TRYON_LIVE_VIDEO_INVALID(HttpStatus.BAD_REQUEST, "File video không hợp lệ.");
+    TRYON_LIVE_VIDEO_INVALID(HttpStatus.BAD_REQUEST, "File video không hợp lệ."),
+
+    // Quản lý báo cáo vi phạm (Moderator)
+    DUPLICATE_PENDING_REPORT(HttpStatus.CONFLICT,
+            "Bạn đã báo cáo đối tượng này và báo cáo đang chờ xử lý."),
+    VIOLATION_REPORT_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy báo cáo vi phạm."),
+    VIOLATION_REPORT_ALREADY_HANDLED(HttpStatus.CONFLICT, "Báo cáo này đã được xử lý.");
 
     private final HttpStatus status;
     private final String defaultMessage;

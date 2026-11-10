@@ -11,6 +11,7 @@ import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.ModeratorProfile;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
+import com.rehome.rehome.entity.enums.CampaignStatus;
 import com.rehome.rehome.entity.enums.DonationStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.VerificationStatus;
@@ -22,6 +23,7 @@ import com.rehome.rehome.entity.enums.NotificationTargetType;
 import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.repository.CampaignRepository;
@@ -333,6 +335,23 @@ class DonationServiceImplTest {
         verify(donationRepository, never()).save(any());
     }
 
+    @Test
+    void recordDonation_campaignHidden_throwsConflict() {
+        UUID warehouseId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        when(warehouseRepository.findById(warehouseId))
+                .thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
+        Campaign hidden = campaignServingWarehouse(campaignId, warehouseId);
+        hidden.setStatus(CampaignStatus.HIDDEN);
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(hidden));
+
+        assertThatThrownBy(() -> service.recordDonation(moderator(warehouseId), warehouseId,
+                new CreateDonationRequest(campaignId.toString(), "Nguyễn Văn A", false, null)))
+                .isInstanceOf(ConflictException.class);
+
+        verify(donationRepository, never()).save(any());
+    }
+
     // =====================================================================
     // listDonations  (F-164)
     // =====================================================================
@@ -537,6 +556,33 @@ class DonationServiceImplTest {
         assertThat(first.getHandedOverAt()).isNotNull();
         assertThat(second.getHandedOverAt()).isEqualTo(first.getHandedOverAt());
         verify(donationRepository).saveAll(List.of(first, second));
+    }
+
+    @Test
+    void handoverDonations_campaignHidden_stillAllowed() {
+        // Bàn giao là trả hàng ĐÃ ghi nhận trước đó - khác "ghi nhận mới" (recordDonation/
+        // createDonationNote), nên không bị chặn khi chiến dịch đã bị ẩn do vi phạm, tránh kẹt
+        // hàng tại kho (xem DonationServiceImpl.requireOwnCampaign)
+        UUID warehouseId = UUID.randomUUID();
+        UUID organizationId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        UUID donationId = UUID.randomUUID();
+        Donation donation = pendingDonation(donationId, warehouseId, campaignId);
+
+        stubWarehouse(warehouseId);
+        stubVerifiedOrganization(organizationId);
+        Campaign hidden = campaignOf(campaignId, organizationId);
+        hidden.setStatus(CampaignStatus.HIDDEN);
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(hidden));
+        when(donationRepository.findByIdInAndWarehouse_Id(List.of(donationId), warehouseId))
+                .thenReturn(List.of(donation));
+
+        DonationHandoverResponse res = service.handoverDonations(moderator(warehouseId), warehouseId,
+                new HandoverDonationsRequest(
+                        List.of(donationId.toString()), organizationId.toString(), campaignId.toString()));
+
+        assertThat(res.getHandedOverCount()).isEqualTo(1);
+        assertThat(donation.getStatus()).isEqualTo(DonationStatus.HANDED_OVER);
     }
 
     @Test
@@ -1063,6 +1109,22 @@ class DonationServiceImplTest {
     }
 
     @Test
+    void createDonationNote_campaignHidden_throwsConflict() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        Campaign hidden = campaignOf(campaignId, orgId);
+        hidden.setStatus(CampaignStatus.HIDDEN);
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(hidden));
+
+        assertThatThrownBy(() -> service.createDonationNote(orgId,
+                new CreateDonationNoteRequest(campaignId.toString(), "Trần Thị B", false, null)))
+                .isInstanceOf(ConflictException.class);
+
+        verify(donationNoteRepository, never()).save(any());
+    }
+
+    @Test
     void createDonationNote_malformedCampaignId_throwsNotFound() {
         UUID orgId = UUID.randomUUID();
         stubVerifiedOrganization(orgId);
@@ -1173,6 +1235,22 @@ class DonationServiceImplTest {
                 new CreateCampaignDonationNoteRequest("Trần Thị B", false, null)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Không tìm thấy chiến dịch.");
+
+        verify(donationNoteRepository, never()).save(any());
+    }
+
+    @Test
+    void createCampaignDonationNote_campaignHidden_throwsConflict() {
+        UUID orgId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        Campaign hidden = campaignOf(campaignId, orgId);
+        hidden.setStatus(CampaignStatus.HIDDEN);
+        when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(hidden));
+
+        assertThatThrownBy(() -> service.createCampaignDonationNote(orgId, campaignId,
+                new CreateCampaignDonationNoteRequest("Trần Thị B", false, null)))
+                .isInstanceOf(ConflictException.class);
 
         verify(donationNoteRepository, never()).save(any());
     }

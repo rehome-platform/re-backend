@@ -1,14 +1,22 @@
 package com.rehome.rehome.repository;
 
 import com.rehome.rehome.entity.marketplace.DegradedItemCase;
+import jakarta.persistence.LockModeType;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface DegradedItemCaseRepository extends JpaRepository<DegradedItemCase, UUID> {
+
+    // decide() / job tự động: khóa dòng để Member bấm chọn và job quét quá hạn không cùng xử lý một ca
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from DegradedItemCase c where c.id = :id")
+    Optional<DegradedItemCase> findByIdForUpdate(@Param("id") UUID id);
 
     // Màn chi tiết của Member: fetch sẵn product (tên món, chủ hàng để kiểm quyền) và
     // yêu cầu trả hàng (lý do, ghi chú của Moderator). left join vì returnRequest nullable
@@ -59,4 +67,16 @@ public interface DegradedItemCaseRepository extends JpaRepository<DegradedItemCa
 
     // Mở ca trực tiếp (API mới của Moderator): không mở trùng khi sản phẩm còn ca chưa quyết định
     boolean existsByProduct_IdAndChoiceIsNull(String productId);
+
+    // Job quét quá hạn chọn phương án đền bù -> vô thừa nhận
+    List<DegradedItemCase> findAllByChoiceIsNullAndDecisionDeadlineBefore(Instant deadline);
+
+    // Job gửi nhắc nhở cách 7 ngày: còn PENDING_DECISION, chưa quá hạn, và (chưa nhắc lần nào mà
+    // tạo ca đã quá reminderCutoff) hoặc (đã nhắc mà lần nhắc gần nhất cũng đã quá reminderCutoff)
+    @Query("select c from DegradedItemCase c join fetch c.product p "
+            + "where c.choice is null and c.decisionDeadline is not null and c.decisionDeadline > :now "
+            + "and ((c.lastReminderSentAt is null and c.createdAt <= :reminderCutoff) "
+            + "or (c.lastReminderSentAt is not null and c.lastReminderSentAt <= :reminderCutoff))")
+    List<DegradedItemCase> findDueForReminder(
+            @Param("now") Instant now, @Param("reminderCutoff") Instant reminderCutoff);
 }

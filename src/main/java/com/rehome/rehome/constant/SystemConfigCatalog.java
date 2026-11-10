@@ -34,6 +34,7 @@ public final class SystemConfigCatalog {
             int_(MAX_PAYOUT_REQUESTS_PER_DAY, 1, 100),
             // Luồng ký gửi
             int_(END_OF_TERM_DECISION_DAYS, 1, 365),
+            int_(DEGRADED_ITEM_DECISION_DAYS, 1, 365),
             int_(BRING_IN_DEADLINE_DAYS, 1, 90),
             int_(MAX_PENDING_FORMS_PER_MEMBER, 1, 50),
             int_(MAX_PRICE_CHANGES_PER_DAY, 1, 20),
@@ -77,6 +78,7 @@ public final class SystemConfigCatalog {
         m.put(MIN_PAYOUT_AMOUNT, DEFAULT_MIN_PAYOUT_AMOUNT.toPlainString());
         m.put(MAX_PAYOUT_REQUESTS_PER_DAY, String.valueOf(DEFAULT_MAX_PAYOUT_REQUESTS_PER_DAY));
         m.put(END_OF_TERM_DECISION_DAYS, String.valueOf(DEFAULT_END_OF_TERM_DECISION_DAYS));
+        m.put(DEGRADED_ITEM_DECISION_DAYS, String.valueOf(DEFAULT_DEGRADED_ITEM_DECISION_DAYS));
         m.put(BRING_IN_DEADLINE_DAYS, String.valueOf(DEFAULT_BRING_IN_DEADLINE_DAYS));
         m.put(MAX_PENDING_FORMS_PER_MEMBER, String.valueOf(DEFAULT_MAX_PENDING_FORMS_PER_MEMBER));
         m.put(MAX_PRICE_CHANGES_PER_DAY, String.valueOf(DEFAULT_MAX_PRICE_CHANGES_PER_DAY));

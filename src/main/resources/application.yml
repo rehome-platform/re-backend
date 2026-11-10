@@ -135,6 +135,14 @@ app:
     # sàn), và TAKE_BACK quá hạn lấy hàng
     auto-process-check-interval-ms: 60000
 
+  # Hàng xuống cấp F-036
+  degraded-item:
+    # Cách bao nhiêu ngày nhắc Member chốt phương án đền bù 1 lần, cho tới hạn 30 ngày
+    # (degraded_item_decision_days trong system_configs)
+    reminder-interval-days: 7
+    # Chu kỳ job quét 2 việc: gửi nhắc nhở và đánh dấu vô thừa nhận khi quá hạn chọn phương án
+    auto-process-check-interval-ms: 60000
+
   # Chiến dịch quyên góp F-098 -> F-102
   campaign:
     # F-102: chu kỳ job quét chiến dịch còn OPEN nhưng đã qua endTime để tự đóng

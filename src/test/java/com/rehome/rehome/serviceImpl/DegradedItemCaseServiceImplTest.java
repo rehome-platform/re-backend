@@ -61,6 +61,7 @@ class DegradedItemCaseServiceImplTest {
     @Mock WalletRepository walletRepository;
     @Mock WalletTransactionRepository walletTransactionRepository;
     @Mock PlatformFundRepository platformFundRepository;
+    @Mock com.rehome.rehome.service.SystemConfigReader systemConfigReader;
 
     @InjectMocks
     DegradedItemCaseServiceImpl service;
@@ -92,7 +93,7 @@ class DegradedItemCaseServiceImplTest {
                 .compensationAmount(compensationAmount)
                 .choice(choice)
                 .build();
-        when(degradedItemCaseRepository.findById(caseId)).thenReturn(Optional.of(c));
+        when(degradedItemCaseRepository.findByIdForUpdate(caseId)).thenReturn(Optional.of(c));
         return c;
     }
 
@@ -208,6 +209,8 @@ class DegradedItemCaseServiceImplTest {
                 .consignmentReceipt(r).currentPrice(new BigDecimal("300000")).currentTerm((short) 2).build();
         when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.of(p));
         when(degradedItemCaseRepository.existsByProduct_IdAndChoiceIsNull(PRODUCT_ID)).thenReturn(false);
+        when(systemConfigReader.getInt(
+                com.rehome.rehome.constant.SystemConfigKeys.DEGRADED_ITEM_DECISION_DAYS, 30)).thenReturn(30);
         // GenerationType.UUID: Hibernate gán id thật lúc persist(), mock save() giả lập lại việc đó
         when(degradedItemCaseRepository.save(any(DegradedItemCase.class))).thenAnswer(invocation -> {
             DegradedItemCase arg = invocation.getArgument(0);
@@ -215,8 +218,10 @@ class DegradedItemCaseServiceImplTest {
             return arg;
         });
 
+        Instant before = Instant.now();
         DegradedItemCaseDetailResponse res = service.open(moderator,
                 openRequest(PRODUCT_ID, "Rách tay áo", List.of("https://cdn/a.jpg")));
+        Instant after = Instant.now();
 
         ArgumentCaptor<DegradedItemCase> captor = ArgumentCaptor.forClass(DegradedItemCase.class);
         verify(degradedItemCaseRepository).save(captor.capture());
@@ -229,6 +234,10 @@ class DegradedItemCaseServiceImplTest {
         assertThat(saved.getNotes()).isEqualTo("Rách tay áo");
         assertThat(saved.getPhotos()).containsExactly("https://cdn/a.jpg");
         assertThat(saved.getChoice()).isNull();
+        // Hạn chọn phương án đền bù, mặc định 30 ngày (F-036)
+        assertThat(saved.getDecisionDeadline())
+                .isAfter(before.plus(29, java.time.temporal.ChronoUnit.DAYS))
+                .isBefore(after.plus(31, java.time.temporal.ChronoUnit.DAYS));
 
         assertThat(res.getProductId()).isEqualTo(PRODUCT_ID);
         assertThat(res.getCompensationAmount()).isEqualByComparingTo("255000");
@@ -247,7 +256,7 @@ class DegradedItemCaseServiceImplTest {
         assertThatThrownBy(() -> service.decide(seller, caseId, request(null)))
                 .isInstanceOf(BadRequestException.class);
 
-        verify(degradedItemCaseRepository, never()).findById(any());
+        verify(degradedItemCaseRepository, never()).findByIdForUpdate(any());
     }
 
     @Test
@@ -258,9 +267,18 @@ class DegradedItemCaseServiceImplTest {
     }
 
     @Test
+    @DisplayName("choice = UNCLAIMED -> BadRequestException (chỉ job mới được gán, Member không chọn được)")
+    void decide_choiceUnclaimed_rejectedAsInvalid() {
+        assertThatThrownBy(() -> service.decide(seller, caseId, request("UNCLAIMED")))
+                .isInstanceOf(BadRequestException.class);
+
+        verify(degradedItemCaseRepository, never()).findByIdForUpdate(any());
+    }
+
+    @Test
     @DisplayName("không tìm thấy ca -> DEGRADED_ITEM_CASE_NOT_FOUND")
     void decide_notFound_throws() {
-        when(degradedItemCaseRepository.findById(caseId)).thenReturn(Optional.empty());
+        when(degradedItemCaseRepository.findByIdForUpdate(caseId)).thenReturn(Optional.empty());
 
         AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
                 () -> service.decide(seller, caseId, request("FULL_COMPENSATION")));
@@ -290,6 +308,31 @@ class DegradedItemCaseServiceImplTest {
                 () -> service.decide(seller, caseId, request("PARTIAL_WITH_ITEM_BACK")));
 
         assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.DEGRADED_ITEM_CASE_ALREADY_DECIDED);
+        verify(walletRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("job đã đánh dấu vô thừa nhận (UNCLAIMED) -> DECISION_EXPIRED, không ALREADY_DECIDED")
+    void decide_alreadyUnclaimed_throwsExpired() {
+        degradedCase(new BigDecimal("270000"), DegradedItemChoice.UNCLAIMED);
+
+        AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
+                () -> service.decide(seller, caseId, request("FULL_COMPENSATION")));
+
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.DECISION_EXPIRED);
+        verify(walletRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("quá decisionDeadline nhưng job chưa kịp chạy -> DECISION_EXPIRED")
+    void decide_pastDeadline_throwsExpired() {
+        DegradedItemCase c = degradedCase(new BigDecimal("270000"), null);
+        c.setDecisionDeadline(Instant.now().minus(1, java.time.temporal.ChronoUnit.DAYS));
+
+        AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
+                () -> service.decide(seller, caseId, request("FULL_COMPENSATION")));
+
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.DECISION_EXPIRED);
         verify(walletRepository, never()).save(any());
     }
 

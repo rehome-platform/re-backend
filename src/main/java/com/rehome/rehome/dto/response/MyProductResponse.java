@@ -75,9 +75,10 @@ public class MyProductResponse {
                            Instant payoutDueAt, Instant payoutAt) {}
     // status luôn PENDING_PICKUP ở đây: chỉ gắn yêu cầu đang chờ Member đến kho nhận hàng
     public record WithdrawalRef(UUID id, String status, Instant pickupDeadline) {}
-    // status luôn PENDING_DECISION ở đây (chỉ gắn ca đang chờ quyết định); decisionDeadline luôn
-    // null vì F-036 chưa có hạn. decision null cho tới khi Member quyết định (FULL_COMPENSATION /
-    // PARTIAL_WITH_ITEM_BACK) - trong thực tế luôn null ở record này vì chỉ ca PENDING mới được gắn.
+    // status luôn PENDING_DECISION ở đây (chỉ gắn ca đang chờ quyết định); decisionDeadline = hạn
+    // 30 ngày (F-036), quá hạn tự chuyển vô thừa nhận. decision null cho tới khi Member quyết định
+    // (FULL_COMPENSATION / PARTIAL_WITH_ITEM_BACK) - trong thực tế luôn null ở record này vì chỉ
+    // ca PENDING mới được gắn.
     public record DegradedCaseRef(UUID id, String status, Instant decisionDeadline, String decision) {}
     public record PriceChange(Instant changedAt, BigDecimal oldPrice, BigDecimal newPrice) {}
     public record TermInfo(int term, BigDecimal price, BigDecimal commissionRate) {}

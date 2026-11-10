@@ -10,5 +10,8 @@ public enum NotificationTargetType {
     ORGANIZATION,
 
     // Kết quả duyệt / từ chối yêu cầu đổi thông tin pháp lý (F-140) -> mở màn yêu cầu đó
-    LEGAL_CHANGE
+    LEGAL_CHANGE,
+
+    // Nhắc Member chốt phương án đền bù hàng xuống cấp trước khi hết hạn (F-036) -> mở màn ca đó
+    DEGRADED_ITEM_CASE
 }

@@ -52,11 +52,8 @@ public class DegradedItemCaseDetailResponse {
     /** Thời điểm Member quyết định; null khi chưa quyết định */
     private Instant decidedAt;
 
-    /**
-     * LUÔN null: hệ thống chưa có hạn cho Member quyết định (F-036 không quy định hạn,
-     * không có cột trong DB và không có job đóng ca quá hạn). Giữ field để app không phải
-     * đổi contract khi có hạn thật.
-     */
+    /** Hạn Member chọn phương án đền bù, mặc định 30 ngày kể từ lúc mở ca (F-036); quá hạn tự
+     * chuyển vô thừa nhận. Hệ thống gửi nhắc nhở cách 7 ngày cho tới hạn này. */
     private Instant decisionDeadline;
 
     /**
@@ -66,11 +63,8 @@ public class DegradedItemCaseDetailResponse {
      */
     private Instant pickupDeadline;
 
-    /**
-     * LUÔN false: hệ thống chưa có job tự quyết định hộ Member khi quá hạn - mọi ca hiện tại
-     * chỉ được quyết định bởi chính Member qua API 95. Giữ field để app không phải đổi
-     * contract khi có auto-decide thật.
-     */
+    /** true khi quá decisionDeadline mà Member không chọn - hệ thống tự gán UNCLAIMED, không
+     * phải Member chọn qua API 95 */
     private boolean autoDecided;
 
     /** PENDING_DECISION / DECIDED, suy ra từ decision */

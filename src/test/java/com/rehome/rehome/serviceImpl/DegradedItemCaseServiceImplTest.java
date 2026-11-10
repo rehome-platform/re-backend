@@ -178,7 +178,24 @@ class DegradedItemCaseServiceImplTest {
     }
 
     @Test
-    @DisplayName("open: thành công -> snapshot giá đang bán - hoa hồng kỳ hiện tại, lưu notes/photos")
+    @DisplayName("open: sản phẩm không ON_SALE -> DEGRADED_ITEM_CASE_PRODUCT_NOT_ON_SALE, không mở ca")
+    void open_productNotOnSale_throws() {
+        Account moderator = moderatorWithWarehouse();
+        Product p = Product.builder().id(PRODUCT_ID).warehouse(moderator.getWarehouse())
+                .status(ProductStatus.WITHDRAWN).build();
+        when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.of(p));
+
+        AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
+                () -> service.open(moderator, openRequest(PRODUCT_ID, null, null)));
+
+        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.DEGRADED_ITEM_CASE_PRODUCT_NOT_ON_SALE);
+        verify(degradedItemCaseRepository, never()).save(any());
+        verify(productRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("open: thành công -> snapshot giá đang bán - hoa hồng kỳ hiện tại, lưu notes/photos, "
+            + "ẩn sản phẩm khỏi sàn (ON_SALE -> WAREHOUSE)")
     void open_success_computesCompensationFromCurrentPriceAndTerm() {
         Account moderator = moderatorWithWarehouse();
         ConsignmentReceipt r = ConsignmentReceipt.builder()
@@ -187,6 +204,7 @@ class DegradedItemCaseServiceImplTest {
                 .commissionRateTerm3(new BigDecimal("0.20"))
                 .build();
         Product p = Product.builder().id(PRODUCT_ID).warehouse(moderator.getWarehouse())
+                .status(ProductStatus.ON_SALE)
                 .consignmentReceipt(r).currentPrice(new BigDecimal("300000")).currentTerm((short) 2).build();
         when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.of(p));
         when(degradedItemCaseRepository.existsByProduct_IdAndChoiceIsNull(PRODUCT_ID)).thenReturn(false);
@@ -217,6 +235,10 @@ class DegradedItemCaseServiceImplTest {
         assertThat(res.getModeratorNote()).isEqualTo("Rách tay áo");
         assertThat(res.getPhotos()).containsExactly("https://cdn/a.jpg");
         assertThat(res.getStatus()).isEqualTo("PENDING_DECISION");
+
+        // Tạm ẩn khỏi sàn chờ Member quyết định - hàng vẫn nằm trong kho, không phải WITHDRAWN
+        assertThat(p.getStatus()).isEqualTo(ProductStatus.WAREHOUSE);
+        verify(productRepository).save(p);
     }
 
     @Test
@@ -478,6 +500,63 @@ class DegradedItemCaseServiceImplTest {
                 .isInstanceOf(AppException.class)
                 .extracting(ex -> ((AppException) ex).getErrorCode())
                 .isEqualTo(ErrorCode.DEGRADED_ITEM_CASE_FORBIDDEN);
+    }
+
+    // ------------------------------------------------------------------
+    // Moderator xem ca thuộc kho mình quản lý (vd. ca Moderator khác mở lúc kiểm kho)
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("getMine: Moderator xem được ca thuộc kho mình")
+    void getMine_moderatorSameWarehouse_succeeds() {
+        Account moderator = moderatorWithWarehouse();
+        Product item = Product.builder().id("Q7-AK-000845").name("Áo khoác Uniqlo")
+                .member(someMember()).warehouse(moderator.getWarehouse())
+                .consignmentReceipt(ConsignmentReceipt.builder()
+                        .degradedCompensationRate(new BigDecimal("0.50")).build())
+                .build();
+        DegradedItemCase degradedCase = DegradedItemCase.builder()
+                .id(UUID.randomUUID()).product(item).compensationAmount(new BigDecimal("360000")).build();
+        when(degradedItemCaseRepository.findDetailById(degradedCase.getId()))
+                .thenReturn(Optional.of(degradedCase));
+
+        DegradedItemCaseDetailResponse res = service.getMine(moderator, degradedCase.getId());
+
+        assertThat(res.getProductId()).isEqualTo("Q7-AK-000845");
+    }
+
+    @Test
+    @DisplayName("getMine: Moderator thuộc kho khác -> DEGRADED_ITEM_CASE_FORBIDDEN")
+    void getMine_moderatorOtherWarehouse_throwsForbidden() {
+        Account moderator = moderatorWithWarehouse();
+        Product item = Product.builder().id("Q7-AK-000845")
+                .member(someMember()).warehouse(Warehouse.builder().id(UUID.randomUUID()).build())
+                .consignmentReceipt(ConsignmentReceipt.builder()
+                        .degradedCompensationRate(new BigDecimal("0.50")).build())
+                .build();
+        DegradedItemCase degradedCase = DegradedItemCase.builder()
+                .id(UUID.randomUUID()).product(item).compensationAmount(new BigDecimal("360000")).build();
+        when(degradedItemCaseRepository.findDetailById(degradedCase.getId()))
+                .thenReturn(Optional.of(degradedCase));
+
+        assertThatThrownBy(() -> service.getMine(moderator, degradedCase.getId()))
+                .isInstanceOf(AppException.class)
+                .extracting(ex -> ((AppException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.DEGRADED_ITEM_CASE_FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("getMine: Moderator chưa được gán kho -> MODERATOR_NO_WAREHOUSE")
+    void getMine_moderatorNoWarehouse_throws() {
+        Account moderator = Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR).build();
+        DegradedItemCase degradedCase = caseFor(someMember(), null, null);
+        when(degradedItemCaseRepository.findDetailById(degradedCase.getId()))
+                .thenReturn(Optional.of(degradedCase));
+
+        assertThatThrownBy(() -> service.getMine(moderator, degradedCase.getId()))
+                .isInstanceOf(AppException.class)
+                .extracting(ex -> ((AppException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.MODERATOR_NO_WAREHOUSE);
     }
 
     @Test

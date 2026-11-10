@@ -34,7 +34,7 @@ public class WarehouseAdminServiceImpl implements WarehouseAdminService {
     // Hàng còn nằm trong kho thì không được ẩn kho (API 144)
     static final List<ProductStatus> STOCK_STATUSES = List.of(
             ProductStatus.ON_SALE, ProductStatus.RESERVED, ProductStatus.UNCLAIMED,
-            ProductStatus.PLATFORM_OWNED, ProductStatus.RETURNED);
+            ProductStatus.PLATFORM_OWNED, ProductStatus.RETURNED, ProductStatus.WAREHOUSE);
     // Hàng SOLD nhưng đơn chưa giao đi: vẫn ở kho chờ đóng gói
     static final List<OrderStatus> OPEN_ORDER_STATUSES = List.of(OrderStatus.PAID, OrderStatus.PACKING);
     // Phiếu ký gửi chưa xong tại kho

@@ -67,6 +67,11 @@ public class DegradedItemCaseDetailResponse {
      * phải Member chọn qua API 95 */
     private boolean autoDecided;
 
+    /** Thời điểm Member đến quầy nhận lại hàng sau khi chọn PARTIAL_WITH_ITEM_BACK (Counter
+     * handover, context DEGRADED_ITEM_PICKUP); null nếu chưa đến lấy hoặc không áp dụng
+     * (FULL_COMPENSATION/UNCLAIMED không có bước nhận lại hàng) */
+    private Instant pickedUpAt;
+
     /** PENDING_DECISION / DECIDED, suy ra từ decision */
     private String status;
 

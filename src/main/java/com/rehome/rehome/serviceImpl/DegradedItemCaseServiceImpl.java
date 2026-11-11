@@ -363,6 +363,7 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
                 // F-036 chưa quy định hạn lấy hàng riêng cho PARTIAL_WITH_ITEM_BACK
                 .pickupDeadline(null)
                 .autoDecided(c.getChoice() == DegradedItemChoice.UNCLAIMED)
+                .pickedUpAt(c.getPickedUpAt())
                 .status(c.getChoice() == null
                         ? DegradedItemCaseStatus.PENDING_DECISION.name()
                         : DegradedItemCaseStatus.DECIDED.name())

@@ -566,9 +566,6 @@ public class ProductServiceImpl implements ProductService {
         MemberProfile profile = member == null ? null
                 : memberProfileRepository.findByAccountId(member.getId()).orElse(null);
 
-        int daysIntoTerm = Math.max(1, (int) ChronoUnit.DAYS.between(
-                product.getTermStartedAt(), Instant.now()));
-
         UUID decisionId = endOfTermDecisionRepository
                 .findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc(product.getId())
                 .map(EndOfTermDecision::getId)
@@ -588,7 +585,12 @@ public class ProductServiceImpl implements ProductService {
                 .originalPrice(receipt.getAgreedPrice())
                 .floorPrice(receipt.getFloorPrice())
                 .currentTerm(product.getCurrentTerm())
-                .daysIntoTerm(daysIntoTerm)
+                .daysIntoTerm(daysIntoCurrentTerm(product))
+                .termLengthDays(receipt.getTermLengthDays())
+                .commissionRateTerm1(receipt.getCommissionRateTerm1())
+                .commissionRateTerm2(receipt.getCommissionRateTerm2())
+                .commissionRateTerm3(receipt.getCommissionRateTerm3())
+                .degradedCompensationRate(receipt.getDegradedCompensationRate())
                 .memberCode(profile != null ? profile.getMemberCode() : null)
                 .memberFullName(profile != null ? profile.getFullName() : null)
                 .stockInDate(product.getCreatedAt())
@@ -623,7 +625,24 @@ public class ProductServiceImpl implements ProductService {
         Page<Product> result = productRepository.findInventory(
                 account.getWarehouse().getId(), status, degradedOnly, pageable);
 
-        return PageResponse.from(result.map(p -> new InventoryItemResponse(
-                p.getId(), p.getName(), p.getStatus(), p.getConsignmentReceipt().getAgreedPrice(), p.getConsignmentReceipt().getTermLengthDays())));
+        return PageResponse.from(result.map(p -> InventoryItemResponse.builder()
+                .id(p.getId())
+                .name(p.getName())
+                .status(p.getStatus())
+                .agreedPrice(p.getConsignmentReceipt().getAgreedPrice())
+                .termLengthDays(p.getConsignmentReceipt().getTermLengthDays())
+                .currentTerm(p.getCurrentTerm())
+                .daysIntoTerm(daysIntoCurrentTerm(p))
+                .currentPrice(p.getCurrentPrice())
+                .build()));
+    }
+
+    // Số ngày đã trôi qua trong kỳ ký gửi hiện tại (tối thiểu 1); dùng chung cho API 40 và API 41.
+    // null khi sản phẩm chưa có mốc bắt đầu kỳ (dữ liệu cũ)
+    private static Integer daysIntoCurrentTerm(Product product) {
+        if (product.getTermStartedAt() == null) {
+            return null;
+        }
+        return Math.max(1, (int) ChronoUnit.DAYS.between(product.getTermStartedAt(), Instant.now()));
     }
 }

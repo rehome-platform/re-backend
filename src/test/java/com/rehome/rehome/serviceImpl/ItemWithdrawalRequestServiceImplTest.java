@@ -60,7 +60,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-
+import com.rehome.rehome.constant.SystemConfigKeys;
+import com.rehome.rehome.service.SystemConfigReader;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class ItemWithdrawalRequestServiceImplTest {
@@ -74,6 +77,7 @@ class ItemWithdrawalRequestServiceImplTest {
     @Mock MomoApi momoApi;
     @Mock VnPayApi vnPayApi;
     @Mock QueueService queueService;
+    @Mock SystemConfigReader systemConfigReader;
 
     @InjectMocks
     ItemWithdrawalRequestServiceImpl service;
@@ -90,8 +94,8 @@ class ItemWithdrawalRequestServiceImplTest {
 
     @BeforeEach
     void setup() {
-        ReflectionTestUtils.setField(service, "pickupDeadlineDays", PICKUP_DEADLINE_DAYS);
-        ReflectionTestUtils.setField(service, "feePaymentDeadlineMinutes", FEE_PAYMENT_DEADLINE_MINUTES);
+        when(systemConfigReader.getInt(eq(SystemConfigKeys.COUNTER_PICKUP_DAYS), anyInt()))
+                .thenReturn((int) PICKUP_DEADLINE_DAYS);        ReflectionTestUtils.setField(service, "feePaymentDeadlineMinutes", FEE_PAYMENT_DEADLINE_MINUTES);
         ReflectionTestUtils.setField(service, "momoPartnerCode", "MOMO");
         ReflectionTestUtils.setField(service, "momoAccessKey", "access-key");
         ReflectionTestUtils.setField(service, "momoSecretKey", "secret-key");

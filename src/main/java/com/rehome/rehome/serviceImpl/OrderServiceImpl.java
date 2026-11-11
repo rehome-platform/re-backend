@@ -106,7 +106,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-
+import com.rehome.rehome.constant.SystemConfigKeys;
+import com.rehome.rehome.service.SystemConfigReader;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -144,19 +145,11 @@ public class OrderServiceImpl implements OrderService {
     private final QueueItemRepository queueItemRepository;
     private final GhnApi ghnApi;
     private final GhnShippingFeeCalculator ghnShippingFeeCalculator;
-
-    @Value("${app.order.payment-deadline-minutes}")
-    private long paymentDeadlineMinutes;
+    private final SystemConfigReader systemConfigReader;
 
     // Chưa có cấu hình thuế thật, tạm để 0
     @Value("${app.order.tax-rate:0}")
     private BigDecimal taxRate;
-
-    @Value("${app.order.auto-complete-days:3}")
-    private long autoCompleteDays;
-
-    @Value("${app.return.request-window-days}")
-    private long returnRequestWindowDays;
 
     @Value("${ghn.token}")
     private String ghnToken;
@@ -241,9 +234,12 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
+        int paymentTimeoutMinutes = systemConfigReader.getInt(
+                SystemConfigKeys.ORDER_PAYMENT_TIMEOUT_MINUTES,
+                SystemConfigKeys.DEFAULT_ORDER_PAYMENT_TIMEOUT_MINUTES);
         // Mỗi sản phẩm là 1 đơn riêng (giống Shopee), kể cả khi nhiều món cùng kho, để
         // trả hàng/đổi trạng thái được từng món độc lập - không còn gộp theo kho (F-053 cũ).
-        Instant paymentDeadline = Instant.now().plus(paymentDeadlineMinutes, ChronoUnit.MINUTES);
+        Instant paymentDeadline = Instant.now().plus(paymentTimeoutMinutes, ChronoUnit.MINUTES);
         List<OrderResponse> responses = new ArrayList<>();
 
         for (Product product : lockedProducts) {
@@ -375,6 +371,7 @@ public class OrderServiceImpl implements OrderService {
                     .paymentDeadline(order.getPaymentDeadline())
                     .deliveredAt(order.getDeliveredAt())
                     .autoCompleteDeadline(order.getAutoCompleteDeadline())
+                    .returnDeadline(returnDeadline(order))
                     .serviceRating(order.getServiceRating())
                     .build();
         });
@@ -757,11 +754,21 @@ public class OrderServiceImpl implements OrderService {
 
     // Cùng công thức với ReturnRequestServiceImpl khi chặn RETURN_WINDOW_EXPIRED - nếu lệch nhau
     // thì app vẫn hiện nút trả hàng trong lúc API đã từ chối.
+    // Dùng mốc đã chốt lúc GHN báo giao (Order.returnDeadline). Đơn giao trước khi có cột này thì
+    // tính lại từ deliveredAt theo config hiện tại. ReturnRequestServiceImpl.create chặn
+    // RETURN_WINDOW_EXPIRED bằng cùng quy tắc - nếu lệch nhau thì app vẫn hiện nút trả hàng
+    // trong lúc API đã từ chối.
     private Instant returnDeadline(Order order) {
+        if (order.getReturnDeadline() != null) {
+            return order.getReturnDeadline();
+        }
         if (order.getDeliveredAt() == null) {
             return null;
         }
-        return order.getDeliveredAt().plus(returnRequestWindowDays, ChronoUnit.DAYS);
+        int windowDays = systemConfigReader.getInt(
+                SystemConfigKeys.RETURN_REQUEST_WINDOW_DAYS,
+                SystemConfigKeys.DEFAULT_RETURN_REQUEST_WINDOW_DAYS);
+        return order.getDeliveredAt().plus(windowDays, ChronoUnit.DAYS);
     }
 
     @Override

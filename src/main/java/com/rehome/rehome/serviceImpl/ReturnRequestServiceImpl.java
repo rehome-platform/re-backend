@@ -65,8 +65,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import com.rehome.rehome.constant.SystemConfigKeys;
-import com.rehome.rehome.service.SystemConfigReader;
+
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -94,15 +93,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     private final QueueService queueService;
     private final GhnApi ghnApi;
     private final SystemConfigReader systemConfigReader;
-
-    @Value("${app.return.request-window-days}")
-    private long requestWindowDays;
-
-    @Value("${app.return.handover-deadline-days}")
-    private long handoverDeadlineDays;
-
-    @Value("${app.return.pickup-deadline-days}")
-    private long pickupDeadlineDays;
 
     @Value("${ghn.token}")
     private String ghnToken;

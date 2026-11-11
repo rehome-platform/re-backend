@@ -43,6 +43,12 @@ public interface ViolationReportRepository extends JpaRepository<ViolationReport
     List<ViolationReport> findByTargetTypeAndTargetIdOrderByCreatedAtAsc(ViolationTargetType targetType,
                                                                           UUID targetId);
 
+    // Báo cáo RESOLVED của nhiều target cùng lúc (gom 1 query để tránh N+1 khi hiển thị removalReason
+    // trên danh sách - xem CommunityPostServiceImpl.listMyPosts); lấy mới nhất theo targetId ở tầng service
+    List<ViolationReport> findByTargetTypeAndTargetIdInAndStatus(ViolationTargetType targetType,
+                                                                   Collection<UUID> targetIds,
+                                                                   ViolationReportStatus status);
+
     List<ViolationReport> findByTargetTypeAndTargetIdAndStatusOrderByCreatedAtAsc(
             ViolationTargetType targetType, UUID targetId, ViolationReportStatus status);
 

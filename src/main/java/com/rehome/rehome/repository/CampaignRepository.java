@@ -41,11 +41,13 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
     // Chiến dịch đã tồn tại trước khi có cột title_normalized - xem CampaignTitleNormalizeInitializer
     List<Campaign> findAllByTitleNormalizedIsNullAndTitleIsNotNull();
 
-    // GET /campaigns?search=&status=ACTIVE: tìm theo title của chiến dịch hoặc tên tổ chức.
-    // keyword "" -> không lọc theo từ khóa, chỉ còn status
+    // GET /campaigns?search=&status=ACTIVE&warehouseId=: tìm theo title của chiến dịch hoặc tên tổ
+    // chức. keyword "" -> không lọc theo từ khóa, chỉ còn status. warehouseId null -> không lọc
+    // theo điểm nhận đồ (cũng dùng cho GET /warehouses/{id}/campaigns với warehouseId luôn có giá trị).
     @Query("select c from Campaign c where c.status = :status "
             + "and (c.titleNormalized like concat('%', :keyword, '%') "
-            + "or c.organization.displayNameNormalized like concat('%', :keyword, '%'))")
+            + "or c.organization.displayNameNormalized like concat('%', :keyword, '%')) "
+            + "and (:warehouseId is null or :warehouseId in (select w.id from c.warehouses w))")
     Page<Campaign> search(@Param("status") CampaignStatus status, @Param("keyword") String keyword,
-                           Pageable pageable);
+                           @Param("warehouseId") UUID warehouseId, Pageable pageable);
 }

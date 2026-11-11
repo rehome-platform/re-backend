@@ -33,6 +33,7 @@ import com.rehome.rehome.repository.ModeratorProfileRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.NotificationService;
+import com.rehome.rehome.service.QueueService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -69,6 +70,7 @@ class DonationServiceImplTest {
     @Mock private CampaignRepository campaignRepository;
     @Mock private ModeratorProfileRepository moderatorProfileRepository;
     @Mock private NotificationService notificationService;
+    @Mock private QueueService queueService;
 
     @InjectMocks private DonationServiceImpl service;
 

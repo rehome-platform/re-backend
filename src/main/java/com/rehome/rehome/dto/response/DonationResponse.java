@@ -20,6 +20,7 @@ public class DonationResponse {
     private String warehouseId;
     private String warehouseName;
     private String campaignId;
+    private String campaignTitle;
     private String donorName;
 
     @JsonProperty("isAnonymous") // Jackson mặc định bỏ tiền tố "is" của getter boolean -> phải ép tên field tường minh
@@ -30,6 +31,15 @@ public class DonationResponse {
 
     // Mã nhân viên Moderator đã ghi nhận lượt quyên góp này (ModeratorProfile.moderatorCode)
     private String recordedBy;
+
+    // Tổ chức đã đến nhận; null khi còn chờ lấy (xem Donation.handedOverToOrganization)
+    private String organizationId;
+    private String organizationName;
+
+    // Sản phẩm ký gửi gốc nếu lượt quyên góp này đến từ POST /products/{id}/donate; null với
+    // lượt ghi nhận trực tiếp tại quầy (F-163)
+    private String productId;
+    private String productName;
 
     private Instant handedOverAt;
     private Instant createdAt;

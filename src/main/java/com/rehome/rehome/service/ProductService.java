@@ -30,6 +30,9 @@ public interface ProductService {
 
     PriceReductionResponse reducePrice(Account account, String productId, PriceReductionRequest request);
 
+    // POST /products/{id}/donate: quyên góp sản phẩm ký gửi đang ON_SALE/WAREHOUSE/WITHDRAWN
+    DonationResponse donate(Account account, String productId);
+
     ShippingFeePreviewResponse getShippingFeePreview(String productId, String wardName, String provinceName);
 
     // ---- Kho (Moderator)

@@ -5,6 +5,7 @@ import com.rehome.rehome.dto.request.CreateProductRequest;
 import com.rehome.rehome.dto.request.PriceReductionRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.DonationStatus;
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;
@@ -88,6 +89,12 @@ class ProductServiceImplTest {
     // /products/mine gắn thêm yêu cầu rút đang chờ và ca hàng xuống cấp đang chờ quyết định
     @Mock ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
     @Mock DegradedItemCaseRepository degradedItemCaseRepository;
+
+    // donate() (POST /products/{id}/donate)
+    @Mock MemberProfileRepository memberProfileRepository;
+    @Mock DonationRepository donationRepository;
+    @Mock com.rehome.rehome.service.QueueService queueService;
+    @Mock com.rehome.rehome.service.NotificationService notificationService;
 
     @InjectMocks ProductServiceImpl service;
 
@@ -1413,5 +1420,120 @@ class ProductServiceImplTest {
         assertEquals(2, res.getSize());
         assertEquals(5, res.getTotalElements());
         assertEquals(3, res.getTotalPages());
+    }
+
+    // =====================================================================
+    // donate() - POST /products/{id}/donate
+    // =====================================================================
+
+    private void stubDonationSaveAssignsId() {
+        when(donationRepository.save(any())).thenAnswer(invocation -> {
+            com.rehome.rehome.entity.marketplace.Donation d = invocation.getArgument(0);
+            d.setId(UUID.randomUUID());
+            d.setCreatedAt(Instant.now());
+            return d;
+        });
+    }
+
+    @Test
+    @DisplayName("donate: ON_SALE -> DONATED, tạo donation PENDING_PICKUP, enqueue DONATION_PICKUP")
+    void donate_onSale_marksDonatedAndCreatesDonation() {
+        Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).name("Kho Q7").build();
+        product.setWarehouse(warehouse);
+        stubFindProduct();
+        stubDonationSaveAssignsId();
+
+        DonationResponse res = service.donate(owner, PRODUCT_ID);
+
+        assertEquals(ProductStatus.DONATED, product.getStatus());
+        verify(productRepository).save(product);
+        verify(donationRepository).save(any());
+        verify(queueService).enqueue(eq(com.rehome.rehome.entity.enums.QueueType.DONATION_PICKUP),
+                anyString(), eq(warehouse));
+        verify(endOfTermDecisionRepository, never()).findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc(any());
+        verify(itemWithdrawalRequestRepository, never()).save(any());
+        assertEquals(PRODUCT_ID, res.getProductId());
+        assertEquals(DonationStatus.PENDING_PICKUP.name(), res.getStatus());
+    }
+
+    @Test
+    @DisplayName("donate: WAREHOUSE -> chốt EndOfTermDecision.decision = DONATE")
+    void donate_warehouse_finalizesEndOfTermDecisionAsDonate() {
+        product.setStatus(ProductStatus.WAREHOUSE);
+        product.setWarehouse(Warehouse.builder().id(UUID.randomUUID()).build());
+        stubFindProduct();
+        stubDonationSaveAssignsId();
+
+        EndOfTermDecision decision = EndOfTermDecision.builder().id(UUID.randomUUID()).product(product).build();
+        when(endOfTermDecisionRepository.findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc(PRODUCT_ID))
+                .thenReturn(Optional.of(decision));
+
+        service.donate(owner, PRODUCT_ID);
+
+        assertEquals(com.rehome.rehome.entity.enums.EndOfTermChoice.DONATE, decision.getDecision());
+        assertNotNull(decision.getDecidedAt());
+        verify(endOfTermDecisionRepository).save(decision);
+    }
+
+    @Test
+    @DisplayName("donate: WITHDRAWN với yêu cầu rút hàng PENDING_PICKUP -> huỷ yêu cầu, dequeue WITHDRAWAL")
+    void donate_withdrawnPendingPickup_cancelsWithdrawalAndDequeues() {
+        Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).build();
+        product.setStatus(ProductStatus.WITHDRAWN);
+        product.setWarehouse(warehouse);
+        stubFindProduct();
+        stubDonationSaveAssignsId();
+
+        ItemWithdrawalRequest withdrawal = ItemWithdrawalRequest.builder()
+                .id(UUID.randomUUID())
+                .status(ItemWithdrawalStatus.PENDING_PICKUP)
+                .build();
+        when(itemWithdrawalRequestRepository.findFirstByProduct_IdAndStatusIn(eq(PRODUCT_ID), any()))
+                .thenReturn(Optional.of(withdrawal));
+
+        service.donate(owner, PRODUCT_ID);
+
+        assertEquals(ItemWithdrawalStatus.CANCELLED, withdrawal.getStatus());
+        verify(itemWithdrawalRequestRepository).save(withdrawal);
+        verify(queueService).dequeue(com.rehome.rehome.entity.enums.QueueType.WITHDRAWAL,
+                withdrawal.getId().toString());
+    }
+
+    @Test
+    @DisplayName("donate: WITHDRAWN với yêu cầu rút hàng PENDING_APPROVAL -> 409, không đổi gì")
+    void donate_withdrawnPendingApproval_throwsConflict() {
+        product.setStatus(ProductStatus.WITHDRAWN);
+        product.setWarehouse(Warehouse.builder().id(UUID.randomUUID()).build());
+        stubFindProduct();
+
+        ItemWithdrawalRequest withdrawal = ItemWithdrawalRequest.builder()
+                .id(UUID.randomUUID())
+                .status(ItemWithdrawalStatus.PENDING_APPROVAL)
+                .build();
+        when(itemWithdrawalRequestRepository.findFirstByProduct_IdAndStatusIn(eq(PRODUCT_ID), any()))
+                .thenReturn(Optional.of(withdrawal));
+
+        assertError(ErrorCode.DONATE_WITHDRAWAL_PENDING_APPROVAL, () -> service.donate(owner, PRODUCT_ID));
+        verify(donationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("donate: trạng thái không hợp lệ (SOLD) -> 409")
+    void donate_invalidStatus_throwsConflict() {
+        product.setStatus(ProductStatus.SOLD);
+        stubFindProduct();
+
+        assertError(ErrorCode.PRODUCT_NOT_DONATABLE, () -> service.donate(owner, PRODUCT_ID));
+        verify(donationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("donate: không phải chủ sản phẩm -> 403")
+    void donate_notOwner_throwsForbidden() {
+        stubFindProduct();
+        Account stranger = Account.builder().id(UUID.randomUUID()).role(Role.MEMBER).build();
+
+        assertError(ErrorCode.PRODUCT_DONATE_FORBIDDEN, () -> service.donate(stranger, PRODUCT_ID));
+        verify(donationRepository, never()).save(any());
     }
 }

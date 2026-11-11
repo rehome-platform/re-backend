@@ -285,12 +285,12 @@ class CampaignServiceImplTest {
     @Test
     void listPublicCampaigns_defaultStatus_filtersToOpen() {
         UUID orgId = UUID.randomUUID();
-        when(campaignRepository.search(eq(CampaignStatus.OPEN), eq(""), any(Pageable.class)))
+        when(campaignRepository.search(eq(CampaignStatus.OPEN), eq(""), isNull(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(
                         baseCampaign(UUID.randomUUID()).organization(organizationWithDonationPoint(orgId))
                                 .status(CampaignStatus.OPEN).build())));
 
-        PageResponse<CampaignPublicResponse> result = service.listPublicCampaigns(null, null, 0, 20);
+        PageResponse<CampaignPublicResponse> result = service.listPublicCampaigns(null, null, null, 0, 20);
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).getStatus()).isEqualTo("ACTIVE");
@@ -298,17 +298,17 @@ class CampaignServiceImplTest {
 
     @Test
     void listPublicCampaigns_closedStatus_filtersToClosed() {
-        when(campaignRepository.search(eq(CampaignStatus.CLOSED), eq(""), any(Pageable.class)))
+        when(campaignRepository.search(eq(CampaignStatus.CLOSED), eq(""), isNull(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
-        service.listPublicCampaigns(null, "CLOSED", 0, 20);
+        service.listPublicCampaigns(null, "CLOSED", null, 0, 20);
 
-        verify(campaignRepository).search(eq(CampaignStatus.CLOSED), eq(""), any(Pageable.class));
+        verify(campaignRepository).search(eq(CampaignStatus.CLOSED), eq(""), isNull(), any(Pageable.class));
     }
 
     @Test
     void listPublicCampaigns_invalidStatus_throwsBadRequest() {
-        assertThatThrownBy(() -> service.listPublicCampaigns(null, "WEIRD", 0, 20))
+        assertThatThrownBy(() -> service.listPublicCampaigns(null, "WEIRD", null, 0, 20))
                 .isInstanceOf(BadRequestException.class);
 
         verifyNoInteractions(campaignRepository);
@@ -316,12 +316,23 @@ class CampaignServiceImplTest {
 
     @Test
     void listPublicCampaigns_withSearch_normalizesKeyword() {
-        when(campaignRepository.search(eq(CampaignStatus.OPEN), eq("ao khoac"), any(Pageable.class)))
+        when(campaignRepository.search(eq(CampaignStatus.OPEN), eq("ao khoac"), isNull(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
-        service.listPublicCampaigns("Áo khoác", null, 0, 20);
+        service.listPublicCampaigns("Áo khoác", null, null, 0, 20);
 
-        verify(campaignRepository).search(eq(CampaignStatus.OPEN), eq("ao khoac"), any(Pageable.class));
+        verify(campaignRepository).search(eq(CampaignStatus.OPEN), eq("ao khoac"), isNull(), any(Pageable.class));
+    }
+
+    @Test
+    void listPublicCampaigns_withWarehouseId_passesThroughToRepository() {
+        UUID warehouseId = UUID.randomUUID();
+        when(campaignRepository.search(eq(CampaignStatus.OPEN), eq(""), eq(warehouseId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        service.listPublicCampaigns(null, null, warehouseId, 0, 20);
+
+        verify(campaignRepository).search(eq(CampaignStatus.OPEN), eq(""), eq(warehouseId), any(Pageable.class));
     }
 
     // =====================================================================

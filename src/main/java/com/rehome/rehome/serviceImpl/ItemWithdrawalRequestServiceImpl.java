@@ -701,7 +701,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
             return ItemWithdrawalStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             throw new BadRequestException(
-                    "status phải là PENDING_APPROVAL, PENDING_PICKUP, REJECTED, COMPLETED hoặc EXPIRED.");
+                    "status phải là PENDING_APPROVAL, PENDING_PICKUP, REJECTED, COMPLETED, EXPIRED hoặc CANCELLED.");
         }
     }
 

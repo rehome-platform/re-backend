@@ -118,9 +118,15 @@ public class Order {
     @Column(name = "delivered_at", nullable = true)
     private Instant deliveredAt;
 
-    // Hạn tự hoàn thành, mặc định 3 ngày sau khi giao
+    // Hạn tự hoàn thành = deliveredAt + order_auto_complete_days (system_configs), chốt lúc GHN báo giao
     @Column(name = "auto_complete_deadline", nullable = true)
     private Instant autoCompleteDeadline;
+
+    // Hạn cuối gửi yêu cầu trả hàng = deliveredAt + return_request_window_days (system_configs), chốt
+    // lúc GHN báo giao để admin đổi cấu hình sau đó không làm lệch hạn của đơn đã giao.
+    // Null với đơn giao trước khi có cột này - lúc đó tính lại từ deliveredAt.
+    @Column(name = "return_deadline", nullable = true)
+    private Instant returnDeadline;
 
     // Lý do hủy — chỉ có PAYMENT_EXPIRED được code hủy tự động gán hiện tại
     @Enumerated(EnumType.STRING)

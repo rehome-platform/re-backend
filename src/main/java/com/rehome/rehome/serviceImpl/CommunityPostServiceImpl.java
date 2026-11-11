@@ -30,6 +30,7 @@ import com.rehome.rehome.entity.marketplace.PostComment;
 import com.rehome.rehome.entity.marketplace.PostLike;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.exception.UnauthorizedException;
@@ -462,6 +463,13 @@ public class CommunityPostServiceImpl implements CommunityPostService {
 
         CommunityPost post = requireOwnPost(organizationAccountId, postId,
                 "Bạn không có quyền sửa bài viết này.");
+        // Bài đã bị Moderator gỡ do vi phạm thì không cho sửa lại nội dung - cùng lý do với
+        // Campaign HIDDEN (CampaignServiceImpl.closeCampaign): tránh "rửa" nội dung vi phạm
+        // rồi trông như bài vẫn còn hợp lệ.
+        if (post.getStatus() == ContentStatus.REMOVED) {
+            throw new ConflictException(
+                    "Bài viết đã bị gỡ do vi phạm, không thể sửa.", "POST_ALREADY_REMOVED");
+        }
         Campaign campaign = resolveOwnOpenCampaignOrNull(organizationAccountId, request.getCampaignId(), post.getCampaign());
 
         post.setContent(request.getContent());
@@ -577,6 +585,9 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                         Collectors.mapping(row -> (String) row[1], Collectors.toList())));
         Set<UUID> likedByMePostIds = Set.copyOf(
                 postLikeRepository.findLikedPostIds(postIds, organizationAccountId));
+        Map<UUID, String> removalReasonsByPost = latestResolutionReasons(ViolationTargetType.POST, result.getContent().stream()
+                .filter(p -> p.getStatus() == ContentStatus.REMOVED)
+                .map(CommunityPost::getId).toList());
 
         return PageResponse.from(result.map(post -> {
             Campaign campaign = post.getCampaign();
@@ -591,8 +602,29 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                     .commentCount(commentCounts.getOrDefault(post.getId(), 0L))
                     .reportCount(reportCounts.getOrDefault(post.getId(), 0L))
                     .likedByMe(likedByMePostIds.contains(post.getId()))
+                    .status(post.getStatus().name())
+                    .removalReason(removalReasonsByPost.get(post.getId()))
                     .build();
         }));
+    }
+
+    // Phiên bản gom nhiều target của latestResolutionReason (xem getDetail) - tránh N+1 khi 1 trang
+    // có nhiều bài REMOVED; targetIds rỗng thì bỏ qua query luôn.
+    private Map<UUID, String> latestResolutionReasons(ViolationTargetType targetType, List<UUID> targetIds) {
+        if (targetIds.isEmpty()) {
+            return Map.of();
+        }
+        return violationReportRepository.findByTargetTypeAndTargetIdInAndStatus(
+                        targetType, targetIds, ViolationReportStatus.RESOLVED)
+                .stream()
+                .filter(r -> r.getResolvedAt() != null)
+                .collect(Collectors.groupingBy(
+                        com.rehome.rehome.entity.marketplace.ViolationReport::getTargetId,
+                        Collectors.collectingAndThen(
+                                Collectors.maxBy(Comparator.comparing(
+                                        com.rehome.rehome.entity.marketplace.ViolationReport::getResolvedAt)),
+                                r -> r.map(com.rehome.rehome.entity.marketplace.ViolationReport::getResolutionReason)
+                                        .orElse(null))));
     }
 
     private CommunityPost requireOwnPost(UUID organizationAccountId, UUID postId, String forbiddenMessage) {

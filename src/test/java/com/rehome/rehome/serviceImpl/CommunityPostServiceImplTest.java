@@ -28,6 +28,7 @@ import com.rehome.rehome.entity.marketplace.PostComment;
 import com.rehome.rehome.entity.marketplace.PostLike;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.exception.UnauthorizedException;
@@ -1277,6 +1278,24 @@ class CommunityPostServiceImplTest {
     }
 
     @Test
+    void updatePost_removedPost_throwsConflict() {
+        UUID orgId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        CommunityPost entity = post(postId, orgId, ContentStatus.REMOVED);
+        when(communityPostRepository.findById(postId)).thenReturn(Optional.of(entity));
+
+        assertThatThrownBy(() -> service.updatePost(orgId, postId,
+                new UpdatePostRequest("nội dung mới", null, null)))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Bài viết đã bị gỡ do vi phạm, không thể sửa.")
+                .satisfies(e -> assertThat(((ConflictException) e).getCode())
+                        .isEqualTo("POST_ALREADY_REMOVED"));
+
+        verify(communityPostRepository, never()).save(any());
+        verify(communityPostPhotoRepository, never()).deleteByPost_Id(any());
+    }
+
+    @Test
     void deletePost_success_marksRemovedWithoutHardDelete() {
         UUID orgId = UUID.randomUUID();
         UUID postId = UUID.randomUUID();
@@ -1376,6 +1395,43 @@ class CommunityPostServiceImplTest {
         assertThat(res.getCampaignTitle()).isEqualTo("Mùa đông ấm 2026");
         assertThat(res.getReportCount()).isEqualTo(2L);
         assertThat(res.isLikedByMe()).isTrue();
+    }
+
+    @Test
+    void listMyPosts_removedPost_includesStatusAndRemovalReason() {
+        UUID orgId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        when(communityPostRepository.findByOrganization_AccountId(eq(orgId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(post(postId, orgId, ContentStatus.REMOVED))));
+        com.rehome.rehome.entity.marketplace.ViolationReport resolved =
+                com.rehome.rehome.entity.marketplace.ViolationReport.builder()
+                        .id(UUID.randomUUID())
+                        .targetId(postId)
+                        .resolutionReason("Nội dung kêu gọi quyên góp sai sự thật")
+                        .resolvedAt(Instant.parse("2026-11-05T00:00:00Z"))
+                        .build();
+        when(violationReportRepository.findByTargetTypeAndTargetIdInAndStatus(
+                ViolationTargetType.POST, List.of(postId), ViolationReportStatus.RESOLVED))
+                .thenReturn(List.of(resolved));
+
+        MyPostResponse res = service.listMyPosts(orgId, 0, 20).getContent().get(0);
+
+        assertThat(res.getStatus()).isEqualTo("REMOVED");
+        assertThat(res.getRemovalReason()).isEqualTo("Nội dung kêu gọi quyên góp sai sự thật");
+    }
+
+    @Test
+    void listMyPosts_visiblePost_statusVisibleAndNoRemovalReasonQuery() {
+        UUID orgId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        when(communityPostRepository.findByOrganization_AccountId(eq(orgId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(post(postId, orgId, ContentStatus.VISIBLE))));
+
+        MyPostResponse res = service.listMyPosts(orgId, 0, 20).getContent().get(0);
+
+        assertThat(res.getStatus()).isEqualTo("VISIBLE");
+        assertThat(res.getRemovalReason()).isNull();
+        verify(violationReportRepository, never()).findByTargetTypeAndTargetIdInAndStatus(any(), any(), any());
     }
 
     @Test

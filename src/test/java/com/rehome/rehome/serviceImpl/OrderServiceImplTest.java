@@ -454,8 +454,8 @@ class OrderServiceImplTest {
     }
 
     @Test
-    // Giống Shopee: dù 2 món chung 1 kho vẫn phải ra 2 đơn riêng, không gộp - để trả hàng
-    // được từng món độc lập.
+        // Giống Shopee: dù 2 món chung 1 kho vẫn phải ra 2 đơn riêng, không gộp - để trả hàng
+        // được từng món độc lập.
     void createOrders_splitsCartIntoOneOrderPerProduct_evenWhenSameWarehouse() {
         product2.setWarehouse(warehouse1);
         Cart cart = Cart.builder().id(UUID.randomUUID()).member(member).build();
@@ -1358,10 +1358,16 @@ class OrderServiceImplTest {
         verify(walletTransactionRepository, never()).save(any());
     }
 
+
     @Test
     void payoutOrder_paysEachSellerAndSetsPayoutAt() {
         UUID orderId = UUID.randomUUID();
-        Account seller = Account.builder().id(UUID.randomUUID()).email("seller@example.com").build();
+
+        Account seller = Account.builder()
+                .id(UUID.randomUUID())
+                .email("seller@example.com")
+                .build();
+
         product1.setMember(seller);
 
         Order order = Order.builder()
@@ -1371,31 +1377,60 @@ class OrderServiceImplTest {
                 .status(OrderStatus.COMPLETED)
                 .build();
 
-        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1)
+        OrderItem item1 = OrderItem.builder()
+                .id(UUID.randomUUID())
+                .order(order)
+                .product(product1)
                 .priceAtOrder(new BigDecimal("220000"))
                 .commissionRateApplied(new BigDecimal("0.10"))
                 .build();
 
-        Wallet sellerWallet = Wallet.builder().id(UUID.randomUUID()).member(seller)
-                .balance(BigDecimal.ZERO).build();
+        Wallet sellerWallet = Wallet.builder()
+                .id(UUID.randomUUID())
+                .member(seller)
+                .balance(BigDecimal.ZERO)
+                .build();
 
-        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
-        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
-        when(walletRepository.findByMember_Id(seller.getId())).thenReturn(Optional.of(sellerWallet));
+        when(orderRepository.findByIdForUpdate(orderId))
+                .thenReturn(Optional.of(order));
 
-        orderService.payoutOrder(orderId, "Tự động chuyển tiền sau hạn trả hàng");
+        when(orderItemRepository.findAllByOrder_Id(orderId))
+                .thenReturn(List.of(item1));
 
-        assertThat(sellerWallet.getBalance()).isEqualByComparingTo(new BigDecimal("198000"));
+        when(walletRepository.findByMember_Id(seller.getId()))
+                .thenReturn(Optional.of(sellerWallet));
+
+        orderService.payoutOrder(
+                orderId,
+                "Tự động chuyển tiền sau hạn trả hàng"
+        );
+
+        assertThat(sellerWallet.getBalance())
+                .isEqualByComparingTo(new BigDecimal("198000"));
+
         assertThat(order.getPayoutAt()).isNotNull();
 
-        ArgumentCaptor<WalletTransaction> txCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
-        verify(walletTransactionRepository, times(2)).save(txCaptor.capture());
-        WalletTransaction memberTx = txCaptor.getAllValues().stream()
-                .filter(tx -> tx.getWalletType() == WalletType.MEMBER).findFirst().orElseThrow();
-        assertThat(memberTx.getType()).isEqualTo(WalletTransactionType.ORDER_PAYOUT);
-        assertThat(memberTx.getNote()).isEqualTo("Tự động chuyển tiền sau hạn trả hàng");
+        ArgumentCaptor<WalletTransaction> txCaptor =
+                ArgumentCaptor.forClass(WalletTransaction.class);
+
+        verify(walletTransactionRepository, times(3))
+                .save(txCaptor.capture());
+
+        WalletTransaction memberTx = txCaptor.getAllValues()
+                .stream()
+                .filter(tx -> tx.getWalletType() == WalletType.MEMBER)
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(memberTx.getType())
+                .isEqualTo(WalletTransactionType.ORDER_PAYOUT);
+
+        assertThat(memberTx.getNote())
+                .isEqualTo("Tự động chuyển tiền sau hạn trả hàng");
+
         verify(orderRepository).save(order);
     }
+
 
     @Test
     void payoutOrder_doesNothing_whenAlreadyPaidOut() {

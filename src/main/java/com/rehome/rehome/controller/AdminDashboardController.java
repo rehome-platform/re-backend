@@ -25,10 +25,15 @@ public class AdminDashboardController {
 
     private final AdminDashboardService adminDashboardService;
 
+    // from/to tùy chọn (yyyy-MM-dd, gồm cả ngày to). Ngày/tuần/tháng do client chọn khoảng tương ứng.
+    // Doanh thu, số đơn, điểm đánh giá, cơ cấu nguồn thu lọc theo khoảng; tồn kho, số dư ví, quỹ,
+    // việc quá hạn luôn là giá trị hiện tại.
     @GetMapping
-    @Operation(summary = "API 147 - Dashboard tổng quan vận hành (F-158)")
-    public ResponseEntity<ApiResponse<AdminDashboardResponse>> dashboard() {
-        return ResponseEntity.ok(ApiResponse.success(adminDashboardService.getDashboard(), "OK"));
+    @Operation(summary = "API 147 - Dashboard tổng quan vận hành (F-158), lọc tùy chọn theo from/to yyyy-MM-dd")
+    public ResponseEntity<ApiResponse<AdminDashboardResponse>> dashboard(
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) {
+        return ResponseEntity.ok(ApiResponse.success(adminDashboardService.getDashboard(from, to), "OK"));
     }
 
     // from/to nhận String để sai định dạng cũng ra 400 INVALID_DATE_RANGE đúng message trong docs

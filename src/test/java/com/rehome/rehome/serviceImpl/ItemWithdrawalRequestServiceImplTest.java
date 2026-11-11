@@ -14,11 +14,16 @@ import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.enums.Role;
+import com.rehome.rehome.entity.enums.TransactionStatus;
+import com.rehome.rehome.entity.enums.WalletTransactionType;
+import com.rehome.rehome.entity.enums.WalletType;
 import com.rehome.rehome.entity.enums.WithdrawalFeePaymentMethod;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
+import com.rehome.rehome.entity.marketplace.PlatformFund;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.Wallet;
+import com.rehome.rehome.entity.marketplace.WalletTransaction;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
@@ -95,7 +100,8 @@ class ItemWithdrawalRequestServiceImplTest {
     @BeforeEach
     void setup() {
         when(systemConfigReader.getInt(eq(SystemConfigKeys.COUNTER_PICKUP_DAYS), anyInt()))
-                .thenReturn((int) PICKUP_DEADLINE_DAYS);        ReflectionTestUtils.setField(service, "feePaymentDeadlineMinutes", FEE_PAYMENT_DEADLINE_MINUTES);
+                .thenReturn((int) PICKUP_DEADLINE_DAYS);
+        ReflectionTestUtils.setField(service, "feePaymentDeadlineMinutes", FEE_PAYMENT_DEADLINE_MINUTES);
         ReflectionTestUtils.setField(service, "momoPartnerCode", "MOMO");
         ReflectionTestUtils.setField(service, "momoAccessKey", "access-key");
         ReflectionTestUtils.setField(service, "momoSecretKey", "secret-key");
@@ -655,7 +661,28 @@ class ItemWithdrawalRequestServiceImplTest {
 
         assertThat(wallet.getBalance()).isEqualByComparingTo(new BigDecimal("50000"));
         verify(walletRepository).save(wallet);
-        verify(walletTransactionRepository, org.mockito.Mockito.atLeast(2)).save(any());
+
+        // Hai bút toán: Member (-50.000, WITHDRAWAL_FEE) và đối ứng PLATFORM (+50.000, WITHDRAWAL_FEE_REVENUE)
+        ArgumentCaptor<WalletTransaction> txCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository, times(2)).save(txCaptor.capture());
+        WalletTransaction memberTx = txCaptor.getAllValues().get(0);
+        WalletTransaction platformTx = txCaptor.getAllValues().get(1);
+
+        assertThat(memberTx.getWalletType()).isEqualTo(WalletType.MEMBER);
+        assertThat(memberTx.getType()).isEqualTo(WalletTransactionType.WITHDRAWAL_FEE);
+        assertThat(memberTx.getAmount()).isEqualByComparingTo(new BigDecimal("-50000"));
+        assertThat(memberTx.getBalanceAfter()).isEqualByComparingTo(new BigDecimal("50000"));
+        assertThat(memberTx.getRelatedItemWithdrawalRequest()).isSameAs(r);
+
+        assertThat(platformTx.getWalletType()).isEqualTo(WalletType.PLATFORM);
+        assertThat(platformTx.getType()).isEqualTo(WalletTransactionType.WITHDRAWAL_FEE_REVENUE);
+        assertThat(platformTx.getAmount()).isEqualByComparingTo(new BigDecimal("50000"));
+        assertThat(platformTx.getCounterpartTransaction()).isSameAs(memberTx);
+        assertThat(platformTx.getRelatedItemWithdrawalRequest()).isSameAs(r);
+
+        ArgumentCaptor<PlatformFund> fundCaptor = ArgumentCaptor.forClass(PlatformFund.class);
+        verify(platformFundRepository).save(fundCaptor.capture());
+        assertThat(fundCaptor.getValue().getBalance()).isEqualByComparingTo(new BigDecimal("50000"));
 
         assertThat(r.getFeePaymentMethod()).isEqualTo(WithdrawalFeePaymentMethod.WALLET);
         assertThat(r.getFeePaidAt()).isNotNull();
@@ -771,7 +798,7 @@ class ItemWithdrawalRequestServiceImplTest {
     }
 
     @Test
-    @DisplayName("applyMomoFeePaymentResult: resultCode = 0 -> chốt WALLET... à MOMO, feePaidAt")
+    @DisplayName("applyMomoFeePaymentResult: resultCode = 0 -> chốt MOMO, feePaidAt")
     void applyMomoFeePaymentResult_success_marksPaid() {
         ItemWithdrawalRequest r = withdrawal(new BigDecimal("50000"));
         when(itemWithdrawalRequestRepository.findByMomoOrderId("momo-order-1")).thenReturn(Optional.of(r));
@@ -782,6 +809,49 @@ class ItemWithdrawalRequestServiceImplTest {
         assertThat(r.getFeePaymentMethod()).isEqualTo(WithdrawalFeePaymentMethod.MOMO);
         assertThat(r.getFeePaidAt()).isNotNull();
         verify(itemWithdrawalRequestRepository).save(r);
+    }
+
+    @Test
+    @DisplayName("applyMomoFeePaymentResult: thành công -> ghi 1 bút toán PLATFORM +phí, không có counterpart, cộng quỹ")
+    void applyMomoFeePaymentResult_success_recordsPlatformIncome() {
+        ItemWithdrawalRequest r = withdrawal(new BigDecimal("50000"));
+        when(itemWithdrawalRequestRepository.findByMomoOrderId("momo-order-1")).thenReturn(Optional.of(r));
+        PlatformFund fund = PlatformFund.builder().id(UUID.randomUUID()).balance(new BigDecimal("200000")).build();
+        when(platformFundRepository.findTopByOrderByIdAsc()).thenReturn(Optional.of(fund));
+
+        service.applyMomoFeePaymentResult("momo-order-1", 0, "999");
+
+        ArgumentCaptor<WalletTransaction> captor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository, times(1)).save(captor.capture());
+        WalletTransaction tx = captor.getValue();
+        assertThat(tx.getWalletType()).isEqualTo(WalletType.PLATFORM);
+        assertThat(tx.getWalletId()).isEqualTo(fund.getId());
+        assertThat(tx.getType()).isEqualTo(WalletTransactionType.WITHDRAWAL_FEE_REVENUE);
+        assertThat(tx.getAmount()).isEqualByComparingTo(new BigDecimal("50000"));
+        assertThat(tx.getBalanceAfter()).isEqualByComparingTo(new BigDecimal("250000"));
+        assertThat(tx.getStatus()).isEqualTo(TransactionStatus.SUCCESS);
+        assertThat(tx.getCounterpartTransaction()).isNull();
+        assertThat(tx.getRelatedItemWithdrawalRequest()).isSameAs(r);
+        assertThat(tx.getNote()).contains("MoMo").contains("999").contains(PRODUCT_ID);
+
+        assertThat(fund.getBalance()).isEqualByComparingTo(new BigDecimal("250000"));
+        verify(platformFundRepository).save(fund);
+    }
+
+    @Test
+    @DisplayName("applyMomoFeePaymentResult: thất bại hoặc IPN lặp -> không ghi bút toán, không đổi quỹ")
+    void applyMomoFeePaymentResult_failureOrDuplicate_noLedger() {
+        ItemWithdrawalRequest failed = withdrawal(new BigDecimal("50000"));
+        when(itemWithdrawalRequestRepository.findByMomoOrderId("momo-fail")).thenReturn(Optional.of(failed));
+        service.applyMomoFeePaymentResult("momo-fail", 99, "1");
+
+        ItemWithdrawalRequest paid = withdrawal(new BigDecimal("50000"));
+        paid.setFeePaidAt(Instant.now());
+        when(itemWithdrawalRequestRepository.findByMomoOrderId("momo-dup")).thenReturn(Optional.of(paid));
+        service.applyMomoFeePaymentResult("momo-dup", 0, "2");
+
+        verify(walletTransactionRepository, never()).save(any());
+        verify(platformFundRepository, never()).save(any());
     }
 
     @Test
@@ -834,6 +904,47 @@ class ItemWithdrawalRequestServiceImplTest {
         assertThat(r.getFeePaymentMethod()).isEqualTo(WithdrawalFeePaymentMethod.VNPAY);
         assertThat(r.getFeePaidAt()).isNotNull();
         verify(itemWithdrawalRequestRepository).save(r);
+    }
+
+    @Test
+    @DisplayName("applyVnPayFeePaymentResult: thành công -> ghi 1 bút toán PLATFORM +phí, không có counterpart, cộng quỹ")
+    void applyVnPayFeePaymentResult_success_recordsPlatformIncome() {
+        ItemWithdrawalRequest r = withdrawal(new BigDecimal("50000"));
+        when(itemWithdrawalRequestRepository.findByVnpTxnRef("vnp-ref-1")).thenReturn(Optional.of(r));
+        PlatformFund fund = PlatformFund.builder().id(UUID.randomUUID()).balance(new BigDecimal("200000")).build();
+        when(platformFundRepository.findTopByOrderByIdAsc()).thenReturn(Optional.of(fund));
+
+        service.applyVnPayFeePaymentResult("vnp-ref-1", "00", "888");
+
+        ArgumentCaptor<WalletTransaction> captor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository, times(1)).save(captor.capture());
+        WalletTransaction tx = captor.getValue();
+        assertThat(tx.getWalletType()).isEqualTo(WalletType.PLATFORM);
+        assertThat(tx.getType()).isEqualTo(WalletTransactionType.WITHDRAWAL_FEE_REVENUE);
+        assertThat(tx.getAmount()).isEqualByComparingTo(new BigDecimal("50000"));
+        assertThat(tx.getBalanceAfter()).isEqualByComparingTo(new BigDecimal("250000"));
+        assertThat(tx.getCounterpartTransaction()).isNull();
+        assertThat(tx.getRelatedItemWithdrawalRequest()).isSameAs(r);
+        assertThat(tx.getNote()).contains("VNPay").contains("888");
+
+        assertThat(fund.getBalance()).isEqualByComparingTo(new BigDecimal("250000"));
+        verify(platformFundRepository).save(fund);
+    }
+
+    @Test
+    @DisplayName("applyVnPayFeePaymentResult: thất bại hoặc IPN lặp -> không ghi bút toán, không đổi quỹ")
+    void applyVnPayFeePaymentResult_failureOrDuplicate_noLedger() {
+        ItemWithdrawalRequest failed = withdrawal(new BigDecimal("50000"));
+        when(itemWithdrawalRequestRepository.findByVnpTxnRef("vnp-fail")).thenReturn(Optional.of(failed));
+        service.applyVnPayFeePaymentResult("vnp-fail", "07", "1");
+
+        ItemWithdrawalRequest paid = withdrawal(new BigDecimal("50000"));
+        paid.setFeePaidAt(Instant.now());
+        when(itemWithdrawalRequestRepository.findByVnpTxnRef("vnp-dup")).thenReturn(Optional.of(paid));
+        service.applyVnPayFeePaymentResult("vnp-dup", "00", "2");
+
+        verify(walletTransactionRepository, never()).save(any());
+        verify(platformFundRepository, never()).save(any());
     }
 
     @Test

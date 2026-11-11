@@ -1217,6 +1217,11 @@ public class OrderServiceImpl implements OrderService {
                     .build();
             walletTransactionRepository.save(payoutTransaction);
             recordPlatformCounterpart(payoutTransaction);
+
+            // Phần hoa hồng nền tảng giữ lại của món này (giá chốt - tiền trả người bán)
+            recordPlatformRevenue(WalletTransactionType.COMMISSION_REVENUE,
+                    item.getPriceAtOrder().subtract(payoutAmount), order, item,
+                    "Hoa hồng đơn " + order.getOrderNo());
         }
 
         order.setPayoutAt(Instant.now());
@@ -1710,6 +1715,34 @@ public class OrderServiceImpl implements OrderService {
     private PlatformFund getOrCreatePlatformFund() {
         return platformFundRepository.findTopByOrderByIdAsc()
                 .orElseGet(() -> PlatformFund.builder().build());
+    }
+
+    // Ghi nhận doanh thu của nền tảng (COMMISSION_REVENUE): dòng PLATFORM dương, không có dòng Member đối ứng
+    // và không đổi số dư quỹ - tiền hoa hồng vốn đã nằm trong quỹ từ lúc người mua thanh toán, dòng này chỉ
+    // đánh dấu phần tiền đó là doanh thu. Đối soát quỹ bỏ qua loại dòng này (AdminReportQueryRepository).
+    private void recordPlatformRevenue(WalletTransactionType type, BigDecimal amount, Order order,
+                                       OrderItem item, String note) {
+        if (amount == null || amount.signum() <= 0) {
+            return;
+        }
+        PlatformFund fund = getOrCreatePlatformFund();
+        if (fund.getId() == null) {
+            platformFundRepository.save(fund);
+        }
+
+        WalletTransaction revenueTransaction = WalletTransaction.builder()
+                .transactionNo(generateTransactionNo())
+                .walletType(WalletType.PLATFORM)
+                .walletId(fund.getId())
+                .type(type)
+                .amount(amount)
+                .balanceAfter(fund.getBalance())
+                .relatedOrder(order)
+                .relatedOrderItem(item)
+                .status(TransactionStatus.SUCCESS)
+                .note(note)
+                .build();
+        walletTransactionRepository.save(revenueTransaction);
     }
 
     // F-039: mỗi bút toán ví Member phải có một bút toán đối ứng ở quỹ nền tảng, ngược dấu, để sổ sách luôn cân

@@ -19,8 +19,16 @@ public class AdminDashboardResponse {
     private final double avgServiceRating;
     // Tổng số dư các ví Member
     private final long walletBalanceHeld;
-    // Hoa hồng + phí rút hàng nền tảng đã thu
+    // Hoa hồng + phí rút hàng nền tảng đã thu (= commissionRevenue + withdrawalFeeRevenue)
     private final long platformRevenue;
+    // Cơ cấu nguồn thu của nền tảng, lọc theo [from, to) giống platformRevenue.
+    // Hoa hồng = tổng giá chốt * tỷ lệ hoa hồng của các món thuộc đơn COMPLETED hoàn thành trong khoảng
+    private final long commissionRevenue;
+    // Phí rút hàng Member đã trả (bút toán WITHDRAWAL_FEE thành công trong khoảng)
+    private final long withdrawalFeeRevenue;
+    // Chi đền bù hàng xuống cấp (bút toán DEGRADED_COMPENSATION thành công trong khoảng); là khoản chi,
+    // KHÔNG trừ vào platformRevenue
+    private final long compensationExpense;
     // Số dư quỹ nền tảng
     private final long fundBalance;
     // Số việc trong hàng đợi Moderator đã quá hạn

@@ -19,12 +19,14 @@ import com.rehome.rehome.repository.ConsignmentFormRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
+import com.rehome.rehome.repository.WarehouseStatsQueryRepository;
 import com.rehome.rehome.service.WarehouseAdminService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -45,6 +47,7 @@ public class WarehouseAdminServiceImpl implements WarehouseAdminService {
     private final ProductRepository productRepository;
     private final OrderItemRepository orderItemRepository;
     private final ConsignmentFormRepository consignmentFormRepository;
+    private final WarehouseStatsQueryRepository warehouseStatsRepository;
     private final AuditLogger auditLogger;
     private final ObjectMapper objectMapper;
 
@@ -54,7 +57,8 @@ public class WarehouseAdminServiceImpl implements WarehouseAdminService {
         List<Warehouse> warehouses = status == null
                 ? warehouseRepository.findAllByOrderByNameAsc()
                 : warehouseRepository.findByStatusOrderByNameAsc(status);
-        return warehouses.stream().map(WarehouseAdminResponse::from).toList();
+        Stats stats = loadStats();
+        return warehouses.stream().map(w -> toResponse(w, stats)).toList();
     }
 
     @Override
@@ -88,7 +92,7 @@ public class WarehouseAdminServiceImpl implements WarehouseAdminService {
         detail.set("after", snapshot(saved));
         auditLogger.log(admin, "CREATE_WAREHOUSE", "WAREHOUSE", saved.getId().toString(), detail);
 
-        return WarehouseAdminResponse.from(saved);
+        return toResponse(saved, loadStats());
     }
 
     @Override
@@ -123,7 +127,7 @@ public class WarehouseAdminServiceImpl implements WarehouseAdminService {
         detail.set("after", snapshot(saved));
         auditLogger.log(admin, "UPDATE_WAREHOUSE", "WAREHOUSE", saved.getId().toString(), detail);
 
-        return WarehouseAdminResponse.from(saved);
+        return toResponse(saved, loadStats());
     }
 
     @Override
@@ -149,8 +153,26 @@ public class WarehouseAdminServiceImpl implements WarehouseAdminService {
         detail.put("name", saved.getName());
         auditLogger.log(admin, "HIDE_WAREHOUSE", "WAREHOUSE", saved.getId().toString(), detail);
 
-        return WarehouseAdminResponse.from(saved);
+        return toResponse(saved, loadStats());
     }
+
+    // Số liệu của mọi kho trong 3 query gom nhóm; STOCK_STATUSES / OPEN_ORDER_STATUSES là định nghĩa
+    // chung với API 144 (ẩn kho) nên số hiển thị khớp với điều kiện chặn ẩn kho
+    private Stats loadStats() {
+        return new Stats(
+                warehouseStatsRepository.countActiveModeratorsByWarehouse(),
+                warehouseStatsRepository.countInventoryByWarehouse(STOCK_STATUSES),
+                warehouseStatsRepository.countActiveOrdersByWarehouse(OPEN_ORDER_STATUSES));
+    }
+
+    private static WarehouseAdminResponse toResponse(Warehouse w, Stats stats) {
+        return WarehouseAdminResponse.from(w,
+                stats.moderators().getOrDefault(w.getId(), 0L),
+                stats.inventory().getOrDefault(w.getId(), 0L),
+                stats.activeOrders().getOrDefault(w.getId(), 0L));
+    }
+
+    private record Stats(Map<UUID, Long> moderators, Map<UUID, Long> inventory, Map<UUID, Long> activeOrders) {}
 
     private ObjectNode snapshot(Warehouse w) {
         ObjectNode node = objectMapper.createObjectNode();

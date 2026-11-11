@@ -492,6 +492,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         withdrawal.setFeePaymentMethod(WithdrawalFeePaymentMethod.MOMO);
         withdrawal.setFeePaidAt(Instant.now());
         itemWithdrawalRequestRepository.save(withdrawal);
+        recordPlatformIncomeFromGateway(withdrawal, "MoMo", transId);
 
         log.info(">>>> Da thanh toan phi rut hang qua MoMo: itemWithdrawalRequestId={}, transId={}",
                 withdrawal.getId(), transId);
@@ -525,6 +526,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         withdrawal.setFeePaymentMethod(WithdrawalFeePaymentMethod.VNPAY);
         withdrawal.setFeePaidAt(Instant.now());
         itemWithdrawalRequestRepository.save(withdrawal);
+        recordPlatformIncomeFromGateway(withdrawal, "VNPay", transactionNo);
 
         log.info(">>>> Da thanh toan phi rut hang qua VNPay: itemWithdrawalRequestId={}, transactionNo={}",
                 withdrawal.getId(), transactionNo);
@@ -553,13 +555,42 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 .transactionNo(generateTransactionNo())
                 .walletType(WalletType.PLATFORM)
                 .walletId(fund.getId())
-                .type(memberTransaction.getType())
+                // Phía quỹ ghi WITHDRAWAL_FEE_REVENUE (không copy WITHDRAWAL_FEE của Member) để
+                // AdminDashboardQueryRepository.sumPlatformRevenue tính vào doanh thu, giống nhánh MoMo/VNPay
+                .type(WalletTransactionType.WITHDRAWAL_FEE_REVENUE)
                 .amount(counterpartAmount)
                 .balanceAfter(fund.getBalance())
                 .relatedItemWithdrawalRequest(memberTransaction.getRelatedItemWithdrawalRequest())
                 .counterpartTransaction(memberTransaction)
                 .status(TransactionStatus.SUCCESS)
                 .note(memberTransaction.getNote())
+                .build();
+        walletTransactionRepository.save(platformTransaction);
+    }
+
+    // F-039: phí rút hàng trả qua MoMo/VNPay không đi qua ví Member (tiền từ cổng thanh toán vào thẳng
+    // quỹ nền tảng) nên chỉ có bút toán phía PLATFORM, không có bút toán đối ứng phía Member
+    // (counterpartTransaction = null). Người trả truy ngược qua relatedItemWithdrawalRequest.member.
+    // Type WITHDRAWAL_FEE_REVENUE để AdminDashboardQueryRepository.sumPlatformRevenue tính vào doanh thu.
+    private void recordPlatformIncomeFromGateway(
+            ItemWithdrawalRequest withdrawal, String gateway, String gatewayTransId) {
+        BigDecimal amount = withdrawal.getFeeCharged();
+
+        PlatformFund fund = getOrCreatePlatformFund();
+        fund.setBalance(fund.getBalance().add(amount));
+        platformFundRepository.save(fund);
+
+        WalletTransaction platformTransaction = WalletTransaction.builder()
+                .transactionNo(generateTransactionNo())
+                .walletType(WalletType.PLATFORM)
+                .walletId(fund.getId())
+                .type(WalletTransactionType.WITHDRAWAL_FEE_REVENUE)
+                .amount(amount)
+                .balanceAfter(fund.getBalance())
+                .relatedItemWithdrawalRequest(withdrawal)
+                .status(TransactionStatus.SUCCESS)
+                .note("Thu phí rút hàng qua " + gateway + " (mã GD " + gatewayTransId + ") cho sản phẩm "
+                        + withdrawal.getProduct().getId())
                 .build();
         walletTransactionRepository.save(platformTransaction);
     }

@@ -8,5 +8,7 @@ public enum ItemWithdrawalStatus {
     // Moderator từ chối, có lý do - trạng thái cuối
     REJECTED,
     COMPLETED,
-    EXPIRED
+    EXPIRED,
+    // Member đổi ý sang quyên góp sản phẩm (ProductServiceImpl.donate) khi yêu cầu còn PENDING_PICKUP
+    CANCELLED
 }

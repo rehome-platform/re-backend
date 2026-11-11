@@ -40,6 +40,13 @@ public class Donation {
     @JoinColumn(name = "recorded_by_account_id", nullable = true)
     private Account recordedBy;
 
+    // Sản phẩm ký gửi đã được Member quyên góp (POST /products/{id}/donate) thay vì tiếp tục bán.
+    // Null với lượt quyên góp ghi nhận trực tiếp tại quầy (recordDonation, F-163) - không gắn với
+    // sản phẩm ký gửi nào.
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "product_id", nullable = true)
+    private Product product;
+
     // Tên người quyên góp; null khi quyên góp ẩn danh
     @Column(name = "donor_name", nullable = true, length = 255)
     private String donorName;

@@ -54,6 +54,26 @@ public class ReturnRequestResponse {
     private BigDecimal compensationAmount;
     private BigDecimal halfCompensationAmount;
 
+    // Thông tin sản phẩm để Moderator xem nhanh lúc kiểm hàng, không phải tự tra chéo bằng orderId
+    private String sku;
+    private String productName;
+    private String brandName;
+    private String size;
+
+    // Mã người ký gửi (MemberProfile.memberCode), khác sellerName (họ tên) đã có sẵn ở trên
+    private String sellerCode;
+
+    // Kỳ ký gửi đang chạy và số ngày đã trôi qua trong kỳ đó tính tới lúc xem, cùng độ dài 1 kỳ
+    // (snapshot trên biên nhận) - Moderator cần để đối chiếu với lịch sử giá/hoa hồng
+    private Short currentTerm;
+    private Integer daysIntoTerm;
+    private Integer termLengthDays;
+
+    // Tỷ lệ hoa hồng chốt lúc đặt đơn (OrderItem.commissionRateApplied) và tỷ lệ đền hàng xuống
+    // cấp snapshot trên biên nhận - dùng để Moderator kiểm lại compensationAmount/halfCompensationAmount
+    private BigDecimal commissionRate;
+    private BigDecimal degradedCompensationRate;
+
     @Data
     @NoArgsConstructor
     @AllArgsConstructor

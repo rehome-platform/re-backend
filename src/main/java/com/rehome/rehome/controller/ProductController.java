@@ -118,6 +118,17 @@ public class ProductController {
         return ResponseEntity.ok(ApiResponse.success(result, 200, "Đã giảm giá sản phẩm"));
     }
 
+    @PostMapping("/{id}/donate")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<DonationResponse>> donate(
+            @AuthenticationPrincipal Account account,
+            @PathVariable String id) {
+
+        DonationResponse result = productService.donate(account, id);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(result, 201, "Đã ghi nhận quyên góp sản phẩm"));
+    }
+
     // Xem trước phí ship GHN thật cho 1 sản phẩm - chỉ cần nhập địa chỉ, không cần giỏ hàng/đơn hàng
     @GetMapping("/{id}/shipping-fee-preview")
     @PreAuthorize("hasRole('MEMBER')")

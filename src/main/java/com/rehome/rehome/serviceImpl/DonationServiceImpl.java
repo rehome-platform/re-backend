@@ -15,10 +15,12 @@ import com.rehome.rehome.entity.enums.CampaignStatus;
 import com.rehome.rehome.entity.enums.DonationStatus;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.enums.VerificationStatus;
 import com.rehome.rehome.entity.marketplace.Campaign;
 import com.rehome.rehome.entity.marketplace.Donation;
 import com.rehome.rehome.entity.marketplace.DonationNote;
+import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
@@ -33,6 +35,7 @@ import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.DonationService;
 import com.rehome.rehome.service.NotificationService;
+import com.rehome.rehome.service.QueueService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -69,6 +72,7 @@ public class DonationServiceImpl implements DonationService {
     private final CampaignRepository campaignRepository;
     private final ModeratorProfileRepository moderatorProfileRepository;
     private final NotificationService notificationService;
+    private final QueueService queueService;
 
     @Override
     @Transactional
@@ -209,6 +213,11 @@ public class DonationServiceImpl implements DonationService {
             donation.setHandedOverAt(handedOverAt);
         });
         donationRepository.saveAll(donations);
+
+        // F-163(mở rộng)/DONATION_PICKUP: lượt đến từ POST /products/{id}/donate có 1 việc chờ
+        // Moderator đến lấy tại kho - đã bàn giao cho tổ chức thì việc đó xong, đóng lại. Lượt ghi
+        // nhận trực tiếp tại quầy (recordDonation) không có việc tương ứng, dequeue là no-op.
+        donations.forEach(donation -> queueService.dequeue(QueueType.DONATION_PICKUP, donation.getId().toString()));
 
         return DonationHandoverResponse.builder()
                 .handedOverCount(donations.size())
@@ -423,16 +432,23 @@ public class DonationServiceImpl implements DonationService {
     }
 
     private static DonationResponse toResponse(Donation donation, String moderatorCode) {
+        OrganizationProfile organization = donation.getHandedOverToOrganization();
+        Product product = donation.getProduct();
         return DonationResponse.builder()
                 .id(donation.getId().toString())
                 .warehouseId(donation.getWarehouse().getId().toString())
                 .warehouseName(donation.getWarehouse().getName())
                 .campaignId(donation.getCampaign() == null ? null : donation.getCampaign().getId().toString())
+                .campaignTitle(donation.getCampaign() == null ? null : donation.getCampaign().getTitle())
                 .donorName(donation.getDonorName())
                 .isAnonymous(Boolean.TRUE.equals(donation.getIsAnonymous()))
                 .note(donation.getNote())
                 .status(donation.getStatus().name())
                 .recordedBy(moderatorCode)
+                .organizationId(organization == null ? null : organization.getAccountId().toString())
+                .organizationName(organization == null ? null : organization.getDisplayName())
+                .productId(product == null ? null : product.getId())
+                .productName(product == null ? null : product.getName())
                 .handedOverAt(donation.getHandedOverAt())
                 .createdAt(donation.getCreatedAt())
                 .build();

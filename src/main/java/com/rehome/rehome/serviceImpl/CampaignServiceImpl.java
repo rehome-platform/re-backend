@@ -247,14 +247,16 @@ public class CampaignServiceImpl implements CampaignService {
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<CampaignPublicResponse> listPublicCampaigns(String search, String status, int page, int size) {
+    public PageResponse<CampaignPublicResponse> listPublicCampaigns(String search, String status, UUID warehouseId,
+                                                                     int page, int size) {
         Pageable pageable = PageRequest.of(
                 Math.max(page, 0),
                 Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
                 Sort.by(Sort.Direction.DESC, "createdAt"));
 
         String keyword = StringUtils.hasText(search) ? VietnameseText.normalize(search) : "";
-        Page<Campaign> result = campaignRepository.search(parsePublicStatusFilter(status), keyword, pageable);
+        Page<Campaign> result = campaignRepository.search(
+                parsePublicStatusFilter(status), keyword, warehouseId, pageable);
         return PageResponse.from(result.map(this::toPublicResponse));
     }
 

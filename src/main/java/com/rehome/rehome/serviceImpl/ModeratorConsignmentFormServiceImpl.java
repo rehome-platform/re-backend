@@ -17,6 +17,7 @@ import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.QueueItem;
 import com.rehome.rehome.entity.marketplace.Warehouse;
+import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.ConsignmentFormPhotoRepository;
@@ -27,6 +28,7 @@ import com.rehome.rehome.repository.ModeratorProfileRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.QueueItemRepository;
 import com.rehome.rehome.service.ModeratorConsignmentFormService;
+import com.rehome.rehome.service.SystemConfigReader;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -72,6 +74,7 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
     private final ConsignmentFormPhotoRepository photoRepository;
     private final MemberProfileRepository memberProfileRepository;
     private final ModeratorProfileRepository moderatorProfileRepository;
+    private final SystemConfigReader systemConfigReader;
 
     // ------------------------------------------------------------------ list
 
@@ -251,6 +254,11 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
                     .createdAt(receipt.getCreatedAt())
                     .build());
         }
+        // Đang kiểm định, chưa lập biên nhận: trả cấu hình hiện hành (giá trị sẽ được snapshot vào biên nhận
+        // khi hoàn tất kiểm định, ConsignmentInspectionServiceImpl dùng cùng key và giá trị mặc định)
+        if (receipt == null && form.getStatus() == ConsignmentFormStatus.INSPECTING) {
+            response.setConsignmentConfig(currentConsignmentConfig());
+        }
         if (product != null) {
             response.setProduct(ModeratorConsignmentFormResponse.ProductInfo.builder()
                     .sku(product.getId())
@@ -259,6 +267,26 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
                     .createdAt(product.getCreatedAt())
                     .build());
         }
+    }
+
+    private ModeratorConsignmentFormResponse.ConsignmentConfigInfo currentConsignmentConfig() {
+        return ModeratorConsignmentFormResponse.ConsignmentConfigInfo.builder()
+                .termLengthDays(systemConfigReader.getInt(
+                        SystemConfigKeys.TERM_LENGTH_DAYS, SystemConfigKeys.DEFAULT_TERM_LENGTH_DAYS))
+                .maxRenewals(systemConfigReader.getInt(
+                        SystemConfigKeys.MAX_RENEWALS, SystemConfigKeys.DEFAULT_MAX_RENEWALS))
+                .freeWithdrawalWindowDays(systemConfigReader.getInt(
+                        SystemConfigKeys.FREE_WITHDRAWAL_WINDOW_DAYS,
+                        SystemConfigKeys.DEFAULT_FREE_WITHDRAWAL_WINDOW_DAYS))
+                .floorPriceRatio(systemConfigReader.getDecimal(
+                        SystemConfigKeys.FLOOR_PRICE_RATIO, SystemConfigKeys.DEFAULT_FLOOR_PRICE_RATIO))
+                .commissionRateTerm1(systemConfigReader.getDecimal(
+                        SystemConfigKeys.COMMISSION_RATE_TERM1, SystemConfigKeys.DEFAULT_COMMISSION_RATE_TERM1))
+                .commissionRateTerm2(systemConfigReader.getDecimal(
+                        SystemConfigKeys.COMMISSION_RATE_TERM2, SystemConfigKeys.DEFAULT_COMMISSION_RATE_TERM2))
+                .commissionRateTerm3(systemConfigReader.getDecimal(
+                        SystemConfigKeys.COMMISSION_RATE_TERM3, SystemConfigKeys.DEFAULT_COMMISSION_RATE_TERM3))
+                .build();
     }
 
     // Dẫn xuất bước nghiệp vụ từ status form + biên nhận mới nhất + sản phẩm; không thêm status mới vào DB

@@ -2,6 +2,7 @@ package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.client.MomoApi;
 import com.rehome.rehome.client.VnPayApi;
+import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.CreateItemWithdrawalRequest;
 import com.rehome.rehome.dto.request.CreateMomoRequest;
 import com.rehome.rehome.dto.request.PayItemWithdrawalFeeRequest;
@@ -38,6 +39,7 @@ import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.repository.WalletTransactionRepository;
 import com.rehome.rehome.service.ItemWithdrawalRequestService;
 import com.rehome.rehome.service.QueueService;
+import com.rehome.rehome.service.SystemConfigReader;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -85,9 +87,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
     private final MomoApi momoApi;
     private final VnPayApi vnPayApi;
     private final QueueService queueService;
-
-    @Value("${app.item-withdrawal.pickup-deadline-days}")
-    private long pickupDeadlineDays;
+    private final SystemConfigReader systemConfigReader;
 
     @Value("${app.item-withdrawal.fee-payment-deadline-minutes}")
     private long feePaymentDeadlineMinutes;
@@ -124,6 +124,12 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
 
     @Value("${vnpay.version}")
     private String vnpVersion;
+
+    // counter_pickup_days (system_configs): số ngày Member có để đến kho nhận lại hàng
+    private int getCounterPickupDays() {
+        return systemConfigReader.getInt(
+                SystemConfigKeys.COUNTER_PICKUP_DAYS, SystemConfigKeys.DEFAULT_COUNTER_PICKUP_DAYS);
+    }
 
     @Override
     @Transactional
@@ -192,7 +198,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         withdrawal.setStatus(ItemWithdrawalStatus.PENDING_PICKUP);
         withdrawal.setModerator(moderator);
         withdrawal.setReviewedAt(Instant.now());
-        withdrawal.setPickupDeadline(Instant.now().plus(pickupDeadlineDays, ChronoUnit.DAYS));
+        withdrawal.setPickupDeadline(Instant.now().plus(getCounterPickupDays(), ChronoUnit.DAYS));
         // Chỉ đặt hạn khi có gì phải trả; miễn phí thì không có gì để hết hạn
         withdrawal.setFeePaymentDeadline(withdrawal.getFeeCharged().compareTo(BigDecimal.ZERO) > 0
                 ? Instant.now().plus(feePaymentDeadlineMinutes, ChronoUnit.MINUTES)
@@ -349,6 +355,8 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 .build();
         walletTransactionRepository.save(feeTransaction);
         recordPlatformCounterpart(feeTransaction);
+        recordWithdrawalFeeRevenue(withdrawal, "Doanh thu phí rút hàng (ví) cho sản phẩm "
+                + withdrawal.getProduct().getId());
 
         withdrawal.setFeePaymentMethod(WithdrawalFeePaymentMethod.WALLET);
         withdrawal.setFeePaidAt(Instant.now());
@@ -486,6 +494,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         withdrawal.setFeePaymentMethod(WithdrawalFeePaymentMethod.MOMO);
         withdrawal.setFeePaidAt(Instant.now());
         itemWithdrawalRequestRepository.save(withdrawal);
+        recordPlatformIncomeFromGateway(withdrawal, "MoMo", transId);
 
         log.info(">>>> Da thanh toan phi rut hang qua MoMo: itemWithdrawalRequestId={}, transId={}",
                 withdrawal.getId(), transId);
@@ -519,6 +528,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         withdrawal.setFeePaymentMethod(WithdrawalFeePaymentMethod.VNPAY);
         withdrawal.setFeePaidAt(Instant.now());
         itemWithdrawalRequestRepository.save(withdrawal);
+        recordPlatformIncomeFromGateway(withdrawal, "VNPay", transactionNo);
 
         log.info(">>>> Da thanh toan phi rut hang qua VNPay: itemWithdrawalRequestId={}, transactionNo={}",
                 withdrawal.getId(), transactionNo);
@@ -556,6 +566,41 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 .note(memberTransaction.getNote())
                 .build();
         walletTransactionRepository.save(platformTransaction);
+    }
+
+    // Phí rút hàng trả qua MoMo/VNPay không đi qua ví Member và (giống thanh toán đơn qua cổng) không đổi số dư
+    // quỹ nền tảng - quỹ chỉ phản ánh tiền trong hệ thống ví. Chỉ ghi dòng ghi nhận doanh thu.
+    private void recordPlatformIncomeFromGateway(
+            ItemWithdrawalRequest withdrawal, String gateway, String gatewayTransId) {
+        recordWithdrawalFeeRevenue(withdrawal, "Thu phí rút hàng qua " + gateway + " (mã GD " + gatewayTransId
+                + ") cho sản phẩm " + withdrawal.getProduct().getId());
+    }
+
+    // Ghi nhận doanh thu phí rút hàng (WITHDRAWAL_FEE_REVENUE): dòng PLATFORM dương, không có dòng Member đối ứng
+    // và không đổi số dư quỹ, giống COMMISSION_REVENUE ở OrderServiceImpl. Đối soát quỹ bỏ qua loại dòng này
+    // (AdminReportQueryRepository); dashboard cộng đúng một dòng cho mỗi khoản phí đã thu.
+    private void recordWithdrawalFeeRevenue(ItemWithdrawalRequest withdrawal, String note) {
+        BigDecimal amount = withdrawal.getFeeCharged();
+        if (amount == null || amount.signum() <= 0) {
+            return;
+        }
+        PlatformFund fund = getOrCreatePlatformFund();
+        if (fund.getId() == null) {
+            platformFundRepository.save(fund);
+        }
+
+        WalletTransaction revenueTransaction = WalletTransaction.builder()
+                .transactionNo(generateTransactionNo())
+                .walletType(WalletType.PLATFORM)
+                .walletId(fund.getId())
+                .type(WalletTransactionType.WITHDRAWAL_FEE_REVENUE)
+                .amount(amount)
+                .balanceAfter(fund.getBalance())
+                .relatedItemWithdrawalRequest(withdrawal)
+                .status(TransactionStatus.SUCCESS)
+                .note(note)
+                .build();
+        walletTransactionRepository.save(revenueTransaction);
     }
 
     // Sắp xếp field theo tên, bỏ field rỗng, nối "key=value" (value url-encode) bằng "&" - công thức

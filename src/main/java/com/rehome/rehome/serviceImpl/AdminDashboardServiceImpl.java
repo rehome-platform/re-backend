@@ -3,11 +3,10 @@ package com.rehome.rehome.serviceImpl;
 import com.rehome.rehome.component.DashboardExcelWriter;
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.response.AdminDashboardResponse;
-import com.rehome.rehome.exception.AppException;
-import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.AdminDashboardQueryRepository;
 import com.rehome.rehome.service.AdminDashboardService;
 import com.rehome.rehome.service.SystemConfigReader;
+import com.rehome.rehome.util.AdminDateRange;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,10 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
@@ -27,11 +23,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AdminDashboardServiceImpl implements AdminDashboardService {
 
-    private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final DateTimeFormatter MONTH_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM");
-    // Mốc "toàn thời gian": tránh tham số null trong JPQL
-    private static final Instant BEGINNING = Instant.EPOCH;
-    private static final Instant FOREVER = Instant.parse("3000-01-01T00:00:00Z");
 
     private final AdminDashboardQueryRepository queryRepository;
     private final SystemConfigReader systemConfigReader;
@@ -39,25 +31,18 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
 
     @Override
     @Transactional(readOnly = true)
-    public AdminDashboardResponse getDashboard() {
-        return snapshot(BEGINNING, FOREVER);
+    public AdminDashboardResponse getDashboard(String from, String to) {
+        AdminDateRange range = AdminDateRange.optional(from, to);
+        return snapshot(range.from(), range.to());
     }
 
     @Override
     @Transactional(readOnly = true)
     public DashboardExport export(String from, String to) {
-        LocalDate fromDate = parseDate(from);
-        LocalDate toDate = parseDate(to);
-        if (fromDate.isAfter(toDate)) {
-            throw new AppException(ErrorCode.INVALID_DATE_RANGE);
-        }
+        AdminDateRange range = AdminDateRange.required(from, to);
 
-        // Gồm cả ngày "to": cận trên là 00:00 ngày kế tiếp (giờ VN)
-        Instant start = fromDate.atStartOfDay(VN_ZONE).toInstant();
-        Instant end = toDate.plusDays(1).atStartOfDay(VN_ZONE).toInstant();
-
-        byte[] content = excelWriter.write(snapshot(start, end), fromDate, toDate);
-        return new DashboardExport("dashboard_report_" + fromDate.format(MONTH_FORMAT) + ".xlsx", content);
+        byte[] content = excelWriter.write(snapshot(range.from(), range.to()), range.fromDate(), range.toDate());
+        return new DashboardExport("dashboard_report_" + range.fromDate().format(MONTH_FORMAT) + ".xlsx", content);
     }
 
     // Doanh thu, số đơn, điểm đánh giá, doanh thu nền tảng lọc theo [from, to);
@@ -80,7 +65,11 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .mapToLong(AdminDashboardQueryRepository.TermSales::itemCount)
                 .sum();
 
-        BigDecimal platformRevenue = queryRepository.sumPlatformRevenue(from, to);
+        // Cơ cấu nguồn thu: hoa hồng + phí rút hàng là doanh thu nền tảng; đền bù là khoản chi riêng
+        long commissionRevenue = toLong(queryRepository.sumCompletedCommission(from, to));
+        long withdrawalFeeRevenue = toLong(queryRepository.sumWithdrawalFeeRevenue(from, to));
+        long compensationExpense = toLong(queryRepository.sumDegradedCompensation(from, to));
+        long platformRevenue = commissionRevenue + withdrawalFeeRevenue;
 
         return AdminDashboardResponse.builder()
                 .revenue(toLong(queryRepository.sumCompletedOrderAmount(from, to)))
@@ -88,7 +77,10 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .inventoryCount(queryRepository.countStockedProducts())
                 .avgServiceRating(rating == null ? 0.0 : Math.round(rating * 10.0) / 10.0)
                 .walletBalanceHeld(toLong(queryRepository.sumMemberWalletBalance()))
-                .platformRevenue(toLong(platformRevenue))
+                .platformRevenue(platformRevenue)
+                .commissionRevenue(commissionRevenue)
+                .withdrawalFeeRevenue(withdrawalFeeRevenue)
+                .compensationExpense(compensationExpense)
                 .fundBalance(toLong(queryRepository.sumPlatformFundBalance()))
                 .overdueTaskCount(queryRepository.countQueueItemsCreatedBefore(overdueBefore))
                 .term1SalesRevenue(toLong(salesOfTerm(termSales, 1)))
@@ -101,7 +93,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .term2StockCount(stockByTerm.getOrDefault((short) 2, 0L))
                 .term3StockCount(stockByTerm.getOrDefault((short) 3, 0L))
                 .totalSoldItemsCount(totalSoldItemsCount)
-                .netProfitMarginPercent(netProfitMarginPercent(platformRevenue, totalSalesRevenue))
+                .netProfitMarginPercent(netProfitMarginPercent(BigDecimal.valueOf(platformRevenue), totalSalesRevenue))
                 .build();
     }
 
@@ -129,16 +121,5 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
 
     private static long toLong(BigDecimal value) {
         return value.setScale(0, RoundingMode.HALF_UP).longValue();
-    }
-
-    private static LocalDate parseDate(String text) {
-        if (text == null || text.isBlank()) {
-            throw new AppException(ErrorCode.INVALID_DATE_RANGE);
-        }
-        try {
-            return LocalDate.parse(text.trim());
-        } catch (DateTimeParseException e) {
-            throw new AppException(ErrorCode.INVALID_DATE_RANGE);
-        }
     }
 }

@@ -72,7 +72,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-
+import com.rehome.rehome.constant.SystemConfigKeys;
+import com.rehome.rehome.service.SystemConfigReader;
+import static org.mockito.ArgumentMatchers.anyInt;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class ReturnRequestServiceImplTest {
@@ -96,7 +98,7 @@ class ReturnRequestServiceImplTest {
     @Mock private OrderService orderService;
     @Mock private QueueService queueService;
     @Mock private GhnApi ghnApi;
-    @Mock private com.rehome.rehome.service.SystemConfigReader systemConfigReader;
+    @Mock private SystemConfigReader systemConfigReader;
 
     @InjectMocks
     private ReturnRequestServiceImpl service;
@@ -107,9 +109,9 @@ class ReturnRequestServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        ReflectionTestUtils.setField(service, "requestWindowDays", 3L);
-        ReflectionTestUtils.setField(service, "handoverDeadlineDays", 3L);
-        ReflectionTestUtils.setField(service, "pickupDeadlineDays", 7L);
+        when(systemConfigReader.getInt(eq(SystemConfigKeys.RETURN_REQUEST_WINDOW_DAYS), anyInt())).thenReturn(3);
+        when(systemConfigReader.getInt(eq(SystemConfigKeys.RETURN_HANDOVER_CARRIER_DAYS), anyInt())).thenReturn(3);
+        when(systemConfigReader.getInt(eq(SystemConfigKeys.COUNTER_PICKUP_DAYS), anyInt())).thenReturn(7);
         ReflectionTestUtils.setField(service, "ghnToken", TOKEN);
         ReflectionTestUtils.setField(service, "ghnShopId", SHOP_ID);
         ReflectionTestUtils.setField(service, "defaultPackageWeightGrams", 500);

@@ -8,9 +8,11 @@ import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
+import com.rehome.rehome.entity.marketplace.Donation;
 import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
+import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.QueueItem;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.entity.marketplace.Warehouse;
@@ -18,12 +20,14 @@ import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.OrganizationLegalChangeMapper;
 import com.rehome.rehome.repository.ConsignmentFormRepository;
+import com.rehome.rehome.repository.DonationRepository;
 import com.rehome.rehome.repository.ItemWithdrawalRequestRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.OrganizationLegalChangeRequestRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
+import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.QueueItemRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.service.QueueService;
@@ -55,6 +59,8 @@ public class QueueServiceImpl implements QueueService {
     private final ConsignmentFormRepository consignmentFormRepository;
     private final OrganizationProfileRepository organizationProfileRepository;
     private final ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
+    private final ProductPhotoRepository productPhotoRepository;
+    private final DonationRepository donationRepository;
 
     // Không đặt readOnly: tab RETURN có thể phải bù dòng hàng đợi còn thiếu (syncPendingReturnRequests)
     @Override
@@ -96,7 +102,8 @@ public class QueueServiceImpl implements QueueService {
 
     // DG-01: QueueItemResponse của PACKING cần kèm dữ liệu đơn hàng (mã đơn, người nhận,
     // số món, vị trí kệ, thời gian chờ); LEGAL_CHANGE kèm nội dung xin đổi (xem bên dưới);
-    // FORM_REVIEW / INSPECTION / ORG_VERIFICATION / WITHDRAWAL kèm targetName + subjectSubtitle.
+    // FORM_REVIEW / INSPECTION / ORG_VERIFICATION / WITHDRAWAL kèm targetName + subjectSubtitle;
+    // WITHDRAWAL kèm thêm sku, ảnh, phí, hạn lấy hàng; DONATION_PICKUP kèm sku, chiến dịch, tổ chức, status.
     // Mọi dữ liệu nạp theo lô từ danh sách refId nên số truy vấn cố định, không phụ thuộc số dòng hàng đợi.
     private List<QueueItemResponse> toResponses(List<QueueItem> items) {
         List<UUID> packingOrderIds = items.stream()
@@ -245,6 +252,33 @@ public class QueueServiceImpl implements QueueService {
             }
         }
 
+        // Ảnh đại diện món cần rút: nạp 1 lô cho mọi sản phẩm, lấy ảnh đầu tiên theo displayOrder
+        Map<String, String> withdrawalImageByProductId = new HashMap<>();
+        if (!withdrawalsById.isEmpty()) {
+            List<String> withdrawalProductIds = withdrawalsById.values().stream()
+                    .map(w -> w.getProduct().getId())
+                    .distinct()
+                    .toList();
+            for (ProductPhoto photo : productPhotoRepository
+                    .findByProduct_IdInOrderByDisplayOrderAscIdAsc(withdrawalProductIds)) {
+                withdrawalImageByProductId.putIfAbsent(photo.getProduct().getId(), photo.getImageUrl());
+            }
+        }
+
+        // Nhánh quyên góp: DONATION_PICKUP có refId là id Donation; product, chiến dịch, tổ chức fetch sẵn theo lô
+        List<UUID> donationIds = items.stream()
+                .filter(i -> i.getType() == QueueType.DONATION_PICKUP)
+                .map(i -> parseUuid(i.getRefId()))
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        Map<UUID, Donation> donationsById = new HashMap<>();
+        if (!donationIds.isEmpty()) {
+            donationRepository.findAllWithDetailsByIdIn(donationIds)
+                    .forEach(d -> donationsById.put(d.getId(), d));
+        }
+
         Instant now = Instant.now();
         return items.stream().map(q -> {
             if (q.getType() == QueueType.PACKING) {
@@ -305,7 +339,16 @@ public class QueueServiceImpl implements QueueService {
                 MemberProfile memberProfile = withdrawalMemberByAccountId.get(withdrawal.getMember().getId());
                 String memberName = memberProfile == null ? null : memberProfile.getFullName();
                 String memberCode = memberProfile == null ? null : memberProfile.getMemberCode();
-                return QueueItemResponse.fromWithdrawal(q, withdrawal, memberName, memberCode);
+                String productImageUrl = withdrawalImageByProductId.get(withdrawal.getProduct().getId());
+                return QueueItemResponse.fromWithdrawal(q, withdrawal, memberName, memberCode, productImageUrl);
+            }
+            if (q.getType() == QueueType.DONATION_PICKUP) {
+                UUID donationId = parseUuid(q.getRefId());
+                Donation donation = donationId == null ? null : donationsById.get(donationId);
+                if (donation == null) {
+                    return QueueItemResponse.from(q);
+                }
+                return QueueItemResponse.fromDonationPickup(q, donation);
             }
             return QueueItemResponse.from(q);
         }).toList();

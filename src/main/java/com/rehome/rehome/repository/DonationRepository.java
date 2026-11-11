@@ -71,4 +71,13 @@ public interface DonationRepository extends JpaRepository<Donation, UUID> {
     // ĐÚNG chiến dịch đang xem - kho dùng chung giữa nhiều chiến dịch không được cộng dồn
     // lượt chờ lấy của chiến dịch khác vào đây
     long countByWarehouse_IdAndCampaign_IdAndStatus(UUID warehouseId, UUID campaignId, DonationStatus status);
+
+    // Hàng đợi Moderator (API 28, nhánh DONATION_PICKUP): fetch sẵn product, chiến dịch và tổ chức theo lô id
+    // để QueueServiceImpl dựng QueueItemResponse.fromDonationPickup không phát sinh N+1
+    @Query("select d from Donation d "
+            + "left join fetch d.product "
+            + "left join fetch d.campaign c "
+            + "left join fetch c.organization "
+            + "where d.id in :ids")
+    List<Donation> findAllWithDetailsByIdIn(@Param("ids") Collection<UUID> ids);
 }

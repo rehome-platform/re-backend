@@ -63,7 +63,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-
+import com.rehome.rehome.constant.SystemConfigKeys;
+import com.rehome.rehome.service.SystemConfigReader;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -92,15 +93,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     private final GhnApi ghnApi;
     private final SystemConfigReader systemConfigReader;
 
-    @Value("${app.return.request-window-days}")
-    private long requestWindowDays;
-
-    @Value("${app.return.handover-deadline-days}")
-    private long handoverDeadlineDays;
-
-    @Value("${app.return.pickup-deadline-days}")
-    private long pickupDeadlineDays;
-
     @Value("${ghn.token}")
     private String ghnToken;
 
@@ -118,6 +110,12 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
     @Value("${ghn.default-package.height-cm}")
     private int defaultPackageHeightCm;
+
+    // return_handover_carrier_days: số ngày Member phải bàn giao hàng trả cho GHN
+    private int handoverDeadlineDays() {
+        return systemConfigReader.getInt(SystemConfigKeys.RETURN_HANDOVER_CARRIER_DAYS,
+                SystemConfigKeys.DEFAULT_RETURN_HANDOVER_CARRIER_DAYS);
+    }
 
     @Override
     @Transactional
@@ -150,9 +148,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             throw new ForbiddenException("Bạn không có quyền trả hàng cho đơn này.");
         }
 
-        // Buyer được trả hàng trong 3 ngày kể từ lúc GHN báo giao, kể cả khi đã bấm "Đã nhận
-        // hàng" (đơn COMPLETED) - vì payout người ký gửi giờ giữ lại tới hết hạn đó, không trả
-        // ngay lúc confirm-receipt nữa.
         boolean returnable = order.getStatus() == OrderStatus.DELIVERED || order.getStatus() == OrderStatus.COMPLETED;
         if (!returnable || order.getDeliveredAt() == null) {
             throw new ConflictException(
@@ -160,10 +155,18 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                     "ORDER_NOT_RETURNABLE");
         }
 
-        Instant returnWindowEnd = order.getDeliveredAt().plus(requestWindowDays, ChronoUnit.DAYS);
+        // Buyer được trả hàng trong 3 ngày kể từ lúc GHN báo giao, kể cả khi đã bấm "Đã nhận
+        // hàng" (đơn COMPLETED) - vì payout người ký gửi giờ giữ lại tới hết hạn đó, không trả
+        // ngay lúc confirm-receipt nữa.
+        Instant returnWindowEnd = order.getReturnDeadline() != null
+                ? order.getReturnDeadline()
+                : order.getDeliveredAt().plus(systemConfigReader.getInt(
+                SystemConfigKeys.RETURN_REQUEST_WINDOW_DAYS,
+                SystemConfigKeys.DEFAULT_RETURN_REQUEST_WINDOW_DAYS), ChronoUnit.DAYS);
         if (Instant.now().isAfter(returnWindowEnd)) {
             throw new ConflictException(
-                    "Đã quá hạn " + requestWindowDays + " ngày gửi yêu cầu trả hàng.",
+                    "Đã quá hạn " + ChronoUnit.DAYS.between(order.getDeliveredAt(), returnWindowEnd)
+                            + " ngày gửi yêu cầu trả hàng.",
                     "RETURN_WINDOW_EXPIRED");
         }
 
@@ -176,7 +179,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .reason(request.getReason())
                 .status(ReturnRequestStatus.PENDING)
                 // Mốc thật được chốt lại lúc Moderator duyệt và tạo vận đơn trả
-                .handoverDeadline(Instant.now().plus(handoverDeadlineDays, ChronoUnit.DAYS))
+                .handoverDeadline(Instant.now().plus(handoverDeadlineDays(), ChronoUnit.DAYS))
                 .build();
         returnRequestRepository.save(returnRequest);
         queueService.enqueue(QueueType.RETURN, returnRequest.getId().toString(), order.getWarehouse());
@@ -284,7 +287,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         returnRequest.setGhnReturnTrackingCode(ghnResponse.getData().getOrderCode());
         returnRequest.setStatus(ReturnRequestStatus.APPROVED);
-        returnRequest.setHandoverDeadline(Instant.now().plus(handoverDeadlineDays, ChronoUnit.DAYS));
+        returnRequest.setHandoverDeadline(Instant.now().plus(handoverDeadlineDays(), ChronoUnit.DAYS));
         returnRequestRepository.save(returnRequest);
 
         return toResponseWithPhotos(returnRequest);
@@ -464,7 +467,9 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             // Trả hàng không hợp lệ -> người ký gửi vẫn được trả tiền, và trả ngay lúc kết luận
             // (không chờ hết hạn 3 ngày, không chờ Member chọn cách nhận lại hàng)
             returnRequest.setStatus(ReturnRequestStatus.INVALID);
-            returnRequest.setPickupDeadline(now.plus(pickupDeadlineDays, ChronoUnit.DAYS));
+            returnRequest.setPickupDeadline(now.plus(
+                    systemConfigReader.getInt(SystemConfigKeys.COUNTER_PICKUP_DAYS,
+                            SystemConfigKeys.DEFAULT_COUNTER_PICKUP_DAYS), ChronoUnit.DAYS));
             returnRequestRepository.save(returnRequest);
 
             orderService.payoutOrder(

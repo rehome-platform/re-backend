@@ -18,6 +18,8 @@ public interface ItemWithdrawalRequestRepository extends JpaRepository<ItemWithd
     List<ItemWithdrawalRequest> findByMember_IdAndStatusOrderByCreatedAtAsc(
             UUID memberId, ItemWithdrawalStatus status);
 
+    boolean existsByProduct_IdAndStatus(String productId, ItemWithdrawalStatus status);
+
     // create(): một sản phẩm không được có 2 yêu cầu rút hàng còn sống (chờ duyệt hoặc chờ lấy) cùng lúc
     boolean existsByProduct_IdAndStatusIn(String productId, Collection<ItemWithdrawalStatus> statuses);
 

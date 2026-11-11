@@ -99,7 +99,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-
+import com.rehome.rehome.constant.SystemConfigKeys;
+import com.rehome.rehome.service.SystemConfigReader;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.lenient;
 @ExtendWith(MockitoExtension.class)
 class OrderServiceImplTest {
 
@@ -121,7 +124,7 @@ class OrderServiceImplTest {
     @Mock QueueItemRepository queueItemRepository;
     @Mock GhnApi ghnApi;
     @Mock GhnShippingFeeCalculator ghnShippingFeeCalculator;
-
+    @Mock SystemConfigReader systemConfigReader;
     @InjectMocks
     OrderServiceImpl orderService;
 
@@ -135,12 +138,15 @@ class OrderServiceImplTest {
     Product product1;
     Product product2;
 
+
     @BeforeEach
     void setup() {
-        ReflectionTestUtils.setField(orderService, "paymentDeadlineMinutes", 15L);
         ReflectionTestUtils.setField(orderService, "taxRate", BigDecimal.ZERO);
-        ReflectionTestUtils.setField(orderService, "returnRequestWindowDays", 3L);
-
+        ReflectionTestUtils.setField(orderService, "taxRate", BigDecimal.ZERO);
+        lenient().when(systemConfigReader.getInt(eq(SystemConfigKeys.ORDER_PAYMENT_TIMEOUT_MINUTES), anyInt()))
+                .thenReturn(15);
+        lenient().when(systemConfigReader.getInt(eq(SystemConfigKeys.RETURN_REQUEST_WINDOW_DAYS), anyInt()))
+                .thenReturn(3);
         email = "member@example.com";
         member = Account.builder().id(UUID.randomUUID()).email(email).build();
 
@@ -448,8 +454,8 @@ class OrderServiceImplTest {
     }
 
     @Test
-    // Giống Shopee: dù 2 món chung 1 kho vẫn phải ra 2 đơn riêng, không gộp - để trả hàng
-    // được từng món độc lập.
+        // Giống Shopee: dù 2 món chung 1 kho vẫn phải ra 2 đơn riêng, không gộp - để trả hàng
+        // được từng món độc lập.
     void createOrders_splitsCartIntoOneOrderPerProduct_evenWhenSameWarehouse() {
         product2.setWarehouse(warehouse1);
         Cart cart = Cart.builder().id(UUID.randomUUID()).member(member).build();
@@ -1352,10 +1358,16 @@ class OrderServiceImplTest {
         verify(walletTransactionRepository, never()).save(any());
     }
 
+
     @Test
     void payoutOrder_paysEachSellerAndSetsPayoutAt() {
         UUID orderId = UUID.randomUUID();
-        Account seller = Account.builder().id(UUID.randomUUID()).email("seller@example.com").build();
+
+        Account seller = Account.builder()
+                .id(UUID.randomUUID())
+                .email("seller@example.com")
+                .build();
+
         product1.setMember(seller);
 
         Order order = Order.builder()
@@ -1365,31 +1377,60 @@ class OrderServiceImplTest {
                 .status(OrderStatus.COMPLETED)
                 .build();
 
-        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1)
+        OrderItem item1 = OrderItem.builder()
+                .id(UUID.randomUUID())
+                .order(order)
+                .product(product1)
                 .priceAtOrder(new BigDecimal("220000"))
                 .commissionRateApplied(new BigDecimal("0.10"))
                 .build();
 
-        Wallet sellerWallet = Wallet.builder().id(UUID.randomUUID()).member(seller)
-                .balance(BigDecimal.ZERO).build();
+        Wallet sellerWallet = Wallet.builder()
+                .id(UUID.randomUUID())
+                .member(seller)
+                .balance(BigDecimal.ZERO)
+                .build();
 
-        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
-        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
-        when(walletRepository.findByMember_Id(seller.getId())).thenReturn(Optional.of(sellerWallet));
+        when(orderRepository.findByIdForUpdate(orderId))
+                .thenReturn(Optional.of(order));
 
-        orderService.payoutOrder(orderId, "Tự động chuyển tiền sau hạn trả hàng");
+        when(orderItemRepository.findAllByOrder_Id(orderId))
+                .thenReturn(List.of(item1));
 
-        assertThat(sellerWallet.getBalance()).isEqualByComparingTo(new BigDecimal("198000"));
+        when(walletRepository.findByMember_Id(seller.getId()))
+                .thenReturn(Optional.of(sellerWallet));
+
+        orderService.payoutOrder(
+                orderId,
+                "Tự động chuyển tiền sau hạn trả hàng"
+        );
+
+        assertThat(sellerWallet.getBalance())
+                .isEqualByComparingTo(new BigDecimal("198000"));
+
         assertThat(order.getPayoutAt()).isNotNull();
 
-        ArgumentCaptor<WalletTransaction> txCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
-        verify(walletTransactionRepository, times(2)).save(txCaptor.capture());
-        WalletTransaction memberTx = txCaptor.getAllValues().stream()
-                .filter(tx -> tx.getWalletType() == WalletType.MEMBER).findFirst().orElseThrow();
-        assertThat(memberTx.getType()).isEqualTo(WalletTransactionType.ORDER_PAYOUT);
-        assertThat(memberTx.getNote()).isEqualTo("Tự động chuyển tiền sau hạn trả hàng");
+        ArgumentCaptor<WalletTransaction> txCaptor =
+                ArgumentCaptor.forClass(WalletTransaction.class);
+
+        verify(walletTransactionRepository, times(3))
+                .save(txCaptor.capture());
+
+        WalletTransaction memberTx = txCaptor.getAllValues()
+                .stream()
+                .filter(tx -> tx.getWalletType() == WalletType.MEMBER)
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(memberTx.getType())
+                .isEqualTo(WalletTransactionType.ORDER_PAYOUT);
+
+        assertThat(memberTx.getNote())
+                .isEqualTo("Tự động chuyển tiền sau hạn trả hàng");
+
         verify(orderRepository).save(order);
     }
+
 
     @Test
     void payoutOrder_doesNothing_whenAlreadyPaidOut() {
@@ -2091,6 +2132,43 @@ class OrderServiceImplTest {
         assertThat(result.getReturnRequestId()).isEqualTo(returnRequestId.toString());
         // 3 ngày kể từ lúc GHN báo đã giao, khớp app.return.request-window-days
         assertThat(result.getReturnDeadline()).isEqualTo(deliveredAt.plus(3, ChronoUnit.DAYS));
+    }
+
+    @Test
+    void getOrderDetail_usesStoredReturnDeadline_evenWhenConfigChangedLater() {
+        UUID orderId = UUID.randomUUID();
+        Instant deliveredAt = Instant.parse("2026-01-05T00:00:00Z");
+        Instant storedReturnDeadline = deliveredAt.plus(3, ChronoUnit.DAYS);
+
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000001")
+                .buyer(member)
+                .warehouse(warehouse1)
+                .status(OrderStatus.DELIVERED)
+                .createdAt(Instant.parse("2026-01-01T00:00:00Z"))
+                .paymentMethod(OrderPaymentMethod.MOMO)
+                .subtotal(new BigDecimal("600000"))
+                .shippingFee(new BigDecimal("25000"))
+                .totalAmount(new BigDecimal("625000"))
+                .paymentDeadline(Instant.parse("2026-01-01T00:15:00Z"))
+                .deliveredAt(deliveredAt)
+                .returnDeadline(storedReturnDeadline)
+                .build();
+
+        // Admin đổi cấu hình sang 10 ngày sau khi đơn đã giao - hạn đã lưu trong đơn không đổi theo
+// Hạn đã lưu thì không đọc lại config
+        verify(systemConfigReader, never())
+                .getInt(eq(SystemConfigKeys.RETURN_REQUEST_WINDOW_DAYS), anyInt());        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId)).thenReturn(List.of());
+        when(productPhotoRepository.findByProduct_IdInOrderByIdAsc(any())).thenReturn(List.of());
+        when(paymentRepository.findByOrder_Id(orderId)).thenReturn(Optional.empty());
+        when(returnRequestRepository.findFirstByOrder_IdOrderByCreatedAtDesc(orderId)).thenReturn(Optional.empty());
+
+        OrderDetailResponse result = orderService.getOrderDetail(email, orderId);
+
+        assertThat(result.getReturnDeadline()).isEqualTo(storedReturnDeadline);
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.client.VnPayApi;
+import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.QueryVnPayRequest;
 import com.rehome.rehome.dto.response.CreateVnPayResponse;
 import com.rehome.rehome.dto.response.PaymentStatusResponse;
@@ -36,11 +37,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -101,7 +98,17 @@ public class VnPayServiceImpl implements VnPayService {
         ZonedDateTime now = ZonedDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh"));
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
         String createDate = now.format(formatter);
-        String expireDate = now.plusMinutes(15).format(formatter);
+
+
+// Link hết hạn đúng lúc đơn hết hạn thanh toán (order_payment_timeout_minutes);
+// lô nhiều đơn thì lấy hạn sớm nhất
+        ZonedDateTime expireAt = orders.stream()
+                .map(Order::getPaymentDeadline)
+                .filter(Objects::nonNull)
+                .min(Comparator.naturalOrder())
+                .map(d -> d.atZone(now.getZone()))
+                .orElse(now.plusMinutes(SystemConfigKeys.DEFAULT_ORDER_PAYMENT_TIMEOUT_MINUTES));
+        String expireDate = expireAt.format(formatter);
 
         Map<String, String> fields = new HashMap<>();
         fields.put("vnp_Version", version);

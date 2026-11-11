@@ -96,32 +96,26 @@ app:
   # Order checkout - chưa tích hợp GHN tính phí thật, tạm phí ship cố định (F-054 để sau)
   order:
     shipping-fee: 25000
-    payment-deadline-minutes: 15
+    # Hạn thanh toán đơn đã chuyển sang system_configs (order_payment_timeout_minutes)
     tax-rate: 0
     # F-058: chu kỳ job quét đơn PENDING_PAYMENT quá hạn để tự hủy và nhả hàng về sàn
     auto-cancel-check-interval-ms: 60000
-    # F-064: hạn tự hoàn thành đơn, tính từ lúc GHN báo đã giao (webhook set autoCompleteDeadline)
-    auto-complete-days: 3
+    # Hạn tự hoàn thành đơn đã chuyển sang system_configs (order_auto_complete_days)
     # F-064 + payout người ký gửi: chu kỳ job quét đơn quá hạn autoCompleteDeadline để tự
     # chốt COMPLETED (nếu còn DELIVERED) và cộng tiền ví người ký gửi
     auto-complete-check-interval-ms: 60000
 
   # Trả hàng F-067 -> F-071
   return:
-    # Hạn gửi yêu cầu trả hàng, tính từ lúc GHN báo đã giao
-    request-window-days: 3
-    # Hạn Member bàn giao hàng trả cho GHN sau khi Moderator duyệt
-    handover-deadline-days: 3
-    # Hạn đến kho nhận lại hàng trả bị kết luận không hợp lệ
-    pickup-deadline-days: 7
+    # Các hạn trả hàng đã chuyển sang system_configs: return_request_window_days (hạn gửi yêu cầu),
+    # return_handover_carrier_days (hạn bàn giao cho GHN), counter_pickup_days (hạn đến kho nhận lại hàng)
     # F-069/F-071: chu kỳ job quét hai mốc hết hạn ở trên
     auto-expire-check-interval-ms: 60000
 
   # Rút lại hàng ký gửi giữa kỳ F-032
   item-withdrawal:
-    # Hạn Member đến kho nhận lại hàng sau khi gửi yêu cầu rút, mặc định 7 ngày
-    pickup-deadline-days: 7
-    # Hạn trả phí rút hàng (khi feeCharged > 0); quá hạn hủy sớm, không chờ hết pickup-deadline-days
+    # Hạn Member đến kho nhận lại hàng đã chuyển sang system_configs (counter_pickup_days)
+    # Hạn trả phí rút hàng (khi feeCharged > 0); quá hạn hủy sớm, không chờ hết hạn đến kho nhận hàng
     fee-payment-deadline-minutes: 15
     # F-035: chu kỳ job quét yêu cầu quá hạn đến kho nhận hàng / quá hạn trả phí
     auto-expire-check-interval-ms: 60000

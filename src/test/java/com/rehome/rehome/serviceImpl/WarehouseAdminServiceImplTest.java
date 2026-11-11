@@ -9,6 +9,7 @@ import com.rehome.rehome.dto.response.WarehouseAdminResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.AccountStatus;
 import com.rehome.rehome.entity.enums.CatalogStatus;
+import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
@@ -17,6 +18,7 @@ import com.rehome.rehome.repository.ConsignmentFormRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
+import com.rehome.rehome.repository.WarehouseStatsQueryRepository;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -30,6 +32,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -51,6 +54,7 @@ class WarehouseAdminServiceImplTest {
     @Mock ProductRepository productRepository;
     @Mock OrderItemRepository orderItemRepository;
     @Mock ConsignmentFormRepository consignmentFormRepository;
+    @Mock WarehouseStatsQueryRepository warehouseStatsRepository;
     @Mock AuditLogger auditLogger;
     @Spy ObjectMapper objectMapper = new ObjectMapper();
 
@@ -127,6 +131,29 @@ class WarehouseAdminServiceImplTest {
 
         assertThat(service.list(CatalogStatus.ACTIVE)).hasSize(1);
         verify(warehouseRepository, never()).findAllByOrderByNameAsc();
+    }
+
+    @Test
+    @DisplayName("list: trả moderatorCount, inventoryCount, activeOrders theo từng kho; kho không có số liệu = 0")
+    void list_includesStatsPerWarehouse() {
+        Warehouse other = Warehouse.builder().id(UUID.randomUUID()).name("Kho Thủ Đức")
+                .status(CatalogStatus.ACTIVE).build();
+        when(warehouseRepository.findAllByOrderByNameAsc()).thenReturn(List.of(warehouse, other));
+        when(warehouseStatsRepository.countActiveModeratorsByWarehouse()).thenReturn(Map.of(warehouseId, 3L));
+        when(warehouseStatsRepository.countInventoryByWarehouse(anyCollection())).thenReturn(Map.of(warehouseId, 42L));
+        when(warehouseStatsRepository.countActiveOrdersByWarehouse(anyCollection())).thenReturn(Map.of(warehouseId, 5L));
+
+        List<WarehouseAdminResponse> result = service.list(null);
+
+        assertThat(result.get(0).getModeratorCount()).isEqualTo(3);
+        assertThat(result.get(0).getInventoryCount()).isEqualTo(42);
+        assertThat(result.get(0).getActiveOrders()).isEqualTo(5);
+        assertThat(result.get(1).getModeratorCount()).isZero();
+        assertThat(result.get(1).getInventoryCount()).isZero();
+        assertThat(result.get(1).getActiveOrders()).isZero();
+        // Cùng định nghĩa với API 144: đơn đang xử lý là PAID/PACKING
+        verify(warehouseStatsRepository).countActiveOrdersByWarehouse(
+                List.of(OrderStatus.PAID, OrderStatus.PACKING));
     }
 
     // ==================== create (API 142) ====================

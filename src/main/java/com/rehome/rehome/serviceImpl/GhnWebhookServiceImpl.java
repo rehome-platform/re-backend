@@ -1,5 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.GhnWebhookPayload;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.marketplace.Order;
@@ -11,9 +12,9 @@ import com.rehome.rehome.repository.OrderTrackingEventRepository;
 import com.rehome.rehome.service.GhnWebhookService;
 import com.rehome.rehome.service.OrderService;
 import com.rehome.rehome.service.ReturnRequestService;
+import com.rehome.rehome.service.SystemConfigReader;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -39,9 +40,7 @@ public class GhnWebhookServiceImpl implements GhnWebhookService {
     private final OrderTrackingEventRepository orderTrackingEventRepository;
     private final OrderService orderService;
     private final ReturnRequestService returnRequestService;
-
-    @Value("${app.order.auto-complete-days:3}")
-    private long autoCompleteDays;
+    private final SystemConfigReader systemConfigReader;
 
     @Override
     @Transactional
@@ -79,8 +78,17 @@ public class GhnWebhookServiceImpl implements GhnWebhookService {
         if ("delivered".equals(status)) {
             if (order.getStatus() == OrderStatus.SHIPPING) {
                 order.setStatus(OrderStatus.DELIVERED);
+                // Đọc config tại thời điểm giao và chốt vào đơn: admin đổi cấu hình sau đó
+                // không làm lệch hạn của đơn đã giao, và app đếm ngược theo đúng giá trị đã lưu.
+                int autoCompleteDays = systemConfigReader.getInt(
+                        SystemConfigKeys.ORDER_AUTO_COMPLETE_DAYS,
+                        SystemConfigKeys.DEFAULT_ORDER_AUTO_COMPLETE_DAYS);
+                int returnWindowDays = systemConfigReader.getInt(
+                        SystemConfigKeys.RETURN_REQUEST_WINDOW_DAYS,
+                        SystemConfigKeys.DEFAULT_RETURN_REQUEST_WINDOW_DAYS);
                 order.setDeliveredAt(occurredAt);
                 order.setAutoCompleteDeadline(occurredAt.plus(autoCompleteDays, ChronoUnit.DAYS));
+                order.setReturnDeadline(occurredAt.plus(returnWindowDays, ChronoUnit.DAYS));
                 orderRepository.save(order);
             }
         } else if (TERMINAL_FAILURE_STATUSES.contains(status)) {

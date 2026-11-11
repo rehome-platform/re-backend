@@ -29,5 +29,7 @@ public class OrderSummaryResponse {
     private Instant paymentDeadline;
     private Instant deliveredAt;
     private Instant autoCompleteDeadline;
+    // Hạn cuối còn được gửi yêu cầu trả hàng, null khi đơn chưa giao
+    private Instant returnDeadline;
     private Short serviceRating;
 }

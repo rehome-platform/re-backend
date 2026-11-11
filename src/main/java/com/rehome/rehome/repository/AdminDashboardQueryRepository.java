@@ -33,9 +33,6 @@ public class AdminDashboardQueryRepository {
             OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.SHIPPING, OrderStatus.DELIVERED,
             OrderStatus.COMPLETED, OrderStatus.RETURNED);
 
-    private static final List<WalletTransactionType> PLATFORM_REVENUE_TYPES = List.of(
-            WalletTransactionType.COMMISSION_REVENUE, WalletTransactionType.WITHDRAWAL_FEE_REVENUE);
-
     @PersistenceContext
     private EntityManager em;
 
@@ -74,12 +71,27 @@ public class AdminDashboardQueryRepository {
                 .getSingleResult());
     }
 
-    public BigDecimal sumPlatformRevenue(Instant from, Instant to) {
+    // Hoa hồng nền tảng thu: dòng PLATFORM COMMISSION_REVENUE, ghi lúc trả tiền người bán của đơn (payoutOrder)
+    public BigDecimal sumCompletedCommission(Instant from, Instant to) {
+        return sumTransactions(WalletType.PLATFORM, WalletTransactionType.COMMISSION_REVENUE, from, to);
+    }
+
+    // Phí rút hàng nền tảng thu: dòng PLATFORM WITHDRAWAL_FEE_REVENUE, ghi lúc phí được thanh toán
+    public BigDecimal sumWithdrawalFeeRevenue(Instant from, Instant to) {
+        return sumTransactions(WalletType.PLATFORM, WalletTransactionType.WITHDRAWAL_FEE_REVENUE, from, to);
+    }
+
+    // Tiền đền bù cộng vào ví người bán: dòng phía MEMBER của DEGRADED_COMPENSATION (dương)
+    public BigDecimal sumDegradedCompensation(Instant from, Instant to) {
+        return sumTransactions(WalletType.MEMBER, WalletTransactionType.DEGRADED_COMPENSATION, from, to);
+    }
+
+    private BigDecimal sumTransactions(WalletType walletType, WalletTransactionType type, Instant from, Instant to) {
         return orZero(em.createQuery("select sum(t.amount) from WalletTransaction t "
-                        + "where t.walletType = :walletType and t.type in :types and t.status = :status "
+                        + "where t.walletType = :walletType and t.type = :type and t.status = :status "
                         + "and t.createdAt >= :from and t.createdAt < :to", BigDecimal.class)
-                .setParameter("walletType", WalletType.PLATFORM)
-                .setParameter("types", PLATFORM_REVENUE_TYPES)
+                .setParameter("walletType", walletType)
+                .setParameter("type", type)
                 .setParameter("status", TransactionStatus.SUCCESS)
                 .setParameter("from", from)
                 .setParameter("to", to)

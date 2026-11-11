@@ -1,5 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.GhnWebhookPayload;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.marketplace.Order;
@@ -9,6 +10,7 @@ import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.OrderTrackingEventRepository;
 import com.rehome.rehome.service.OrderService;
+import com.rehome.rehome.service.SystemConfigReader;
 import com.rehome.rehome.service.ReturnRequestService;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,7 +25,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -34,6 +35,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -55,6 +58,8 @@ class GhnWebhookServiceImplTest {
     private OrderService orderService;
     @Mock
     private ReturnRequestService returnRequestService;
+    @Mock
+    private SystemConfigReader systemConfigReader;
 
     @InjectMocks
     private GhnWebhookServiceImpl service;
@@ -63,7 +68,8 @@ class GhnWebhookServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        ReflectionTestUtils.setField(service, "autoCompleteDays", 3L);
+        when(systemConfigReader.getInt(eq(SystemConfigKeys.ORDER_AUTO_COMPLETE_DAYS), anyInt())).thenReturn(3);
+        when(systemConfigReader.getInt(eq(SystemConfigKeys.RETURN_REQUEST_WINDOW_DAYS), anyInt())).thenReturn(2);
         orderId = UUID.randomUUID();
     }
 
@@ -154,6 +160,7 @@ class GhnWebhookServiceImplTest {
         verify(order).setStatus(OrderStatus.DELIVERED);
         verify(order).setDeliveredAt(expected);
         verify(order).setAutoCompleteDeadline(expected.plus(3, ChronoUnit.DAYS));
+        verify(order).setReturnDeadline(expected.plus(2, ChronoUnit.DAYS));
         verify(orderRepository).save(order);
         verify(orderService, never()).cancelOrderForCarrierFailure(any(), any());
     }

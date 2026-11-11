@@ -32,4 +32,11 @@ public class MyPostResponse {
     // Chính tổ chức đang gọi /me/posts đã thích bài này chưa
     @JsonProperty("likedByMe")
     private boolean likedByMe;
+
+    // Trạng thái bài viết: VISIBLE / REMOVED - để FE hiển thị badge gỡ bài ngay trên list (F-107)
+    private String status;
+
+    // Lý do Moderator gỡ bài (status = REMOVED); luôn là tổ chức sở hữu nên không cần che
+    // như PostDetailResponse (CommunityPostServiceImpl.getDetail)
+    private String removalReason;
 }

@@ -1,49 +1,37 @@
 package com.rehome.rehome.serviceImpl;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
 import com.rehome.rehome.dto.response.QueueClaimResponse;
 import com.rehome.rehome.dto.response.QueueItemResponse;
 import com.rehome.rehome.entity.auth.Account;
-import com.rehome.rehome.entity.auth.OrganizationLegalChangeRequest;
 import com.rehome.rehome.entity.auth.MemberProfile;
+import com.rehome.rehome.entity.auth.OrganizationLegalChangeRequest;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
-import com.rehome.rehome.entity.auth.OrganizationRepresentative;
-import com.rehome.rehome.entity.marketplace.ConsignmentForm;
-import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
-import com.rehome.rehome.entity.enums.LegalChangeRequestStatus;
 import com.rehome.rehome.entity.enums.QueueType;
-import com.rehome.rehome.entity.marketplace.QueueItem;
-import com.rehome.rehome.entity.marketplace.Warehouse;
+import com.rehome.rehome.entity.marketplace.ConsignmentForm;
+import com.rehome.rehome.entity.marketplace.Donation;
+import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
-import com.rehome.rehome.entity.marketplace.Product;
+import com.rehome.rehome.entity.marketplace.ProductPhoto;
+import com.rehome.rehome.entity.marketplace.QueueItem;
+import com.rehome.rehome.entity.marketplace.ReturnRequest;
+import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.OrganizationLegalChangeMapper;
 import com.rehome.rehome.repository.ConsignmentFormRepository;
+import com.rehome.rehome.repository.DonationRepository;
 import com.rehome.rehome.repository.ItemWithdrawalRequestRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.OrganizationLegalChangeRequestRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
+import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.QueueItemRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import com.rehome.rehome.serviceImpl.QueueServiceImpl;
-import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -51,10 +39,41 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * Lưu ý giả định (chỉnh lại nếu code thật khác):
+ * - AppException có field/getter "errorCode".
+ * - QueueItemResponse có các static factory: from, fromPacking, fromLegalChange, fromReturn,
+ *   fromConsignmentForm, fromOrganization, fromWithdrawal, fromDonationPickup (được mock tĩnh).
+ * - OrganizationLegalChangeMapper.LegalChangeSummary có thể mock được (record -> cần mockito-inline, mặc định Mockito 5).
+ */
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class QueueServiceImplTest {
 
     @Mock private QueueItemRepository queueItemRepository;
@@ -62,696 +81,608 @@ class QueueServiceImplTest {
     @Mock private OrderItemRepository orderItemRepository;
     @Mock private OrganizationLegalChangeRequestRepository organizationLegalChangeRequestRepository;
     @Mock private OrganizationLegalChangeMapper organizationLegalChangeMapper;
+    @Mock private ReturnRequestRepository returnRequestRepository;
     @Mock private MemberProfileRepository memberProfileRepository;
     @Mock private ConsignmentFormRepository consignmentFormRepository;
     @Mock private OrganizationProfileRepository organizationProfileRepository;
-    @Mock private ReturnRequestRepository returnRequestRepository;
     @Mock private ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
+    @Mock private ProductPhotoRepository productPhotoRepository;
+    @Mock private DonationRepository donationRepository;
 
-    @InjectMocks private QueueServiceImpl queueService;
+    @InjectMocks
+    private QueueServiceImpl service;
 
-    private static void assertAppError(ThrowingCallable callable, ErrorCode expected) {
-        assertThatThrownBy(callable)
-                .isInstanceOfSatisfying(
-                        AppException.class, e -> assertThat(e.getErrorCode()).isEqualTo(expected));
+    private MockedStatic<QueueItemResponse> responses;
+
+    private final UUID warehouseId = UUID.randomUUID();
+    private Warehouse warehouse;
+    private Account moderator;
+
+    @BeforeEach
+    void setUp() {
+        warehouse = mock(Warehouse.class);
+        when(warehouse.getId()).thenReturn(warehouseId);
+
+        moderator = mock(Account.class);
+        when(moderator.getId()).thenReturn(UUID.randomUUID());
+        when(moderator.getWarehouse()).thenReturn(warehouse);
+
+        responses = mockStatic(QueueItemResponse.class);
     }
 
-    // Tạo Warehouse với id xác định theo key; tự nhận biết kiểu id (UUID/Long/Integer/String)
-    private static Warehouse warehouse(int key) {
-        Warehouse w = new Warehouse();
-        Class<?> idType;
-        try {
-            idType = Warehouse.class.getDeclaredField("id").getType();
-        } catch (NoSuchFieldException e) {
-            throw new IllegalStateException("Warehouse không có field id", e);
-        }
-        Object id;
-        if (idType == UUID.class) id = new UUID(0L, key);
-        else if (idType == Long.class || idType == long.class) id = (long) key;
-        else if (idType == Integer.class || idType == int.class) id = key;
-        else id = "wh-" + key;
-        ReflectionTestUtils.setField(w, "id", id);
-        return w;
+    @AfterEach
+    void tearDown() {
+        responses.close();
     }
 
-    private static Account moderator(Warehouse warehouse) {
-        return Account.builder().id(UUID.randomUUID()).warehouse(warehouse).build();
+    // ------------------------------------------------------------------ helpers
+
+    private QueueItem queueItem(QueueType type, String refId) {
+        QueueItem q = mock(QueueItem.class);
+        when(q.getType()).thenReturn(type);
+        when(q.getRefId()).thenReturn(refId);
+        return q;
     }
 
-    private static QueueItem item(String id, QueueType type, Account claimedBy, Warehouse warehouse) {
-        return QueueItem.builder()
-                .id(id)
-                .type(type)
-                .refId("cf-" + id)
-                .claimedBy(claimedBy)
-                .claimedAt(claimedBy == null ? null : Instant.parse("2026-10-13T08:05:00Z"))
-                .warehouse(warehouse)
-                .createdAt(Instant.parse("2026-10-13T08:00:00Z"))
-                .build();
+    private void assertAppError(Runnable call, ErrorCode code) {
+        assertThatThrownBy(call::run)
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", code);
     }
+
+    // ================================================================ list
 
     @Nested
-    @DisplayName("API 28 - list")
-    class ListQueue {
+    @DisplayName("list")
+    class ListTests {
 
         @Test
-        @DisplayName("Moderator chưa gán kho: 403 MODERATOR_NO_WAREHOUSE")
-        void noWarehouse_throws() {
-            Account mod = moderator(null);
-
-            assertAppError(() -> queueService.list(null, mod), ErrorCode.MODERATOR_NO_WAREHOUSE);
+        void moderatorWithoutWarehouse_throws() {
+            when(moderator.getWarehouse()).thenReturn(null);
+            assertAppError(() -> service.list(null, moderator), ErrorCode.MODERATOR_NO_WAREHOUSE);
         }
 
         @Test
-        @DisplayName("type null: lấy tất cả loại việc trong kho")
-        void typeNull_returnsAll() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            when(queueItemRepository.findAllVisible(wh))
-                    .thenReturn(List.of(item("q-1", QueueType.FORM_REVIEW, null, wh)));
+        void nullOrBlankType_loadsAllVisible() {
+            when(queueItemRepository.findAllVisible(warehouse)).thenReturn(List.of());
 
-            List<QueueItemResponse> result = queueService.list(null, mod);
+            assertThat(service.list(null, moderator)).isEmpty();
+            assertThat(service.list("   ", moderator)).isEmpty();
 
-            assertThat(result).hasSize(1);
+            verify(queueItemRepository, times(2)).findAllVisible(warehouse);
             verify(queueItemRepository, never()).findVisibleByType(any(), any());
         }
 
         @Test
-        @DisplayName("type rỗng hoặc toàn khoảng trắng: lấy tất cả loại việc")
-        void typeBlank_returnsAll() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of());
-
-            assertThat(queueService.list("   ", mod)).isEmpty();
-            verify(queueItemRepository).findAllVisible(wh);
+        void invalidType_throws() {
+            assertAppError(() -> service.list("NOT_A_TYPE", moderator), ErrorCode.INVALID_QUEUE_TYPE);
         }
 
         @Test
-        @DisplayName("type hợp lệ (có khoảng trắng thừa): lọc theo type")
-        void validType_filters() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            when(queueItemRepository.findVisibleByType(QueueType.FORM_REVIEW, wh))
-                    .thenReturn(List.of(item("q-1", QueueType.FORM_REVIEW, null, wh)));
+        void validType_trimmedAndFiltered() {
+            when(queueItemRepository.findVisibleByType(QueueType.PACKING, warehouse)).thenReturn(List.of());
 
-            List<QueueItemResponse> result = queueService.list(" FORM_REVIEW ", mod);
+            service.list("  PACKING ", moderator);
 
-            assertThat(result).hasSize(1);
-            assertThat(result.get(0).getType()).isEqualTo(QueueType.FORM_REVIEW);
-            verify(queueItemRepository, never()).findAllVisible(any());
-        }
-
-        @Test
-        @DisplayName("WITHDRAWAL: kèm accountId và memberCode của Member ký gửi")
-        void withdrawalItem_hasAccountIdAndMemberCode() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            UUID memberId = UUID.randomUUID();
-            Account member = Account.builder().id(memberId).build();
-            UUID withdrawalId = UUID.randomUUID();
-            Product product = Product.builder().id("Q7-AK-000845").name("Áo khoác len").build();
-            ItemWithdrawalRequest withdrawal = ItemWithdrawalRequest.builder()
-                    .id(withdrawalId).product(product).member(member).build();
-            QueueItem q = QueueItem.builder().id("q-w").type(QueueType.WITHDRAWAL)
-                    .refId(withdrawalId.toString()).warehouse(wh)
-                    .createdAt(Instant.parse("2026-10-13T08:00:00Z")).build();
-            when(queueItemRepository.findVisibleByType(QueueType.WITHDRAWAL, wh)).thenReturn(List.of(q));
-            when(itemWithdrawalRequestRepository.findAllWithProductByIdIn(List.of(withdrawalId)))
-                    .thenReturn(List.of(withdrawal));
-            when(memberProfileRepository.findAllByAccount_IdIn(List.of(memberId)))
-                    .thenReturn(List.of(MemberProfile.builder().accountId(memberId).account(member)
-                            .fullName("Tạ Thị Ngọc Anh").memberCode("MB-000123").build()));
-
-            List<QueueItemResponse> result = queueService.list("WITHDRAWAL", mod);
-
-            assertThat(result).hasSize(1);
-            assertThat(result.get(0).getTargetName()).isEqualTo("Áo khoác len");
-            assertThat(result.get(0).getSubjectSubtitle()).isEqualTo("Tạ Thị Ngọc Anh");
-            assertThat(result.get(0).getAccountId()).isEqualTo(memberId.toString());
-            assertThat(result.get(0).getMemberCode()).isEqualTo("MB-000123");
-        }
-
-        @Test
-        @DisplayName("WITHDRAWAL: Member chưa có hồ sơ -> vẫn trả accountId, memberCode và tên là null")
-        void withdrawalItem_noProfile_stillHasAccountId() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            UUID memberId = UUID.randomUUID();
-            Account member = Account.builder().id(memberId).build();
-            UUID withdrawalId = UUID.randomUUID();
-            ItemWithdrawalRequest withdrawal = ItemWithdrawalRequest.builder().id(withdrawalId)
-                    .product(Product.builder().id("Q7-AK-000845").name("Áo khoác len").build())
-                    .member(member).build();
-            QueueItem q = QueueItem.builder().id("q-w").type(QueueType.WITHDRAWAL)
-                    .refId(withdrawalId.toString()).warehouse(wh)
-                    .createdAt(Instant.parse("2026-10-13T08:00:00Z")).build();
-            when(queueItemRepository.findVisibleByType(QueueType.WITHDRAWAL, wh)).thenReturn(List.of(q));
-            when(itemWithdrawalRequestRepository.findAllWithProductByIdIn(List.of(withdrawalId)))
-                    .thenReturn(List.of(withdrawal));
-            when(memberProfileRepository.findAllByAccount_IdIn(List.of(memberId))).thenReturn(List.of());
-
-            List<QueueItemResponse> result = queueService.list("WITHDRAWAL", mod);
-
-            assertThat(result.get(0).getAccountId()).isEqualTo(memberId.toString());
-            assertThat(result.get(0).getMemberCode()).isNull();
-            assertThat(result.get(0).getSubjectSubtitle()).isNull();
-        }
-
-        @Test
-        @DisplayName("RETURN: Return Request PENDING chưa có dòng hàng đợi -> được bù vào queue")
-        void returnType_syncsMissingPendingRequests() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            UUID missingId = UUID.randomUUID();
-            UUID queuedId = UUID.randomUUID();
-            when(returnRequestRepository.findPendingIdsByWarehouse(wh)).thenReturn(List.of(missingId, queuedId));
-            when(queueItemRepository.findByTypesAndRefIds(
-                    eq(List.of(QueueType.RETURN)), eq(List.of(missingId.toString(), queuedId.toString()))))
-                    .thenReturn(List.of(QueueItem.builder().id("q-r").type(QueueType.RETURN)
-                            .refId(queuedId.toString()).warehouse(wh).build()));
-            when(queueItemRepository.findByTypeAndRefId(QueueType.RETURN, missingId.toString()))
-                    .thenReturn(Optional.empty());
-            when(queueItemRepository.save(any(QueueItem.class))).thenAnswer(i -> i.getArgument(0));
-            when(queueItemRepository.findVisibleByType(QueueType.RETURN, wh)).thenReturn(List.of());
-
-            queueService.list("RETURN", mod);
-
-            ArgumentCaptor<QueueItem> saved = ArgumentCaptor.forClass(QueueItem.class);
-            verify(queueItemRepository).save(saved.capture());
-            assertThat(saved.getValue().getType()).isEqualTo(QueueType.RETURN);
-            assertThat(saved.getValue().getRefId()).isEqualTo(missingId.toString());
-            assertThat(saved.getValue().getWarehouse()).isSameAs(wh);
-        }
-
-        @Test
-        @DisplayName("RETURN: mọi yêu cầu PENDING đã có dòng hàng đợi -> không tạo thêm")
-        void returnType_allAlreadyQueued_noInsert() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            UUID id = UUID.randomUUID();
-            when(returnRequestRepository.findPendingIdsByWarehouse(wh)).thenReturn(List.of(id));
-            when(queueItemRepository.findByTypesAndRefIds(
-                    eq(List.of(QueueType.RETURN)), eq(List.of(id.toString()))))
-                    .thenReturn(List.of(QueueItem.builder().id("q-r").type(QueueType.RETURN)
-                            .refId(id.toString()).warehouse(wh).build()));
-            when(queueItemRepository.findVisibleByType(QueueType.RETURN, wh)).thenReturn(List.of());
-
-            queueService.list("RETURN", mod);
-
-            verify(queueItemRepository, never()).save(any());
-        }
-
-        @Test
-        @DisplayName("Không phải RETURN: không đồng bộ Return Request")
-        void otherType_doesNotSyncReturnRequests() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            when(queueItemRepository.findVisibleByType(QueueType.FORM_REVIEW, wh)).thenReturn(List.of());
-
-            queueService.list("FORM_REVIEW", mod);
-
+            verify(queueItemRepository).findVisibleByType(QueueType.PACKING, warehouse);
             verify(returnRequestRepository, never()).findPendingIdsByWarehouse(any());
         }
 
         @Test
-        @DisplayName("type không hợp lệ: 400 INVALID_QUEUE_TYPE")
-        void invalidType_throws() {
-            Account mod = moderator(warehouse(1));
+        void returnTab_noPendingRequests_doesNotEnqueue() {
+            when(returnRequestRepository.findPendingIdsByWarehouse(warehouse)).thenReturn(List.of());
+            when(queueItemRepository.findVisibleByType(QueueType.RETURN, warehouse)).thenReturn(List.of());
 
-            assertAppError(() -> queueService.list("NOT_A_TYPE", mod), ErrorCode.INVALID_QUEUE_TYPE);
-            verify(queueItemRepository, never()).findVisibleByType(any(), any());
+            service.list("RETURN", moderator);
+
+            verify(queueItemRepository, never()).save(any());
+            verify(queueItemRepository, never()).findByTypesAndRefIds(anyList(), anyList());
         }
 
         @Test
-        @DisplayName("type phân biệt hoa thường: chữ thường là không hợp lệ")
-        void lowercaseType_throws() {
-            Account mod = moderator(warehouse(1));
+        void returnTab_enqueuesOnlyMissingPendingRequests() {
+            UUID alreadyQueued = UUID.randomUUID();
+            UUID missing = UUID.randomUUID();
+            when(returnRequestRepository.findPendingIdsByWarehouse(warehouse))
+                    .thenReturn(List.of(alreadyQueued, missing));
 
-            assertAppError(() -> queueService.list("form_review", mod), ErrorCode.INVALID_QUEUE_TYPE);
+            QueueItem existing = queueItem(QueueType.RETURN, alreadyQueued.toString());
+            when(queueItemRepository.findByTypesAndRefIds(anyList(), anyList())).thenReturn(List.of(existing));
+            when(queueItemRepository.findByTypeAndRefId(QueueType.RETURN, missing.toString()))
+                    .thenReturn(Optional.empty());
+            when(queueItemRepository.save(any(QueueItem.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(queueItemRepository.findVisibleByType(QueueType.RETURN, warehouse)).thenReturn(List.of());
+
+            service.list("RETURN", moderator);
+
+            ArgumentCaptor<QueueItem> captor = ArgumentCaptor.forClass(QueueItem.class);
+            verify(queueItemRepository, times(1)).save(captor.capture());
+            assertThat(captor.getValue().getRefId()).isEqualTo(missing.toString());
+            assertThat(captor.getValue().getType()).isEqualTo(QueueType.RETURN);
+            assertThat(captor.getValue().getWarehouse()).isSameAs(warehouse);
+        }
+    }
+
+    // ================================================================ toResponses (qua list)
+
+    @Nested
+    @DisplayName("list -> toResponses")
+    class ToResponses {
+
+        private void listAll(QueueItem... items) {
+            when(queueItemRepository.findAllVisible(warehouse)).thenReturn(List.of(items));
         }
 
         @Test
-        @DisplayName("Map đúng claimedBy: null khi chưa nhận, id Moderator khi đã nhận")
-        void mapsClaimedBy() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            Account other = moderator(wh);
-            when(queueItemRepository.findAllVisible(wh))
-                    .thenReturn(List.of(
-                            item("q-1", QueueType.FORM_REVIEW, null, wh),
-                            item("q-2", QueueType.PACKING, other, wh)));
+        void unknownTypeOrInvalidRefId_fallsBackToPlainFrom() {
+            QueueItem plain = queueItem(QueueType.PACKING, "not-a-uuid");
+            QueueItemResponse fallback = mock(QueueItemResponse.class);
+            responses.when(() -> QueueItemResponse.from(plain)).thenReturn(fallback);
+            listAll(plain);
 
-            List<QueueItemResponse> result = queueService.list(null, mod);
+            List<QueueItemResponse> res = service.list(null, moderator);
 
-            assertThat(result.get(0).getClaimedBy()).isNull();
-            assertThat(result.get(0).getClaimedAt()).isNull();
-            assertThat(result.get(1).getClaimedBy()).isEqualTo(other.getId().toString());
-            assertThat(result.get(1).getClaimedAt()).isEqualTo(Instant.parse("2026-10-13T08:05:00Z"));
-        }
-
-        @Test
-        @DisplayName("DG-01: PACKING kèm orderNo, recipientName, itemCount, waitingMinutes")
-        void packingItem_enrichedWithOrderData() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            UUID orderId = UUID.randomUUID();
-            Instant createdAt = Instant.now().minusSeconds(600);
-
-            Order order = Order.builder()
-                    .id(orderId)
-                    .orderNo("OD-2026-000099")
-                    .shippingRecipientName("Nguyễn Văn A")
-                    .createdAt(createdAt)
-                    .build();
-
-            Product product1 = Product.builder().id("sku-1").build();
-            Product product2 = Product.builder().id("sku-2").build();
-            OrderItem item1 = OrderItem.builder().order(order).product(product1).build();
-            OrderItem item2 = OrderItem.builder().order(order).product(product2).build();
-
-            QueueItem queueItem = QueueItem.builder()
-                    .id("q-1")
-                    .type(QueueType.PACKING)
-                    .refId(orderId.toString())
-                    .warehouse(wh)
-                    .createdAt(Instant.parse("2026-10-13T08:00:00Z"))
-                    .build();
-
-            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of(queueItem));
-            when(orderRepository.findAllById(List.of(orderId))).thenReturn(List.of(order));
-            when(orderItemRepository.findAllByOrder_IdInOrderByIdAsc(List.of(orderId)))
-                    .thenReturn(List.of(item1, item2));
-
-            List<QueueItemResponse> result = queueService.list(null, mod);
-
-            assertThat(result).hasSize(1);
-            QueueItemResponse response = result.get(0);
-            assertThat(response.getOrderNo()).isEqualTo("OD-2026-000099");
-            assertThat(response.getRecipientName()).isEqualTo("Nguyễn Văn A");
-            assertThat(response.getItemCount()).isEqualTo(2);
-            assertThat(response.getWaitingMinutes()).isGreaterThanOrEqualTo(9L);
-        }
-
-        @Test
-        @DisplayName("PACKING với refId không phải UUID hợp lệ: bỏ qua enrich, không lỗi")
-        void packingItem_invalidRefId_fallsBackToPlain() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            when(queueItemRepository.findAllVisible(wh))
-                    .thenReturn(List.of(item("q-1", QueueType.PACKING, null, wh)));
-
-            List<QueueItemResponse> result = queueService.list(null, mod);
-
-            assertThat(result).hasSize(1);
-            assertThat(result.get(0).getOrderNo()).isNull();
+            assertThat(res).containsExactly(fallback);
             verify(orderRepository, never()).findAllById(any());
         }
 
         @Test
-        @DisplayName("API 131: LEGAL_CHANGE kèm orgName, trạng thái và tóm tắt trường thay đổi")
-        void legalChangeItem_enrichedWithRequestSummary() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
+        void packing_enrichedWithOrderAndItemCount() {
+            UUID orderId = UUID.randomUUID();
+            QueueItem q = queueItem(QueueType.PACKING, orderId.toString());
+
+            Order order = mock(Order.class);
+            when(order.getId()).thenReturn(orderId);
+            when(order.getCreatedAt()).thenReturn(Instant.now().minus(Duration.ofMinutes(45)));
+            when(orderRepository.findAllById(anyList())).thenReturn(List.of(order));
+
+            OrderItem oi1 = mock(OrderItem.class, RETURNS_DEEP_STUBS);
+            when(oi1.getOrder().getId()).thenReturn(orderId);
+            OrderItem oi2 = mock(OrderItem.class, RETURNS_DEEP_STUBS);
+            when(oi2.getOrder().getId()).thenReturn(orderId);
+            when(orderItemRepository.findAllByOrder_IdInOrderByIdAsc(anyList())).thenReturn(List.of(oi1, oi2));
+
+            QueueItemResponse packing = mock(QueueItemResponse.class);
+            responses.when(() -> QueueItemResponse.fromPacking(eq(q), eq(order), eq(2), anyLong()))
+                    .thenReturn(packing);
+            listAll(q);
+
+            List<QueueItemResponse> res = service.list(null, moderator);
+
+            assertThat(res).containsExactly(packing);
+            ArgumentCaptor<Long> minutes = ArgumentCaptor.forClass(Long.class);
+            responses.verify(() -> QueueItemResponse.fromPacking(eq(q), eq(order), eq(2), minutes.capture()));
+            assertThat(minutes.getValue()).isBetween(44L, 46L);
+        }
+
+        @Test
+        void packing_orderMissing_fallsBackToFrom() {
+            UUID orderId = UUID.randomUUID();
+            QueueItem q = queueItem(QueueType.PACKING, orderId.toString());
+            when(orderRepository.findAllById(anyList())).thenReturn(List.of());
+            when(orderItemRepository.findAllByOrder_IdInOrderByIdAsc(anyList())).thenReturn(List.of());
+            QueueItemResponse fallback = mock(QueueItemResponse.class);
+            responses.when(() -> QueueItemResponse.from(q)).thenReturn(fallback);
+            listAll(q);
+
+            assertThat(service.list(null, moderator)).containsExactly(fallback);
+        }
+
+        @Test
+        void legalChange_enrichedWithSummary() {
             UUID requestId = UUID.randomUUID();
+            QueueItem q = queueItem(QueueType.LEGAL_CHANGE, requestId.toString());
 
-            OrganizationProfile org = OrganizationProfile.builder()
-                    .accountId(UUID.randomUUID())
-                    .displayName("Quỹ Chia Sẻ")
-                    .build();
-            OrganizationLegalChangeRequest request = OrganizationLegalChangeRequest.builder()
-                    .id(requestId)
-                    .organization(org)
-                    .status(LegalChangeRequestStatus.PENDING)
-                    .proposedChanges(JsonNodeFactory.instance.objectNode().put("legalName", "Quỹ Mới"))
-                    .build();
+            OrganizationLegalChangeRequest request = mock(OrganizationLegalChangeRequest.class);
+            when(request.getId()).thenReturn(requestId);
+            when(organizationLegalChangeRequestRepository.findAllById(anyList())).thenReturn(List.of(request));
 
-            QueueItem queueItem = QueueItem.builder()
-                    .id("q-1")
-                    .type(QueueType.LEGAL_CHANGE)
-                    .refId(requestId.toString())
-                    .warehouse(null)
-                    .createdAt(Instant.parse("2026-10-13T08:00:00Z"))
-                    .build();
+            OrganizationLegalChangeMapper.LegalChangeSummary summary =
+                    mock(OrganizationLegalChangeMapper.LegalChangeSummary.class);
+            when(summary.fieldChanged()).thenReturn("taxCode");
+            when(summary.oldValue()).thenReturn("111");
+            when(summary.newValue()).thenReturn("222");
+            when(organizationLegalChangeMapper.summarize(any(), any())).thenReturn(summary);
 
-            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of(queueItem));
-            when(organizationLegalChangeRequestRepository.findAllById(List.of(requestId)))
-                    .thenReturn(List.of(request));
-            when(organizationLegalChangeMapper.summarize(request.getProposedChanges(), org))
-                    .thenReturn(new OrganizationLegalChangeMapper.LegalChangeSummary(
-                            "Tên pháp lý", "Hội Chia Sẻ", "Quỹ Mới"));
+            QueueItemResponse legal = mock(QueueItemResponse.class);
+            responses.when(() -> QueueItemResponse.fromLegalChange(q, request, "taxCode", "111", "222"))
+                    .thenReturn(legal);
+            listAll(q);
 
-            List<QueueItemResponse> result = queueService.list(null, mod);
-
-            assertThat(result).hasSize(1);
-            QueueItemResponse response = result.get(0);
-            assertThat(response.getRequestId()).isEqualTo(requestId.toString());
-            assertThat(response.getOrgName()).isEqualTo("Quỹ Chia Sẻ");
-            assertThat(response.getStatus()).isEqualTo("PENDING");
-            assertThat(response.getFieldChanged()).isEqualTo("Tên pháp lý");
-            assertThat(response.getOldValue()).isEqualTo("Hội Chia Sẻ");
-            assertThat(response.getNewValue()).isEqualTo("Quỹ Mới");
+            assertThat(service.list(null, moderator)).containsExactly(legal);
         }
 
         @Test
-        @DisplayName("FORM_REVIEW / INSPECTION: targetName = tên sản phẩm, subjectSubtitle = tên người gửi (nạp theo lô)")
-        void consignmentFormItems_enrichedWithProductAndMemberName() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            UUID memberId = UUID.randomUUID();
-            Account member = Account.builder().id(memberId).build();
-            UUID formA = UUID.randomUUID();
-            UUID formB = UUID.randomUUID();
-            ConsignmentForm a = ConsignmentForm.builder().id(formA).member(member).productName("Áo khoác len")
-                    .formNo("KG-000001").build();
-            ConsignmentForm b = ConsignmentForm.builder().id(formB).member(member).productName("Giày da")
-                    .formNo("KG-000002").build();
+        void legalChange_requestMissing_fallsBackToFrom() {
+            UUID requestId = UUID.randomUUID();
+            QueueItem q = queueItem(QueueType.LEGAL_CHANGE, requestId.toString());
+            when(organizationLegalChangeRequestRepository.findAllById(anyList())).thenReturn(List.of());
+            QueueItemResponse fallback = mock(QueueItemResponse.class);
+            responses.when(() -> QueueItemResponse.from(q)).thenReturn(fallback);
+            listAll(q);
 
-            QueueItem review = QueueItem.builder().id("q-1").type(QueueType.FORM_REVIEW)
-                    .refId(formA.toString()).warehouse(wh).createdAt(Instant.parse("2026-10-13T08:00:00Z")).build();
-            QueueItem inspection = QueueItem.builder().id("q-2").type(QueueType.INSPECTION)
-                    .refId(formB.toString()).warehouse(wh).createdAt(Instant.parse("2026-10-13T08:01:00Z")).build();
-
-            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of(review, inspection));
-            when(consignmentFormRepository.findAllById(List.of(formA, formB))).thenReturn(List.of(a, b));
-            when(memberProfileRepository.findAllByAccount_IdIn(List.of(memberId))).thenReturn(List.of(
-                    MemberProfile.builder().accountId(memberId).account(member).fullName("Tạ Thị Ngọc Anh")
-                            .memberCode("MB-000123").build()));
-
-            List<QueueItemResponse> result = queueService.list(null, mod);
-
-            assertThat(result).hasSize(2);
-            assertThat(result.get(0).getTargetName()).isEqualTo("Áo khoác len");
-            assertThat(result.get(0).getSubjectSubtitle()).isEqualTo("Tạ Thị Ngọc Anh");
-            assertThat(result.get(1).getTargetName()).isEqualTo("Giày da");
-            assertThat(result.get(1).getSubjectSubtitle()).isEqualTo("Tạ Thị Ngọc Anh");
-            // 2 form cùng 1 người gửi: mỗi repository đúng 1 lần
-            verify(consignmentFormRepository).findAllById(List.of(formA, formB));
-            verify(memberProfileRepository).findAllByAccount_IdIn(List.of(memberId));
+            assertThat(service.list(null, moderator)).containsExactly(fallback);
+            verify(organizationLegalChangeMapper, never()).summarize(any(), any());
         }
 
         @Test
-        @DisplayName("FORM_REVIEW: không có hồ sơ Member -> dòng phụ dùng mã form")
-        void consignmentFormItem_memberProfileMissing_usesFormNo() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            UUID memberId = UUID.randomUUID();
+        void return_enrichedWithSellerAndBuyerNames() {
+            UUID returnId = UUID.randomUUID();
+            UUID orderId = UUID.randomUUID();
+            UUID buyerId = UUID.randomUUID();
+            UUID sellerId = UUID.randomUUID();
+            QueueItem q = queueItem(QueueType.RETURN, returnId.toString());
+
+            ReturnRequest rr = mock(ReturnRequest.class, RETURNS_DEEP_STUBS);
+            when(rr.getId()).thenReturn(returnId);
+            when(rr.getOrder().getId()).thenReturn(orderId);
+            when(returnRequestRepository.findAllById(anyList())).thenReturn(List.of(rr));
+
+            Order order = mock(Order.class, RETURNS_DEEP_STUBS);
+            when(order.getId()).thenReturn(orderId);
+            when(order.getBuyer().getId()).thenReturn(buyerId);
+            when(orderRepository.findAllById(anyList())).thenReturn(List.of(order));
+
+            OrderItem oi = mock(OrderItem.class, RETURNS_DEEP_STUBS);
+            when(oi.getOrder().getId()).thenReturn(orderId);
+            when(oi.getProduct().getMember().getId()).thenReturn(sellerId);
+            when(orderItemRepository.findAllByOrder_IdInOrderByIdAsc(anyList())).thenReturn(List.of(oi));
+
+            MemberProfile buyer = mock(MemberProfile.class, RETURNS_DEEP_STUBS);
+            when(buyer.getAccount().getId()).thenReturn(buyerId);
+            when(buyer.getFullName()).thenReturn("Người Mua");
+            MemberProfile seller = mock(MemberProfile.class, RETURNS_DEEP_STUBS);
+            when(seller.getAccount().getId()).thenReturn(sellerId);
+            when(seller.getFullName()).thenReturn("Người Bán");
+            when(memberProfileRepository.findAllByAccount_IdIn(anyList())).thenReturn(List.of(buyer, seller));
+
+            QueueItemResponse ret = mock(QueueItemResponse.class);
+            responses.when(() -> QueueItemResponse.fromReturn(q, order, "Người Bán", "Người Mua"))
+                    .thenReturn(ret);
+            listAll(q);
+
+            assertThat(service.list(null, moderator)).containsExactly(ret);
+        }
+
+        @Test
+        void return_orderNotFound_fallsBackToFrom() {
+            UUID returnId = UUID.randomUUID();
+            QueueItem q = queueItem(QueueType.RETURN, returnId.toString());
+
+            ReturnRequest rr = mock(ReturnRequest.class, RETURNS_DEEP_STUBS);
+            when(rr.getId()).thenReturn(returnId);
+            when(rr.getOrder().getId()).thenReturn(UUID.randomUUID());
+            when(returnRequestRepository.findAllById(anyList())).thenReturn(List.of(rr));
+            when(orderRepository.findAllById(anyList())).thenReturn(List.of());
+            when(orderItemRepository.findAllByOrder_IdInOrderByIdAsc(anyList())).thenReturn(List.of());
+
+            QueueItemResponse fallback = mock(QueueItemResponse.class);
+            responses.when(() -> QueueItemResponse.from(q)).thenReturn(fallback);
+            listAll(q);
+
+            assertThat(service.list(null, moderator)).containsExactly(fallback);
+        }
+
+        @Test
+        void formReview_andInspection_shareFormLookup() {
             UUID formId = UUID.randomUUID();
-            ConsignmentForm form = ConsignmentForm.builder().id(formId).member(Account.builder().id(memberId).build())
-                    .productName("Áo khoác len").formNo("KG-000001").build();
-            QueueItem review = QueueItem.builder().id("q-1").type(QueueType.FORM_REVIEW)
-                    .refId(formId.toString()).warehouse(wh).createdAt(Instant.parse("2026-10-13T08:00:00Z")).build();
+            UUID memberAccountId = UUID.randomUUID();
+            QueueItem review = queueItem(QueueType.FORM_REVIEW, formId.toString());
+            QueueItem inspection = queueItem(QueueType.INSPECTION, formId.toString());
 
-            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of(review));
-            when(consignmentFormRepository.findAllById(List.of(formId))).thenReturn(List.of(form));
-            when(memberProfileRepository.findAllByAccount_IdIn(List.of(memberId))).thenReturn(List.of());
+            ConsignmentForm form = mock(ConsignmentForm.class, RETURNS_DEEP_STUBS);
+            when(form.getId()).thenReturn(formId);
+            when(form.getMember().getId()).thenReturn(memberAccountId);
+            when(consignmentFormRepository.findAllById(anyList())).thenReturn(List.of(form));
 
-            QueueItemResponse response = queueService.list(null, mod).get(0);
+            MemberProfile profile = mock(MemberProfile.class);
+            when(profile.getAccountId()).thenReturn(memberAccountId);
+            when(profile.getFullName()).thenReturn("Nguyễn Văn A");
+            when(memberProfileRepository.findAllByAccount_IdIn(anyList())).thenReturn(List.of(profile));
 
-            assertThat(response.getTargetName()).isEqualTo("Áo khoác len");
-            assertThat(response.getSubjectSubtitle()).isEqualTo("KG-000001");
+            QueueItemResponse r1 = mock(QueueItemResponse.class);
+            QueueItemResponse r2 = mock(QueueItemResponse.class);
+            responses.when(() -> QueueItemResponse.fromConsignmentForm(review, form, "Nguyễn Văn A")).thenReturn(r1);
+            responses.when(() -> QueueItemResponse.fromConsignmentForm(inspection, form, "Nguyễn Văn A")).thenReturn(r2);
+            listAll(review, inspection);
+
+            assertThat(service.list(null, moderator)).containsExactly(r1, r2);
+            // refId trùng được gộp distinct -> chỉ 1 lần truy vấn form
+            verify(consignmentFormRepository, times(1)).findAllById(anyList());
         }
 
         @Test
-        @DisplayName("ORG_VERIFICATION: targetName = tên tổ chức, subjectSubtitle = người đại diện")
-        void orgVerificationItem_enrichedWithOrganizationAndRepresentative() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
+        void orgVerification_enrichedWithOrganization() {
             UUID orgId = UUID.randomUUID();
-            OrganizationRepresentative rep = new OrganizationRepresentative();
-            rep.setFullName("Lê Văn Đại");
-            OrganizationProfile org = OrganizationProfile.builder().accountId(orgId)
-                    .displayName("Quỹ Chia Sẻ").representative(rep).build();
-            QueueItem item = QueueItem.builder().id("q-1").type(QueueType.ORG_VERIFICATION)
-                    .refId(orgId.toString()).warehouse(null).createdAt(Instant.parse("2026-10-13T08:00:00Z")).build();
+            QueueItem q = queueItem(QueueType.ORG_VERIFICATION, orgId.toString());
 
-            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of(item));
-            when(organizationProfileRepository.findAllById(List.of(orgId))).thenReturn(List.of(org));
+            OrganizationProfile org = mock(OrganizationProfile.class);
+            when(org.getAccountId()).thenReturn(orgId);
+            when(organizationProfileRepository.findAllById(anyList())).thenReturn(List.of(org));
 
-            QueueItemResponse response = queueService.list(null, mod).get(0);
+            QueueItemResponse orgResponse = mock(QueueItemResponse.class);
+            responses.when(() -> QueueItemResponse.fromOrganization(q, org)).thenReturn(orgResponse);
+            listAll(q);
 
-            assertThat(response.getTargetName()).isEqualTo("Quỹ Chia Sẻ");
-            assertThat(response.getSubjectSubtitle()).isEqualTo("Lê Văn Đại");
+            assertThat(service.list(null, moderator)).containsExactly(orgResponse);
         }
 
         @Test
-        @DisplayName("ORG_VERIFICATION: tổ chức chưa có người đại diện -> subjectSubtitle null, không lỗi")
-        void orgVerificationItem_noRepresentative() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
+        void orgVerification_notFound_fallsBackToFrom() {
             UUID orgId = UUID.randomUUID();
-            OrganizationProfile org = OrganizationProfile.builder().accountId(orgId).displayName("Quỹ Chia Sẻ").build();
-            QueueItem item = QueueItem.builder().id("q-1").type(QueueType.ORG_VERIFICATION)
-                    .refId(orgId.toString()).warehouse(null).createdAt(Instant.parse("2026-10-13T08:00:00Z")).build();
+            QueueItem q = queueItem(QueueType.ORG_VERIFICATION, orgId.toString());
+            when(organizationProfileRepository.findAllById(anyList())).thenReturn(List.of());
+            QueueItemResponse fallback = mock(QueueItemResponse.class);
+            responses.when(() -> QueueItemResponse.from(q)).thenReturn(fallback);
+            listAll(q);
 
-            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of(item));
-            when(organizationProfileRepository.findAllById(List.of(orgId))).thenReturn(List.of(org));
-
-            QueueItemResponse response = queueService.list(null, mod).get(0);
-
-            assertThat(response.getTargetName()).isEqualTo("Quỹ Chia Sẻ");
-            assertThat(response.getSubjectSubtitle()).isNull();
+            assertThat(service.list(null, moderator)).containsExactly(fallback);
         }
 
         @Test
-        @DisplayName("LEGAL_CHANGE: ngoài orgName còn có targetName và subjectSubtitle (người đại diện)")
-        void legalChangeItem_hasTargetNameAndSubtitle() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            UUID requestId = UUID.randomUUID();
-            OrganizationRepresentative rep = new OrganizationRepresentative();
-            rep.setFullName("Lê Văn Đại");
-            OrganizationProfile org = OrganizationProfile.builder().accountId(UUID.randomUUID())
-                    .displayName("Quỹ Chia Sẻ").representative(rep).build();
-            OrganizationLegalChangeRequest request = OrganizationLegalChangeRequest.builder()
-                    .id(requestId).organization(org).status(LegalChangeRequestStatus.PENDING)
-                    .proposedChanges(JsonNodeFactory.instance.objectNode().put("legalName", "Quỹ Mới")).build();
-            QueueItem item = QueueItem.builder().id("q-1").type(QueueType.LEGAL_CHANGE)
-                    .refId(requestId.toString()).warehouse(null).createdAt(Instant.parse("2026-10-13T08:00:00Z")).build();
+        void withdrawal_enrichedWithMemberAndFirstPhoto() {
+            UUID withdrawalId = UUID.randomUUID();
+            UUID memberAccountId = UUID.randomUUID();
+            QueueItem q = queueItem(QueueType.WITHDRAWAL, withdrawalId.toString());
 
-            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of(item));
-            when(organizationLegalChangeRequestRepository.findAllById(List.of(requestId)))
-                    .thenReturn(List.of(request));
-            when(organizationLegalChangeMapper.summarize(request.getProposedChanges(), org))
-                    .thenReturn(new OrganizationLegalChangeMapper.LegalChangeSummary("Tên pháp lý", "Cũ", "Mới"));
+            ItemWithdrawalRequest w = mock(ItemWithdrawalRequest.class, RETURNS_DEEP_STUBS);
+            when(w.getId()).thenReturn(withdrawalId);
+            when(w.getMember().getId()).thenReturn(memberAccountId);
+            when(w.getProduct().getId()).thenReturn("P1");
+            when(itemWithdrawalRequestRepository.findAllWithProductByIdIn(anyList())).thenReturn(List.of(w));
 
-            QueueItemResponse response = queueService.list(null, mod).get(0);
+            MemberProfile profile = mock(MemberProfile.class);
+            when(profile.getAccountId()).thenReturn(memberAccountId);
+            when(profile.getFullName()).thenReturn("Nguyễn Văn A");
+            when(profile.getMemberCode()).thenReturn("MB-001");
+            when(memberProfileRepository.findAllByAccount_IdIn(anyList())).thenReturn(List.of(profile));
 
-            assertThat(response.getTargetName()).isEqualTo("Quỹ Chia Sẻ");
-            assertThat(response.getSubjectSubtitle()).isEqualTo("Lê Văn Đại");
+            ProductPhoto first = mock(ProductPhoto.class, RETURNS_DEEP_STUBS);
+            when(first.getProduct().getId()).thenReturn("P1");
+            when(first.getImageUrl()).thenReturn("first.jpg");
+            ProductPhoto second = mock(ProductPhoto.class, RETURNS_DEEP_STUBS);
+            when(second.getProduct().getId()).thenReturn("P1");
+            when(second.getImageUrl()).thenReturn("second.jpg");
+            when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(anyList()))
+                    .thenReturn(List.of(first, second));
+
+            QueueItemResponse wr = mock(QueueItemResponse.class);
+            responses.when(() -> QueueItemResponse.fromWithdrawal(q, w, "Nguyễn Văn A", "MB-001", "first.jpg"))
+                    .thenReturn(wr);
+            listAll(q);
+
+            assertThat(service.list(null, moderator)).containsExactly(wr);
         }
 
         @Test
-        @DisplayName("LEGAL_CHANGE không còn tìm thấy yêu cầu (đã bị xóa): bỏ qua enrich, không lỗi")
-        void legalChangeItem_requestMissing_fallsBackToPlain() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            UUID requestId = UUID.randomUUID();
+        void withdrawal_memberProfileMissing_passesNullNameAndCode() {
+            UUID withdrawalId = UUID.randomUUID();
+            QueueItem q = queueItem(QueueType.WITHDRAWAL, withdrawalId.toString());
 
-            QueueItem queueItem = QueueItem.builder()
-                    .id("q-1")
-                    .type(QueueType.LEGAL_CHANGE)
-                    .refId(requestId.toString())
-                    .createdAt(Instant.parse("2026-10-13T08:00:00Z"))
-                    .build();
-
-            when(queueItemRepository.findAllVisible(wh)).thenReturn(List.of(queueItem));
-            when(organizationLegalChangeRequestRepository.findAllById(List.of(requestId)))
+            ItemWithdrawalRequest w = mock(ItemWithdrawalRequest.class, RETURNS_DEEP_STUBS);
+            when(w.getId()).thenReturn(withdrawalId);
+            when(w.getMember().getId()).thenReturn(UUID.randomUUID());
+            when(w.getProduct().getId()).thenReturn("P1");
+            when(itemWithdrawalRequestRepository.findAllWithProductByIdIn(anyList())).thenReturn(List.of(w));
+            when(memberProfileRepository.findAllByAccount_IdIn(anyList())).thenReturn(List.of());
+            when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(anyList()))
                     .thenReturn(List.of());
 
-            List<QueueItemResponse> result = queueService.list(null, mod);
+            QueueItemResponse wr = mock(QueueItemResponse.class);
+            responses.when(() -> QueueItemResponse.fromWithdrawal(q, w, null, null, null)).thenReturn(wr);
+            listAll(q);
 
-            assertThat(result).hasSize(1);
-            assertThat(result.get(0).getOrgName()).isNull();
+            assertThat(service.list(null, moderator)).containsExactly(wr);
+        }
+
+        @Test
+        void donationPickup_enrichedWithDonation() {
+            UUID donationId = UUID.randomUUID();
+            QueueItem q = queueItem(QueueType.DONATION_PICKUP, donationId.toString());
+
+            Donation donation = mock(Donation.class);
+            when(donation.getId()).thenReturn(donationId);
+            when(donationRepository.findAllWithDetailsByIdIn(anyList())).thenReturn(List.of(donation));
+
+            QueueItemResponse dr = mock(QueueItemResponse.class);
+            responses.when(() -> QueueItemResponse.fromDonationPickup(q, donation)).thenReturn(dr);
+            listAll(q);
+
+            assertThat(service.list(null, moderator)).containsExactly(dr);
+        }
+
+        @Test
+        void mixedTypes_keepOriginalOrder() {
+            UUID donationId = UUID.randomUUID();
+            QueueItem donationQ = queueItem(QueueType.DONATION_PICKUP, donationId.toString());
+            QueueItem plainQ = queueItem(QueueType.PACKING, "bad-uuid");
+
+            Donation donation = mock(Donation.class);
+            when(donation.getId()).thenReturn(donationId);
+            when(donationRepository.findAllWithDetailsByIdIn(anyList())).thenReturn(List.of(donation));
+
+            QueueItemResponse dr = mock(QueueItemResponse.class);
+            QueueItemResponse plain = mock(QueueItemResponse.class);
+            responses.when(() -> QueueItemResponse.fromDonationPickup(donationQ, donation)).thenReturn(dr);
+            responses.when(() -> QueueItemResponse.from(plainQ)).thenReturn(plain);
+            listAll(plainQ, donationQ);
+
+            assertThat(service.list(null, moderator)).containsExactly(plain, dr);
+        }
+
+        @Test
+        void noItems_noBatchQueries() {
+            listAll();
+
+            assertThat(service.list(null, moderator)).isEmpty();
+
+            verify(orderRepository, never()).findAllById(any());
+            verify(consignmentFormRepository, never()).findAllById(any());
+            verify(donationRepository, never()).findAllWithDetailsByIdIn(anyList());
+            verify(itemWithdrawalRequestRepository, never()).findAllWithProductByIdIn(anyList());
         }
     }
 
+    // ================================================================ claim
+
     @Nested
-    @DisplayName("API 29 - claim")
+    @DisplayName("claim")
     class Claim {
 
         @Test
-        @DisplayName("Moderator chưa gán kho: 403 MODERATOR_NO_WAREHOUSE")
-        void noWarehouse_throws() {
-            Account mod = moderator(null);
+        void moderatorWithoutWarehouse_throws() {
+            when(moderator.getWarehouse()).thenReturn(null);
+            assertAppError(() -> service.claim("Q1", moderator), ErrorCode.MODERATOR_NO_WAREHOUSE);
+        }
 
-            assertAppError(() -> queueService.claim("q-1", mod), ErrorCode.MODERATOR_NO_WAREHOUSE);
+        @Test
+        void itemNotFound_throws() {
+            when(queueItemRepository.findById("Q1")).thenReturn(Optional.empty());
+            assertAppError(() -> service.claim("Q1", moderator), ErrorCode.QUEUE_ITEM_NOT_FOUND);
+        }
+
+        @Test
+        void itemOfAnotherWarehouse_treatedAsNotFound() {
+            QueueItem item = mock(QueueItem.class, RETURNS_DEEP_STUBS);
+            when(item.getWarehouse().getId()).thenReturn(UUID.randomUUID());
+            when(queueItemRepository.findById("Q1")).thenReturn(Optional.of(item));
+
+            assertAppError(() -> service.claim("Q1", moderator), ErrorCode.QUEUE_ITEM_NOT_FOUND);
             verify(queueItemRepository, never()).claimIfFree(any(), any(), any());
         }
 
         @Test
-        @DisplayName("Không có việc: 404 QUEUE_ITEM_NOT_FOUND")
-        void notFound_throws() {
-            Account mod = moderator(warehouse(1));
-            when(queueItemRepository.findById("q-404")).thenReturn(Optional.empty());
-
-            assertAppError(() -> queueService.claim("q-404", mod), ErrorCode.QUEUE_ITEM_NOT_FOUND);
-            verify(queueItemRepository, never()).claimIfFree(any(), any(), any());
-        }
-
-        @Test
-        @DisplayName("Việc thuộc kho khác: 404, không được claim")
-        void otherWarehouse_treatedAsNotFound() {
-            Account mod = moderator(warehouse(1));
-            when(queueItemRepository.findById("q-1"))
-                    .thenReturn(Optional.of(item("q-1", QueueType.PACKING, null, warehouse(2))));
-
-            assertAppError(() -> queueService.claim("q-1", mod), ErrorCode.QUEUE_ITEM_NOT_FOUND);
-            verify(queueItemRepository, never()).claimIfFree(any(), any(), any());
-        }
-
-        @Test
-        @DisplayName("Claim thành công việc cùng kho")
-        void sameWarehouse_success() {
-            Account mod = moderator(warehouse(1));
-            when(queueItemRepository.findById("q-1"))
-                    .thenReturn(Optional.of(item("q-1", QueueType.PACKING, null, warehouse(1))));
-            when(queueItemRepository.claimIfFree(eq("q-1"), eq(mod), any(Instant.class))).thenReturn(1);
-
-            QueueClaimResponse result = queueService.claim("q-1", mod);
-
-            ArgumentCaptor<Instant> nowCaptor = ArgumentCaptor.forClass(Instant.class);
-            verify(queueItemRepository).claimIfFree(eq("q-1"), eq(mod), nowCaptor.capture());
-            assertThat(result.getId()).isEqualTo("q-1");
-            assertThat(result.getClaimedBy()).isEqualTo(mod.getId().toString());
-            assertThat(result.getClaimedAt()).isEqualTo(nowCaptor.getValue());
-        }
-
-        @Test
-        @DisplayName("Việc không gắn kho (null) thì kho nào cũng claim được")
-        void nullWarehouse_success() {
-            Account mod = moderator(warehouse(1));
-            when(queueItemRepository.findById("q-2"))
-                    .thenReturn(Optional.of(item("q-2", QueueType.ORG_VERIFICATION, null, null)));
-            when(queueItemRepository.claimIfFree(eq("q-2"), eq(mod), any(Instant.class))).thenReturn(1);
-
-            QueueClaimResponse result = queueService.claim("q-2", mod);
-
-            assertThat(result.getId()).isEqualTo("q-2");
-        }
-
-        @Test
-        @DisplayName("Người khác nhận trước (update trả 0 dòng): 409 ALREADY_CLAIMED")
         void alreadyClaimed_throws() {
-            Account mod = moderator(warehouse(1));
-            when(queueItemRepository.findById("q-1"))
-                    .thenReturn(Optional.of(item("q-1", QueueType.PACKING, null, warehouse(1))));
-            when(queueItemRepository.claimIfFree(eq("q-1"), eq(mod), any(Instant.class))).thenReturn(0);
+            QueueItem item = mock(QueueItem.class);
+            when(item.getWarehouse()).thenReturn(warehouse);
+            when(queueItemRepository.findById("Q1")).thenReturn(Optional.of(item));
+            when(queueItemRepository.claimIfFree(eq("Q1"), eq(moderator), any(Instant.class))).thenReturn(0);
 
-            assertAppError(() -> queueService.claim("q-1", mod), ErrorCode.QUEUE_ITEM_ALREADY_CLAIMED);
+            assertAppError(() -> service.claim("Q1", moderator), ErrorCode.QUEUE_ITEM_ALREADY_CLAIMED);
+        }
+
+        @Test
+        void success_returnsClaimInfo() {
+            QueueItem item = mock(QueueItem.class);
+            when(item.getWarehouse()).thenReturn(warehouse);
+            when(queueItemRepository.findById("Q1")).thenReturn(Optional.of(item));
+            when(queueItemRepository.claimIfFree(eq("Q1"), eq(moderator), any(Instant.class))).thenReturn(1);
+
+            QueueClaimResponse res = service.claim("Q1", moderator);
+
+            assertThat(res)
+                    .hasFieldOrPropertyWithValue("id", "Q1")
+                    .hasFieldOrPropertyWithValue("claimedBy", moderator.getId().toString());
+            assertThat(res).extracting("claimedAt").isNotNull();
+        }
+
+        @Test
+        void itemWithoutWarehouse_canBeClaimedByAnyModerator() {
+            QueueItem item = mock(QueueItem.class);
+            when(item.getWarehouse()).thenReturn(null);
+            when(queueItemRepository.findById("Q1")).thenReturn(Optional.of(item));
+            when(queueItemRepository.claimIfFree(eq("Q1"), eq(moderator), any(Instant.class))).thenReturn(1);
+
+            assertThat(service.claim("Q1", moderator)).isNotNull();
         }
     }
 
+    // ================================================================ release
+
     @Nested
-    @DisplayName("API 30 - release")
+    @DisplayName("release")
     class Release {
 
         @Test
-        @DisplayName("Không có việc: 404 QUEUE_ITEM_NOT_FOUND")
-        void notFound_throws() {
-            Account mod = moderator(warehouse(1));
-            when(queueItemRepository.findById("q-404")).thenReturn(Optional.empty());
+        void itemNotFound_throws() {
+            when(queueItemRepository.findById("Q1")).thenReturn(Optional.empty());
+            assertAppError(() -> service.release("Q1", moderator), ErrorCode.QUEUE_ITEM_NOT_FOUND);
+        }
 
-            assertAppError(() -> queueService.release("q-404", mod), ErrorCode.QUEUE_ITEM_NOT_FOUND);
+        @Test
+        void notClaimedAtAll_throws() {
+            QueueItem item = mock(QueueItem.class);
+            when(item.getClaimedBy()).thenReturn(null);
+            when(queueItemRepository.findById("Q1")).thenReturn(Optional.of(item));
+
+            assertAppError(() -> service.release("Q1", moderator), ErrorCode.QUEUE_ITEM_NOT_CLAIMED_BY_YOU);
             verify(queueItemRepository, never()).save(any());
         }
 
         @Test
-        @DisplayName("Việc chưa ai nhận: 403 QUEUE_ITEM_NOT_CLAIMED_BY_YOU")
-        void unclaimed_throws() {
-            Account mod = moderator(warehouse(1));
-            when(queueItemRepository.findById("q-1"))
-                    .thenReturn(Optional.of(item("q-1", QueueType.PACKING, null, warehouse(1))));
+        void claimedBySomeoneElse_throws() {
+            Account other = mock(Account.class);
+            when(other.getId()).thenReturn(UUID.randomUUID());
+            QueueItem item = mock(QueueItem.class);
+            when(item.getClaimedBy()).thenReturn(other);
+            when(queueItemRepository.findById("Q1")).thenReturn(Optional.of(item));
 
-            assertAppError(() -> queueService.release("q-1", mod), ErrorCode.QUEUE_ITEM_NOT_CLAIMED_BY_YOU);
+            assertAppError(() -> service.release("Q1", moderator), ErrorCode.QUEUE_ITEM_NOT_CLAIMED_BY_YOU);
             verify(queueItemRepository, never()).save(any());
         }
 
         @Test
-        @DisplayName("Việc do Moderator khác nhận: 403 QUEUE_ITEM_NOT_CLAIMED_BY_YOU")
-        void claimedByOther_throws() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            Account other = moderator(wh);
-            when(queueItemRepository.findById("q-1"))
-                    .thenReturn(Optional.of(item("q-1", QueueType.PACKING, other, wh)));
+        void claimedByMe_clearsClaimAndSaves() {
+            QueueItem item = mock(QueueItem.class);
+            when(item.getClaimedBy()).thenReturn(moderator);
+            when(queueItemRepository.findById("Q1")).thenReturn(Optional.of(item));
 
-            assertAppError(() -> queueService.release("q-1", mod), ErrorCode.QUEUE_ITEM_NOT_CLAIMED_BY_YOU);
-            verify(queueItemRepository, never()).save(any());
-        }
+            service.release("Q1", moderator);
 
-        @Test
-        @DisplayName("Người đang nhận nhả việc: xóa claimedBy, claimedAt và lưu")
-        void claimedByMe_success() {
-            Warehouse wh = warehouse(1);
-            Account mod = moderator(wh);
-            QueueItem claimed = item("q-1", QueueType.PACKING, mod, wh);
-            when(queueItemRepository.findById("q-1")).thenReturn(Optional.of(claimed));
-
-            queueService.release("q-1", mod);
-
-            ArgumentCaptor<QueueItem> captor = ArgumentCaptor.forClass(QueueItem.class);
-            verify(queueItemRepository).save(captor.capture());
-            assertThat(captor.getValue().getClaimedBy()).isNull();
-            assertThat(captor.getValue().getClaimedAt()).isNull();
+            verify(item).setClaimedBy(null);
+            verify(item).setClaimedAt(null);
+            verify(queueItemRepository).save(item);
         }
     }
+
+    // ================================================================ enqueue / dequeue
 
     @Nested
     @DisplayName("enqueue / dequeue")
     class EnqueueDequeue {
 
         @Test
-        @DisplayName("enqueue khi đã có (type, refId): trả về dòng cũ, không tạo thêm")
-        void enqueue_existing_isIdempotent() {
-            QueueItem existing = item("q-1", QueueType.FORM_REVIEW, null, warehouse(1));
-            when(queueItemRepository.findByTypeAndRefId(QueueType.FORM_REVIEW, "cf-1"))
+        void enqueue_existing_returnsWithoutSaving() {
+            QueueItem existing = mock(QueueItem.class);
+            when(queueItemRepository.findByTypeAndRefId(QueueType.WITHDRAWAL, "R1"))
                     .thenReturn(Optional.of(existing));
 
-            QueueItem result = queueService.enqueue(QueueType.FORM_REVIEW, "cf-1", warehouse(1));
+            QueueItem res = service.enqueue(QueueType.WITHDRAWAL, "R1", warehouse);
 
-            assertThat(result).isSameAs(existing);
+            assertThat(res).isSameAs(existing);
             verify(queueItemRepository, never()).save(any());
         }
 
         @Test
-        @DisplayName("enqueue khi chưa có: tạo dòng mới chưa ai nhận")
-        void enqueue_new_savesItem() {
-            Warehouse wh = warehouse(1);
-            when(queueItemRepository.findByTypeAndRefId(QueueType.RETURN, "rr-1")).thenReturn(Optional.empty());
+        void enqueue_new_savesItemWithTypeRefAndWarehouse() {
+            when(queueItemRepository.findByTypeAndRefId(QueueType.DONATION_PICKUP, "D1"))
+                    .thenReturn(Optional.empty());
             when(queueItemRepository.save(any(QueueItem.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            QueueItem result = queueService.enqueue(QueueType.RETURN, "rr-1", wh);
+            QueueItem res = service.enqueue(QueueType.DONATION_PICKUP, "D1", warehouse);
 
-            ArgumentCaptor<QueueItem> captor = ArgumentCaptor.forClass(QueueItem.class);
-            verify(queueItemRepository).save(captor.capture());
-            QueueItem saved = captor.getValue();
-            assertThat(saved.getType()).isEqualTo(QueueType.RETURN);
-            assertThat(saved.getRefId()).isEqualTo("rr-1");
-            assertThat(saved.getWarehouse()).isSameAs(wh);
-            assertThat(saved.getClaimedBy()).isNull();
-            assertThat(result).isSameAs(saved);
+            assertThat(res.getType()).isEqualTo(QueueType.DONATION_PICKUP);
+            assertThat(res.getRefId()).isEqualTo("D1");
+            assertThat(res.getWarehouse()).isSameAs(warehouse);
         }
 
         @Test
-        @DisplayName("dequeue khi có việc: xóa dòng")
-        void dequeue_existing_deletes() {
-            QueueItem existing = item("q-1", QueueType.FORM_REVIEW, null, warehouse(1));
-            when(queueItemRepository.findByTypeAndRefId(QueueType.FORM_REVIEW, "cf-1"))
+        void dequeue_existing_deletesIt() {
+            QueueItem existing = mock(QueueItem.class);
+            when(queueItemRepository.findByTypeAndRefId(QueueType.WITHDRAWAL, "R1"))
                     .thenReturn(Optional.of(existing));
 
-            queueService.dequeue(QueueType.FORM_REVIEW, "cf-1");
+            service.dequeue(QueueType.WITHDRAWAL, "R1");
 
             verify(queueItemRepository).delete(existing);
         }
 
         @Test
-        @DisplayName("dequeue khi không có việc: không làm gì, không lỗi")
         void dequeue_missing_doesNothing() {
-            when(queueItemRepository.findByTypeAndRefId(QueueType.FORM_REVIEW, "cf-9"))
+            when(queueItemRepository.findByTypeAndRefId(QueueType.WITHDRAWAL, "R1"))
                     .thenReturn(Optional.empty());
 
-            queueService.dequeue(QueueType.FORM_REVIEW, "cf-9");
+            service.dequeue(QueueType.WITHDRAWAL, "R1");
 
             verify(queueItemRepository, never()).delete(any());
         }

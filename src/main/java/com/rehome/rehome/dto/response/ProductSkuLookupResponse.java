@@ -34,6 +34,13 @@ public class ProductSkuLookupResponse {
     private Short currentTerm;
     private Integer daysIntoTerm;
 
+    // Snapshot điều khoản ký gửi lấy từ ConsignmentReceipt của sản phẩm
+    private Integer termLengthDays;
+    private BigDecimal commissionRateTerm1;
+    private BigDecimal commissionRateTerm2;
+    private BigDecimal commissionRateTerm3;
+    private BigDecimal degradedCompensationRate;
+
     private String memberCode;
     private String memberFullName;
 

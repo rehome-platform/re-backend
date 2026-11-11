@@ -40,10 +40,11 @@ public class CampaignController {
     public ResponseEntity<ApiResponse<PageResponse<CampaignPublicResponse>>> listPublicCampaigns(
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) UUID warehouseId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(
-                ApiResponse.success(campaignService.listPublicCampaigns(search, status, page, size)));
+        return ResponseEntity.ok(ApiResponse.success(
+                campaignService.listPublicCampaigns(search, status, warehouseId, page, size)));
     }
 
     @GetMapping("/{id}")

@@ -1797,6 +1797,64 @@ class OrderServiceImplTest {
         assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
     }
 
+    // ==================== refundOrderForReturn (F-132/F-136) ====================
+
+    @Test
+    void refundOrderForReturn_movesBothSoldAndReservedProductsToReturned() {
+        UUID orderId = UUID.randomUUID();
+        product1.setStatus(ProductStatus.SOLD);
+        product2.setStatus(ProductStatus.RESERVED);
+
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000777")
+                .buyer(member)
+                .status(OrderStatus.DELIVERED)
+                .totalAmount(new BigDecimal("600000"))
+                .build();
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).build();
+        OrderItem item2 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product2).build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1, item2));
+        when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
+        when(productRepository.findByIdForUpdate(product2.getId())).thenReturn(Optional.of(product2));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.empty());
+
+        orderService.refundOrderForReturn(orderId, "Hàng trả hợp lệ");
+
+        assertThat(product1.getStatus()).isEqualTo(ProductStatus.RETURNED);
+        assertThat(product2.getStatus()).isEqualTo(ProductStatus.RETURNED);
+        verify(productRepository).save(product1);
+        verify(productRepository).save(product2);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.RETURNED);
+    }
+
+    @Test
+    void refundOrderForReturn_skipsProductsNotCurrentlySoldOrReserved() {
+        UUID orderId = UUID.randomUUID();
+        product1.setStatus(ProductStatus.ON_SALE);
+
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNo("OD-2026-000778")
+                .buyer(member)
+                .status(OrderStatus.DELIVERED)
+                .totalAmount(new BigDecimal("220000"))
+                .build();
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+        when(productRepository.findByIdForUpdate(product1.getId())).thenReturn(Optional.of(product1));
+        when(walletRepository.findByMember_Id(member.getId())).thenReturn(Optional.empty());
+
+        orderService.refundOrderForReturn(orderId, "Hàng trả hợp lệ");
+
+        verify(productRepository, never()).save(any());
+        assertThat(product1.getStatus()).isEqualTo(ProductStatus.ON_SALE);
+    }
+
     // ==================== loadPayableOrders (P3.5) ====================
 
     private Order pendingOrder(UUID orderId, String orderNo, String totalAmount) {

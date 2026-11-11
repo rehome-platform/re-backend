@@ -20,9 +20,11 @@ import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.entity.enums.ReturnPhotoSource;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
 import com.rehome.rehome.entity.enums.ReturnedItemAction;
+import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.DegradedItemCase;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.OrderItem;
+import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.entity.marketplace.ReturnRequestPhoto;
@@ -732,14 +734,38 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         BigDecimal compensationAmount = null;
         BigDecimal halfCompensationAmount = null;
+        String sku = null;
+        String productName = null;
+        String brandName = null;
+        String size = null;
+        String sellerCode = null;
+        Short currentTerm = null;
+        Integer daysIntoTerm = null;
+        Integer termLengthDays = null;
+        BigDecimal commissionRate = null;
+        BigDecimal degradedCompensationRate = null;
         if (item != null) {
+            Product product = item.getProduct();
             compensationAmount = item.getPriceAtOrder()
                     .subtract(item.getPriceAtOrder().multiply(item.getCommissionRateApplied()));
-            BigDecimal rate = item.getProduct().getConsignmentReceipt() != null
-                    ? item.getProduct().getConsignmentReceipt().getDegradedCompensationRate()
-                    : null;
+            ConsignmentReceipt receipt = product.getConsignmentReceipt();
+            BigDecimal rate = receipt != null ? receipt.getDegradedCompensationRate() : null;
             if (rate != null) {
                 halfCompensationAmount = compensationAmount.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+            }
+
+            sku = product.getId();
+            productName = product.getName();
+            brandName = product.getBrand() != null ? product.getBrand().getName() : null;
+            size = product.getSize();
+            sellerCode = memberProfileRepository.findByAccountId(product.getMember().getId())
+                    .map(MemberProfile::getMemberCode).orElse(null);
+            currentTerm = product.getCurrentTerm();
+            daysIntoTerm = (int) Math.max(1, ChronoUnit.DAYS.between(product.getTermStartedAt(), Instant.now()));
+            commissionRate = item.getCommissionRateApplied();
+            if (receipt != null) {
+                termLengthDays = receipt.getTermLengthDays();
+                degradedCompensationRate = receipt.getDegradedCompensationRate();
             }
         }
 
@@ -771,6 +797,16 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .returnHistory(history)
                 .compensationAmount(compensationAmount)
                 .halfCompensationAmount(halfCompensationAmount)
+                .sku(sku)
+                .productName(productName)
+                .brandName(brandName)
+                .size(size)
+                .sellerCode(sellerCode)
+                .currentTerm(currentTerm)
+                .daysIntoTerm(daysIntoTerm)
+                .termLengthDays(termLengthDays)
+                .commissionRate(commissionRate)
+                .degradedCompensationRate(degradedCompensationRate)
                 .build();
     }
 }

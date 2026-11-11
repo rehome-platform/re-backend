@@ -1596,9 +1596,12 @@ public class OrderServiceImpl implements OrderService {
         // Món vẫn SOLD tới lúc này (completeOrder chạy trước khi buyer gửi yêu cầu trả) - trả
         // hàng hợp lệ/thất lạc nghĩa là người ký gửi không nhận được tiền cho món này, nên không
         // thể tiếp tục hiện "Đã bán". Về RETURNED chờ Moderator quyết định hướng xử lý (F-133).
+        // RESERVED cũng phải về RETURNED cùng lúc - nếu không món kẹt RESERVED mãi vì không đơn
+        // nào khác còn tham chiếu tới nó sau khi applyReturnedItemAction chạy (RELIST/RETURN_TO_SELLER/DISCARD).
         for (OrderItem item : orderItemRepository.findAllByOrder_Id(orderId)) {
             Product product = productRepository.findByIdForUpdate(item.getProduct().getId()).orElse(null);
-            if (product != null && product.getStatus() == ProductStatus.SOLD) {
+            if (product != null
+                    && (product.getStatus() == ProductStatus.SOLD || product.getStatus() == ProductStatus.RESERVED)) {
                 product.setStatus(ProductStatus.RETURNED);
                 productRepository.save(product);
             }

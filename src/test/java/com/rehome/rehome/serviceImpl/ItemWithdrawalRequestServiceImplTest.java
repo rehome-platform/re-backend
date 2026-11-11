@@ -656,17 +656,22 @@ class ItemWithdrawalRequestServiceImplTest {
         ItemWithdrawalRequest r = withdrawal(new BigDecimal("50000"));
         Wallet wallet = Wallet.builder().id(UUID.randomUUID()).member(owner).balance(new BigDecimal("100000")).build();
         when(walletRepository.findByMemberIdForUpdate(owner.getId())).thenReturn(Optional.of(wallet));
+        // Quỹ cố định (như một dòng duy nhất trong DB): mỗi lần getOrCreatePlatformFund đều trả đúng quỹ này
+        PlatformFund fund = PlatformFund.builder().id(UUID.randomUUID()).balance(BigDecimal.ZERO).build();
+        when(platformFundRepository.findTopByOrderByIdAsc()).thenReturn(Optional.of(fund));
 
         PayItemWithdrawalFeeResponse response = service.payFee(owner, withdrawalId, payRequest("WALLET"), "127.0.0.1");
 
         assertThat(wallet.getBalance()).isEqualByComparingTo(new BigDecimal("50000"));
         verify(walletRepository).save(wallet);
 
-        // Hai bút toán: Member (-50.000, WITHDRAWAL_FEE) và đối ứng PLATFORM (+50.000, WITHDRAWAL_FEE_REVENUE)
+        // Ba dòng: cặp đối ứng Member (-50.000) / PLATFORM (+50.000), cả hai WITHDRAWAL_FEE,
+        // cộng một dòng ghi nhận doanh thu WITHDRAWAL_FEE_REVENUE (không đổi số dư quỹ)
         ArgumentCaptor<WalletTransaction> txCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
-        verify(walletTransactionRepository, times(2)).save(txCaptor.capture());
+        verify(walletTransactionRepository, times(3)).save(txCaptor.capture());
         WalletTransaction memberTx = txCaptor.getAllValues().get(0);
         WalletTransaction platformTx = txCaptor.getAllValues().get(1);
+        WalletTransaction revenueTx = txCaptor.getAllValues().get(2);
 
         assertThat(memberTx.getWalletType()).isEqualTo(WalletType.MEMBER);
         assertThat(memberTx.getType()).isEqualTo(WalletTransactionType.WITHDRAWAL_FEE);
@@ -675,14 +680,23 @@ class ItemWithdrawalRequestServiceImplTest {
         assertThat(memberTx.getRelatedItemWithdrawalRequest()).isSameAs(r);
 
         assertThat(platformTx.getWalletType()).isEqualTo(WalletType.PLATFORM);
-        assertThat(platformTx.getType()).isEqualTo(WalletTransactionType.WITHDRAWAL_FEE_REVENUE);
+        assertThat(platformTx.getType()).isEqualTo(WalletTransactionType.WITHDRAWAL_FEE);
         assertThat(platformTx.getAmount()).isEqualByComparingTo(new BigDecimal("50000"));
         assertThat(platformTx.getCounterpartTransaction()).isSameAs(memberTx);
         assertThat(platformTx.getRelatedItemWithdrawalRequest()).isSameAs(r);
 
-        ArgumentCaptor<PlatformFund> fundCaptor = ArgumentCaptor.forClass(PlatformFund.class);
-        verify(platformFundRepository).save(fundCaptor.capture());
-        assertThat(fundCaptor.getValue().getBalance()).isEqualByComparingTo(new BigDecimal("50000"));
+        assertThat(revenueTx.getWalletType()).isEqualTo(WalletType.PLATFORM);
+        assertThat(revenueTx.getType()).isEqualTo(WalletTransactionType.WITHDRAWAL_FEE_REVENUE);
+        assertThat(revenueTx.getAmount()).isEqualByComparingTo(new BigDecimal("50000"));
+        assertThat(revenueTx.getCounterpartTransaction()).isNull();
+        assertThat(revenueTx.getRelatedItemWithdrawalRequest()).isSameAs(r);
+        assertThat(revenueTx.getWalletId()).isEqualTo(fund.getId());
+
+        // Quỹ chỉ tăng đúng một lần (từ cặp đối ứng), dòng doanh thu không đổi số dư quỹ
+        assertThat(fund.getBalance()).isEqualByComparingTo(new BigDecimal("50000"));
+        assertThat(platformTx.getBalanceAfter()).isEqualByComparingTo(new BigDecimal("50000"));
+        assertThat(revenueTx.getBalanceAfter()).isEqualByComparingTo(new BigDecimal("50000"));
+        verify(platformFundRepository, times(1)).save(fund);
 
         assertThat(r.getFeePaymentMethod()).isEqualTo(WithdrawalFeePaymentMethod.WALLET);
         assertThat(r.getFeePaidAt()).isNotNull();
@@ -812,7 +826,7 @@ class ItemWithdrawalRequestServiceImplTest {
     }
 
     @Test
-    @DisplayName("applyMomoFeePaymentResult: thành công -> ghi 1 bút toán PLATFORM +phí, không có counterpart, cộng quỹ")
+    @DisplayName("applyMomoFeePaymentResult: thành công -> ghi 1 dòng doanh thu WITHDRAWAL_FEE_REVENUE, không counterpart, không đổi quỹ")
     void applyMomoFeePaymentResult_success_recordsPlatformIncome() {
         ItemWithdrawalRequest r = withdrawal(new BigDecimal("50000"));
         when(itemWithdrawalRequestRepository.findByMomoOrderId("momo-order-1")).thenReturn(Optional.of(r));
@@ -828,14 +842,15 @@ class ItemWithdrawalRequestServiceImplTest {
         assertThat(tx.getWalletId()).isEqualTo(fund.getId());
         assertThat(tx.getType()).isEqualTo(WalletTransactionType.WITHDRAWAL_FEE_REVENUE);
         assertThat(tx.getAmount()).isEqualByComparingTo(new BigDecimal("50000"));
-        assertThat(tx.getBalanceAfter()).isEqualByComparingTo(new BigDecimal("250000"));
+        assertThat(tx.getBalanceAfter()).isEqualByComparingTo(new BigDecimal("200000"));
         assertThat(tx.getStatus()).isEqualTo(TransactionStatus.SUCCESS);
         assertThat(tx.getCounterpartTransaction()).isNull();
         assertThat(tx.getRelatedItemWithdrawalRequest()).isSameAs(r);
         assertThat(tx.getNote()).contains("MoMo").contains("999").contains(PRODUCT_ID);
 
-        assertThat(fund.getBalance()).isEqualByComparingTo(new BigDecimal("250000"));
-        verify(platformFundRepository).save(fund);
+        // Thu qua cổng không đi qua ví nên quỹ giữ nguyên số dư
+        assertThat(fund.getBalance()).isEqualByComparingTo(new BigDecimal("200000"));
+        verify(platformFundRepository, never()).save(any());
     }
 
     @Test
@@ -907,7 +922,7 @@ class ItemWithdrawalRequestServiceImplTest {
     }
 
     @Test
-    @DisplayName("applyVnPayFeePaymentResult: thành công -> ghi 1 bút toán PLATFORM +phí, không có counterpart, cộng quỹ")
+    @DisplayName("applyVnPayFeePaymentResult: thành công -> ghi 1 dòng doanh thu WITHDRAWAL_FEE_REVENUE, không counterpart, không đổi quỹ")
     void applyVnPayFeePaymentResult_success_recordsPlatformIncome() {
         ItemWithdrawalRequest r = withdrawal(new BigDecimal("50000"));
         when(itemWithdrawalRequestRepository.findByVnpTxnRef("vnp-ref-1")).thenReturn(Optional.of(r));
@@ -922,13 +937,14 @@ class ItemWithdrawalRequestServiceImplTest {
         assertThat(tx.getWalletType()).isEqualTo(WalletType.PLATFORM);
         assertThat(tx.getType()).isEqualTo(WalletTransactionType.WITHDRAWAL_FEE_REVENUE);
         assertThat(tx.getAmount()).isEqualByComparingTo(new BigDecimal("50000"));
-        assertThat(tx.getBalanceAfter()).isEqualByComparingTo(new BigDecimal("250000"));
+        assertThat(tx.getBalanceAfter()).isEqualByComparingTo(new BigDecimal("200000"));
         assertThat(tx.getCounterpartTransaction()).isNull();
         assertThat(tx.getRelatedItemWithdrawalRequest()).isSameAs(r);
         assertThat(tx.getNote()).contains("VNPay").contains("888");
 
-        assertThat(fund.getBalance()).isEqualByComparingTo(new BigDecimal("250000"));
-        verify(platformFundRepository).save(fund);
+        // Thu qua cổng không đi qua ví nên quỹ giữ nguyên số dư
+        assertThat(fund.getBalance()).isEqualByComparingTo(new BigDecimal("200000"));
+        verify(platformFundRepository, never()).save(any());
     }
 
     @Test

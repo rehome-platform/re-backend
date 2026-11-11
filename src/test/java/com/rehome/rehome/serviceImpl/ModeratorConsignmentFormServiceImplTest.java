@@ -26,6 +26,8 @@ import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.ModeratorProfileRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.QueueItemRepository;
+import com.rehome.rehome.constant.SystemConfigKeys;
+import com.rehome.rehome.service.SystemConfigReader;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -53,6 +55,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -74,6 +77,7 @@ class ModeratorConsignmentFormServiceImplTest {
     @Mock ConsignmentFormPhotoRepository photoRepository;
     @Mock MemberProfileRepository memberProfileRepository;
     @Mock ModeratorProfileRepository moderatorProfileRepository;
+    @Mock SystemConfigReader systemConfigReader;
 
     @InjectMocks ModeratorConsignmentFormServiceImpl service;
 
@@ -539,6 +543,79 @@ class ModeratorConsignmentFormServiceImplTest {
         assertEquals("Q7-AK-000900", res.getProductSku());
         assertEquals("Q7-AK-000900", res.getProduct().getSku());
         assertEquals(ModeratorResumeStep.COMPLETED, res.getResumeStep());
+    }
+
+    private void stubConsignmentConfig() {
+        when(systemConfigReader.getInt(eq(SystemConfigKeys.TERM_LENGTH_DAYS), anyInt())).thenReturn(45);
+        when(systemConfigReader.getInt(eq(SystemConfigKeys.MAX_RENEWALS), anyInt())).thenReturn(3);
+        when(systemConfigReader.getInt(eq(SystemConfigKeys.FREE_WITHDRAWAL_WINDOW_DAYS), anyInt())).thenReturn(5);
+        when(systemConfigReader.getDecimal(eq(SystemConfigKeys.FLOOR_PRICE_RATIO), any()))
+                .thenReturn(new BigDecimal("0.40"));
+        when(systemConfigReader.getDecimal(eq(SystemConfigKeys.COMMISSION_RATE_TERM1), any()))
+                .thenReturn(new BigDecimal("0.12"));
+        when(systemConfigReader.getDecimal(eq(SystemConfigKeys.COMMISSION_RATE_TERM2), any()))
+                .thenReturn(new BigDecimal("0.18"));
+        when(systemConfigReader.getDecimal(eq(SystemConfigKeys.COMMISSION_RATE_TERM3), any()))
+                .thenReturn(new BigDecimal("0.25"));
+    }
+
+    @Test
+    void getDetail_dangInspecting_chuaCoBienNhan_traCauHinhKyGuiHienHanh() {
+        Warehouse w = warehouse("Kho A");
+        Account mod = account(Role.MODERATOR, w);
+        ConsignmentForm f = detailForm(account(Role.MEMBER, null), w, ConsignmentFormStatus.INSPECTING);
+        when(consignmentReceiptRepository.findLatestByFormIds(any())).thenReturn(List.of());
+        stubConsignmentConfig();
+
+        ModeratorConsignmentFormResponse res = service.getDetail(mod, f.getId());
+
+        assertNull(res.getReceipt());
+        ModeratorConsignmentFormResponse.ConsignmentConfigInfo cfg = res.getConsignmentConfig();
+        assertNotNull(cfg);
+        assertEquals(45, cfg.getTermLengthDays());
+        assertEquals(3, cfg.getMaxRenewals());
+        assertEquals(5, cfg.getFreeWithdrawalWindowDays());
+        assertEquals(0, new BigDecimal("0.40").compareTo(cfg.getFloorPriceRatio()));
+        assertEquals(0, new BigDecimal("0.12").compareTo(cfg.getCommissionRateTerm1()));
+        assertEquals(0, new BigDecimal("0.18").compareTo(cfg.getCommissionRateTerm2()));
+        assertEquals(0, new BigDecimal("0.25").compareTo(cfg.getCommissionRateTerm3()));
+    }
+
+    @Test
+    void getDetail_daCoBienNhan_khongTraCauHinhHienHanh() {
+        Warehouse w = warehouse("Kho A");
+        Account mod = account(Role.MODERATOR, w);
+        ConsignmentForm f = detailForm(account(Role.MEMBER, null), w, ConsignmentFormStatus.INSPECTING);
+        ConsignmentReceipt r = receipt(f, mod, Instant.now(), null);
+        when(consignmentReceiptRepository.findLatestByFormIds(any())).thenReturn(List.of(r));
+        stubConsignmentConfig();
+
+        ModeratorConsignmentFormResponse res = service.getDetail(mod, f.getId());
+
+        assertNull(res.getConsignmentConfig());
+        verify(systemConfigReader, never()).getInt(any(), anyInt());
+    }
+
+    @Test
+    void getDetail_formKhongPhaiInspecting_khongTraCauHinhHienHanh() {
+        Warehouse w = warehouse("Kho A");
+        Account mod = account(Role.MODERATOR, w);
+        ConsignmentForm f = detailForm(account(Role.MEMBER, null), w, ConsignmentFormStatus.APPROVED);
+        when(consignmentReceiptRepository.findLatestByFormIds(any())).thenReturn(List.of());
+        stubConsignmentConfig();
+
+        assertNull(service.getDetail(mod, f.getId()).getConsignmentConfig());
+    }
+
+    @Test
+    void list_khongTraCauHinhHienHanh() {
+        Warehouse w = warehouse("Kho A");
+        Account mod = account(Role.MODERATOR, w);
+        ConsignmentForm f = form(account(Role.MEMBER, null), w, ConsignmentFormStatus.INSPECTING);
+        stubAll(w, f);
+        when(consignmentReceiptRepository.findLatestByFormIds(any())).thenReturn(List.of());
+
+        assertNull(service.list(mod, null, 0, 20).getContent().get(0).getConsignmentConfig());
     }
 
     @Test

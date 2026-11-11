@@ -73,6 +73,10 @@ public class ModeratorConsignmentFormResponse {
     private ReceiptInfo receipt;
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private ProductInfo product;
+    // Cấu hình ký gửi hiện hành (đọc sống từ SystemConfigReader) để Moderator thấy mức sẽ áp khi lập biên nhận.
+    // Chỉ có khi form đang INSPECTING và chưa có biên nhận; đã có biên nhận thì giá trị đã chốt nằm ở receipt.
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private ConsignmentConfigInfo consignmentConfig;
 
     @Data @Builder @NoArgsConstructor @AllArgsConstructor
     public static class MemberInfo {
@@ -108,6 +112,17 @@ public class ModeratorConsignmentFormResponse {
         private String moderatorNote;
         private Instant confirmedAt;
         private Instant createdAt;
+    }
+
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class ConsignmentConfigInfo {
+        private Integer termLengthDays;
+        private Integer maxRenewals;
+        private Integer freeWithdrawalWindowDays;
+        private BigDecimal floorPriceRatio;
+        private BigDecimal commissionRateTerm1;
+        private BigDecimal commissionRateTerm2;
+        private BigDecimal commissionRateTerm3;
     }
 
     @Data @Builder @NoArgsConstructor @AllArgsConstructor

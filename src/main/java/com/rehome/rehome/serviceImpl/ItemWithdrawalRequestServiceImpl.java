@@ -355,6 +355,8 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 .build();
         walletTransactionRepository.save(feeTransaction);
         recordPlatformCounterpart(feeTransaction);
+        recordWithdrawalFeeRevenue(withdrawal, "Doanh thu phí rút hàng (ví) cho sản phẩm "
+                + withdrawal.getProduct().getId());
 
         withdrawal.setFeePaymentMethod(WithdrawalFeePaymentMethod.WALLET);
         withdrawal.setFeePaidAt(Instant.now());
@@ -555,9 +557,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 .transactionNo(generateTransactionNo())
                 .walletType(WalletType.PLATFORM)
                 .walletId(fund.getId())
-                // Phía quỹ ghi WITHDRAWAL_FEE_REVENUE (không copy WITHDRAWAL_FEE của Member) để
-                // AdminDashboardQueryRepository.sumPlatformRevenue tính vào doanh thu, giống nhánh MoMo/VNPay
-                .type(WalletTransactionType.WITHDRAWAL_FEE_REVENUE)
+                .type(memberTransaction.getType())
                 .amount(counterpartAmount)
                 .balanceAfter(fund.getBalance())
                 .relatedItemWithdrawalRequest(memberTransaction.getRelatedItemWithdrawalRequest())
@@ -568,19 +568,28 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         walletTransactionRepository.save(platformTransaction);
     }
 
-    // F-039: phí rút hàng trả qua MoMo/VNPay không đi qua ví Member (tiền từ cổng thanh toán vào thẳng
-    // quỹ nền tảng) nên chỉ có bút toán phía PLATFORM, không có bút toán đối ứng phía Member
-    // (counterpartTransaction = null). Người trả truy ngược qua relatedItemWithdrawalRequest.member.
-    // Type WITHDRAWAL_FEE_REVENUE để AdminDashboardQueryRepository.sumPlatformRevenue tính vào doanh thu.
+    // Phí rút hàng trả qua MoMo/VNPay không đi qua ví Member và (giống thanh toán đơn qua cổng) không đổi số dư
+    // quỹ nền tảng - quỹ chỉ phản ánh tiền trong hệ thống ví. Chỉ ghi dòng ghi nhận doanh thu.
     private void recordPlatformIncomeFromGateway(
             ItemWithdrawalRequest withdrawal, String gateway, String gatewayTransId) {
+        recordWithdrawalFeeRevenue(withdrawal, "Thu phí rút hàng qua " + gateway + " (mã GD " + gatewayTransId
+                + ") cho sản phẩm " + withdrawal.getProduct().getId());
+    }
+
+    // Ghi nhận doanh thu phí rút hàng (WITHDRAWAL_FEE_REVENUE): dòng PLATFORM dương, không có dòng Member đối ứng
+    // và không đổi số dư quỹ, giống COMMISSION_REVENUE ở OrderServiceImpl. Đối soát quỹ bỏ qua loại dòng này
+    // (AdminReportQueryRepository); dashboard cộng đúng một dòng cho mỗi khoản phí đã thu.
+    private void recordWithdrawalFeeRevenue(ItemWithdrawalRequest withdrawal, String note) {
         BigDecimal amount = withdrawal.getFeeCharged();
-
+        if (amount == null || amount.signum() <= 0) {
+            return;
+        }
         PlatformFund fund = getOrCreatePlatformFund();
-        fund.setBalance(fund.getBalance().add(amount));
-        platformFundRepository.save(fund);
+        if (fund.getId() == null) {
+            platformFundRepository.save(fund);
+        }
 
-        WalletTransaction platformTransaction = WalletTransaction.builder()
+        WalletTransaction revenueTransaction = WalletTransaction.builder()
                 .transactionNo(generateTransactionNo())
                 .walletType(WalletType.PLATFORM)
                 .walletId(fund.getId())
@@ -589,10 +598,9 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 .balanceAfter(fund.getBalance())
                 .relatedItemWithdrawalRequest(withdrawal)
                 .status(TransactionStatus.SUCCESS)
-                .note("Thu phí rút hàng qua " + gateway + " (mã GD " + gatewayTransId + ") cho sản phẩm "
-                        + withdrawal.getProduct().getId())
+                .note(note)
                 .build();
-        walletTransactionRepository.save(platformTransaction);
+        walletTransactionRepository.save(revenueTransaction);
     }
 
     // Sắp xếp field theo tên, bỏ field rỗng, nối "key=value" (value url-encode) bằng "&" - công thức

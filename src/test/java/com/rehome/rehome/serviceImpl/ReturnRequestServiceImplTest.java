@@ -98,7 +98,7 @@ class ReturnRequestServiceImplTest {
     @Mock private OrderService orderService;
     @Mock private QueueService queueService;
     @Mock private GhnApi ghnApi;
-    @Mock private com.rehome.rehome.service.SystemConfigReader systemConfigReader;
+    @Mock private SystemConfigReader systemConfigReader;
 
     @InjectMocks
     private ReturnRequestServiceImpl service;

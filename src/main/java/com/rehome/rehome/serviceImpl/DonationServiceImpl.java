@@ -5,6 +5,7 @@ import com.rehome.rehome.dto.request.CreateDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateDonationRequest;
 import com.rehome.rehome.dto.request.HandoverDonationsRequest;
 import com.rehome.rehome.dto.response.DonationHandoverResponse;
+import com.rehome.rehome.dto.response.DonationProductResponse;
 import com.rehome.rehome.dto.response.DonationNoteResponse;
 import com.rehome.rehome.dto.response.DonationResponse;
 import com.rehome.rehome.dto.response.PageResponse;
@@ -12,6 +13,7 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.ModeratorProfile;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.CampaignStatus;
+import com.rehome.rehome.entity.enums.DonationSource;
 import com.rehome.rehome.entity.enums.DonationStatus;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 import com.rehome.rehome.entity.enums.NotificationType;
@@ -21,6 +23,7 @@ import com.rehome.rehome.entity.marketplace.Campaign;
 import com.rehome.rehome.entity.marketplace.Donation;
 import com.rehome.rehome.entity.marketplace.DonationNote;
 import com.rehome.rehome.entity.marketplace.Product;
+import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
@@ -32,6 +35,7 @@ import com.rehome.rehome.repository.DonationNoteRepository;
 import com.rehome.rehome.repository.DonationRepository;
 import com.rehome.rehome.repository.ModeratorProfileRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
+import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.DonationService;
 import com.rehome.rehome.service.NotificationService;
@@ -71,6 +75,7 @@ public class DonationServiceImpl implements DonationService {
     private final OrganizationProfileRepository organizationProfileRepository;
     private final CampaignRepository campaignRepository;
     private final ModeratorProfileRepository moderatorProfileRepository;
+    private final ProductPhotoRepository productPhotoRepository;
     private final NotificationService notificationService;
     private final QueueService queueService;
 
@@ -88,6 +93,7 @@ public class DonationServiceImpl implements DonationService {
         Donation donation = Donation.builder()
                 .warehouse(warehouse)
                 .campaign(campaign)
+                .source(DonationSource.DIRECT)
                 .recordedBy(moderator)
                 // Ẩn danh thì không lưu tên, tránh giữ lại danh tính người đã chọn ẩn
                 .donorName(anonymous ? null : request.getDonorName())
@@ -108,7 +114,8 @@ public class DonationServiceImpl implements DonationService {
                 campaign.getId(),
                 warehouse.getId());
 
-        return toResponse(donation, resolveModeratorCode(moderator.getId()));
+        // Ghi nhận trực tiếp (DIRECT) không có món ký gửi nên không cần tra ảnh
+        return toResponse(donation, resolveModeratorCode(moderator.getId()), Map.of());
     }
 
     @Override
@@ -131,7 +138,8 @@ public class DonationServiceImpl implements DonationService {
         }
 
         Map<UUID, ModeratorProfile> moderatorProfiles = loadModeratorProfiles(donations);
-        return donations.stream().map(d -> toResponse(d, moderatorProfiles)).toList();
+        Map<String, String> photoByProductId = loadFirstPhotoUrls(donations);
+        return donations.stream().map(d -> toResponse(d, moderatorProfiles, photoByProductId)).toList();
     }
 
     // F-163: chiến dịch được chọn phải có nhận đồ tại chính kho đang ghi nhận, nếu không coi như không tồn tại
@@ -283,7 +291,8 @@ public class DonationServiceImpl implements DonationService {
         }
 
         Map<UUID, ModeratorProfile> moderatorProfiles = loadModeratorProfiles(donations.getContent());
-        return PageResponse.from(donations.map(d -> toResponse(d, moderatorProfiles)));
+        Map<String, String> photoByProductId = loadFirstPhotoUrls(donations.getContent());
+        return PageResponse.from(donations.map(d -> toResponse(d, moderatorProfiles, photoByProductId)));
     }
 
     @Override
@@ -422,16 +431,35 @@ public class DonationServiceImpl implements DonationService {
         return warehouse;
     }
 
-    private static DonationResponse toResponse(Donation donation, Map<UUID, ModeratorProfile> moderatorProfiles) {
+    // Ảnh đại diện (displayOrder nhỏ nhất) của các món ký gửi được quyên góp, tra 1 query cho cả lô
+    // để không phát sinh N+1. Chỉ lượt CONSIGNED_ITEM mới trả product nên chỉ tra cho các lượt đó.
+    private Map<String, String> loadFirstPhotoUrls(List<Donation> donations) {
+        Set<String> productIds = donations.stream()
+                .filter(d -> d.getSource() == DonationSource.CONSIGNED_ITEM && d.getProduct() != null)
+                .map(d -> d.getProduct().getId())
+                .collect(Collectors.toSet());
+        if (productIds.isEmpty()) {
+            return Map.of();
+        }
+        return productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(productIds).stream()
+                .collect(Collectors.toMap(
+                        photo -> photo.getProduct().getId(),
+                        ProductPhoto::getImageUrl,
+                        (first, ignored) -> first));
+    }
+
+    private static DonationResponse toResponse(Donation donation, Map<UUID, ModeratorProfile> moderatorProfiles,
+                                               Map<String, String> photoByProductId) {
         String moderatorCode = null;
         if (donation.getRecordedBy() != null) {
             ModeratorProfile profile = moderatorProfiles.get(donation.getRecordedBy().getId());
             moderatorCode = profile != null ? profile.getModeratorCode() : null;
         }
-        return toResponse(donation, moderatorCode);
+        return toResponse(donation, moderatorCode, photoByProductId);
     }
 
-    private static DonationResponse toResponse(Donation donation, String moderatorCode) {
+    private static DonationResponse toResponse(Donation donation, String moderatorCode,
+                                               Map<String, String> photoByProductId) {
         OrganizationProfile organization = donation.getHandedOverToOrganization();
         Product product = donation.getProduct();
         return DonationResponse.builder()
@@ -444,11 +472,21 @@ public class DonationServiceImpl implements DonationService {
                 .isAnonymous(Boolean.TRUE.equals(donation.getIsAnonymous()))
                 .note(donation.getNote())
                 .status(donation.getStatus().name())
+                .source(donation.getSource().name())
                 .recordedBy(moderatorCode)
                 .organizationId(organization == null ? null : organization.getAccountId().toString())
                 .organizationName(organization == null ? null : organization.getDisplayName())
                 .productId(product == null ? null : product.getId())
                 .productName(product == null ? null : product.getName())
+                // product chỉ trả khi source = CONSIGNED_ITEM (lượt DIRECT luôn null)
+                .product(donation.getSource() == DonationSource.CONSIGNED_ITEM && product != null
+                        ? DonationProductResponse.builder()
+                                .id(product.getId())
+                                .name(product.getName())
+                                .sku(product.getId())
+                                .photoUrl(photoByProductId.get(product.getId()))
+                                .build()
+                        : null)
                 .handedOverAt(donation.getHandedOverAt())
                 .createdAt(donation.getCreatedAt())
                 .build();

@@ -71,6 +71,7 @@ class DonationServiceImplTest {
     @Mock private ModeratorProfileRepository moderatorProfileRepository;
     @Mock private NotificationService notificationService;
     @Mock private QueueService queueService;
+    @Mock private com.rehome.rehome.repository.ProductPhotoRepository productPhotoRepository;
 
     @InjectMocks private DonationServiceImpl service;
 
@@ -1333,7 +1334,7 @@ class DonationServiceImplTest {
         when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(
                 Campaign.builder().id(campaignId)
                         .organization(OrganizationProfile.builder().accountId(orgId).build())
-                        .status(com.rehome.rehome.entity.enums.CampaignStatus.CLOSED)
+                        .status(CampaignStatus.CLOSED)
                         .build()));
         when(donationNoteRepository.findByCampaign_IdOrderByCreatedAtDesc(campaignId, NOTES_FIRST_PAGE_OF_20))
                 .thenReturn(new PageImpl<>(List.of(donationNote(campaignId, "Trần Thị B", false))));

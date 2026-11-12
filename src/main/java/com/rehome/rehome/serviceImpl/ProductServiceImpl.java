@@ -417,6 +417,7 @@ public class ProductServiceImpl implements ProductService {
         Donation donation = donationRepository.save(Donation.builder()
                 .warehouse(product.getWarehouse())
                 .product(product)
+                .source(com.rehome.rehome.entity.enums.DonationSource.CONSIGNED_ITEM)
                 .donorName(profile != null ? profile.getFullName() : null)
                 .isAnonymous(false)
                 .status(DonationStatus.PENDING_PICKUP)
@@ -440,8 +441,17 @@ public class ProductServiceImpl implements ProductService {
                 .donorName(donation.getDonorName())
                 .isAnonymous(false)
                 .status(donation.getStatus().name())
+                .source(donation.getSource().name())
                 .productId(product.getId())
                 .productName(product.getName())
+                .product(DonationProductResponse.builder()
+                        .id(product.getId())
+                        .name(product.getName())
+                        .sku(product.getId())
+                        .photoUrl(productPhotoRepository
+                                .findByProduct_IdOrderByDisplayOrderAscIdAsc(product.getId()).stream()
+                                .map(ProductPhoto::getImageUrl).findFirst().orElse(null))
+                        .build())
                 .createdAt(donation.getCreatedAt())
                 .build();
     }

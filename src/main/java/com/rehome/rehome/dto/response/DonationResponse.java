@@ -29,6 +29,9 @@ public class DonationResponse {
     private String note;
     private String status;
 
+    // DIRECT | CONSIGNED_ITEM (xem DonationSource)
+    private String source;
+
     // Mã nhân viên Moderator đã ghi nhận lượt quyên góp này (ModeratorProfile.moderatorCode)
     private String recordedBy;
 
@@ -40,6 +43,9 @@ public class DonationResponse {
     // lượt ghi nhận trực tiếp tại quầy (F-163)
     private String productId;
     private String productName;
+
+    // Chỉ trả khi source = CONSIGNED_ITEM; null với lượt DIRECT
+    private DonationProductResponse product;
 
     private Instant handedOverAt;
     private Instant createdAt;

@@ -2,6 +2,7 @@ package com.rehome.rehome.entity.marketplace;
 
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
+import com.rehome.rehome.entity.enums.DonationSource;
 import com.rehome.rehome.entity.enums.DonationStatus;
 import jakarta.persistence.*;
 import java.time.Instant;
@@ -47,6 +48,13 @@ public class Donation {
     @JoinColumn(name = "product_id", nullable = true)
     private Product product;
 
+    // DIRECT - Moderator ghi nhận tại quầy (F-163); CONSIGNED_ITEM - Member quyên góp món ký gửi
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source", nullable = false)
+    @ColumnDefault("'DIRECT'")
+    @Builder.Default
+    private DonationSource source = DonationSource.DIRECT;
+
     // Tên người quyên góp; null khi quyên góp ẩn danh
     @Column(name = "donor_name", nullable = true, length = 255)
     private String donorName;
@@ -80,6 +88,13 @@ public class Donation {
     // Thời điểm ghi nhận
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
+
+    public static DonationBuilder pendingAt(Warehouse warehouse, Campaign campaign, String donorName,
+                                            boolean anonymous, String note) {
+        return builder().warehouse(warehouse).campaign(campaign)
+                .donorName(anonymous ? null : donorName).isAnonymous(anonymous)
+                .note(note).status(DonationStatus.PENDING_PICKUP);
+    }
 
     @PrePersist
     private void onCreate() {

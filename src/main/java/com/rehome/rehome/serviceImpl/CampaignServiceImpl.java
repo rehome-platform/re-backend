@@ -9,6 +9,7 @@ import com.rehome.rehome.dto.response.CampaignStatusResponse;
 import com.rehome.rehome.dto.response.CampaignSummaryResponse;
 import com.rehome.rehome.dto.response.CampaignWarehouseResponse;
 import com.rehome.rehome.dto.response.PageResponse;
+import com.rehome.rehome.dto.response.WarehouseCampaignResponse;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.CampaignStatus;
 import com.rehome.rehome.entity.enums.CatalogStatus;
@@ -258,6 +259,34 @@ public class CampaignServiceImpl implements CampaignService {
         Page<Campaign> result = campaignRepository.search(
                 parsePublicStatusFilter(status), keyword, warehouseId, pageable);
         return PageResponse.from(result.map(this::toPublicResponse));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<WarehouseCampaignResponse> listCampaignsReceivingAtWarehouse(UUID warehouseId,
+                                                                                      int page, int size) {
+        Pageable pageable = PageRequest.of(
+                Math.max(page, 0),
+                Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        Page<Campaign> result = campaignRepository.findOpenReceivingAtWarehouse(
+                warehouseId, Instant.now(), pageable);
+        return PageResponse.from(result.map(this::toWarehouseCampaignResponse));
+    }
+
+    private WarehouseCampaignResponse toWarehouseCampaignResponse(Campaign campaign) {
+        OrganizationProfile organization = campaign.getOrganization();
+        return WarehouseCampaignResponse.builder()
+                .id(campaign.getId().toString())
+                .title(campaign.getTitle())
+                .coverUrl(campaign.getCoverUrl())
+                .endTime(campaign.getEndTime())
+                .preferredItemTypes(splitPreferredItemTypes(campaign.getPreferredItemTypes()))
+                .organizationId(organization.getAccountId().toString())
+                .organizationName(organization.getDisplayName())
+                .organizationLogoUrl(organization.getLogoUrl())
+                .build();
     }
 
     @Override

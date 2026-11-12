@@ -1,6 +1,7 @@
 package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.CreateProductRequest;
+import com.rehome.rehome.dto.request.DonateProductRequest;
 import com.rehome.rehome.dto.request.PriceReductionRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
@@ -120,11 +121,12 @@ public class ProductController {
 
     @PostMapping("/{id}/donate")
     @PreAuthorize("hasRole('MEMBER')")
-    public ResponseEntity<ApiResponse<DonationResponse>> donate(
+    public ResponseEntity<ApiResponse<DonateProductResponse>> donate(
             @AuthenticationPrincipal Account account,
-            @PathVariable String id) {
+            @PathVariable String id,
+            @Valid @RequestBody DonateProductRequest request) {
 
-        DonationResponse result = productService.donate(account, id);
+        DonateProductResponse result = productService.donate(account, id, request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(result, 201, "Đã ghi nhận quyên góp sản phẩm"));
     }

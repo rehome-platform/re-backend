@@ -1,6 +1,8 @@
 package com.rehome.rehome.client;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rehome.rehome.entity.enums.TryOnModelType;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
@@ -12,6 +14,7 @@ import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
@@ -44,6 +47,7 @@ public class TryOnAiClient implements TryOnImageGenerator {
 
     // Cùng regex với AI server (JOB_RE trong api.py): chỉ nhận id do AI sinh, không ghép chuỗi lạ vào URL
     private static final Pattern JOB_ID = Pattern.compile("^[0-9a-f]{32}$");
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     // null khi chưa cấu hình tryon.ai.base-url / tryon.ai.api-key -> mọi lần gọi trả 502
     private final RestClient client;
@@ -105,12 +109,19 @@ public class TryOnAiClient implements TryOnImageGenerator {
             throw failed();
         }
         try {
-            JsonNode json = client.post()
+            ResponseEntity<String> res = client.post()
                     .uri(path)
                     .contentType(MediaType.MULTIPART_FORM_DATA)
                     .body(body)
                     .retrieve()
-                    .body(JsonNode.class);
+                    .toEntity(String.class);
+
+            String raw = res.getBody();
+            log.info(">>>> AI {} -> status={}, contentType={}, body={}",
+                    path, res.getStatusCode(), res.getHeaders().getContentType(),
+                    raw == null ? null : raw.substring(0, Math.min(raw.length(), 500)));
+
+            JsonNode json = raw == null ? null : MAPPER.readTree(raw);
 
             String jobId = json == null ? null : json.path("id").asText(null);
             if (jobId == null || !JOB_ID.matcher(jobId).matches()) {
@@ -132,9 +143,8 @@ public class TryOnAiClient implements TryOnImageGenerator {
             return png;
         } catch (AppException e) {
             throw e;
-        } catch (RuntimeException e) {
-            // RestClientResponseException (4xx/5xx), ResourceAccessException (timeout/mạng), parse lỗi...
-            log.error(">>>> Sinh anh thu do that bai ({}): {}", path, e.toString());
+        } catch (RuntimeException | JsonProcessingException e) {
+            log.error(">>>> Sinh anh thu do that bai ({})", path, e);   // e là tham số cuối để in stack trace
             throw failed();
         }
     }

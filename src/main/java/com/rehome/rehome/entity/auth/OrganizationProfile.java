@@ -22,7 +22,7 @@ public class OrganizationProfile {
     // Dùng chung khóa với Account, quan hệ 1-1
     @Id
     @Column(name = "account_id", nullable = false)
-    private UUID accountId;
+    UUID accountId;
 
     @MapsId
     @OneToOne(fetch = FetchType.LAZY, optional = false)

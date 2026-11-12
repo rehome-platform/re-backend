@@ -104,9 +104,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/warehouses").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/warehouses/{id}").hasRole("ADMIN")
                         .requestMatchers("/warehouses/moderator").hasRole("MODERATOR")
-                        // F-098 (mở rộng): chiến dịch nhận đồ tại 1 kho cụ thể, công khai như GET /campaigns -
-                        // phải đứng TRƯỚC rule /warehouses/** (hasRole MEMBER)
-                        .requestMatchers(HttpMethod.GET, "/warehouses/{id}/campaigns").permitAll()
+                        // Chiến dịch đang nhận đồ tại 1 kho cụ thể: chỉ MODERATOR (màn ghi nhận quyên góp)
+                        // và MEMBER (chọn chiến dịch khi quyên góp món ký gửi). Phải đứng TRƯỚC rule
+                        // /warehouses/** (hasRole MEMBER) để Moderator không bị 403.
+                        .requestMatchers(HttpMethod.GET, "/warehouses/{id}/campaigns")
+                                .hasAnyRole("MODERATOR", "MEMBER")
                         // Phải đứng TRƯỚC rule /warehouses/** (hasRole MEMBER) để Moderator không bị 403
                         // (F-163/F-164/F-165). Liệt kê cả 2 pattern: "{id}/donations" không khớp sub-path.
                         .requestMatchers("/warehouses/{id}/donations",

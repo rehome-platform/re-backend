@@ -162,7 +162,7 @@ class NotificationServiceImplTest {
         assertThat(saved.getRecipientAccount()).isSameAs(recipient);
         assertThat(saved.getType()).isEqualTo(NotificationType.DONATION_RECORDED);
         assertThat(saved.getTargetType()).isEqualTo(NotificationTargetType.CAMPAIGN);
-        assertThat(saved.getTargetId()).isEqualTo(campaignId);
+        assertThat(saved.getTargetId()).isEqualTo(campaignId.toString());
         assertThat(saved.getWarehouseId()).isEqualTo(warehouseId);
         assertThat(saved.getCreatedAt()).isNotNull();
     }
@@ -199,7 +199,7 @@ class NotificationServiceImplTest {
                 .body("Điểm ký gửi \"Kho Quận 7\" vừa ghi nhận 1 lượt quyên góp cho chiến dịch của bạn.")
                 .isRead(false)
                 .targetType(NotificationTargetType.CAMPAIGN)
-                .targetId(campaignId)
+                .targetId(campaignId.toString())
                 .warehouseId(warehouseId)
                 .createdAt(Instant.now())
                 .build();

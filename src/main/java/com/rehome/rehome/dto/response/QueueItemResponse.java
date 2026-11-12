@@ -59,8 +59,7 @@ public class QueueItemResponse {
     private Boolean feePaid;
     private Instant pickupDeadline;
 
-    // Chỉ có giá trị với QueueType.DONATION_PICKUP (refId là id Donation). Lượt quyên góp từ
-    // POST /products/{id}/donate chưa gắn chiến dịch nên 4 trường này có thể null
+    // Có giá trị với DONATION_PREP và DONATION_PICKUP (refId là id Donation).
     private String campaignId;
     private String campaignTitle;
     private String organizationId;
@@ -150,7 +149,9 @@ public class QueueItemResponse {
         Campaign campaign = donation.getCampaign();
         response.setSku(donation.getProduct() == null ? null : donation.getProduct().getId());
         response.setTargetName(donation.getProduct() == null ? null : donation.getProduct().getName());
-        response.setSubjectSubtitle(donation.getDonorName());
+        response.setSubjectSubtitle(q.getType() == QueueType.DONATION_PREP && response.getSku() != null
+                ? "Lấy món SKU " + response.getSku() + " khỏi kệ, để vào khu chờ bàn giao"
+                : donation.getDonorName());
         response.setStatus(donation.getStatus().name());
         if (campaign != null) {
             response.setCampaignId(campaign.getId().toString());

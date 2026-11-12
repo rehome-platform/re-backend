@@ -3,11 +3,11 @@ package com.rehome.rehome.controller;
 import com.rehome.rehome.dto.request.CreateDonationRequest;
 import com.rehome.rehome.dto.request.HandoverDonationsRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
-import com.rehome.rehome.dto.response.CampaignPublicResponse;
 import com.rehome.rehome.dto.response.DonationHandoverResponse;
 import com.rehome.rehome.dto.response.DonationResponse;
 import com.rehome.rehome.dto.response.MyWarehouseResponse;
 import com.rehome.rehome.dto.response.PageResponse;
+import com.rehome.rehome.dto.response.WarehouseCampaignResponse;
 import com.rehome.rehome.dto.response.WarehouseNearestResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.DonationStatus;
@@ -43,15 +43,13 @@ public class WarehouseController {
     private final CampaignService campaignService;
 
     @GetMapping("/{id}/campaigns")
-    @Operation(summary = "Chiến dịch đang nhận đồ tại điểm ký gửi này, mặc định chỉ chiến dịch đang mở")
-    public ResponseEntity<ApiResponse<PageResponse<CampaignPublicResponse>>> getCampaignsReceivingAtWarehouse(
+    @Operation(summary = "Chiến dịch đang nhận đồ tại điểm ký gửi này: OPEN, chưa hết hạn, không bị ẩn (MODERATOR, MEMBER)")
+    public ResponseEntity<ApiResponse<PageResponse<WarehouseCampaignResponse>>> getCampaignsReceivingAtWarehouse(
             @PathVariable UUID id,
-            @RequestParam(required = false) String search,
-            @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(ApiResponse.success(
-                campaignService.listPublicCampaigns(search, status, id, page, size)));
+                campaignService.listCampaignsReceivingAtWarehouse(id, page, size)));
     }
 
     @GetMapping("/nearest")

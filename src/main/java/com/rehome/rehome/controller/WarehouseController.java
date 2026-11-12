@@ -3,6 +3,7 @@ package com.rehome.rehome.controller;
 import com.rehome.rehome.dto.request.CreateDonationRequest;
 import com.rehome.rehome.dto.request.HandoverDonationsRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
+import com.rehome.rehome.dto.response.CampaignPublicResponse;
 import com.rehome.rehome.dto.response.DonationHandoverResponse;
 import com.rehome.rehome.dto.response.DonationResponse;
 import com.rehome.rehome.dto.response.MyWarehouseResponse;

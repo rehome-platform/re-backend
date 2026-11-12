@@ -389,6 +389,98 @@ public class ProductServiceImpl implements ProductService {
         return new PriceReductionResponse(product.getCurrentPrice());
     }
 
+    // POST /products/{id}/donate: Member quyên góp sản phẩm ký gửi thay vì tiếp tục bán/rút về.
+    // Cho phép ở cả 3 trạng thái ON_SALE (đang bán), WAREHOUSE (hết kỳ, chờ chọn TAKE_BACK/RE_CONSIGN)
+    // và WITHDRAWN (đang có yêu cầu rút hàng) - mỗi trạng thái có một việc phải đóng nốt trước khi
+    // chuyển sang DONATED, xem các nhánh dưới đây.
+    @Override
+    @Transactional
+    public DonationResponse donate(Account account, String productId) {
+
+        if (account.getRole() != Role.MEMBER) {
+            throw new AppException(ErrorCode.NOT_MEMBER_ACCOUNT);
+        }
+
+        Product product = productRepository.findByIdForUpdate(productId)
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));                // 404
+
+        if (!product.getMember().getId().equals(account.getId())) {
+            throw new AppException(ErrorCode.PRODUCT_DONATE_FORBIDDEN);                           // 403
+        }
+
+        ProductStatus previousStatus = product.getStatus();
+        if (previousStatus != ProductStatus.ON_SALE
+                && previousStatus != ProductStatus.WAREHOUSE
+                && previousStatus != ProductStatus.WITHDRAWN) {
+            throw new AppException(ErrorCode.PRODUCT_NOT_DONATABLE);                              // 409
+        }
+
+        // WITHDRAWN luôn có đúng 1 yêu cầu rút hàng còn sống (xem ItemWithdrawalRequestServiceImpl.create).
+        // Còn PENDING_APPROVAL (Moderator chưa duyệt) thì chặn quyên góp để tránh đá nhau với quyết
+        // định của Moderator; đã PENDING_PICKUP (duyệt rồi, chỉ còn chờ Member đến lấy) thì cho
+        // quyên góp luôn và huỷ yêu cầu rút hàng đó.
+        ItemWithdrawalRequest activeWithdrawal = null;
+        if (previousStatus == ProductStatus.WITHDRAWN) {
+            activeWithdrawal = itemWithdrawalRequestRepository
+                    .findFirstByProduct_IdAndStatusIn(product.getId(), ACTIVE_WITHDRAWAL_STATUSES)
+                    .orElse(null);
+            if (activeWithdrawal != null && activeWithdrawal.getStatus() == ItemWithdrawalStatus.PENDING_APPROVAL) {
+                throw new AppException(ErrorCode.DONATE_WITHDRAWAL_PENDING_APPROVAL);             // 409
+            }
+        }
+
+        product.setStatus(ProductStatus.DONATED);
+        productRepository.save(product);
+
+        if (previousStatus == ProductStatus.WAREHOUSE) {
+            endOfTermDecisionRepository.findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc(product.getId())
+                    .ifPresent(decision -> {
+                        decision.setDecision(EndOfTermChoice.DONATE);
+                        decision.setDecidedAt(Instant.now());
+                        endOfTermDecisionRepository.save(decision);
+                    });
+        } else if (activeWithdrawal != null) {
+            activeWithdrawal.setStatus(ItemWithdrawalStatus.CANCELLED);
+            activeWithdrawal.setReviewedAt(Instant.now());
+            itemWithdrawalRequestRepository.save(activeWithdrawal);
+            // Không còn gì để Moderator bàn giao tại quầy nữa (API 72) - đóng việc, mở ở create()
+            queueService.dequeue(QueueType.WITHDRAWAL, activeWithdrawal.getId().toString());
+        }
+
+        MemberProfile profile = memberProfileRepository.findByAccountId(account.getId()).orElse(null);
+
+        Donation donation = donationRepository.save(Donation.builder()
+                .warehouse(product.getWarehouse())
+                .product(product)
+                .donorName(profile != null ? profile.getFullName() : null)
+                .isAnonymous(false)
+                .status(DonationStatus.PENDING_PICKUP)
+                .build());
+
+        // Moderator của kho giữ sản phẩm cần biết để đến lấy món tại kệ và chờ bàn giao cho tổ
+        // chức (đóng ở DonationServiceImpl.handoverDonations)
+        queueService.enqueue(QueueType.DONATION_PICKUP, donation.getId().toString(), product.getWarehouse());
+
+        notificationService.notify(
+                account,
+                NotificationType.DONATION_RECORDED,
+                "Đã ghi nhận quyên góp",
+                "Sản phẩm \"" + product.getName() + "\" của bạn đã được ghi nhận quyên góp, đang chờ bàn giao.",
+                null, null, null);
+
+        return DonationResponse.builder()
+                .id(donation.getId().toString())
+                .warehouseId(product.getWarehouse().getId().toString())
+                .warehouseName(product.getWarehouse().getName())
+                .donorName(donation.getDonorName())
+                .isAnonymous(false)
+                .status(donation.getStatus().name())
+                .productId(product.getId())
+                .productName(product.getName())
+                .createdAt(donation.getCreatedAt())
+                .build();
+    }
+
     @Override
     @Transactional
     public DonateProductResponse donate(Account account, String productId, DonateProductRequest request) {

@@ -1,14 +1,20 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
+import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.CreateProductRequest;
+import com.rehome.rehome.dto.request.DonateProductRequest;
 import com.rehome.rehome.dto.request.PriceReductionRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.enums.EndOfTermChoice;
-import com.rehome.rehome.entity.enums.DonationStatus;
+import com.rehome.rehome.entity.enums.DegradedItemChoice;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+import com.rehome.rehome.entity.enums.CampaignStatus;
+import com.rehome.rehome.entity.enums.DonationSource;
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.entity.enums.ProductStatus;
@@ -23,6 +29,7 @@ import com.rehome.rehome.mapper.ProductMapper;
 import com.rehome.rehome.repository.*;
 import com.rehome.rehome.repository.spec.ProductSpecifications;
 import com.rehome.rehome.service.NotificationService;
+import com.rehome.rehome.service.ItemWithdrawalRequestService;
 import com.rehome.rehome.service.ProductService;
 import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.service.SkuLabelPdfService;
@@ -74,8 +81,11 @@ public class ProductServiceImpl implements ProductService {
     private final GhnShippingFeeCalculator ghnShippingFeeCalculator;
     private final SystemConfigReader systemConfigReader;
     private final DonationRepository donationRepository;
+    private final CampaignRepository campaignRepository;
+    private final ItemWithdrawalRequestService itemWithdrawalRequestService;
     private final QueueService queueService;
     private final NotificationService notificationService;
+    private final AuditLogger auditLogger;
 
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
@@ -220,13 +230,24 @@ public class ProductServiceImpl implements ProductService {
                         c -> c,
                         (first, second) -> first));
 
-        return page.map(p -> productMapper.toMyProduct(
-                p,
-                photos.get(p.getId()),
-                decisions.get(p.getId()),
-                hasOrderToShow(p.getStatus()) ? orderItems.get(p.getId()) : null,
-                withdrawals.get(p.getId()),
-                degradedCases.get(p.getId())));
+        List<String> donatedIds = page.getContent().stream()
+                .filter(p -> p.getStatus() == ProductStatus.DONATED)
+                .map(Product::getId)
+                .toList();
+        Map<String, MyProductResponse.DonationInfo> donations = donatedIds.isEmpty() ? Map.of()
+                : donationRepository.findForProducts(donatedIds).stream().collect(Collectors.toMap(
+                        d -> d.getProduct().getId(), this::toDonationInfo, (first, next) -> first));
+
+        return page.map(p -> {
+            MyProductResponse response = productMapper.toMyProduct(
+                    p, photos.get(p.getId()), decisions.get(p.getId()),
+                    hasOrderToShow(p.getStatus()) ? orderItems.get(p.getId()) : null,
+                    withdrawals.get(p.getId()), degradedCases.get(p.getId()));
+            if (p.getStatus() == ProductStatus.DONATED) {
+                response.setDonation(donations.get(p.getId()));
+            }
+            return response;
+        });
     }
 
     @Override
@@ -263,13 +284,27 @@ public class ProductServiceImpl implements ProductService {
                 .findPendingByProductIds(List.of(id)).stream()
                 .findFirst().orElse(null);
 
-        return productMapper.toMyProductDetail(
+        MyProductResponse response = productMapper.toMyProductDetail(
                 product, photo, decision, orderItem, withdrawal, degradedCase,
                 changes.stream()
                         .map(c -> new MyProductResponse.PriceChange(
                                 c.getChangedAt(), c.getOldPrice(), c.getNewPrice()))
                         .toList(),
                 buildTermHistory(product, changes));
+        if (product.getStatus() == ProductStatus.DONATED) {
+            donationRepository.findForProducts(List.of(id)).stream().findFirst()
+                    .map(this::toDonationInfo).ifPresent(response::setDonation);
+        }
+        return response;
+    }
+
+    private MyProductResponse.DonationInfo toDonationInfo(Donation donation) {
+        Campaign campaign = donation.getCampaign();
+        return new MyProductResponse.DonationInfo(donation.getId(),
+                campaign == null ? null : campaign.getId(),
+                campaign == null ? null : campaign.getTitle(),
+                campaign == null ? null : campaign.getOrganization().getDisplayName(),
+                donation.getStatus().name(), donation.getHandedOverAt());
     }
 
     // price = giá có hiệu lực lúc kỳ đó bắt đầu. Mốc đầu các kỳ trước suy ra bằng cách
@@ -354,13 +389,9 @@ public class ProductServiceImpl implements ProductService {
         return new PriceReductionResponse(product.getCurrentPrice());
     }
 
-    // POST /products/{id}/donate: Member quyên góp sản phẩm ký gửi thay vì tiếp tục bán/rút về.
-    // Cho phép ở cả 3 trạng thái ON_SALE (đang bán), WAREHOUSE (hết kỳ, chờ chọn TAKE_BACK/RE_CONSIGN)
-    // và WITHDRAWN (đang có yêu cầu rút hàng) - mỗi trạng thái có một việc phải đóng nốt trước khi
-    // chuyển sang DONATED, xem các nhánh dưới đây.
     @Override
     @Transactional
-    public DonationResponse donate(Account account, String productId) {
+    public DonateProductResponse donate(Account account, String productId, DonateProductRequest request) {
 
         if (account.getRole() != Role.MEMBER) {
             throw new AppException(ErrorCode.NOT_MEMBER_ACCOUNT);
@@ -370,90 +401,137 @@ public class ProductServiceImpl implements ProductService {
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));                // 404
 
         if (!product.getMember().getId().equals(account.getId())) {
-            throw new AppException(ErrorCode.PRODUCT_DONATE_FORBIDDEN);                           // 403
+            throw new AppException(ErrorCode.PRODUCT_FORBIDDEN);                           // 403
         }
 
         ProductStatus previousStatus = product.getStatus();
-        if (previousStatus != ProductStatus.ON_SALE
-                && previousStatus != ProductStatus.WAREHOUSE
-                && previousStatus != ProductStatus.WITHDRAWN) {
-            throw new AppException(ErrorCode.PRODUCT_NOT_DONATABLE);                              // 409
+        Instant now = Instant.now();
+        EndOfTermDecision decision = null;
+        ItemWithdrawalRequest activeWithdrawal = null;
+        DegradedItemCase degradedCase = null;
+        String caseType;
+
+        switch (previousStatus) {
+            case ON_SALE -> caseType = "A";
+            case WAREHOUSE -> {
+                decision = endOfTermDecisionRepository.findByProductIds(List.of(productId)).stream()
+                        .findFirst()
+                        .filter(d -> d.getDecision() == null)
+                        .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_DONATABLE));
+                if (!degradedItemCaseRepository.findPendingByProductIds(List.of(productId)).isEmpty()) {
+                    throw new AppException(ErrorCode.PRODUCT_NOT_DONATABLE);
+                }
+                caseType = "B";
+            }
+            case WITHDRAWN -> {
+                activeWithdrawal = itemWithdrawalRequestRepository
+                        .findFirstByProduct_IdAndStatusIn(productId, ACTIVE_WITHDRAWAL_STATUSES).orElse(null);
+                if (activeWithdrawal != null) {
+                    if (activeWithdrawal.getStatus() == ItemWithdrawalStatus.PENDING_APPROVAL) {
+                        throw new AppException(ErrorCode.WITHDRAWAL_PENDING_APPROVAL);
+                    }
+                    caseType = "C1";
+                } else {
+                    decision = endOfTermDecisionRepository.findByProductIds(List.of(productId)).stream()
+                            .findFirst().filter(d -> d.getDecision() == EndOfTermChoice.TAKE_BACK
+                                    && d.getTakenBackAt() == null).orElse(null);
+                    degradedCase = degradedItemCaseRepository.findFirstByProduct_IdOrderByCreatedAtDesc(productId)
+                            .filter(c -> c.getChoice() == DegradedItemChoice.PARTIAL_WITH_ITEM_BACK
+                                    && c.getPickedUpAt() == null && !c.isItemDonated()).orElse(null);
+                    if (degradedCase != null && (decision == null
+                            || degradedCase.getDecidedAt().isAfter(decision.getDecidedAt()))) {
+                        decision = null;
+                        caseType = "C3";
+                    } else if (decision != null) {
+                        degradedCase = null;
+                        caseType = "C2";
+                    } else {
+                        throw new AppException(ErrorCode.PRODUCT_NOT_DONATABLE);
+                    }
+                }
+            }
+            default -> throw new AppException(ErrorCode.PRODUCT_NOT_DONATABLE);
         }
 
-        // WITHDRAWN luôn có đúng 1 yêu cầu rút hàng còn sống (xem ItemWithdrawalRequestServiceImpl.create).
-        // Còn PENDING_APPROVAL (Moderator chưa duyệt) thì chặn quyên góp để tránh đá nhau với quyết
-        // định của Moderator; đã PENDING_PICKUP (duyệt rồi, chỉ còn chờ Member đến lấy) thì cho
-        // quyên góp luôn và huỷ yêu cầu rút hàng đó.
-        ItemWithdrawalRequest activeWithdrawal = null;
-        if (previousStatus == ProductStatus.WITHDRAWN) {
-            activeWithdrawal = itemWithdrawalRequestRepository
-                    .findFirstByProduct_IdAndStatusIn(product.getId(), ACTIVE_WITHDRAWAL_STATUSES)
-                    .orElse(null);
-            if (activeWithdrawal != null && activeWithdrawal.getStatus() == ItemWithdrawalStatus.PENDING_APPROVAL) {
-                throw new AppException(ErrorCode.DONATE_WITHDRAWAL_PENDING_APPROVAL);             // 409
-            }
+        if (orderItemRepository.findActiveByProductIds(List.of(productId)).stream()
+                .map(OrderItem::getOrder)
+                .anyMatch(order -> blocksDonation(order, now))) {
+            throw new AppException(ErrorCode.PRODUCT_NOT_DONATABLE);
+        }
+
+        Campaign campaign = campaignRepository.findById(request.campaignId())
+                .orElseThrow(() -> new AppException(ErrorCode.CAMPAIGN_NOT_ACCEPTING));
+        if (campaign.getStatus() == CampaignStatus.HIDDEN) {
+            throw new AppException(ErrorCode.CAMPAIGN_HIDDEN);
+        }
+        if (campaign.getStatus() != CampaignStatus.OPEN || campaign.getEndTime() == null
+                || !campaign.getEndTime().isAfter(now)) {
+            throw new AppException(ErrorCode.CAMPAIGN_NOT_ACCEPTING);
+        }
+        Warehouse warehouse = product.getWarehouse();
+        if (warehouse == null || campaign.getWarehouses().stream().noneMatch(w -> w.getId().equals(warehouse.getId()))) {
+            throw new AppException(ErrorCode.CAMPAIGN_NOT_AT_WAREHOUSE);
         }
 
         product.setStatus(ProductStatus.DONATED);
         productRepository.save(product);
 
-        if (previousStatus == ProductStatus.WAREHOUSE) {
-            endOfTermDecisionRepository.findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc(product.getId())
-                    .ifPresent(decision -> {
-                        decision.setDecision(EndOfTermChoice.DONATE);
-                        decision.setDecidedAt(Instant.now());
-                        endOfTermDecisionRepository.save(decision);
-                    });
-        } else if (activeWithdrawal != null) {
-            activeWithdrawal.setStatus(ItemWithdrawalStatus.CANCELLED);
-            activeWithdrawal.setReviewedAt(Instant.now());
-            itemWithdrawalRequestRepository.save(activeWithdrawal);
-            // Không còn gì để Moderator bàn giao tại quầy nữa (API 72) - đóng việc, mở ở create()
+        if (decision != null) {
+            decision.setDecision(EndOfTermChoice.DONATE);
+            decision.setDecidedAt(now);
+            endOfTermDecisionRepository.save(decision);
+        }
+        if (degradedCase != null) {
+            degradedCase.setItemDonated(true);
+            degradedItemCaseRepository.save(degradedCase);
+        }
+        if (activeWithdrawal != null) {
+            activeWithdrawal.setStatus(ItemWithdrawalStatus.CONVERTED_TO_DONATION);
+            itemWithdrawalRequestRepository.saveAndFlush(activeWithdrawal);
+            itemWithdrawalRequestService.refundDonationFee(activeWithdrawal);
             queueService.dequeue(QueueType.WITHDRAWAL, activeWithdrawal.getId().toString());
         }
 
-        MemberProfile profile = memberProfileRepository.findByAccountId(account.getId()).orElse(null);
+        String donorName = request.isAnonymous() ? null : memberProfileRepository.findByAccountId(account.getId())
+                .map(MemberProfile::getFullName).orElse(null);
 
-        Donation donation = donationRepository.save(Donation.builder()
-                .warehouse(product.getWarehouse())
+        Donation donation = donationRepository.save(Donation.pendingAt(warehouse, campaign, donorName,
+                        request.isAnonymous(), "Món ký gửi: " + product.getName() + " · SKU " + productId)
                 .product(product)
-                .source(com.rehome.rehome.entity.enums.DonationSource.CONSIGNED_ITEM)
-                .donorName(profile != null ? profile.getFullName() : null)
-                .isAnonymous(false)
-                .status(DonationStatus.PENDING_PICKUP)
+                .source(DonationSource.CONSIGNED_ITEM)
                 .build());
 
-        // Moderator của kho giữ sản phẩm cần biết để đến lấy món tại kệ và chờ bàn giao cho tổ
-        // chức (đóng ở DonationServiceImpl.handoverDonations)
-        queueService.enqueue(QueueType.DONATION_PICKUP, donation.getId().toString(), product.getWarehouse());
-
+        queueService.enqueue(QueueType.DONATION_PREP, donation.getId().toString(), warehouse);
+        auditLogger.log(account, "DONATE_CONSIGNED_ITEM", "PRODUCT", productId,
+                JsonNodeFactory.instance.objectNode()
+                        .put("productId", productId)
+                        .put("campaignId", campaign.getId().toString())
+                        .put("previousStatus", previousStatus.name())
+                        .put("caseType", caseType));
         notificationService.notify(
-                account,
-                NotificationType.DONATION_RECORDED,
-                "Đã ghi nhận quyên góp",
-                "Sản phẩm \"" + product.getName() + "\" của bạn đã được ghi nhận quyên góp, đang chờ bàn giao.",
-                null, null, null);
+                campaign.getOrganization().getAccount(), NotificationType.DONATION_RECORDED,
+                "Có lượt quyên góp mới",
+                "Có 1 món ký gửi được quyên góp cho chiến dịch của bạn tại " + warehouse.getName(),
+                NotificationTargetType.CAMPAIGN, campaign.getId(), warehouse.getId());
 
-        return DonationResponse.builder()
-                .id(donation.getId().toString())
-                .warehouseId(product.getWarehouse().getId().toString())
-                .warehouseName(product.getWarehouse().getName())
-                .donorName(donation.getDonorName())
-                .isAnonymous(false)
-                .status(donation.getStatus().name())
-                .source(donation.getSource().name())
-                .productId(product.getId())
-                .productName(product.getName())
-                .product(DonationProductResponse.builder()
-                        .id(product.getId())
-                        .name(product.getName())
-                        .sku(product.getId())
-                        .photoUrl(productPhotoRepository
-                                .findByProduct_IdOrderByDisplayOrderAscIdAsc(product.getId()).stream()
-                                .map(ProductPhoto::getImageUrl).findFirst().orElse(null))
-                        .build())
-                .createdAt(donation.getCreatedAt())
-                .build();
+        return new DonateProductResponse(product.getId(), product.getStatus(), donation.getId(),
+                campaign.getId(), campaign.getTitle(), campaign.getOrganization().getDisplayName());
+    }
+
+    private boolean blocksDonation(Order order, Instant now) {
+        return switch (order.getStatus()) {
+            case PENDING_PAYMENT, PAID, PACKING, SHIPPING -> true;
+            case DELIVERED, COMPLETED -> {
+                Instant deadline = order.getReturnDeadline();
+                if (deadline == null && order.getDeliveredAt() != null) {
+                    deadline = order.getDeliveredAt().plus(systemConfigReader.getInt(
+                            SystemConfigKeys.RETURN_REQUEST_WINDOW_DAYS,
+                            SystemConfigKeys.DEFAULT_RETURN_REQUEST_WINDOW_DAYS), ChronoUnit.DAYS);
+                }
+                yield deadline != null && !now.isAfter(deadline);
+            }
+            case CANCELLED, RETURNED -> false;
+        };
     }
 
     @Override

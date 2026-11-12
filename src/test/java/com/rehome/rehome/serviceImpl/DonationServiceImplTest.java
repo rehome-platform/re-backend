@@ -13,14 +13,17 @@ import com.rehome.rehome.entity.auth.ModeratorProfile;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.CampaignStatus;
 import com.rehome.rehome.entity.enums.DonationStatus;
+import com.rehome.rehome.entity.enums.DonationSource;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.VerificationStatus;
 import com.rehome.rehome.entity.marketplace.Campaign;
 import com.rehome.rehome.entity.marketplace.Donation;
+import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.DonationNote;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
@@ -54,6 +57,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -129,6 +134,8 @@ class DonationServiceImplTest {
         assertThat(res.getId()).isNotNull();
         assertThat(res.getWarehouseId()).isEqualTo(warehouseId.toString());
         assertThat(res.getCampaignId()).isEqualTo(campaignId.toString());
+        assertThat(res.getOrganizationId()).isNotNull();
+        assertThat(res.getHandedOverToOrganizationName()).isNull();
         assertThat(res.getDonorName()).isEqualTo("Nguyễn Văn A");
         assertThat(res.isAnonymous()).isFalse();
         assertThat(res.getNote()).isEqualTo("2 áo khoác, 1 chăn");
@@ -537,6 +544,9 @@ class DonationServiceImplTest {
         UUID secondId = UUID.randomUUID();
         Donation first = pendingDonation(firstId, warehouseId, campaignId);
         Donation second = pendingDonation(secondId, warehouseId, campaignId);
+        Account member = Account.builder().id(UUID.randomUUID()).build();
+        second.setSource(DonationSource.CONSIGNED_ITEM);
+        second.setProduct(Product.builder().id("SKU-Q7-01").name("Áo khoác").member(member).build());
 
         stubWarehouse(warehouseId);
         stubVerifiedOrganization(organizationId);
@@ -559,6 +569,11 @@ class DonationServiceImplTest {
         assertThat(first.getHandedOverAt()).isNotNull();
         assertThat(second.getHandedOverAt()).isEqualTo(first.getHandedOverAt());
         verify(donationRepository).saveAll(List.of(first, second));
+        verify(queueService).dequeue(QueueType.DONATION_PREP, secondId.toString());
+        verify(notificationService).notifyProduct(eq(member), eq(NotificationType.DONATION_HANDED_OVER),
+                anyString(), contains("Áo khoác"), eq("SKU-Q7-01"), eq(warehouseId));
+        verify(notificationService).notify(any(), eq(NotificationType.DONATION_HANDED_OVER), anyString(),
+                contains("2 lượt quyên góp"), eq(NotificationTargetType.CAMPAIGN), eq(campaignId), eq(warehouseId));
     }
 
     @Test

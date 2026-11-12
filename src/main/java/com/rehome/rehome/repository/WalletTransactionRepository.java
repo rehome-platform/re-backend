@@ -9,5 +9,7 @@ import java.util.UUID;
 public interface WalletTransactionRepository
         extends JpaRepository<WalletTransaction, UUID>, JpaSpecificationExecutor<WalletTransaction> {
 
+    boolean existsByTransactionNo(String transactionNo);
+
     long countByTransactionNoStartingWith(String prefix);
 }

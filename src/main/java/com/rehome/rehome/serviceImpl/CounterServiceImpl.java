@@ -164,7 +164,7 @@ public class CounterServiceImpl implements CounterService {
         DegradedItemCase degradedCase = degradedItemCaseRepository.findById(refId)
                 .filter(c -> c.getProduct().getMember().getId().equals(accountId))
                 .filter(c -> c.getChoice() == DegradedItemChoice.PARTIAL_WITH_ITEM_BACK)
-                .filter(c -> c.getPickedUpAt() == null)
+                .filter(c -> c.getPickedUpAt() == null && !c.isItemDonated())
                 .orElseThrow(() -> new AppException(ErrorCode.COUNTER_RECORD_NOT_FOUND));
 
         degradedCase.setPickedUpAt(Instant.now());

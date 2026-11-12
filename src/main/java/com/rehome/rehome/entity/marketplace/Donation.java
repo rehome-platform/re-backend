@@ -89,6 +89,13 @@ public class Donation {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    public static DonationBuilder pendingAt(Warehouse warehouse, Campaign campaign, String donorName,
+                                            boolean anonymous, String note) {
+        return builder().warehouse(warehouse).campaign(campaign)
+                .donorName(anonymous ? null : donorName).isAnonymous(anonymous)
+                .note(note).status(DonationStatus.PENDING_PICKUP);
+    }
+
     @PrePersist
     private void onCreate() {
         Instant now = Instant.now();

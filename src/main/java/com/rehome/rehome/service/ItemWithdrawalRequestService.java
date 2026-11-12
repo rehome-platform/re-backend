@@ -1,5 +1,6 @@
 package com.rehome.rehome.service;
 
+import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.dto.request.CreateItemWithdrawalRequest;
 import com.rehome.rehome.dto.request.PayItemWithdrawalFeeRequest;
 import com.rehome.rehome.dto.request.RejectItemWithdrawalRequest;
@@ -12,6 +13,8 @@ import java.util.List;
 import java.util.UUID;
 
 public interface ItemWithdrawalRequestService {
+    void refundDonationFee(ItemWithdrawalRequest withdrawal);
+
 
     // API 90 (F-032) - Member yêu cầu rút lại một sản phẩm đang ký gửi
     ItemWithdrawalResponse create(Account account, CreateItemWithdrawalRequest request);

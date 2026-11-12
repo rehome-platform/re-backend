@@ -90,15 +90,9 @@ public class DonationServiceImpl implements DonationService {
         Warehouse warehouse = requireOwnWarehouse(moderator, warehouseId, WAREHOUSE_NOT_FOUND);
         Campaign campaign = requireCampaignServingWarehouse(warehouse, request.getCampaignId());
 
-        Donation donation = Donation.builder()
-                .warehouse(warehouse)
-                .campaign(campaign)
-                .source(DonationSource.DIRECT)
+        Donation donation = Donation.pendingAt(warehouse, campaign, request.getDonorName(), anonymous,
+                        request.getNote())
                 .recordedBy(moderator)
-                // Ẩn danh thì không lưu tên, tránh giữ lại danh tính người đã chọn ẩn
-                .donorName(anonymous ? null : request.getDonorName())
-                .isAnonymous(anonymous)
-                .note(request.getNote())
                 .createdAt(Instant.now())
                 .build();
         donationRepository.save(donation);
@@ -199,7 +193,7 @@ public class DonationServiceImpl implements DonationService {
                                                       HandoverDonationsRequest request) {
         List<UUID> donationIds = parseDonationIds(request.getDonationIds());
 
-        requireOwnWarehouse(moderator, warehouseId, ORGANIZATION_OR_WAREHOUSE_NOT_FOUND);
+        Warehouse warehouse = requireOwnWarehouse(moderator, warehouseId, ORGANIZATION_OR_WAREHOUSE_NOT_FOUND);
         OrganizationProfile organization = requireVerifiedOrganization(request.getOrganizationId());
         // Chiến dịch bàn giao phải thuộc đúng tổ chức đến nhận, tránh bàn giao nhầm cho tổ chức khác
         Campaign campaign = requireOwnCampaign(organization.getAccountId(), request.getCampaignId());
@@ -222,10 +216,22 @@ public class DonationServiceImpl implements DonationService {
         });
         donationRepository.saveAll(donations);
 
-        // F-163(mở rộng)/DONATION_PICKUP: lượt đến từ POST /products/{id}/donate có 1 việc chờ
-        // Moderator đến lấy tại kho - đã bàn giao cho tổ chức thì việc đó xong, đóng lại. Lượt ghi
-        // nhận trực tiếp tại quầy (recordDonation) không có việc tương ứng, dequeue là no-op.
-        donations.forEach(donation -> queueService.dequeue(QueueType.DONATION_PICKUP, donation.getId().toString()));
+        for (Donation donation : donations) {
+            if (donation.getSource() == DonationSource.CONSIGNED_ITEM && donation.getProduct() != null) {
+                String refId = donation.getId().toString();
+                queueService.dequeue(QueueType.DONATION_PREP, refId);
+                queueService.dequeue(QueueType.DONATION_PICKUP, refId);
+                Product product = donation.getProduct();
+                notificationService.notifyProduct(product.getMember(), NotificationType.DONATION_HANDED_OVER,
+                        "Đã bàn giao món quyên góp",
+                        "Món " + product.getName() + " đã được bàn giao cho " + organization.getDisplayName(),
+                        product.getId(), warehouseId);
+            }
+        }
+        notificationService.notify(organization.getAccount(), NotificationType.DONATION_HANDED_OVER,
+                "Đã bàn giao lượt quyên góp",
+                "Đã nhận " + donations.size() + " lượt quyên góp tại " + warehouse.getName(),
+                NotificationTargetType.CAMPAIGN, campaign.getId(), warehouseId);
 
         return DonationHandoverResponse.builder()
                 .handedOverCount(donations.size())
@@ -460,7 +466,9 @@ public class DonationServiceImpl implements DonationService {
 
     private static DonationResponse toResponse(Donation donation, String moderatorCode,
                                                Map<String, String> photoByProductId) {
-        OrganizationProfile organization = donation.getHandedOverToOrganization();
+        OrganizationProfile organization = donation.getCampaign() == null
+                ? null : donation.getCampaign().getOrganization();
+        OrganizationProfile recipient = donation.getHandedOverToOrganization();
         Product product = donation.getProduct();
         return DonationResponse.builder()
                 .id(donation.getId().toString())
@@ -476,6 +484,7 @@ public class DonationServiceImpl implements DonationService {
                 .recordedBy(moderatorCode)
                 .organizationId(organization == null ? null : organization.getAccountId().toString())
                 .organizationName(organization == null ? null : organization.getDisplayName())
+                .handedOverToOrganizationName(recipient == null ? null : recipient.getDisplayName())
                 .productId(product == null ? null : product.getId())
                 .productName(product == null ? null : product.getName())
                 // product chỉ trả khi source = CONSIGNED_ITEM (lượt DIRECT luôn null)

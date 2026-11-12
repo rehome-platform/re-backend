@@ -62,10 +62,12 @@ public interface DegradedItemCaseRepository extends JpaRepository<DegradedItemCa
     @Query("select c from DegradedItemCase c join fetch c.product p "
             + "where p.member.id = :memberId "
             + "and c.choice = com.rehome.rehome.entity.enums.DegradedItemChoice.PARTIAL_WITH_ITEM_BACK "
-            + "and c.pickedUpAt is null order by c.decidedAt asc")
+            + "and c.pickedUpAt is null and c.itemDonated = false order by c.decidedAt asc")
     List<DegradedItemCase> findPendingPickupByMemberId(@Param("memberId") UUID memberId);
 
     // Mở ca trực tiếp (API mới của Moderator): không mở trùng khi sản phẩm còn ca chưa quyết định
+    Optional<DegradedItemCase> findFirstByProduct_IdOrderByCreatedAtDesc(String productId);
+
     boolean existsByProduct_IdAndChoiceIsNull(String productId);
 
     // Job quét quá hạn chọn phương án đền bù -> vô thừa nhận

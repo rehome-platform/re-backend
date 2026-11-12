@@ -1,6 +1,8 @@
 package com.rehome.rehome.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import java.util.UUID;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.rehome.rehome.entity.enums.EndOfTermChoice;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
@@ -18,6 +20,12 @@ import lombok.Setter;
 
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class MyProductResponse {
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private DonationInfo donation;
+
+    public record DonationInfo(UUID id, UUID campaignId, String campaignTitle,
+                               String organizationName, String status, Instant handedOverAt) {}
+
     private String id;
     private String productName;
     private ProductStatus status;

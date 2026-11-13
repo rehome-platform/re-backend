@@ -109,6 +109,8 @@ class ProductServiceImplTest {
     @Mock com.rehome.rehome.component.FeaturedListingManager featuredListingManager;
 
 
+    @Mock private com.rehome.rehome.component.FeaturedListingManager featuredListingManager;
+
     @InjectMocks ProductServiceImpl service;
 
     private Account moderator;

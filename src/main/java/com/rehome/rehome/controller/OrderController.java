@@ -8,6 +8,7 @@ import com.rehome.rehome.dto.request.RateOrderRequest;
 import com.rehome.rehome.dto.request.UpdateOrderShippingAddressRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.CreateShipmentResponse;
+import com.rehome.rehome.dto.response.ShipmentLabelResponse;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
 import com.rehome.rehome.dto.response.OrderConfirmReceiptResponse;
 import com.rehome.rehome.dto.response.OrderDetailResponse;
@@ -236,6 +237,16 @@ public class OrderController {
         CreateShipmentResponse result = orderService.createShipment(id);
 
         return ResponseEntity.ok(ApiResponse.success(result, "Đã tạo vận đơn"));
+    }
+
+    // In phiếu vận đơn GHN để dán lên kiện hàng (F-127)
+    @GetMapping("/{id}/shipment/label")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<ShipmentLabelResponse>> getShipmentLabel(
+            @PathVariable UUID id,
+            @RequestParam(defaultValue = "A5") String size) {
+
+        return ResponseEntity.ok(ApiResponse.success(orderService.getShipmentLabel(id, size)));
     }
 
     // API 64 (F-060)

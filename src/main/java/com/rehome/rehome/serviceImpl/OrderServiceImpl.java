@@ -11,6 +11,9 @@ import com.rehome.rehome.dto.request.PayOrdersRequest;
 import com.rehome.rehome.dto.request.RateOrderRequest;
 import com.rehome.rehome.dto.request.UpdateOrderShippingAddressRequest;
 import com.rehome.rehome.dto.response.CreateShipmentResponse;
+import com.rehome.rehome.dto.response.GhnGenTokenResponse;
+import com.rehome.rehome.dto.response.ShipmentLabelResponse;
+import com.rehome.rehome.dto.request.GhnGenTokenRequest;
 import com.rehome.rehome.dto.response.GhnCreateOrderResponse;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
 import com.rehome.rehome.dto.response.OrderConfirmReceiptResponse;
@@ -164,6 +167,10 @@ public class OrderServiceImpl implements OrderService {
 
     @Value("${ghn.shop-id}")
     private String ghnShopId;
+
+    // Host in phiếu GHN = base-url bỏ phần /shiip/public-api (sandbox: dev-online-gateway.ghn.vn)
+    @Value("${ghn.base-url}")
+    private String ghnBaseUrl;
 
     // Product chưa có weight/length/width/height thật - dùng kích thước mặc định cho sandbox (F-127)
     @Value("${ghn.default-package.weight-grams}")
@@ -1473,6 +1480,52 @@ public class OrderServiceImpl implements OrderService {
                 .id(order.getId().toString())
                 .status(order.getStatus().name())
                 .ghnTrackingCode(order.getGhnTrackingCode())
+                .build();
+    }
+
+    @Override
+    public ShipmentLabelResponse getShipmentLabel(UUID orderId, String size) {
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
+
+        if (!StringUtils.hasText(order.getGhnTrackingCode())) {
+            throw new ConflictException("Đơn chưa có vận đơn, vui lòng tạo vận đơn trước.", "SHIPMENT_NOT_CREATED");
+        }
+
+        String printPath;
+        String normalizedSize = size == null ? "A5" : size.trim().toUpperCase();
+        switch (normalizedSize) {
+            case "A5" -> printPath = "printA5";
+            case "80X80" -> printPath = "print80x80";
+            case "52X70" -> printPath = "print52x70";
+            default -> throw new BadRequestException("Khổ giấy không hợp lệ (A5, 80x80, 52x70).");
+        }
+
+        GhnGenTokenResponse tokenResponse;
+        try {
+            tokenResponse = ghnApi.genPrintToken(ghnToken, ghnShopId,
+                    GhnGenTokenRequest.builder().orderCodes(List.of(order.getGhnTrackingCode())).build());
+        } catch (Exception ex) {
+            log.error(">>>> Loi goi GHN gen-token in phieu cho orderNo={}: {}", order.getOrderNo(), ex.getMessage());
+            throw new GhnException("GHN_ERROR: không thể lấy phiếu in, vui lòng thử lại.");
+        }
+
+        if (tokenResponse == null || tokenResponse.getData() == null
+                || !StringUtils.hasText(tokenResponse.getData().getToken())) {
+            log.error(">>>> GHN khong tra ve token in cho orderNo={}: {}", order.getOrderNo(),
+                    tokenResponse != null ? tokenResponse.getMessage() : null);
+            throw new GhnException("GHN_ERROR: không thể lấy phiếu in, vui lòng thử lại.");
+        }
+
+        String host = ghnBaseUrl.replaceAll("/shiip/public-api/?$", "");
+        String printUrl = host + "/a5/public-api/" + printPath + "?token=" + tokenResponse.getData().getToken();
+
+        return ShipmentLabelResponse.builder()
+                .id(order.getId().toString())
+                .ghnTrackingCode(order.getGhnTrackingCode())
+                .size(normalizedSize.toLowerCase().equals("a5") ? "A5" : normalizedSize.toLowerCase())
+                .printUrl(printUrl)
                 .build();
     }
 

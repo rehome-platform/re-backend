@@ -100,8 +100,14 @@ class ProductServiceImplTest {
     // donate() (POST /products/{id}/donate)
     @Mock MemberProfileRepository memberProfileRepository;
     @Mock DonationRepository donationRepository;
+    @Mock com.rehome.rehome.repository.CampaignRepository campaignRepository;
+    @Mock com.rehome.rehome.service.ItemWithdrawalRequestService itemWithdrawalRequestService;
     @Mock com.rehome.rehome.service.QueueService queueService;
     @Mock com.rehome.rehome.service.NotificationService notificationService;
+    @Mock com.rehome.rehome.component.AuditLogger auditLogger;
+    // Ưu tiên hiển thị "Nổi bật" của gói VIP - mock không làm gì = Member không có gói
+    @Mock com.rehome.rehome.component.FeaturedListingManager featuredListingManager;
+
 
     @InjectMocks ProductServiceImpl service;
 
@@ -406,7 +412,11 @@ class ProductServiceImplTest {
         verify(productRepository).findAll(ArgumentMatchers.<Specification<Product>>any(), pageable.capture());
         assertThat(pageable.getValue().getPageNumber()).isEqualTo(2);
         assertThat(pageable.getValue().getPageSize()).isEqualTo(10);
-        assertThat(pageable.getValue().getSort()).isEqualTo(Sort.by(Sort.Direction.DESC, "createdAt"));
+        // Ưu tiên hiển thị của gói VIP: món "Nổi bật" lên đầu, rồi mới nhất trước.
+        // .nullsLast() là BẮT BUỘC - Postgres mặc định xếp NULL lên đầu khi sort DESC, thiếu nó thì
+        // mọi món KHÔNG nổi bật sẽ nằm trên. Assert cả thứ tự lẫn nullsLast để không ai bỏ mất.
+        assertThat(pageable.getValue().getSort()).isEqualTo(
+                Sort.by(Sort.Order.desc("featuredUntil").nullsLast(), Sort.Order.desc("createdAt")));
     }
 
     @Test
@@ -1428,6 +1438,7 @@ class ProductServiceImplTest {
         assertEquals(5, res.getTotalElements());
         assertEquals(3, res.getTotalPages());
     }
+
 
     // =====================================================================
     // donate() - POST /products/{id}/donate

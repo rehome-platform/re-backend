@@ -103,8 +103,17 @@ public class ProductServiceImpl implements ProductService {
             throw new BadRequestException("priceMin không được lớn hơn priceMax.");
         }
 
+        // Ưu tiên hiển thị của gói VIP: món còn hiệu lực "Nổi bật" xếp lên đầu, trong mỗi nhóm thì
+        // mới nhất trước.
+        //
+        // ⚠️ BẮT BUỘC .nullsLast(): Postgres mặc định xếp NULL LÊN ĐẦU khi sort DESC, nên thiếu nó
+        // thì toàn bộ sản phẩm KHÔNG nổi bật (featuredUntil = null) sẽ nằm trên - ngược hẳn ý định.
+        //
+        // featured_until trong quá khứ (gói đã hết hạn mà job chưa kịp dọn) vẫn tự xếp xuống dưới
+        // các mốc tương lai, nên không cần job dọn cột này.
         PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1),
-                Sort.by(Sort.Direction.DESC, "createdAt"));
+                Sort.by(Sort.Order.desc("featuredUntil").nullsLast(),
+                        Sort.Order.desc("createdAt")));
 
         Page<Product> result = productRepository.findAll(
                 ProductSpecifications.filter(search, categoryId, brandId, priceMin, priceMax, warehouseId, tryonSlot),
@@ -131,6 +140,7 @@ public class ProductServiceImpl implements ProductService {
                 .originalPrice(product.getConsignmentReceipt().getAgreedPrice())
                 .currentPrice(product.getCurrentPrice())
                 .isMine(isOwnedBy(product, viewerId))
+                .featured(FeaturedListingManager.isFeatured(product))
                 .build());
 
         return PageResponse.from(mapped);
@@ -201,6 +211,7 @@ public class ProductServiceImpl implements ProductService {
                 .warehouseName(product.getWarehouse().getName())
                 .photos(photos)
                 .isMine(isOwnedBy(product, viewerId))
+                .featured(FeaturedListingManager.isFeatured(product))
                 .build();
     }
 
@@ -638,6 +649,10 @@ public class ProductServiceImpl implements ProductService {
                 .endOfTermDeadline(now.plus(Duration.ofDays(
                         (long) receipt.getTermLengthDays() * (receipt.getMaxRenewals() + 1))))
                 .build();
+
+        // §8.10 thời điểm 2: món mới nhập kho của Member đang có gói với featured_listing phải
+        // được gắn nhãn NGAY, không đợi tới lần gia hạn gói. Gọi trước save để chỉ có 1 lệnh INSERT.
+        featuredListingManager.applyForNewProduct(product);
 
         productRepository.save(product);
         savePhotos(product, request.getPhotoUrls());

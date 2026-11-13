@@ -106,7 +106,7 @@ public class ProductServiceImpl implements ProductService {
         }
 
         PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1),
-                Sort.by(Sort.Direction.DESC, "createdAt"));
+                Sort.by(Sort.Order.desc("featuredUntil").nullsLast(), Sort.Order.desc("createdAt")));
 
         Page<Product> result = productRepository.findAll(
                 ProductSpecifications.filter(search, categoryId, brandId, priceMin, priceMax, warehouseId, tryonSlot),

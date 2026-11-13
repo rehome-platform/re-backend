@@ -70,4 +70,13 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             + "where o.buyer.id in :buyerIds and o.status in :statuses group by o.buyer.id")
     List<Object[]> countByBuyerIdsInAndStatusIn(@Param("buyerIds") Collection<UUID> buyerIds,
                                                  @Param("statuses") Collection<OrderStatus> statuses);
+
+    // Các đơn đã dùng một mã voucher. MemberVoucher cố ý không có used_order_id vì một mã áp cho
+    // cả lần thanh toán và trải trên nhiều đơn - quan hệ ngược nằm ở đây (xem MemberVoucher).
+    List<Order> findAllByVoucher_Id(UUID voucherId);
+
+    // Mã đã dùng ở những đơn nào, gom nhiều mã trong 1 query cho ví voucher / màn Admin
+    @Query("select o.voucher.id, o.orderNo from Order o where o.voucher.id in :voucherIds "
+            + "order by o.createdAt asc")
+    List<Object[]> findVoucherIdAndOrderNoByVoucherIds(@Param("voucherIds") Collection<UUID> voucherIds);
 }

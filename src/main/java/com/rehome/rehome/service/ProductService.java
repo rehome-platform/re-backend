@@ -34,6 +34,7 @@ public interface ProductService {
     // POST /products/{id}/donate: quyên góp sản phẩm ký gửi còn đủ điều kiện
     DonateProductResponse donate(Account account, String productId, DonateProductRequest request);
 
+
     ShippingFeePreviewResponse getShippingFeePreview(String productId, String wardName, String provinceName);
 
     // ---- Kho (Moderator)

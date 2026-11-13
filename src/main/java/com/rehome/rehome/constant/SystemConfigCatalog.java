@@ -50,7 +50,12 @@ public final class SystemConfigCatalog {
             dec(COMMISSION_RATE_TERM3, ZERO, ONE),
             dec(DEGRADED_COMPENSATION_RATE, ZERO, ONE),
             dec(FLOOR_PRICE_RATIO, new BigDecimal("0.01"), ONE),
-            dec(WITHDRAWAL_FEE, ZERO, new BigDecimal("10000000")));
+            dec(WITHDRAWAL_FEE, ZERO, new BigDecimal("10000000")),
+            // Gói thành viên VIP và voucher
+            int_(MEMBERSHIP_EXPIRY_REMINDER_DAYS, 1, 30),
+            // Trần 1.00 = voucher giảm tối đa bằng đúng hoa hồng nền tảng thu trên đơn (hòa vốn).
+            // Cho phép tới 2.00 để Admin chủ động chịu lỗ trên đơn khi chạy khuyến mãi mạnh.
+            dec(VOUCHER_MAX_RATIO_OF_COMMISSION, ZERO, new BigDecimal("2.00")));
 
     public static Optional<Spec> find(String key) {
         return Optional.ofNullable(SPECS.get(key));
@@ -87,6 +92,8 @@ public final class SystemConfigCatalog {
         m.put(RETURN_REQUEST_WINDOW_DAYS, String.valueOf(DEFAULT_RETURN_REQUEST_WINDOW_DAYS));
         m.put(RETURN_HANDOVER_CARRIER_DAYS, String.valueOf(DEFAULT_RETURN_HANDOVER_CARRIER_DAYS));
         m.put(COUNTER_PICKUP_DAYS, String.valueOf(DEFAULT_COUNTER_PICKUP_DAYS));
+        m.put(MEMBERSHIP_EXPIRY_REMINDER_DAYS, String.valueOf(DEFAULT_MEMBERSHIP_EXPIRY_REMINDER_DAYS));
+        m.put(VOUCHER_MAX_RATIO_OF_COMMISSION, DEFAULT_VOUCHER_MAX_RATIO_OF_COMMISSION.toPlainString());
         return m;
     }
 

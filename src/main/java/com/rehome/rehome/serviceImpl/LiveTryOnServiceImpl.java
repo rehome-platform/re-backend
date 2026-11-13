@@ -2,6 +2,7 @@ package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.client.DecartVtonClient;
 import com.rehome.rehome.component.LiveTryOnQuotaGuard;
+import com.rehome.rehome.component.MembershipQuotaResolver;
 import com.rehome.rehome.dto.request.CompleteLiveTryOnRequest;
 import com.rehome.rehome.dto.request.StartLiveTryOnRequest;
 import com.rehome.rehome.dto.response.LiveTryOnQuotaResponse;
@@ -35,8 +36,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * F-xxx: thử đồ AI real-time qua camera (Decart Lucy VTON), giới hạn
- * {@code tryon.live.daily-limit} lượt/ngày/account, mỗi lượt tối đa {@code tryon.live.max-session-seconds} giây.
+ * F-xxx: thử đồ AI real-time qua camera (Decart Lucy VTON).
+ *
+ * <p><b>Hạn mức lấy theo GÓI THÀNH VIÊN</b> ({@link MembershipQuotaResolver}): số lượt/ngày và số
+ * giây/lượt đều đọc từ snapshot trên subscription ACTIVE, hoặc từ hạng FREE nếu Member chưa mua gói.
+ * {@code tryon.live.daily-limit} không còn được dùng; {@code tryon.live.max-session-seconds} chỉ
+ * còn là SÀN kỹ thuật (Decart yêu cầu tối thiểu 10 giây), không phải hạn mức nghiệp vụ.
  *
  * <p>Quota bị trừ ngay lúc mint client token ({@link #startSession}), KHÔNG đợi mobile xác nhận đã
  * kết nối camera thành công - đây là checkpoint server-side duy nhất chặn được chi phí thật trước
@@ -74,13 +79,20 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
     @Override
     @Transactional(readOnly = true)
     public LiveTryOnQuotaResponse getQuota(Account account) {
-        int dailyLimit = quotaGuard.getDailyLimit();
-        int usedToday = quotaGuard.countToday(account.getId());
+        LiveTryOnQuotaGuard.Usage usage = quotaGuard.usage(account.getId());
+        MembershipQuotaResolver.EffectiveQuota quota = usage.quota();
         return LiveTryOnQuotaResponse.builder()
-                .dailyLimit(dailyLimit)
-                .usedToday(usedToday)
-                .remaining(Math.max(0, dailyLimit - usedToday))
-                .maxDurationSeconds(maxSessionSeconds)
+                .tier(quota.tier())
+                .tierName(quota.tierName())
+                .limitPerDay(quota.liveTryonPerDay())
+                .usedToday(usage.usedToday())
+                .remainingToday(usage.remainingToday())
+                .limitPerMonth(quota.liveTryonPerMonth())
+                .usedThisMonth(usage.usedThisMonth())
+                .remainingThisMonth(usage.remainingThisMonth())
+                .maxSeconds(quota.liveTryonMaxSeconds())
+                .canStart(usage.canStart())
+                .upsellTier(quotaGuard.upsellTier(quota))
                 .build();
     }
 
@@ -99,18 +111,25 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
         String garmentImageUrl = resolveGarmentImageUrl(product);
         String prompt = buildPrompt(product);
 
+        // Thời lượng mỗi phiên lấy theo GÓI của Member, không còn dùng tryon.live.max-session-seconds.
+        // Decart tự cắt phiên phía server họ sau đúng N giây, nên đây là chốt chặn chi phí thật.
+        // Kẹp sàn theo cấu hình (Decart yêu cầu tối thiểu 10 giây) để Admin cấu hình sai không
+        // sinh ra phiên 1 giây vô dụng hoặc bị Decart từ chối.
+        int sessionSeconds = Math.max(
+                quotaGuard.usage(account.getId()).quota().liveTryonMaxSeconds(), maxSessionSeconds);
+
         // Quota thực sự bị trừ bên trong quotaGuard.reserve() (bean riêng để @Transactional có hiệu lực)
         LiveTryOnSession session = quotaGuard.reserve(account, product, modelId);
 
         DecartVtonClient.TokenResult token;
         try {
-            token = decartVtonClient.mintClientToken(modelId, tokenTtlSeconds, maxSessionSeconds);
+            token = decartVtonClient.mintClientToken(modelId, tokenTtlSeconds, sessionSeconds);
         } catch (RuntimeException e) {
             markFailed(session.getId());
             throw e;
         }
 
-        int dailyLimit = quotaGuard.getDailyLimit();
+        Integer remainingToday = quotaGuard.usage(account.getId()).remainingToday();
         return LiveTryOnSessionResponse.builder()
                 .sessionId(session.getId())
                 .apiKey(token.apiKey())
@@ -118,8 +137,9 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
                 .modelId(modelId)
                 .garmentImageUrl(garmentImageUrl)
                 .prompt(prompt)
-                .maxDurationSeconds(maxSessionSeconds)
-                .remainingToday(Math.max(0, dailyLimit - quotaGuard.countToday(account.getId())))
+                .maxDurationSeconds(sessionSeconds)
+                // null = không giới hạn, mobile hiện "Không giới hạn" thay vì con số
+                .remainingToday(remainingToday)
                 .build();
     }
 

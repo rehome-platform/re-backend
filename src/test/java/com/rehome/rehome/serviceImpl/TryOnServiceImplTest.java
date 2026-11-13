@@ -71,6 +71,9 @@ class TryOnServiceImplTest {
     @Mock private FileStorageService fileStorageService;
     @Mock private ProductRepository productRepository;
     @Mock private TryOnImageGenerator tryOnImageGenerator;
+    // Hạn mức phối đồ AI theo gói (§8.8). Mock mặc định không ném gì = còn lượt, nên các test
+    // nghiệp vụ dưới đây giữ nguyên ý nghĩa; nhánh hết lượt có test riêng ở AiTryOnQuotaGuardTest.
+    @Mock private com.rehome.rehome.component.AiTryOnQuotaGuard aiTryOnQuotaGuard;
 
     @InjectMocks
     private TryOnServiceImpl tryOnService;

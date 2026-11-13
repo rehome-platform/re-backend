@@ -88,6 +88,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
     private final MomoApi momoApi;
     private final VnPayApi vnPayApi;
     private final QueueService queueService;
+    private final com.rehome.rehome.service.NotificationService notificationService;
     private final SystemConfigReader systemConfigReader;
 
     @Value("${app.item-withdrawal.fee-payment-deadline-minutes}")
@@ -206,6 +207,11 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 : null);
 
         itemWithdrawalRequestRepository.save(withdrawal);
+        notificationService.notify(withdrawal.getMember(),
+                com.rehome.rehome.entity.enums.NotificationType.WITHDRAWAL_APPROVED,
+                "Yêu cầu rút hàng đã được duyệt", "Bạn có thể xem thời hạn nhận hàng và thông tin thanh toán trong yêu cầu.",
+                com.rehome.rehome.entity.enums.NotificationTargetType.WITHDRAWAL, id,
+                withdrawal.getProduct().getWarehouse().getId());
         return toResponse(withdrawal);
     }
 
@@ -243,6 +249,11 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
             productRepository.save(product);
         }
 
+        notificationService.notify(withdrawal.getMember(),
+                com.rehome.rehome.entity.enums.NotificationType.WITHDRAWAL_REJECTED,
+                "Yêu cầu rút hàng bị từ chối", withdrawal.getRejectReason(),
+                com.rehome.rehome.entity.enums.NotificationTargetType.WITHDRAWAL, id,
+                withdrawal.getProduct().getWarehouse().getId());
         return toResponse(withdrawal);
     }
 

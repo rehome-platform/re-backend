@@ -84,6 +84,8 @@ class ItemWithdrawalRequestServiceImplTest {
     @Mock QueueService queueService;
     @Mock SystemConfigReader systemConfigReader;
 
+    @Mock private com.rehome.rehome.service.NotificationService notificationService;
+
     @InjectMocks
     ItemWithdrawalRequestServiceImpl service;
 
@@ -900,8 +902,6 @@ class ItemWithdrawalRequestServiceImplTest {
         verify(platformFundRepository, never()).save(any());
     }
 
-
-
     @Test
     @DisplayName("applyMomoFeePaymentResult: resultCode khác 0 -> không chốt, vẫn trả true")
     void applyMomoFeePaymentResult_failure_doesNotMarkPaid() {
@@ -995,8 +995,6 @@ class ItemWithdrawalRequestServiceImplTest {
         verify(walletTransactionRepository, never()).save(any());
         verify(platformFundRepository, never()).save(any());
     }
-
-
 
     @Test
     @DisplayName("applyVnPayFeePaymentResult: responseCode khác 00 -> không chốt, vẫn trả true")

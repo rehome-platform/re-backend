@@ -14,5 +14,6 @@ public enum NotificationTargetType {
 
     // Nhắc Member chốt phương án đền bù hàng xuống cấp trước khi hết hạn (F-036) -> mở màn ca đó
     DEGRADED_ITEM_CASE,
+    WITHDRAWAL,
     PRODUCT
 }

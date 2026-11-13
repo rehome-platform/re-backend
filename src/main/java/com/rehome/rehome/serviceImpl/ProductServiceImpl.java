@@ -3,7 +3,6 @@ package com.rehome.rehome.serviceImpl;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.component.AuditLogger;
-import com.rehome.rehome.component.FeaturedListingManager;
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.CreateProductRequest;
 import com.rehome.rehome.dto.request.DonateProductRequest;
@@ -86,7 +85,6 @@ public class ProductServiceImpl implements ProductService {
     private final ItemWithdrawalRequestService itemWithdrawalRequestService;
     private final QueueService queueService;
     private final NotificationService notificationService;
-    private final FeaturedListingManager featuredListingManager;
     private final AuditLogger auditLogger;
 
     private static final int DEFAULT_SIZE = 20;
@@ -105,17 +103,8 @@ public class ProductServiceImpl implements ProductService {
             throw new BadRequestException("priceMin không được lớn hơn priceMax.");
         }
 
-        // Ưu tiên hiển thị của gói VIP: món còn hiệu lực "Nổi bật" xếp lên đầu, trong mỗi nhóm thì
-        // mới nhất trước.
-        //
-        // ⚠️ BẮT BUỘC .nullsLast(): Postgres mặc định xếp NULL LÊN ĐẦU khi sort DESC, nên thiếu nó
-        // thì toàn bộ sản phẩm KHÔNG nổi bật (featuredUntil = null) sẽ nằm trên - ngược hẳn ý định.
-        //
-        // featured_until trong quá khứ (gói đã hết hạn mà job chưa kịp dọn) vẫn tự xếp xuống dưới
-        // các mốc tương lai, nên không cần job dọn cột này.
         PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1),
-                Sort.by(Sort.Order.desc("featuredUntil").nullsLast(),
-                        Sort.Order.desc("createdAt")));
+                Sort.by(Sort.Direction.DESC, "createdAt"));
 
         Page<Product> result = productRepository.findAll(
                 ProductSpecifications.filter(search, categoryId, brandId, priceMin, priceMax, warehouseId, tryonSlot),
@@ -142,10 +131,47 @@ public class ProductServiceImpl implements ProductService {
                 .originalPrice(product.getConsignmentReceipt().getAgreedPrice())
                 .currentPrice(product.getCurrentPrice())
                 .isMine(isOwnedBy(product, viewerId))
-                .featured(FeaturedListingManager.isFeatured(product))
                 .build());
 
         return PageResponse.from(mapped);
+    }
+
+    @Override
+    @Transactional
+    public ProductDetailResponse updateProduct(Account moderator, String id,
+                                               com.rehome.rehome.dto.request.UpdateProductRequest request) {
+        Product product = productRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+        if (moderator.getRole() != Role.MODERATOR || moderator.getWarehouse() == null
+                || product.getWarehouse() == null
+                || !moderator.getWarehouse().getId().equals(product.getWarehouse().getId())) {
+            throw new AppException(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);
+        }
+        if ((product.getStatus() != ProductStatus.ON_SALE && product.getStatus() != ProductStatus.WAREHOUSE)
+                || !orderItemRepository.findActiveByProductIds(List.of(id)).isEmpty()) {
+            throw new AppException(ErrorCode.PRODUCT_UPDATE_CONFLICT);
+        }
+
+        product.setName(request.name().strip());
+        productRepository.save(product);
+        List<ProductPhoto> existing = productPhotoRepository.findByProduct_IdOrderByDisplayOrderAscIdAsc(id);
+        Map<String, java.util.ArrayDeque<ProductPhoto>> byUrl = new java.util.HashMap<>();
+        for (ProductPhoto photo : existing) {
+            byUrl.computeIfAbsent(photo.getImageUrl(), key -> new java.util.ArrayDeque<>()).add(photo);
+        }
+        List<ProductPhoto> photos = new ArrayList<>();
+        for (String value : request.photoUrls()) {
+            String url = value.strip();
+            var matches = byUrl.get(url);
+            ProductPhoto photo = matches == null || matches.isEmpty()
+                    ? ProductPhoto.builder().product(product).imageUrl(url).build()
+                    : matches.removeFirst();
+            photo.setDisplayOrder(photos.size());
+            photos.add(photo);
+        }
+        productPhotoRepository.deleteAll(byUrl.values().stream().flatMap(java.util.Collection::stream).toList());
+        productPhotoRepository.saveAll(photos);
+        return getProductDetail(id, moderator.getId());
     }
 
     @Override
@@ -175,7 +201,6 @@ public class ProductServiceImpl implements ProductService {
                 .warehouseName(product.getWarehouse().getName())
                 .photos(photos)
                 .isMine(isOwnedBy(product, viewerId))
-                .featured(FeaturedListingManager.isFeatured(product))
                 .build();
     }
 
@@ -402,11 +427,6 @@ public class ProductServiceImpl implements ProductService {
         return new PriceReductionResponse(product.getCurrentPrice());
     }
 
-    // POST /products/{id}/donate: Member quyên góp sản phẩm ký gửi thay vì tiếp tục bán/rút về.
-    // Cho phép ở cả 3 trạng thái ON_SALE (đang bán), WAREHOUSE (hết kỳ, chờ chọn TAKE_BACK/RE_CONSIGN)
-    // và WITHDRAWN (đang có yêu cầu rút hàng) - mỗi trạng thái có một việc phải đóng nốt trước khi
-    // chuyển sang DONATED, xem các nhánh dưới đây.
-
     @Override
     @Transactional
     public DonateProductResponse donate(Account account, String productId, DonateProductRequest request) {
@@ -618,10 +638,6 @@ public class ProductServiceImpl implements ProductService {
                 .endOfTermDeadline(now.plus(Duration.ofDays(
                         (long) receipt.getTermLengthDays() * (receipt.getMaxRenewals() + 1))))
                 .build();
-
-        // §8.10 thời điểm 2: món mới nhập kho của Member đang có gói với featured_listing phải
-        // được gắn nhãn NGAY, không đợi tới lần gia hạn gói. Gọi trước save để chỉ có 1 lệnh INSERT.
-        featuredListingManager.applyForNewProduct(product);
 
         productRepository.save(product);
         savePhotos(product, request.getPhotoUrls());

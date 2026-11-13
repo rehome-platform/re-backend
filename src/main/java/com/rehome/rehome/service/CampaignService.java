@@ -32,7 +32,7 @@ public interface CampaignService {
     // Duyệt công khai xuyên tổ chức; status == null thì mặc định chỉ chiến dịch đang mở (ACTIVE).
     // search == null/rỗng thì không lọc theo từ khóa; có search thì tìm theo title hoặc tên tổ chức.
     // warehouseId == null thì không lọc theo điểm nhận đồ; có giá trị thì chỉ trả chiến dịch đang
-    // nhận đồ tại đúng kho đó - cũng dùng cho GET /warehouses/{id}/campaigns.
+    // nhận đồ tại đúng kho đó.
     PageResponse<CampaignPublicResponse> listPublicCampaigns(String search, String status, UUID warehouseId,
                                                              int page, int size);
 

@@ -140,7 +140,16 @@ public class AdminReportQueryRepository {
     // Dòng ghi nhận doanh thu nền tảng: chỉ đánh dấu phần tiền đã nằm sẵn trong quỹ là doanh thu, không đổi số dư
     // quỹ và không có dòng Member đối ứng, nên phải loại khỏi tổng đối soát
     private static final List<WalletTransactionType> REVENUE_RECOGNITION_TYPES = List.of(
-            WalletTransactionType.COMMISSION_REVENUE, WalletTransactionType.WITHDRAWAL_FEE_REVENUE);
+            WalletTransactionType.COMMISSION_REVENUE,
+            WalletTransactionType.WITHDRAWAL_FEE_REVENUE,
+            // Doanh thu bán gói khi tiền đến từ MoMo/VNPay: 1 dòng PLATFORM dương, không có dòng
+            // Member đối ứng và không đổi số dư quỹ (xem MembershipServiceImpl.recordMembershipRevenue).
+            // Mua gói bằng VÍ thì KHÔNG đi qua loại này - dòng đối ứng bên quỹ mang type
+            // MEMBERSHIP_PURCHASE nên vẫn được tính vào đối soát, đúng vì tiền thật có chuyển trong hệ thống.
+            WalletTransactionType.MEMBERSHIP_REVENUE,
+            // Chi phí khuyến mãi voucher: dòng PLATFORM âm, chỉ để thống kê, phần giảm chưa bao giờ
+            // vào quỹ (xem OrderServiceImpl.recordPlatformPromotionCost).
+            WalletTransactionType.VOUCHER_DISCOUNT);
 
     // Tổng các bút toán thành công của một loại ví; tiền vào dương, tiền ra âm.
     // Không tính các dòng ghi nhận doanh thu (xem REVENUE_RECOGNITION_TYPES)

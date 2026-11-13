@@ -11,6 +11,7 @@ import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.service.QueueService;
+import com.rehome.rehome.component.MembershipQuotaResolver;
 import com.rehome.rehome.service.SystemConfigReader;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.ConsignmentFormPhoto;
@@ -51,6 +52,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     private final ConsignmentFormMapper consignmentFormMapper;
     private final ConsignmentReceiptRepository consignmentReceiptRepository;
     private final SystemConfigReader systemConfigReader;
+    private final MembershipQuotaResolver membershipQuotaResolver;
     private final AccountRepository accountRepository;
     private final QueueService queueService;
 
@@ -73,7 +75,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
         // Khoá dòng Member rồi đếm, để hai request song song không cùng lọt qua giới hạn
         lockMember(account);
-        if (pendingCount(account) >= maxPendingForms()) {
+        if (pendingCount(account) >= maxPendingForms(account)) {
             throw new AppException(ErrorCode.TOO_MANY_PENDING_FORMS);                             // 409
         }
 
@@ -131,7 +133,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
                 .totalElements(p.getTotalElements())
                 .totalPages(p.getTotalPages())
                 .pendingCount(pendingCount(account))
-                .maxPending(maxPendingForms())
+                .maxPending(maxPendingForms(account))
                 .build();
     }
 
@@ -274,7 +276,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
         lockMember(account);
         long pending = pendingCount(account);
-        int max = maxPendingForms();
+        int max = maxPendingForms(account);
 
         List<SubmitConsignmentFormsResponse.Result> results = new ArrayList<>();
         int success = 0;
@@ -451,10 +453,22 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
                 .orElseThrow(() -> new AppException(ErrorCode.ACCOUNT_NOT_FOUND));
     }
 
-    // Số form PENDING tối đa mỗi Member, Admin chỉnh được trong system_configs
-    private int maxPendingForms() {
-        return systemConfigReader.getInt(SystemConfigKeys.MAX_PENDING_FORMS_PER_MEMBER,
-                SystemConfigKeys.DEFAULT_MAX_PENDING_FORMS_PER_MEMBER);
+    /**
+     * Số form PENDING tối đa của một Member - <b>đọc theo GÓI THÀNH VIÊN</b>
+     * ({@code membership_plans.max_pending_consignment_forms}, Admin sửa ở màn W-01):
+     * FREE 5 -> SILVER 10 -> GOLD 15 -> DIAMOND 30.
+     *
+     * <p>Trước đây đọc {@code system_configs.max_pending_forms_per_member} và áp chung cho mọi
+     * Member. Key đó <b>giữ lại làm giá trị dự phòng duy nhất</b> cho trường hợp không resolve được
+     * gói (bảng {@code membership_plans} chưa seed) - xem {@code MembershipQuotaResolver.FALLBACK}
+     * và ghi chú ở {@code SystemConfigKeys.MAX_PENDING_FORMS_PER_MEMBER}. Nguồn thắng là GÓI;
+     * sửa key kia sẽ không đổi hạn mức của Member nào resolve được gói.
+     *
+     * <p>Có 3 nơi gọi và cả 3 đều phải đi qua đây: lúc tạo form, lúc dựng {@code maxPending} cho
+     * API danh sách (mobile hiển thị "3/5 form"), và lúc gửi hàng loạt form nháp.
+     */
+    private int maxPendingForms(Account account) {
+        return membershipQuotaResolver.resolve(account.getId()).maxPendingConsignmentForms();
     }
 
     // Số ngày Member phải mang đồ đến kho sau khi form được duyệt, Admin chỉnh được trong system_configs

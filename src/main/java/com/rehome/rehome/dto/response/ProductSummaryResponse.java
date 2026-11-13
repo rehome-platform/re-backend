@@ -25,4 +25,9 @@ public class ProductSummaryResponse {
     // Kiểu Boolean (không phải boolean) để Lombok sinh getIsMine() -> JSON "isMine";
     // boolean nguyên thủy sẽ sinh isMine() và Jackson đặt tên field thành "mine".
     private Boolean isMine;
+
+    // true = chủ món đang có gói VIP bật "ưu tiên hiển thị" -> FE hiện badge "Nổi bật" ở góc ảnh.
+    // Badge dùng màu trung tính (cam/vàng nhạt) và KHÔNG được ghi chữ gợi ý chất lượng kiểu
+    // "Chính hãng"/"Uy tín": mọi món trên sàn đều đã qua kiểm định như nhau.
+    private boolean featured;
 }

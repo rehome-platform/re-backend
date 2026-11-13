@@ -35,5 +35,12 @@ public enum NotificationType {
 
     // Báo cáo được resolve hoặc dismiss -> báo cho MỌI Member đã báo cáo cùng target, nội dung
     // chung, không deep-link (targetType/targetId null).
-    VIOLATION_REPORT_HANDLED
+    VIOLATION_REPORT_HANDLED,
+
+    // Gói thành viên VIP: mua thành công / sắp hết hạn / đã hết hạn / Admin tặng hoặc hủy.
+    // Không deep-link theo targetType (app mở màn "Gói của tôi").
+    MEMBERSHIP_EVENT,
+
+    // Đã nhận voucher mới của tháng (job phát voucher). App mở màn "Voucher của tôi".
+    VOUCHER_ISSUED
 }

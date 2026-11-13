@@ -2,6 +2,8 @@ package com.rehome.rehome.client;
 
 import com.rehome.rehome.dto.request.GhnCalculateFeeRequest;
 import com.rehome.rehome.dto.request.GhnCreateOrderRequest;
+import com.rehome.rehome.dto.request.GhnGenTokenRequest;
+import com.rehome.rehome.dto.response.GhnGenTokenResponse;
 import com.rehome.rehome.dto.response.GhnCalculateFeeResponse;
 import com.rehome.rehome.dto.response.GhnCreateOrderResponse;
 import com.rehome.rehome.dto.response.GhnMasterDataResponse;
@@ -22,6 +24,13 @@ public interface GhnApi {
             @RequestHeader("Token") String token,
             @RequestHeader("ShopId") String shopId,
             @RequestBody GhnCreateOrderRequest request);
+
+    // In phiếu vận đơn: lấy token in, gắn vào URL /a5/public-api/print* - xem docs/ghnapi.md "In đơn"
+    @PostMapping("/v2/a5/gen-token")
+    GhnGenTokenResponse genPrintToken(
+            @RequestHeader("Token") String token,
+            @RequestHeader("ShopId") String shopId,
+            @RequestBody GhnGenTokenRequest request);
 
     // F-054: tính phí ship thật theo tuyến kho -> địa chỉ nhận, dùng cho GET /cart/checkout-preview
     @PostMapping("/v2/shipping-order/fee")

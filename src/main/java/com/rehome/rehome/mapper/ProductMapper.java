@@ -1,5 +1,6 @@
 package com.rehome.rehome.mapper;
 
+import com.rehome.rehome.component.FeaturedListingManager;
 import com.rehome.rehome.dto.response.MyProductResponse;
 import com.rehome.rehome.entity.enums.DegradedItemCaseStatus;
 import com.rehome.rehome.entity.enums.EndOfTermChoice;
@@ -95,7 +96,11 @@ public class ProductMapper {
                         dc.getChoice() == null ? null : dc.getChoice().name()))
                 .receiptId(currentReceiptId(r, d))
                 .freeWithdrawalWindowDays(r.getFreeWithdrawalWindowDays())
-                .withdrawalFee(r.getWithdrawalFee());
+                .withdrawalFee(r.getWithdrawalFee())
+                // Quyền lợi "ưu tiên hiển thị" của gói VIP - hệ thống tự bật/tắt, không có nút cho
+                // Member. Trả cả mốc hết hạn để M-09 hiện banner "...đến {ngày hết hạn}".
+                .featured(FeaturedListingManager.isFeatured(p))
+                .featuredUntil(p.getFeaturedUntil());
     }
 
     // Biên nhận đang áp dụng = biên nhận mới nhất đã xác nhận. Món đã ký gửi lại (RE_CONSIGN)

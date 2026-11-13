@@ -27,6 +27,12 @@ public class OrderDetailResponse {
 
     private BigDecimal subtotal;
     private BigDecimal shippingFee;
+    // M-08 hiện dòng "Giảm giá (SHIP-7K2M9A)  − 15.000đ" khi discountAmount > 0
+    private BigDecimal discountAmount;
+    private String voucherCode;
+    private String voucherName;
+    // = subtotal + shippingFee − discountAmount. Màn hủy đơn phải hiện ĐÚNG số này là
+    // "số tiền hoàn", không phải giá gốc.
     private BigDecimal totalAmount;
 
     // Kho xử lý đơn — dùng để mở hội thoại "Nhắn cho kho"

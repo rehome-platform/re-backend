@@ -21,6 +21,9 @@ public interface ProductService {
                                                      UUID warehouseId, TryOnSlot tryonSlot,
                                                      int page, int size, UUID viewerId);
 
+    ProductDetailResponse updateProduct(Account moderator, String id,
+            com.rehome.rehome.dto.request.UpdateProductRequest request);
+
     ProductDetailResponse getProductDetail(String id, UUID viewerId);
 
     // ---- Hàng ký gửi của tôi (Member)
@@ -33,7 +36,6 @@ public interface ProductService {
 
     // POST /products/{id}/donate: quyên góp sản phẩm ký gửi còn đủ điều kiện
     DonateProductResponse donate(Account account, String productId, DonateProductRequest request);
-
 
     ShippingFeePreviewResponse getShippingFeePreview(String productId, String wardName, String provinceName);
 

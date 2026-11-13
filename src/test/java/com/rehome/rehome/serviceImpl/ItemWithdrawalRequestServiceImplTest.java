@@ -84,6 +84,8 @@ class ItemWithdrawalRequestServiceImplTest {
     @Mock QueueService queueService;
     @Mock SystemConfigReader systemConfigReader;
 
+    @Mock private com.rehome.rehome.service.NotificationService notificationService;
+
     @InjectMocks
     ItemWithdrawalRequestServiceImpl service;
 

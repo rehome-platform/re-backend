@@ -137,6 +137,44 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Transactional
+    public ProductDetailResponse updateProduct(Account moderator, String id,
+                                               com.rehome.rehome.dto.request.UpdateProductRequest request) {
+        Product product = productRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+        if (moderator.getRole() != Role.MODERATOR || moderator.getWarehouse() == null
+                || product.getWarehouse() == null
+                || !moderator.getWarehouse().getId().equals(product.getWarehouse().getId())) {
+            throw new AppException(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);
+        }
+        if ((product.getStatus() != ProductStatus.ON_SALE && product.getStatus() != ProductStatus.WAREHOUSE)
+                || !orderItemRepository.findActiveByProductIds(List.of(id)).isEmpty()) {
+            throw new AppException(ErrorCode.PRODUCT_UPDATE_CONFLICT);
+        }
+
+        product.setName(request.name().strip());
+        productRepository.save(product);
+        List<ProductPhoto> existing = productPhotoRepository.findByProduct_IdOrderByDisplayOrderAscIdAsc(id);
+        Map<String, java.util.ArrayDeque<ProductPhoto>> byUrl = new java.util.HashMap<>();
+        for (ProductPhoto photo : existing) {
+            byUrl.computeIfAbsent(photo.getImageUrl(), key -> new java.util.ArrayDeque<>()).add(photo);
+        }
+        List<ProductPhoto> photos = new ArrayList<>();
+        for (String value : request.photoUrls()) {
+            String url = value.strip();
+            var matches = byUrl.get(url);
+            ProductPhoto photo = matches == null || matches.isEmpty()
+                    ? ProductPhoto.builder().product(product).imageUrl(url).build()
+                    : matches.removeFirst();
+            photo.setDisplayOrder(photos.size());
+            photos.add(photo);
+        }
+        productPhotoRepository.deleteAll(byUrl.values().stream().flatMap(java.util.Collection::stream).toList());
+        productPhotoRepository.saveAll(photos);
+        return getProductDetail(id, moderator.getId());
+    }
+
+    @Override
     public ProductDetailResponse getProductDetail(String id, UUID viewerId) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));

@@ -119,6 +119,14 @@ public class ProductController {
         return ResponseEntity.ok(ApiResponse.success(result, 200, "Đã giảm giá sản phẩm"));
     }
 
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<ProductDetailResponse>> updateProduct(
+            @AuthenticationPrincipal Account moderator, @PathVariable String id,
+            @Valid @RequestBody com.rehome.rehome.dto.request.UpdateProductRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(productService.updateProduct(moderator, id, request), "OK"));
+    }
+
     @PostMapping("/{id}/donate")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<DonateProductResponse>> donate(

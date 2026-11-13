@@ -1,5 +1,6 @@
 package com.rehome.rehome.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -29,17 +30,25 @@ public class DonationResponse {
     private String note;
     private String status;
 
+    // DIRECT | CONSIGNED_ITEM (xem DonationSource)
+    private String source;
+
     // Mã nhân viên Moderator đã ghi nhận lượt quyên góp này (ModeratorProfile.moderatorCode)
     private String recordedBy;
 
-    // Tổ chức đã đến nhận; null khi còn chờ lấy (xem Donation.handedOverToOrganization)
+    // Tổ chức sở hữu chiến dịch
     private String organizationId;
     private String organizationName;
+    private String handedOverToOrganizationName;
 
     // Sản phẩm ký gửi gốc nếu lượt quyên góp này đến từ POST /products/{id}/donate; null với
     // lượt ghi nhận trực tiếp tại quầy (F-163)
     private String productId;
     private String productName;
+
+    // Chỉ trả khi source = CONSIGNED_ITEM; null với lượt DIRECT
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private DonationProductResponse product;
 
     private Instant handedOverAt;
     private Instant createdAt;

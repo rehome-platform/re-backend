@@ -108,6 +108,11 @@ public class ItemWithdrawalRequest {
     @Column(name = "completed_at", nullable = true)
     private Instant completedAt;
 
+    @Version
+    @Column(nullable = false)
+    @ColumnDefault("0")
+    private long version;
+
     @PrePersist
     private void onCreate() {
         Instant now = Instant.now();

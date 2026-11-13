@@ -71,7 +71,14 @@ public final class SystemConfigKeys {
     public static final String BRING_IN_DEADLINE_DAYS = "bring_in_deadline_days";
     public static final int DEFAULT_BRING_IN_DEADLINE_DAYS = 7;
 
-    // Số form ký gửi đang chờ duyệt tối đa của mỗi Member
+    // Số form ký gửi đang chờ duyệt tối đa của mỗi Member.
+    //
+    // ⚠️ KHÔNG còn là nguồn chính: hạn mức này giờ đọc theo GÓI THÀNH VIÊN
+    // (membership_plans.max_pending_consignment_forms, Admin sửa ở màn W-01) qua
+    // MembershipQuotaResolver — xem ConsignmentFormServiceImpl.maxPendingForms(Account).
+    // Key này GIỮ LẠI làm giá trị dự phòng duy nhất cho trường hợp không resolve được gói
+    // (membership_plans chưa seed). Nó cố ý vẫn nằm trong SystemConfigCatalog để Admin thấy, nhưng
+    // sửa nó sẽ KHÔNG đổi hạn mức của Member nào đang resolve được gói.
     public static final String MAX_PENDING_FORMS_PER_MEMBER = "max_pending_forms_per_member";
     public static final int DEFAULT_MAX_PENDING_FORMS_PER_MEMBER = 5;
 
@@ -100,4 +107,17 @@ public final class SystemConfigKeys {
     // Số ngày đến kho nhận hàng rút/trả, quá hạn thì hủy
     public static final String COUNTER_PICKUP_DAYS = "counter_pickup_days";
     public static final int DEFAULT_COUNTER_PICKUP_DAYS = 7;
+
+    // ---- Gói thành viên VIP và voucher ----
+    // Giá gói và hạn mức KHÔNG ở đây mà ở bảng membership_plans: mỗi hạng có một bộ giá trị riêng
+    // nên đó là dữ liệu, không phải tham số toàn cục.
+
+    // Số ngày trước khi gói hết hạn thì gửi thông báo nhắc gia hạn (MembershipExpiryReminderJob)
+    public static final String MEMBERSHIP_EXPIRY_REMINDER_DAYS = "membership_expiry_reminder_days";
+    public static final int DEFAULT_MEMBERSHIP_EXPIRY_REMINDER_DAYS = 3;
+
+    // Trần an toàn: voucher ORDER_DISCOUNT không được giảm quá tỷ lệ này của hoa hồng nền tảng thu
+    // được trên đơn. 1.00 = giảm tối đa bằng đúng hoa hồng (nền tảng hòa vốn trên đơn đó).
+    public static final String VOUCHER_MAX_RATIO_OF_COMMISSION = "voucher_max_ratio_of_commission";
+    public static final BigDecimal DEFAULT_VOUCHER_MAX_RATIO_OF_COMMISSION = new BigDecimal("1.00");
 }

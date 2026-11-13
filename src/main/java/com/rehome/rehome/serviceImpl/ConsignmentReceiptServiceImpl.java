@@ -1,5 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.component.FeaturedListingManager;
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.CompleteInspectionRequest;
 import com.rehome.rehome.dto.response.CompleteInspectionResponse;
@@ -53,6 +54,7 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
     private final AccountRepository accountRepository;
     private final ProductRepository productRepository;
     private final EndOfTermDecisionRepository endOfTermDecisionRepository;
+    private final FeaturedListingManager featuredListingManager;
 
     private final SystemConfigReader systemConfigReader;
 
@@ -123,6 +125,9 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
     }
 
     private void activateReConsignedProduct(Product product, ConsignmentReceipt newReceipt, Instant now) {
+        if (product.getStatus() == ProductStatus.DONATED) {
+            throw new AppException(ErrorCode.PRODUCT_NOT_DONATABLE);
+        }
         product.setConsignmentReceipt(newReceipt);
         product.setCurrentPrice(newReceipt.getAgreedPrice());
         product.setCurrentTerm((short) 1);
@@ -130,6 +135,10 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         product.setEndOfTermDeadline(now.plus(Duration.ofDays(
                 (long) newReceipt.getTermLengthDays() * (newReceipt.getMaxRenewals() + 1))));
         product.setStatus(ProductStatus.ON_SALE);
+        // §8.10 thời điểm 2: ký gửi lại tạo một vòng đời mới cho món, nên phải set lại nhãn
+        // "Nổi bật" theo gói VIP đang có hiệu lực của chủ món - món quay lên sàn mà thiếu nhãn thì
+        // Member thấy mất quyền lợi dù gói còn hạn.
+        featuredListingManager.applyForNewProduct(product);
         productRepository.save(product);
     }
 

@@ -160,7 +160,7 @@ class ItemWithdrawalRequestServiceImplTest {
                 .status(ItemWithdrawalStatus.PENDING_PICKUP)
                 .pickupDeadline(Instant.now().plus(PICKUP_DEADLINE_DAYS, ChronoUnit.DAYS))
                 .build();
-        when(itemWithdrawalRequestRepository.findById(withdrawalId)).thenReturn(Optional.of(r));
+        when(itemWithdrawalRequestRepository.findByIdForUpdate(withdrawalId)).thenReturn(Optional.of(r));
         return r;
     }
 
@@ -570,7 +570,7 @@ class ItemWithdrawalRequestServiceImplTest {
     @Test
     @DisplayName("payFee: không tìm thấy yêu cầu -> ITEM_WITHDRAWAL_NOT_FOUND")
     void payFee_notFound_throws() {
-        when(itemWithdrawalRequestRepository.findById(withdrawalId)).thenReturn(Optional.empty());
+        when(itemWithdrawalRequestRepository.findByIdForUpdate(withdrawalId)).thenReturn(Optional.empty());
 
         AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
                 () -> service.payFee(owner, withdrawalId, payRequest("WALLET"), "127.0.0.1"));
@@ -799,6 +799,37 @@ class ItemWithdrawalRequestServiceImplTest {
         verify(itemWithdrawalRequestRepository).save(r);
     }
 
+    @Test
+    void refundDonationFee_creditsWalletOnceAndRecordsCounterpart() {
+        ItemWithdrawalRequest request = ItemWithdrawalRequest.builder()
+                .id(withdrawalId)
+                .member(owner)
+                .status(ItemWithdrawalStatus.CONVERTED_TO_DONATION)
+                .feeCharged(new BigDecimal("50000"))
+                .feePaidAt(Instant.now())
+                .build();
+        Wallet wallet = Wallet.builder().id(UUID.randomUUID()).member(owner).build();
+        PlatformFund fund = PlatformFund.builder().id(UUID.randomUUID()).balance(new BigDecimal("50000")).build();
+        when(walletRepository.findByMemberIdForUpdate(owner.getId())).thenReturn(Optional.of(wallet));
+        when(platformFundRepository.findTopByOrderByIdAsc()).thenReturn(Optional.of(fund));
+        when(walletTransactionRepository.existsByTransactionNo("WT-REFUND-IWR-" + withdrawalId))
+                .thenReturn(false, true);
+        when(walletTransactionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.refundDonationFee(request);
+        service.refundDonationFee(request);
+
+        assertThat(wallet.getBalance()).isEqualByComparingTo("50000");
+        assertThat(fund.getBalance()).isEqualByComparingTo("0");
+        ArgumentCaptor<WalletTransaction> transactions = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository, times(3)).save(transactions.capture());
+        WalletTransaction memberRefund = transactions.getAllValues().get(0);
+        assertThat(memberRefund.getType()).isEqualTo(WalletTransactionType.REFUND);
+        assertThat(memberRefund.getRelatedItemWithdrawalRequest()).isSameAs(request);
+        assertThat(transactions.getAllValues().get(1).getCounterpartTransaction()).isSameAs(memberRefund);
+        assertThat(transactions.getAllValues().get(2).getAmount()).isEqualByComparingTo("-50000");
+    }
+
     // ==================== applyMomoFeePaymentResult / applyVnPayFeePaymentResult (IPN) ====================
 
     @Test
@@ -822,7 +853,7 @@ class ItemWithdrawalRequestServiceImplTest {
         assertThat(handled).isTrue();
         assertThat(r.getFeePaymentMethod()).isEqualTo(WithdrawalFeePaymentMethod.MOMO);
         assertThat(r.getFeePaidAt()).isNotNull();
-        verify(itemWithdrawalRequestRepository).save(r);
+        verify(itemWithdrawalRequestRepository).saveAndFlush(r);
     }
 
     @Test
@@ -868,6 +899,8 @@ class ItemWithdrawalRequestServiceImplTest {
         verify(walletTransactionRepository, never()).save(any());
         verify(platformFundRepository, never()).save(any());
     }
+
+
 
     @Test
     @DisplayName("applyMomoFeePaymentResult: resultCode khác 0 -> không chốt, vẫn trả true")
@@ -918,7 +951,7 @@ class ItemWithdrawalRequestServiceImplTest {
         assertThat(handled).isTrue();
         assertThat(r.getFeePaymentMethod()).isEqualTo(WithdrawalFeePaymentMethod.VNPAY);
         assertThat(r.getFeePaidAt()).isNotNull();
-        verify(itemWithdrawalRequestRepository).save(r);
+        verify(itemWithdrawalRequestRepository).saveAndFlush(r);
     }
 
     @Test
@@ -962,6 +995,8 @@ class ItemWithdrawalRequestServiceImplTest {
         verify(walletTransactionRepository, never()).save(any());
         verify(platformFundRepository, never()).save(any());
     }
+
+
 
     @Test
     @DisplayName("applyVnPayFeePaymentResult: responseCode khác 00 -> không chốt, vẫn trả true")

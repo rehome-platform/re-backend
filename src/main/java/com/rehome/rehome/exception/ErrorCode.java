@@ -60,7 +60,7 @@ public enum ErrorCode {
     NOT_MEMBER_CREATE_FORM(HttpStatus.FORBIDDEN, "Chỉ tài khoản member mới được tạo form ký gửi."),
     // API 23 - giảm giá sản phẩm (F-025, F-026)
     INVALID_NEW_PRICE(HttpStatus.BAD_REQUEST, "Giá mới phải thấp hơn giá hiện tại."),
-    PRODUCT_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền giảm giá sản phẩm này."),
+    PRODUCT_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác với sản phẩm này."),
     PRODUCT_NOT_ON_SALE(HttpStatus.CONFLICT, "Chỉ giảm giá được sản phẩm đang bán."),
     BELOW_FLOOR_PRICE(HttpStatus.CONFLICT, "BELOW_FLOOR_PRICE: giá mới không được thấp hơn giá sàn."),
     PRICE_CHANGE_LIMIT_REACHED(HttpStatus.CONFLICT, "PRICE_CHANGE_LIMIT_REACHED: sản phẩm đã đạt số lần giảm giá tối đa trong ngày."),
@@ -213,10 +213,12 @@ public enum ErrorCode {
             "Yêu cầu rút hàng không còn ở trạng thái chờ duyệt."),
 
     // POST /products/{id}/donate: Member quyên góp sản phẩm ký gửi
+    CAMPAIGN_NOT_ACCEPTING(HttpStatus.CONFLICT, "Chiến dịch hiện không nhận quyên góp."),
+    CAMPAIGN_HIDDEN(HttpStatus.CONFLICT, "Chiến dịch đang bị ẩn."),
+    CAMPAIGN_NOT_AT_WAREHOUSE(HttpStatus.CONFLICT, "Chiến dịch không nhận đồ tại kho đang giữ sản phẩm."),
     PRODUCT_NOT_DONATABLE(HttpStatus.CONFLICT,
             "Sản phẩm không ở trạng thái có thể quyên góp."),
-    PRODUCT_DONATE_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền quyên góp sản phẩm này."),
-    DONATE_WITHDRAWAL_PENDING_APPROVAL(HttpStatus.CONFLICT,
+    WITHDRAWAL_PENDING_APPROVAL(HttpStatus.CONFLICT,
             "Yêu cầu rút hàng đang chờ Moderator duyệt, chưa thể quyên góp sản phẩm này."),
 
     // API 95 - F-036: Member quyết định cách xử lý hàng xuống cấp
@@ -264,9 +266,10 @@ public enum ErrorCode {
     // Chat: giới hạn tốc độ gửi tin nhắn
     MESSAGE_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Bạn gửi quá nhanh, thử lại sau ít giây."),
 
-    // Thử đồ AI real-time (Decart Lucy VTON) - giới hạn 2 lượt/ngày, 10 giây/lượt
+    // Thử đồ AI real-time (Decart Lucy VTON) - hạn mức lượt/ngày và giây/lượt lấy theo gói thành
+    // viên của Member (MembershipQuotaResolver), không còn là con số cứng 2 lượt/10 giây
     TRYON_LIVE_QUOTA_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS,
-            "Bạn đã dùng hết lượt thử đồ AI real-time hôm nay. Vui lòng quay lại vào ngày mai."),
+            "Bạn đã dùng hết lượt thử đồ AI real-time hôm nay. Nâng cấp gói để thử thêm."),
     TRYON_LIVE_TOKEN_FAILED(HttpStatus.BAD_GATEWAY,
             "Không thể kết nối tới dịch vụ thử đồ AI real-time lúc này, vui lòng thử lại sau."),
     TRYON_LIVE_SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy phiên thử đồ AI real-time."),
@@ -278,7 +281,33 @@ public enum ErrorCode {
     DUPLICATE_PENDING_REPORT(HttpStatus.CONFLICT,
             "Bạn đã báo cáo đối tượng này và báo cáo đang chờ xử lý."),
     VIOLATION_REPORT_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy báo cáo vi phạm."),
-    VIOLATION_REPORT_ALREADY_HANDLED(HttpStatus.CONFLICT, "Báo cáo này đã được xử lý.");
+    VIOLATION_REPORT_ALREADY_HANDLED(HttpStatus.CONFLICT, "Báo cáo này đã được xử lý."),
+
+    // Gói thành viên VIP
+    MEMBERSHIP_PLAN_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy gói thành viên."),
+    MEMBERSHIP_PLAN_NOT_PURCHASABLE(HttpStatus.CONFLICT, "Gói này hiện không bán."),
+    MEMBERSHIP_PLAN_YEARLY_NOT_AVAILABLE(HttpStatus.BAD_REQUEST, "Gói này không bán theo năm."),
+    MEMBERSHIP_ALREADY_ACTIVE_SAME_TIER(HttpStatus.CONFLICT,
+            "Bạn đang dùng gói này, hãy dùng chức năng gia hạn."),
+    MEMBERSHIP_PAYMENT_PENDING(HttpStatus.CONFLICT, "Bạn đang có một giao dịch mua gói chờ thanh toán."),
+    MEMBERSHIP_NOT_FOUND(HttpStatus.NOT_FOUND, "Bạn chưa có gói thành viên nào."),
+    MEMBERSHIP_SUBSCRIPTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy gói đăng ký."),
+    MEMBERSHIP_PLAN_INVALID(HttpStatus.BAD_REQUEST, "Cấu hình gói thành viên không hợp lệ."),
+    MEMBERSHIP_SUBSCRIPTION_NOT_ACTIVE(HttpStatus.CONFLICT, "Gói đăng ký này không còn hiệu lực."),
+
+    // Voucher
+    VOUCHER_NOT_FOUND(HttpStatus.NOT_FOUND, "Mã giảm giá không tồn tại."),
+    VOUCHER_FORBIDDEN(HttpStatus.FORBIDDEN, "Mã giảm giá này không thuộc về bạn."),
+    VOUCHER_ALREADY_USED(HttpStatus.CONFLICT, "Mã giảm giá đã được sử dụng."),
+    VOUCHER_EXPIRED(HttpStatus.CONFLICT, "Mã giảm giá đã hết hạn."),
+    VOUCHER_MIN_ORDER_NOT_MET(HttpStatus.BAD_REQUEST, "Đơn hàng chưa đạt giá trị tối thiểu để dùng mã này."),
+    VOUCHER_NOT_APPLICABLE(HttpStatus.BAD_REQUEST, "Mã giảm giá không áp dụng được cho đơn này."),
+    VOUCHER_TEMPLATE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy mẫu voucher."),
+    VOUCHER_TEMPLATE_INVALID(HttpStatus.BAD_REQUEST, "Cấu hình mẫu voucher không hợp lệ."),
+
+    // Phối đồ AI (ảnh tĩnh) - hạn mức theo ngày của gói, reset 00:00 giờ VN
+    TRYON_IMAGE_QUOTA_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS,
+            "Bạn đã dùng hết lượt phối đồ AI hôm nay.");
 
     private final HttpStatus status;
     private final String defaultMessage;

@@ -99,6 +99,16 @@ public class Product implements Persistable<String> {
     @Column(name = "unclaimed_decision_deadline", nullable = true)
     private Instant unclaimedDecisionDeadline;
 
+    // Ưu tiên hiển thị trên sàn + nhãn "Nổi bật" (quyền lợi gói VIP). "Đang nổi bật" =
+    // featured_until IS NOT NULL AND featured_until > now(), nên không cần job dọn - chỉ so sánh
+    // lúc query. Hệ thống tự set/clear ở 4 thời điểm (xem FeaturedListingManager), Member không
+    // có endpoint nào để bật/tắt.
+    //
+    // Vì sao là một cột tính sẵn thay vì join sang member_subscriptions lúc query?
+    // GET /products là màn nóng nhất, dùng Specification + sort; join cho MỌI dòng sẽ đắt.
+    @Column(name = "featured_until", nullable = true)
+    private Instant featuredUntil;
+
     // Thời điểm nhập kho
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -138,4 +148,8 @@ public class Product implements Persistable<String> {
     void markNotNew() {
         this.isNew = false;
     }
+    @Version
+    @Column(nullable = false)
+    @org.hibernate.annotations.ColumnDefault("0")
+    private long version;
 }

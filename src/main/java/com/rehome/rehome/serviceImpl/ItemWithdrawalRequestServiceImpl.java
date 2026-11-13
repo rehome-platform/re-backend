@@ -45,6 +45,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.util.StringUtils;
 
 import javax.crypto.Mac;
@@ -286,7 +287,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
     public PayItemWithdrawalFeeResponse payFee(
             Account account, UUID id, PayItemWithdrawalFeeRequest request, String clientIp) {
 
-        ItemWithdrawalRequest withdrawal = itemWithdrawalRequestRepository.findById(id)
+        ItemWithdrawalRequest withdrawal = itemWithdrawalRequestRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new AppException(ErrorCode.ITEM_WITHDRAWAL_NOT_FOUND));
 
         if (!withdrawal.getMember().getId().equals(account.getId())) {
@@ -493,7 +494,8 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
 
         withdrawal.setFeePaymentMethod(WithdrawalFeePaymentMethod.MOMO);
         withdrawal.setFeePaidAt(Instant.now());
-        itemWithdrawalRequestRepository.save(withdrawal);
+        itemWithdrawalRequestRepository.saveAndFlush(withdrawal);
+        refundDonationFee(withdrawal);
         recordPlatformIncomeFromGateway(withdrawal, "MoMo", transId);
 
         log.info(">>>> Da thanh toan phi rut hang qua MoMo: itemWithdrawalRequestId={}, transId={}",
@@ -527,12 +529,46 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
 
         withdrawal.setFeePaymentMethod(WithdrawalFeePaymentMethod.VNPAY);
         withdrawal.setFeePaidAt(Instant.now());
-        itemWithdrawalRequestRepository.save(withdrawal);
+        itemWithdrawalRequestRepository.saveAndFlush(withdrawal);
+        refundDonationFee(withdrawal);
         recordPlatformIncomeFromGateway(withdrawal, "VNPay", transactionNo);
 
         log.info(">>>> Da thanh toan phi rut hang qua VNPay: itemWithdrawalRequestId={}, transactionNo={}",
                 withdrawal.getId(), transactionNo);
         return true;
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void refundDonationFee(ItemWithdrawalRequest withdrawal) {
+        if (withdrawal.getStatus() != ItemWithdrawalStatus.CONVERTED_TO_DONATION
+                || withdrawal.getFeePaidAt() == null || withdrawal.getFeeCharged().signum() <= 0) {
+            return;
+        }
+
+        String transactionNo = "WT-REFUND-IWR-" + withdrawal.getId();
+        Wallet wallet = walletRepository.findByMemberIdForUpdate(withdrawal.getMember().getId())
+                .orElseGet(() -> Wallet.builder().member(withdrawal.getMember()).build());
+        if (walletTransactionRepository.existsByTransactionNo(transactionNo)) {
+            return;
+        }
+
+        BigDecimal amount = withdrawal.getFeeCharged();
+        wallet.setBalance(wallet.getBalance().add(amount));
+        walletRepository.save(wallet);
+        WalletTransaction refund = walletTransactionRepository.save(WalletTransaction.builder()
+                .transactionNo(transactionNo)
+                .walletType(WalletType.MEMBER)
+                .walletId(wallet.getId())
+                .type(WalletTransactionType.REFUND)
+                .amount(amount)
+                .balanceAfter(wallet.getBalance())
+                .relatedItemWithdrawalRequest(withdrawal)
+                .status(TransactionStatus.SUCCESS)
+                .note("Hoàn phí rút hàng do chuyển món ký gửi sang quyên góp")
+                .build());
+        recordPlatformCounterpart(refund);
+        recordWithdrawalFeeRevenue(withdrawal, amount.negate(), refund.getNote());
     }
 
     private String generateTransactionNo() {
@@ -581,9 +617,12 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
     // (AdminReportQueryRepository); dashboard cộng đúng một dòng cho mỗi khoản phí đã thu.
     private void recordWithdrawalFeeRevenue(ItemWithdrawalRequest withdrawal, String note) {
         BigDecimal amount = withdrawal.getFeeCharged();
-        if (amount == null || amount.signum() <= 0) {
-            return;
+        if (amount != null && amount.signum() > 0) {
+            recordWithdrawalFeeRevenue(withdrawal, amount, note);
         }
+    }
+
+    private void recordWithdrawalFeeRevenue(ItemWithdrawalRequest withdrawal, BigDecimal amount, String note) {
         PlatformFund fund = getOrCreatePlatformFund();
         if (fund.getId() == null) {
             platformFundRepository.save(fund);
@@ -701,7 +740,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
             return ItemWithdrawalStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             throw new BadRequestException(
-                    "status phải là PENDING_APPROVAL, PENDING_PICKUP, REJECTED, COMPLETED, EXPIRED hoặc CANCELLED.");
+                    "status phải là PENDING_APPROVAL, PENDING_PICKUP, REJECTED, COMPLETED, EXPIRED, CANCELLED hoặc CONVERTED_TO_DONATION.");
         }
     }
 

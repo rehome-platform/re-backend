@@ -46,4 +46,8 @@ public class EndOfTermDecision {
     // Thời điểm Moderator bàn giao hàng tại quầy cho Member chọn TAKE_BACK — API 72
     @Column(name = "taken_back_at", nullable = true)
     private Instant takenBackAt;
+    @Version
+    @Column(nullable = false)
+    @org.hibernate.annotations.ColumnDefault("0")
+    private long version;
 }

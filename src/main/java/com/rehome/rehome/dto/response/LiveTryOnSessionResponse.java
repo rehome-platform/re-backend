@@ -21,5 +21,6 @@ public class LiveTryOnSessionResponse {
     private String garmentImageUrl;
     private String prompt;
     private int maxDurationSeconds;
-    private int remainingToday;
+    // null = không giới hạn (hạn mức theo gói có thể để trống) -> mobile hiện "Không giới hạn"
+    private Integer remainingToday;
 }

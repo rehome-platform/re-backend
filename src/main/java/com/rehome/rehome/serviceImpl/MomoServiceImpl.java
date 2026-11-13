@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.client.MomoApi;
+import com.rehome.rehome.component.MembershipGatewayPaymentBuilder;
 import com.rehome.rehome.dto.request.CreateMomoRequest;
 import com.rehome.rehome.dto.request.MomoIpnRequest;
 import com.rehome.rehome.dto.request.QueryMomoRequest;
@@ -16,6 +17,7 @@ import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.PaymentRepository;
 import com.rehome.rehome.service.ItemWithdrawalRequestService;
+import com.rehome.rehome.service.MembershipService;
 import com.rehome.rehome.service.MomoService;
 import com.rehome.rehome.service.OrderService;
 import lombok.RequiredArgsConstructor;
@@ -65,6 +67,9 @@ public class MomoServiceImpl implements MomoService {
     private final PaymentRepository paymentRepository;
     private final OrderService orderService;
     private final ItemWithdrawalRequestService itemWithdrawalRequestService;
+    // Không có phụ thuộc vòng: MembershipServiceImpl mở giao dịch cổng qua
+    // MembershipGatewayPaymentBuilder (chỉ dùng MomoApi), không gọi vào service này.
+    private final MembershipService membershipService;
 
     @Override
     @Transactional
@@ -178,6 +183,18 @@ public class MomoServiceImpl implements MomoService {
         if (!expectedSignature.equals(ipnRequest.getSignature())) {
             log.error(">>>> IPN signature mismatch cho orderId={}", ipnRequest.getOrderId());
             throw new BadRequestException("Chữ ký IPN không hợp lệ");
+        }
+
+        // Route theo TIỀN TỐ của mã giao dịch: cổng chỉ trả về đúng cái mã mình gửi lên, nên mã
+        // phải tự nói nó là giao dịch gì. "SUB-" = mua gói thành viên, còn lại là đơn hàng
+        // (<orderId>-<millis>) hoặc phí rút hàng. Xem MembershipGatewayPaymentBuilder.
+        if (MembershipGatewayPaymentBuilder.isMembershipRef(ipnRequest.getOrderId())) {
+            if (!membershipService.applyMomoResult(ipnRequest.getOrderId(), ipnRequest.getResultCode(),
+                    String.valueOf(ipnRequest.getTransId()))) {
+                log.warn(">>>> IPN mua goi cho momoOrderId={} khong khop giao dich nao, bo qua",
+                        ipnRequest.getOrderId());
+            }
+            return;
         }
 
         List<Payment> payments = paymentRepository.findAllByMomoOrderId(ipnRequest.getOrderId());

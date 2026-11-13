@@ -5,6 +5,7 @@ import com.rehome.rehome.dto.response.CampaignPublicResponse;
 import com.rehome.rehome.dto.response.CampaignStatusResponse;
 import com.rehome.rehome.dto.response.CampaignSummaryResponse;
 import com.rehome.rehome.dto.response.PageResponse;
+import com.rehome.rehome.dto.response.WarehouseCampaignResponse;
 
 import java.util.UUID;
 
@@ -31,9 +32,12 @@ public interface CampaignService {
     // Duyệt công khai xuyên tổ chức; status == null thì mặc định chỉ chiến dịch đang mở (ACTIVE).
     // search == null/rỗng thì không lọc theo từ khóa; có search thì tìm theo title hoặc tên tổ chức.
     // warehouseId == null thì không lọc theo điểm nhận đồ; có giá trị thì chỉ trả chiến dịch đang
-    // nhận đồ tại đúng kho đó - cũng dùng cho GET /warehouses/{id}/campaigns.
+    // nhận đồ tại đúng kho đó.
     PageResponse<CampaignPublicResponse> listPublicCampaigns(String search, String status, UUID warehouseId,
                                                              int page, int size);
+
+    // GET /warehouses/{id}/campaigns: chỉ chiến dịch OPEN, chưa hết hạn, không HIDDEN, có nhận đồ tại kho.
+    PageResponse<WarehouseCampaignResponse> listCampaignsReceivingAtWarehouse(UUID warehouseId, int page, int size);
 
     // Chiến dịch công khai của 1 tổ chức cụ thể (F-082/F-083); status == null thì mặc định
     // chỉ chiến dịch đang mở (ACTIVE). 404 nếu tổ chức không tồn tại hoặc chưa VERIFIED.

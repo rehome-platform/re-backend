@@ -37,4 +37,7 @@ public class ProductDetailResponse {
     // true = món này do chính người đang xem ký gửi, FE ẩn nút mua/thêm giỏ.
     // Xem ghi chú kiểu Boolean ở ProductSummaryResponse.
     private Boolean isMine;
+
+    // Xem ghi chú ở ProductSummaryResponse.featured
+    private boolean featured;
 }

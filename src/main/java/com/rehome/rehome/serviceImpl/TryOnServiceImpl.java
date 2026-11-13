@@ -1,5 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.component.AiTryOnQuotaGuard;
 import com.rehome.rehome.dto.request.CreateTryOnImageRequest;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.TryOnImageResponse;
@@ -58,6 +59,7 @@ public class TryOnServiceImpl implements TryOnService {
     private final FileStorageService fileStorageService;
     private final ProductRepository productRepository;
     private final TryOnImageGenerator tryOnImageGenerator;
+    private final AiTryOnQuotaGuard aiTryOnQuotaGuard;
 
     // ================================================================ API 97: F-077, F-078, F-079
 
@@ -65,6 +67,13 @@ public class TryOnServiceImpl implements TryOnService {
     // Các repository tự mở transaction ngắn cho từng lệnh; category đã được nạp sẵn bằng EntityGraph.
     @Override
     public TryOnImageResponse createImage(Account account, CreateTryOnImageRequest request) {
+        // Hạn mức phối đồ AI theo gói, tính theo NGÀY (reset 00:00 giờ VN). Kiểm TRƯỚC khi gửi
+        // request sang AI server để chặn chi phí thật trước khi phát sinh.
+        // Lượt được tính bằng chính row try_on_images lưu sau khi sinh thành công, nên sinh ảnh lỗi
+        // (502) KHÔNG mất lượt - khác LiveTryOnQuotaGuard vốn trừ ngay lúc mint token.
+        // Xóa ảnh khỏi bộ sưu tập cũng KHÔNG hoàn lượt (đặc tả §8.8).
+        aiTryOnQuotaGuard.assertCanGenerate(account.getId());                                 // 429
+
         String topId = blankToNull(request.getTopProductId());
         String bottomId = blankToNull(request.getBottomProductId());
         String dressId = blankToNull(request.getDressProductId());

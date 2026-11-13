@@ -10,6 +10,7 @@ public enum NotificationType {
     // Moderator ghi nhận 1 lượt quyên góp cho chiến dịch của tổ chức (F-163) -> báo cho tổ chức
     // đó, kèm targetType/targetId/warehouseId để app mở đúng màn chờ lấy (OC-07)
     DONATION_RECORDED,
+    DONATION_HANDED_OVER,
 
     // Tổ chức trả lời bình luận của Member trên bài viết -> báo cho Member đó (targetType=POST)
     COMMENT_REPLIED,
@@ -32,5 +33,12 @@ public enum NotificationType {
 
     // Báo cáo được resolve hoặc dismiss -> báo cho MỌI Member đã báo cáo cùng target, nội dung
     // chung, không deep-link (targetType/targetId null).
-    VIOLATION_REPORT_HANDLED
+    VIOLATION_REPORT_HANDLED,
+
+    // Gói thành viên VIP: mua thành công / sắp hết hạn / đã hết hạn / Admin tặng hoặc hủy.
+    // Không deep-link theo targetType (app mở màn "Gói của tôi").
+    MEMBERSHIP_EVENT,
+
+    // Đã nhận voucher mới của tháng (job phát voucher). App mở màn "Voucher của tôi".
+    VOUCHER_ISSUED
 }

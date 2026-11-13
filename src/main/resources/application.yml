@@ -226,14 +226,19 @@ tryon:
     api-key: ${TRYON_AI_API_KEY:}
     connect-timeout-seconds: ${TRYON_AI_CONNECT_TIMEOUT_SECONDS:5}
     # AI chạy đồng bộ 2 bước diffusion (áo rồi quần), lần đầu còn nạp model: để dư
-    read-timeout-seconds: ${TRYON_AI_READ_TIMEOUT_SECONDS:120}
+    read-timeout-seconds: ${TRYON_AI_READ_TIMEOUT_SECONDS:300}
 
   # Thử đồ AI real-time qua camera (Decart Lucy VTON) - giới hạn chi phí
   live:
-    # Tối đa bao nhiêu lượt / ngày / account (giờ VN) - trừ ngay lúc mint token, xem LiveTryOnQuotaGuard
+    # ⚠️ KHÔNG CÒN ĐƯỢC DÙNG. Hạn mức lượt/ngày giờ đọc theo GÓI THÀNH VIÊN
+    # (membership_plans.live_tryon_per_day, Admin sửa ở màn W-01 của web Admin) qua
+    # MembershipQuotaResolver. Giữ key lại để deploy cũ còn env var TRYON_LIVE_DAILY_LIMIT không
+    # fail khi bind, nhưng đổi nó KHÔNG còn tác dụng gì - xem LiveTryOnQuotaGuard.
     daily-limit: ${TRYON_LIVE_DAILY_LIMIT:2}
     # Decart tự cắt phiên phía server họ sau đúng N giây (constraints.realtime.maxSessionDuration,
-    # tối thiểu 10 theo Decart) - đây là chốt chặn thời lượng thật, không phụ thuộc client
+    # tối thiểu 10 theo Decart). Giờ chỉ là SÀN kỹ thuật: thời lượng thật mỗi lượt lấy theo gói
+    # (membership_plans.live_tryon_max_seconds), và LiveTryOnServiceImpl kẹp sàn bằng giá trị này
+    # để cấu hình sai không sinh ra phiên ngắn hơn mức Decart cho phép.
     max-session-seconds: ${TRYON_LIVE_MAX_SESSION_SECONDS:10}
     # TTL của client token: chỉ cần đủ thời gian app mở camera + kết nối WebRTC, không phải thời lượng stream
     token-ttl-seconds: ${TRYON_LIVE_TOKEN_TTL_SECONDS:30}

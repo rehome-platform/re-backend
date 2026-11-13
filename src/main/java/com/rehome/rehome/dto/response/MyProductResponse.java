@@ -1,6 +1,8 @@
 package com.rehome.rehome.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import java.util.UUID;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.rehome.rehome.entity.enums.EndOfTermChoice;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
@@ -18,6 +20,12 @@ import lombok.Setter;
 
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class MyProductResponse {
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private DonationInfo donation;
+
+    public record DonationInfo(UUID id, UUID campaignId, String campaignTitle,
+                               String organizationName, String status, Instant handedOverAt) {}
+
     private String id;
     private String productName;
     private ProductStatus status;
@@ -42,6 +50,12 @@ public class MyProductResponse {
     // null khi món không có ca hàng xuống cấp đang chờ Member quyết định (F-036)
     private DegradedCaseRef degradedCase;
     private BigDecimal expectedPayout;
+
+    // Quyền lợi "ưu tiên hiển thị" của gói VIP: featured = featuredUntil > now().
+    // Trả cả mốc hết hạn để M-09 hiện banner "...đến {ngày hết hạn}".
+    // Hệ thống tự bật/tắt, KHÔNG có API cho Member bật/tắt từng món.
+    private boolean featured;
+    private Instant featuredUntil;
 
     // Điều khoản kỳ ký gửi, lấy từ biên nhận của món (mục 22)
     private Integer termLengthDays;

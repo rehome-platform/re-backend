@@ -99,6 +99,32 @@ A gateway reporting success never sets `PAID` itself — it calls `OrderService.
 
 `POST /orders/{id}/cancel` cancels both `PENDING_PAYMENT` and `PAID` orders. Only the `PAID` branch refunds — cancelling an unpaid order must not credit a wallet with money never collected.
 
+### VIP membership, vouchers and featured listings
+
+Spec: `docs/VIP-MEMBERSHIP-SPEC.md` (business rules, API contract, formulas) and `docs/VIP-MEMBERSHIP-UI-BRIEF.md` (screens). Read the spec before touching anything under `entity/membership`, `component/Membership*`, `component/*QuotaGuard`, `component/VoucherCalculator` or `component/FeaturedListingManager`.
+
+**Every number is data, never a constant.** The whole benefit table (monthly/yearly price, try-on quotas, max pending consignment forms, featured-listing on/off) lives in `membership_plans`, four rows seeded by `MembershipPlanInitializer` and editable by Admin via `PUT /api/admin/membership-plans/{id}`. Voucher quantities per tier live in `voucher_template_tier_rules`. The initializer only creates rows that don't exist yet, so it never overwrites what Admin changed. Don't hard-code a quota anywhere — read it through `MembershipQuotaResolver`.
+
+- `MemberSubscription` **snapshots** every quota at purchase time. Admin *raising* a quota applies immediately to `ACTIVE` rows (`MembershipAdminServiceImpl.raiseActiveSnapshots`); *lowering* one only applies from the next renewal, because the member already paid for the old level.
+- One `ACTIVE` subscription per member, which no DB constraint can express (there are many `EXPIRED` rows per member) — `findActiveByMemberIdForUpdate` (`PESSIMISTIC_WRITE`) is what actually enforces it, same trick as `WalletRepository.findByMemberIdForUpdate`.
+- `MembershipQuotaResolver` treats a row that is still `ACTIVE` but past `expiresAt` as expired: the cleanup job only runs at 00:05, and a member must not keep benefits until morning.
+- Buying the **same** tier while still active extends `expiresAt`; a **different** tier moves the old row to `REPLACED` and **refunds nothing** — M-02 has to warn before payment.
+- Quotas reset at 00:00 **Asia/Ho_Chi_Minh** (`util/VnTimeWindow`), not UTC. `tryon.live.daily-limit` in `application.yml` is dead — the key is kept only so old env vars still bind.
+
+**Vouchers.** `MemberVoucher` snapshots the template's rules when issued, so editing a template never changes codes already in wallets. Two caps that are easy to confuse (`VoucherCalculator`): per-order (real shipping fee for `SHIPPING`, or the platform commission of the item's **current consignment term** for `ORDER_DISCOUNT`), and per-payment (`max_discount_amount`, applied to the **total** then split proportionally). The term cap is why the same code gives different amounts on the same item in term 1 vs term 3 — intentional, locked by `VoucherCalculatorTest` cases 5 and 6.
+
+- **One code per payment, spread across orders.** A cart of 3 items becomes 3 orders but one payment, so the code applies to the whole batch and the server allocates per order. Therefore `orders.voucher_id` is **not unique** — same class of trap as the gateway refs above, and `PostgresSchemaContractTest` locks it.
+- `order_items.price_at_order` is never touched by a voucher: the consignor is paid on the full sale price and the platform absorbs the discount. `OrderVoucherIntegrationTest.consignorPayoutIsUnaffectedByVoucher` is the single most important test of the feature.
+- Refunds always return `order.total_amount` (already net of discount). Returning `subtotal + shipping_fee` would let a buyer profit by ordering and cancelling.
+- A code returns to `UNUSED` only when **all** orders carrying it are cancelled, and only for cancellations that aren't the buyer's fault (payment timeout, carrier failure, cancelling an unpaid order). Cancelling a **paid** order or returning delivered goods does **not** give the code back.
+- `VOUCHER_DISCOUNT` (platform, negative) and `MEMBERSHIP_REVENUE` (gateway purchases only) are statistics-only rows that don't move the fund balance, so both are in `AdminReportQueryRepository.REVENUE_RECOGNITION_TYPES`. A **wallet** membership purchase instead writes a normal `MEMBERSHIP_PURCHASE` pair that *is* reconciled.
+
+**Featured listings** are a precomputed `products.featured_until` column, not a join to `member_subscriptions`, because `GET /products` is the hottest query. The cost is having to set/clear it at exactly four moments, all funnelled through `FeaturedListingManager`. The sort needs `.nullsLast()` — Postgres puts NULLs **first** on `DESC`, so without it every non-featured product would come out on top. There is no Member-facing endpoint to toggle it.
+
+**Gateway routing.** Membership transactions use a `SUB-<uuid-without-dashes>-<millis>` reference so `MomoServiceImpl`/`VnPayServiceImpl` can route the IPN by prefix. The dashes must stay stripped: MoMo caps `orderId` at 50 chars and `4 + 32 + 14` is exactly 50. `MembershipGatewayPaymentBuilder` opens these transactions using `MomoApi` directly rather than `MomoService`, to avoid the dependency cycle the IPN callback would create.
+
+**Script to run by hand on Postgres after deploy**: `scripts/backfill-order-discount-amount.sql` (fills `discount_amount = 0` on existing orders, then sets `NOT NULL`). `products.featured_until` needs none — it is nullable and NULL means "not featured".
+
 ### Response/error conventions
 There are **two parallel response shapes** in this codebase — check which one a feature already uses before adding to it:
 - `ApiResponse<T>` (`result`, `isSuccess`, `statusCode`, optional `code`, `message`) — the shape used by newer endpoints (e.g. `ShippingAddressController`) and `ApiResponse.success(...)`/`ApiResponse.error(...)` factory methods.

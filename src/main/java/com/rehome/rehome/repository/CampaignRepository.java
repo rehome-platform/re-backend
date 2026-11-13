@@ -41,6 +41,14 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
     // Chiến dịch đã tồn tại trước khi có cột title_normalized - xem CampaignTitleNormalizeInitializer
     List<Campaign> findAllByTitleNormalizedIsNullAndTitleIsNotNull();
 
+    // GET /warehouses/{id}/campaigns: chiến dịch OPEN, CHƯA hết hạn (endTime > now), không HIDDEN/CLOSED,
+    // có nhận đồ tại kho này. Dùng chung điều kiện này cho cả ghi nhận trực tiếp lẫn quyên góp món ký gửi.
+    @Query("select c from Campaign c where c.status = com.rehome.rehome.entity.enums.CampaignStatus.OPEN "
+            + "and c.endTime > :now "
+            + "and :warehouseId in (select w.id from c.warehouses w)")
+    Page<Campaign> findOpenReceivingAtWarehouse(@Param("warehouseId") UUID warehouseId,
+                                                @Param("now") Instant now, Pageable pageable);
+
     // GET /campaigns?search=&status=ACTIVE&warehouseId=: tìm theo title của chiến dịch hoặc tên tổ
     // chức. keyword "" -> không lọc theo từ khóa, chỉ còn status. warehouseId null -> không lọc
     // theo điểm nhận đồ (cũng dùng cho GET /warehouses/{id}/campaigns với warehouseId luôn có giá trị).

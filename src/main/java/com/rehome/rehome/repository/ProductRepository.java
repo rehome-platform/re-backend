@@ -120,4 +120,23 @@ WHERE p.warehouse.id = :warehouseId
     // F-029: đã qua hạn kỳ cuối (ngày 90, cột endOfTermDeadline đã tính sẵn lúc nhập kho/ký gửi lại)
     // nhưng vẫn còn ON_SALE - job quét để gỡ khỏi sàn và mở EndOfTermDecision
     List<Product> findAllByStatusAndEndOfTermDeadlineBefore(ProductStatus status, Instant deadline);
+
+    // ---- Ưu tiên hiển thị "Nổi bật" (quyền lợi gói VIP) - xem FeaturedListingManager ----
+
+    // Hàng ký gửi của Member còn đang trong vòng đời bán: set featured_until cho đúng nhóm này.
+    // Món đã SOLD/WITHDRAWN/... không lên danh sách sàn nữa nên không cần đụng tới.
+    List<Product> findAllByMember_IdAndStatusIn(UUID memberId, Collection<ProductStatus> statuses);
+
+    // Gói hết hạn/đổi hạng: xóa nhãn trên MỌI món của Member, kể cả món đã rời sàn, để không còn
+    // dòng rác featured_until trong DB
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update Product p set p.featuredUntil = null where p.member.id = :memberId "
+            + "and p.featuredUntil is not null")
+    int clearFeaturedByMemberId(@Param("memberId") UUID memberId);
+
+    // Số món đang thực sự nổi bật của Member, cho quota.featuredListing.productCount ở
+    // GET /memberships/me và màn M-09
+    @Query("select count(p) from Product p where p.member.id = :memberId "
+            + "and p.featuredUntil is not null and p.featuredUntil > :now")
+    long countFeaturedByMemberId(@Param("memberId") UUID memberId, @Param("now") Instant now);
 }

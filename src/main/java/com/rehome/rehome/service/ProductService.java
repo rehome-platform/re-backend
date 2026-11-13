@@ -1,6 +1,7 @@
 package com.rehome.rehome.service;
 
 import com.rehome.rehome.dto.request.CreateProductRequest;
+import com.rehome.rehome.dto.request.DonateProductRequest;
 import com.rehome.rehome.dto.request.PriceReductionRequest;
 import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
@@ -30,8 +31,9 @@ public interface ProductService {
 
     PriceReductionResponse reducePrice(Account account, String productId, PriceReductionRequest request);
 
-    // POST /products/{id}/donate: quyên góp sản phẩm ký gửi đang ON_SALE/WAREHOUSE/WITHDRAWN
-    DonationResponse donate(Account account, String productId);
+    // POST /products/{id}/donate: quyên góp sản phẩm ký gửi còn đủ điều kiện
+    DonateProductResponse donate(Account account, String productId, DonateProductRequest request);
+
 
     ShippingFeePreviewResponse getShippingFeePreview(String productId, String wardName, String provinceName);
 

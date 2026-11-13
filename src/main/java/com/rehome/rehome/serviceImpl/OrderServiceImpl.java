@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.client.GhnApi;
+import com.rehome.rehome.component.VoucherCalculator;
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.dto.request.CreateOrderRequest;
 import com.rehome.rehome.dto.request.GhnCreateOrderRequest;
@@ -33,6 +34,7 @@ import com.rehome.rehome.dto.response.WarehouseOrderResponse;
 import com.rehome.rehome.dto.response.WrongItemDetail;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.CancelReason;
+import com.rehome.rehome.entity.enums.MemberVoucherStatus;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
@@ -58,15 +60,19 @@ import com.rehome.rehome.entity.marketplace.ShippingAddress;
 import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.entity.marketplace.WalletTransaction;
 import com.rehome.rehome.entity.marketplace.Warehouse;
+import com.rehome.rehome.entity.membership.MemberVoucher;
+import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ForbiddenException;
+import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.exception.GhnException;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.CartItemRepository;
 import com.rehome.rehome.repository.CartRepository;
 import com.rehome.rehome.repository.OrderItemRepository;
 import com.rehome.rehome.repository.OrderRepository;
+import com.rehome.rehome.repository.MemberVoucherRepository;
 import com.rehome.rehome.repository.OrderTrackingEventRepository;
 import com.rehome.rehome.repository.PaymentRepository;
 import com.rehome.rehome.repository.PlatformFundRepository;
@@ -146,6 +152,8 @@ public class OrderServiceImpl implements OrderService {
     private final GhnApi ghnApi;
     private final GhnShippingFeeCalculator ghnShippingFeeCalculator;
     private final SystemConfigReader systemConfigReader;
+    private final MemberVoucherRepository memberVoucherRepository;
+    private final VoucherCalculator voucherCalculator;
 
     // Chưa có cấu hình thuế thật, tạm để 0
     @Value("${app.order.tax-rate:0}")
@@ -240,15 +248,29 @@ public class OrderServiceImpl implements OrderService {
         // Mỗi sản phẩm là 1 đơn riêng (giống Shopee), kể cả khi nhiều món cùng kho, để
         // trả hàng/đổi trạng thái được từng món độc lập - không còn gộp theo kho (F-053 cũ).
         Instant paymentDeadline = Instant.now().plus(paymentTimeoutMinutes, ChronoUnit.MINUTES);
+
+        // Phí ship phải tính TRƯỚC khi tạo đơn: voucher áp cho CẢ lần thanh toán nên cần biết
+        // subtotal và shippingFee của mọi đơn trước, rồi mới phân bổ phần giảm về từng đơn.
+        List<BigDecimal> shippingFees = new ArrayList<>(lockedProducts.size());
+        for (Product product : lockedProducts) {
+            shippingFees.add(ghnShippingFeeCalculator.calculate(
+                    product.getWarehouse(), shippingAddress.getWardName(),
+                    shippingAddress.getProvinceName()));
+        }
+
+        // Một lần thanh toán dùng TỐI ĐA MỘT mã, áp cho cả lô rồi chia ngược về từng đơn (§12.6).
+        // Người mua không phải chọn áp mã cho món nào - giống Shopee.
+        VoucherApplication voucherApplication =
+                applyVoucher(request.getVoucherCode(), buyer, lockedProducts, shippingFees);
+
         List<OrderResponse> responses = new ArrayList<>();
 
-        for (Product product : lockedProducts) {
+        for (int i = 0; i < lockedProducts.size(); i++) {
+            Product product = lockedProducts.get(i);
             Warehouse warehouse = product.getWarehouse();
             BigDecimal subtotal = product.getCurrentPrice();
-
-            // F-054: phí ship thật theo tuyến kho -> địa chỉ nhận, không còn số cố định
-            BigDecimal shippingFee = ghnShippingFeeCalculator.calculate(
-                    warehouse, shippingAddress.getWardName(), shippingAddress.getProvinceName());
+            BigDecimal shippingFee = shippingFees.get(i);
+            BigDecimal discount = voucherApplication.discountOf(product.getId());
 
             Order order = Order.builder()
                     .orderNo(generateOrderNo())
@@ -263,7 +285,12 @@ public class OrderServiceImpl implements OrderService {
                     .shippingIsNewAddress(true)
                     .subtotal(subtotal)
                     .shippingFee(shippingFee)
-                    .totalAmount(subtotal.add(shippingFee))
+                    .voucher(voucherApplication.voucher())
+                    .discountAmount(discount)
+                    // total_amount = subtotal + shippingFee − discount. Đây là số tiền người mua
+                    // trả thật, và cũng là số được hoàn khi hủy đơn - KHÔNG bao giờ hoàn
+                    // subtotal + shippingFee, nếu không người mua lãi tiền mỗi lần đặt rồi hủy.
+                    .totalAmount(subtotal.add(shippingFee).subtract(discount))
                     .paymentMethod(OrderPaymentMethod.WALLET)
                     .status(OrderStatus.PENDING_PAYMENT)
                     .paymentDeadline(paymentDeadline)
@@ -274,6 +301,8 @@ public class OrderServiceImpl implements OrderService {
             OrderItem item = OrderItem.builder()
                     .order(order)
                     .product(product)
+                    // priceAtOrder GIỮ NGUYÊN giá bán, KHÔNG trừ voucher: người ký gửi nhận tiền
+                    // tính trên giá này, phần giảm do nền tảng chịu (§1.3, §13.4).
                     .priceAtOrder(product.getCurrentPrice())
                     .commissionRateApplied(commissionRateForTerm(product))
                     .taxRateApplied(taxRate)
@@ -296,6 +325,9 @@ public class OrderServiceImpl implements OrderService {
                     .shippingProvinceName(order.getShippingProvinceName())
                     .subtotal(order.getSubtotal())
                     .shippingFee(order.getShippingFee())
+                    .discountAmount(order.getDiscountAmount())
+                    .voucherCode(voucherApplication.code())
+                    .voucherName(voucherApplication.name())
                     .totalAmount(order.getTotalAmount())
                     .status(order.getStatus().name())
                     .paymentDeadline(order.getPaymentDeadline())
@@ -681,6 +713,10 @@ public class OrderServiceImpl implements OrderService {
                 .paymentDeadline(order.getPaymentDeadline())
                 .subtotal(order.getSubtotal())
                 .shippingFee(order.getShippingFee())
+                .discountAmount(nullToZero(order.getDiscountAmount()))
+                .voucherCode(order.getVoucher() == null ? null : order.getVoucher().getCode())
+                .voucherName(order.getVoucher() == null
+                        ? null : order.getVoucher().getVoucherTemplate().getName())
                 .totalAmount(order.getTotalAmount())
                 .warehouseId(order.getWarehouse().getId().toString())
                 .warehouseName(order.getWarehouse().getName())
@@ -801,7 +837,11 @@ public class OrderServiceImpl implements OrderService {
             order.setCancelReason(CancelReason.BUYER_CANCELLED);
             order.setCancelledAt(Instant.now());
             orderRepository.save(order);
+            // Chưa thu tiền -> trả mã về ví (§12.4)
+            releaseVoucherIfAllOrdersCancelled(order);
         } else {
+            // Đơn ĐÃ THANH TOÁN: hoàn total_amount (số đã trả thật, đã trừ voucher) nhưng CỐ Ý
+            // KHÔNG trả mã - nếu trả thì người mua đặt rồi hủy liên tục để xoay vòng một mã.
             refundBuyerAndCancel(order, CancelReason.BUYER_CANCELLED, "Hoàn tiền hủy đơn " + order.getOrderNo());
         }
 
@@ -884,7 +924,9 @@ public class OrderServiceImpl implements OrderService {
         order.setShippingWardName(newAddress.getWardName());
         order.setShippingProvinceName(newAddress.getProvinceName());
         order.setShippingFee(newFee);
-        order.setTotalAmount(order.getSubtotal().add(newFee));
+        // Phải trừ lại discountAmount: đơn có voucher mà tính total = subtotal + ship sẽ "mất"
+        // phần giảm và người mua bị đòi thêm tiền khi đổi địa chỉ.
+        order.setTotalAmount(order.getSubtotal().add(newFee).subtract(nullToZero(order.getDiscountAmount())));
         order.setAddressChangedAt(Instant.now());
         orderRepository.save(order);
 
@@ -1224,6 +1266,16 @@ public class OrderServiceImpl implements OrderService {
                     "Hoa hồng đơn " + order.getOrderNo());
         }
 
+        // Chi phí khuyến mãi của đơn này - ghi CÙNG LÚC với COMMISSION_REVENUE, không ghi lúc đặt
+        // đơn (đơn có thể bị hủy). Số tiền là discount_amount của CHÍNH đơn này, không phải tổng
+        // của cả lô dùng cùng mã (§12.6 điểm 4).
+        BigDecimal discount = nullToZero(order.getDiscountAmount());
+        if (discount.signum() > 0) {
+            recordPlatformPromotionCost(discount, order,
+                    "Khuyến mãi đơn " + order.getOrderNo()
+                            + (order.getVoucher() == null ? "" : " (" + order.getVoucher().getCode() + ")"));
+        }
+
         order.setPayoutAt(Instant.now());
         orderRepository.save(order);
     }
@@ -1488,6 +1540,8 @@ public class OrderServiceImpl implements OrderService {
         String note = "Hoàn tiền do vận chuyển GHN lỗi - đơn " + order.getOrderNo()
                 + (StringUtils.hasText(reason) ? " (" + reason + ")" : "");
         refundBuyerAndCancel(order, CancelReason.CARRIER_FAILED, note);
+        // Hệ thống hủy, người mua không có lỗi -> trả mã về ví nếu mã còn hạn (§12.4)
+        releaseVoucherIfAllOrdersCancelled(order);
 
         log.info(">>>> Tu huy don do GHN loi: orderNo={}, reason={}", order.getOrderNo(), reason);
     }
@@ -1694,6 +1748,140 @@ public class OrderServiceImpl implements OrderService {
         return product;
     }
 
+    // ================================================================ Voucher (§12)
+
+    /**
+     * Kết quả áp mã cho một lần thanh toán. {@code voucher == null} nghĩa là không dùng mã, và mọi
+     * {@link #discountOf} trả 0 - nhánh này phải không đổi hành vi so với trước khi có voucher.
+     */
+    private record VoucherApplication(
+            com.rehome.rehome.entity.membership.MemberVoucher voucher,
+            String code,
+            String name,
+            Map<String, BigDecimal> discountByProductId) {
+
+        static VoucherApplication none() {
+            return new VoucherApplication(null, null, null, Map.of());
+        }
+
+        BigDecimal discountOf(String productId) {
+            return discountByProductId.getOrDefault(productId, BigDecimal.ZERO);
+        }
+    }
+
+    /**
+     * Kiểm tra mã, tính mức giảm cho cả lô đơn, phân bổ về từng đơn và đánh dấu mã {@code USED}.
+     *
+     * <p><b>Chống race</b>: khóa dòng voucher bằng {@code findByCodeForUpdate} rồi <b>đọc lại
+     * status trong lock</b> mới set USED. Không khóa thì hai request đặt hàng song song cùng dùng
+     * một mã sẽ cùng vượt qua bước kiểm tra - đúng loại lỗi đã tránh ở
+     * {@code ProductRepository.findByIdForUpdate} và {@code WalletRepository.findByMemberIdForUpdate}.
+     * Toàn bộ nằm trong transaction của {@code createOrders} nên mã và đơn commit/rollback cùng nhau.
+     */
+    private VoucherApplication applyVoucher(String voucherCode, Account buyer,
+                                            List<Product> products, List<BigDecimal> shippingFees) {
+        if (!StringUtils.hasText(voucherCode)) {
+            return VoucherApplication.none();
+        }
+
+        MemberVoucher voucher = memberVoucherRepository.findByCodeForUpdate(voucherCode.trim())
+                .orElseThrow(() -> new AppException(ErrorCode.VOUCHER_NOT_FOUND));                   // 404
+
+        List<VoucherCalculator.OrderLine> lines = new ArrayList<>(products.size());
+        BigDecimal totalSubtotal = BigDecimal.ZERO;
+        for (int i = 0; i < products.size(); i++) {
+            Product product = products.get(i);
+            lines.add(new VoucherCalculator.OrderLine(
+                    product.getId(),
+                    product.getCurrentPrice(),
+                    shippingFees.get(i),
+                    product.getCurrentPrice(),
+                    commissionRateForTerm(product)));
+            totalSubtotal = totalSubtotal.add(product.getCurrentPrice());
+        }
+
+        // B1/C1: quyền sở hữu, trạng thái (đọc lại TRONG lock), hạn dùng, và min_order_amount so
+        // với TỔNG subtotal của cả lần thanh toán - không phải từng đơn
+        voucherCalculator.assertUsable(voucher, buyer.getId(), totalSubtotal, Instant.now());
+
+        VoucherCalculator.Result result = voucherCalculator.calculate(voucher, lines, true);
+
+        Map<String, BigDecimal> byProduct = new LinkedHashMap<>();
+        for (VoucherCalculator.Allocation allocation : result.allocations()) {
+            byProduct.put(allocation.orderKey(), allocation.discount());
+        }
+
+        voucher.setStatus(MemberVoucherStatus.USED);
+        voucher.setUsedAt(Instant.now());
+        memberVoucherRepository.save(voucher);
+
+        log.info(">>>> Ap voucher {} cho {} don cua buyerId={}: tong giam {}",
+                voucher.getCode(), lines.size(), buyer.getId(), result.totalDiscount());
+
+        return new VoucherApplication(voucher, voucher.getCode(),
+                voucher.getVoucherTemplate().getName(), byProduct);
+    }
+
+    /**
+     * Trả mã về {@code UNUSED} khi đơn không thành (§12.4).
+     *
+     * <p><b>Chỉ trả khi TẤT CẢ đơn mang mã đó đều đã hủy.</b> Còn một đơn chưa hủy thì mã vẫn
+     * {@code USED}, và phần giảm của đơn bị hủy <b>không</b> được chuyển sang đơn còn lại - người
+     * mua đã chốt số tiền của từng đơn lúc đặt.
+     *
+     * <p>Mã đã hết hạn tại thời điểm trả thì đặt {@code EXPIRED}, không trả về {@code UNUSED}:
+     * trả lại một mã không còn dùng được chỉ làm ví voucher hiện sai.
+     *
+     * <p>Bảng quyết định:
+     * <ul>
+     *   <li>Quá hạn thanh toán / GHN lỗi / người mua hủy đơn {@code PENDING_PAYMENT} -> <b>trả mã</b>
+     *       (người mua không có lỗi, hoặc chưa thu tiền).</li>
+     *   <li>Người mua hủy đơn {@code PAID}, hoặc trả hàng sau khi đã giao -> <b>KHÔNG trả mã</b>
+     *       (tránh đặt rồi hủy liên tục để xoay vòng một mã).</li>
+     * </ul>
+     */
+    private void releaseVoucherIfAllOrdersCancelled(Order cancelledOrder) {
+        MemberVoucher voucher = cancelledOrder.getVoucher();
+        if (voucher == null) {
+            return;
+        }
+
+        // Bỏ mã khỏi đơn bị hủy trước, để vòng kiểm tra bên dưới không đếm chính nó
+        cancelledOrder.setVoucher(null);
+        cancelledOrder.setDiscountAmount(BigDecimal.ZERO);
+        orderRepository.save(cancelledOrder);
+
+        for (Order sibling : orderRepository.findAllByVoucher_Id(voucher.getId())) {
+            if (sibling.getStatus() != OrderStatus.CANCELLED) {
+                log.info(">>>> Chua tra ma {}: don {} trong cung lo van con trang thai {}",
+                        voucher.getCode(), sibling.getOrderNo(), sibling.getStatus());
+                return;
+            }
+        }
+
+        MemberVoucher locked = memberVoucherRepository.findByCodeForUpdate(voucher.getCode())
+                .orElse(null);
+        if (locked == null || locked.getStatus() != MemberVoucherStatus.USED) {
+            return;
+        }
+
+        if (!locked.getExpiresAt().isAfter(Instant.now())) {
+            locked.setStatus(MemberVoucherStatus.EXPIRED);
+        } else {
+            locked.setStatus(MemberVoucherStatus.UNUSED);
+            locked.setUsedAt(null);
+        }
+        memberVoucherRepository.save(locked);
+        log.info(">>>> Tra ma {} ve trang thai {} sau khi moi don trong lo da huy",
+                locked.getCode(), locked.getStatus());
+    }
+
+    // Dòng orders cũ (trước khi có cột discount_amount) đọc ra null tới khi
+    // scripts/backfill-order-discount-amount.sql được chạy trên Postgres
+    private static BigDecimal nullToZero(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
+    }
+
     private BigDecimal commissionRateForTerm(Product product) {
         ConsignmentReceipt receipt = product.getConsignmentReceipt();
         return switch (product.getCurrentTerm()) {
@@ -1746,6 +1934,37 @@ public class OrderServiceImpl implements OrderService {
                 .note(note)
                 .build();
         walletTransactionRepository.save(revenueTransaction);
+    }
+
+    /**
+     * Chi phí khuyến mãi khi một đơn có voucher hoàn tất: 1 dòng PLATFORM <b>âm</b>, không có dòng
+     * Member đối ứng và <b>không đổi số dư quỹ</b> - giống hệt cách {@code COMMISSION_REVENUE} làm.
+     * Phần giảm chưa bao giờ vào quỹ (người mua đã trả ít hơn ngay từ lúc thanh toán), nên dòng này
+     * chỉ để báo cáo biết nền tảng đã chi bao nhiêu cho khuyến mãi.
+     *
+     * <p>Vì vậy {@code VOUCHER_DISCOUNT} phải nằm trong danh sách loại bị bỏ qua khi đối soát quỹ -
+     * xem {@code AdminReportQueryRepository.REVENUE_RECOGNITION_TYPES}.
+     */
+    private void recordPlatformPromotionCost(BigDecimal amount, Order order, String note) {
+        if (amount == null || amount.signum() <= 0) {
+            return;
+        }
+        PlatformFund fund = getOrCreatePlatformFund();
+        if (fund.getId() == null) {
+            platformFundRepository.save(fund);
+        }
+
+        walletTransactionRepository.save(WalletTransaction.builder()
+                .transactionNo(generateTransactionNo())
+                .walletType(WalletType.PLATFORM)
+                .walletId(fund.getId())
+                .type(WalletTransactionType.VOUCHER_DISCOUNT)
+                .amount(amount.negate())
+                .balanceAfter(fund.getBalance())
+                .relatedOrder(order)
+                .status(TransactionStatus.SUCCESS)
+                .note(note)
+                .build());
     }
 
     // F-039: mỗi bút toán ví Member phải có một bút toán đối ứng ở quỹ nền tảng, ngược dấu, để sổ sách luôn cân

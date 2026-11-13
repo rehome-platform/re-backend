@@ -57,6 +57,19 @@ public class NotificationServiceImpl implements NotificationService {
     @Transactional
     public void notify(Account recipientAccount, NotificationType type, String title, String body,
                         NotificationTargetType targetType, UUID targetId, UUID warehouseId) {
+        saveAndSend(recipientAccount, type, title, body, targetType,
+                targetId == null ? null : targetId.toString(), warehouseId);
+    }
+
+    @Override
+    @Transactional
+    public void notifyProduct(Account recipientAccount, NotificationType type, String title, String body,
+                              String productId, UUID warehouseId) {
+        saveAndSend(recipientAccount, type, title, body, NotificationTargetType.PRODUCT, productId, warehouseId);
+    }
+
+    private void saveAndSend(Account recipientAccount, NotificationType type, String title, String body,
+                             NotificationTargetType targetType, String targetId, UUID warehouseId) {
         Notification notification = Notification.builder()
                 .recipientAccount(recipientAccount)
                 .type(type)
@@ -93,7 +106,7 @@ public class NotificationServiceImpl implements NotificationService {
                         .title(title)
                         .body(body)
                         .targetType(targetType)
-                        .targetId(targetId)
+                        .targetId(targetId == null ? null : targetId.toString())
                         .createdAt(now)
                         .build())
                 .toList();
@@ -135,7 +148,7 @@ public class NotificationServiceImpl implements NotificationService {
         data.put("notificationId", notification.getId().toString());
         data.put("type", notification.getType().name());
         data.put("targetType", notification.getTargetType() == null ? "" : notification.getTargetType().name());
-        data.put("targetId", notification.getTargetId() == null ? "" : notification.getTargetId().toString());
+        data.put("targetId", notification.getTargetId() == null ? "" : notification.getTargetId());
         return data;
     }
 
@@ -147,7 +160,7 @@ public class NotificationServiceImpl implements NotificationService {
                 .message(notification.getBody())
                 .isRead(Boolean.TRUE.equals(notification.getIsRead()))
                 .targetType(notification.getTargetType() == null ? null : notification.getTargetType().name())
-                .targetId(notification.getTargetId() == null ? null : notification.getTargetId().toString())
+                .targetId(notification.getTargetId())
                 .warehouseId(notification.getWarehouseId() == null ? null : notification.getWarehouseId().toString())
                 .createdAt(notification.getCreatedAt())
                 .build();

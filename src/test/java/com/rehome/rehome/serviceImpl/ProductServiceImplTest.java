@@ -4,6 +4,13 @@ import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.dto.request.CreateProductRequest;
 import com.rehome.rehome.dto.request.PriceReductionRequest;
 import com.rehome.rehome.dto.response.*;
+import com.rehome.rehome.dto.request.DonateProductRequest;
+import com.rehome.rehome.entity.auth.OrganizationProfile;
+import com.rehome.rehome.entity.enums.CampaignStatus;
+import com.rehome.rehome.entity.enums.DegradedItemChoice;
+import com.rehome.rehome.entity.enums.EndOfTermChoice;
+import com.rehome.rehome.entity.marketplace.Campaign;
+import com.rehome.rehome.service.ItemWithdrawalRequestService;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.DonationStatus;
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
@@ -93,10 +100,14 @@ class ProductServiceImplTest {
     // donate() (POST /products/{id}/donate)
     @Mock MemberProfileRepository memberProfileRepository;
     @Mock DonationRepository donationRepository;
+    @Mock com.rehome.rehome.repository.CampaignRepository campaignRepository;
+    @Mock com.rehome.rehome.service.ItemWithdrawalRequestService itemWithdrawalRequestService;
     @Mock com.rehome.rehome.service.QueueService queueService;
     @Mock com.rehome.rehome.service.NotificationService notificationService;
+    @Mock com.rehome.rehome.component.AuditLogger auditLogger;
     // Ưu tiên hiển thị "Nổi bật" của gói VIP - mock không làm gì = Member không có gói
     @Mock com.rehome.rehome.component.FeaturedListingManager featuredListingManager;
+
 
     @InjectMocks ProductServiceImpl service;
 
@@ -1428,9 +1439,24 @@ class ProductServiceImplTest {
         assertEquals(3, res.getTotalPages());
     }
 
+
     // =====================================================================
     // donate() - POST /products/{id}/donate
     // =====================================================================
+
+    private final DonateProductRequest donationRequest = new DonateProductRequest(UUID.randomUUID(), true);
+
+    private void stubReceivingCampaign() {
+        Campaign campaign = Campaign.builder()
+                .id(donationRequest.campaignId())
+                .title("Campaign")
+                .status(CampaignStatus.OPEN)
+                .endTime(Instant.now().plusSeconds(3600))
+                .warehouses(java.util.Set.of(product.getWarehouse()))
+                .organization(OrganizationProfile.builder().displayName("Organization").build())
+                .build();
+        when(campaignRepository.findById(donationRequest.campaignId())).thenReturn(Optional.of(campaign));
+    }
 
     private void stubDonationSaveAssignsId() {
         when(donationRepository.save(any())).thenAnswer(invocation -> {
@@ -1448,18 +1474,24 @@ class ProductServiceImplTest {
         product.setWarehouse(warehouse);
         stubFindProduct();
         stubDonationSaveAssignsId();
+        stubReceivingCampaign();
 
-        DonationResponse res = service.donate(owner, PRODUCT_ID);
+        DonateProductResponse res = service.donate(owner, PRODUCT_ID, donationRequest);
 
         assertEquals(ProductStatus.DONATED, product.getStatus());
         verify(productRepository).save(product);
         verify(donationRepository).save(any());
-        verify(queueService).enqueue(eq(com.rehome.rehome.entity.enums.QueueType.DONATION_PICKUP),
+        verify(queueService).enqueue(eq(com.rehome.rehome.entity.enums.QueueType.DONATION_PREP),
                 anyString(), eq(warehouse));
         verify(endOfTermDecisionRepository, never()).findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc(any());
         verify(itemWithdrawalRequestRepository, never()).save(any());
-        assertEquals(PRODUCT_ID, res.getProductId());
-        assertEquals(DonationStatus.PENDING_PICKUP.name(), res.getStatus());
+        assertEquals(PRODUCT_ID, res.productId());
+        assertEquals(ProductStatus.DONATED, res.productStatus());
+        assertEquals(donationRequest.campaignId(), res.campaignId());
+        verify(donationRepository).save(argThat(donation -> Boolean.TRUE.equals(donation.getIsAnonymous())
+                && donation.getDonorName() == null
+                && donationRequest.campaignId().equals(donation.getCampaign().getId())
+                && donation.getStatus() == DonationStatus.PENDING_PICKUP));
     }
 
     @Test
@@ -1469,12 +1501,13 @@ class ProductServiceImplTest {
         product.setWarehouse(Warehouse.builder().id(UUID.randomUUID()).build());
         stubFindProduct();
         stubDonationSaveAssignsId();
+        stubReceivingCampaign();
 
         EndOfTermDecision decision = EndOfTermDecision.builder().id(UUID.randomUUID()).product(product).build();
-        when(endOfTermDecisionRepository.findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc(PRODUCT_ID))
-                .thenReturn(Optional.of(decision));
+        when(endOfTermDecisionRepository.findByProductIds(List.of(PRODUCT_ID)))
+                .thenReturn(List.of(decision));
 
-        service.donate(owner, PRODUCT_ID);
+        service.donate(owner, PRODUCT_ID, donationRequest);
 
         assertEquals(com.rehome.rehome.entity.enums.EndOfTermChoice.DONATE, decision.getDecision());
         assertNotNull(decision.getDecidedAt());
@@ -1489,6 +1522,7 @@ class ProductServiceImplTest {
         product.setWarehouse(warehouse);
         stubFindProduct();
         stubDonationSaveAssignsId();
+        stubReceivingCampaign();
 
         ItemWithdrawalRequest withdrawal = ItemWithdrawalRequest.builder()
                 .id(UUID.randomUUID())
@@ -1497,10 +1531,11 @@ class ProductServiceImplTest {
         when(itemWithdrawalRequestRepository.findFirstByProduct_IdAndStatusIn(eq(PRODUCT_ID), any()))
                 .thenReturn(Optional.of(withdrawal));
 
-        service.donate(owner, PRODUCT_ID);
+        service.donate(owner, PRODUCT_ID, donationRequest);
 
-        assertEquals(ItemWithdrawalStatus.CANCELLED, withdrawal.getStatus());
-        verify(itemWithdrawalRequestRepository).save(withdrawal);
+        assertEquals(ItemWithdrawalStatus.CONVERTED_TO_DONATION, withdrawal.getStatus());
+        verify(itemWithdrawalRequestRepository).saveAndFlush(withdrawal);
+        verify(itemWithdrawalRequestService).refundDonationFee(withdrawal);
         verify(queueService).dequeue(com.rehome.rehome.entity.enums.QueueType.WITHDRAWAL,
                 withdrawal.getId().toString());
     }
@@ -1519,7 +1554,7 @@ class ProductServiceImplTest {
         when(itemWithdrawalRequestRepository.findFirstByProduct_IdAndStatusIn(eq(PRODUCT_ID), any()))
                 .thenReturn(Optional.of(withdrawal));
 
-        assertError(ErrorCode.DONATE_WITHDRAWAL_PENDING_APPROVAL, () -> service.donate(owner, PRODUCT_ID));
+        assertError(ErrorCode.WITHDRAWAL_PENDING_APPROVAL, () -> service.donate(owner, PRODUCT_ID, donationRequest));
         verify(donationRepository, never()).save(any());
     }
 
@@ -1529,7 +1564,7 @@ class ProductServiceImplTest {
         product.setStatus(ProductStatus.SOLD);
         stubFindProduct();
 
-        assertError(ErrorCode.PRODUCT_NOT_DONATABLE, () -> service.donate(owner, PRODUCT_ID));
+        assertError(ErrorCode.PRODUCT_NOT_DONATABLE, () -> service.donate(owner, PRODUCT_ID, donationRequest));
         verify(donationRepository, never()).save(any());
     }
 
@@ -1539,7 +1574,58 @@ class ProductServiceImplTest {
         stubFindProduct();
         Account stranger = Account.builder().id(UUID.randomUUID()).role(Role.MEMBER).build();
 
-        assertError(ErrorCode.PRODUCT_DONATE_FORBIDDEN, () -> service.donate(stranger, PRODUCT_ID));
+        assertError(ErrorCode.PRODUCT_FORBIDDEN, () -> service.donate(stranger, PRODUCT_ID, donationRequest));
         verify(donationRepository, never()).save(any());
     }
+    @Test
+    void donate_takeBackBeforeHandover_replacesDecision() {
+        product.setStatus(ProductStatus.WITHDRAWN);
+        product.setWarehouse(Warehouse.builder().id(UUID.randomUUID()).build());
+        stubFindProduct();
+        stubDonationSaveAssignsId();
+        stubReceivingCampaign();
+        EndOfTermDecision decision = EndOfTermDecision.builder()
+                .product(product).decision(EndOfTermChoice.TAKE_BACK).decidedAt(Instant.now()).build();
+        when(endOfTermDecisionRepository.findByProductIds(List.of(PRODUCT_ID))).thenReturn(List.of(decision));
+
+        service.donate(owner, PRODUCT_ID, donationRequest);
+
+        assertEquals(EndOfTermChoice.DONATE, decision.getDecision());
+        assertNull(decision.getTakenBackAt());
+        verify(auditLogger).log(eq(owner), eq("DONATE_CONSIGNED_ITEM"), eq("PRODUCT"), eq(PRODUCT_ID),
+                argThat(detail -> detail.get("caseType").asText().equals("C2")));
+    }
+
+    @Test
+    void donate_degradedPickupBeforeHandover_keepsCompensation() {
+        product.setStatus(ProductStatus.WITHDRAWN);
+        product.setWarehouse(Warehouse.builder().id(UUID.randomUUID()).build());
+        stubFindProduct();
+        stubDonationSaveAssignsId();
+        stubReceivingCampaign();
+        BigDecimal compensation = new BigDecimal("50000");
+        DegradedItemCase degraded = DegradedItemCase.builder().product(product)
+                .choice(DegradedItemChoice.PARTIAL_WITH_ITEM_BACK).paidAmount(compensation)
+                .decidedAt(Instant.now()).build();
+        when(degradedItemCaseRepository.findFirstByProduct_IdOrderByCreatedAtDesc(PRODUCT_ID))
+                .thenReturn(Optional.of(degraded));
+
+        service.donate(owner, PRODUCT_ID, donationRequest);
+
+        assertTrue(degraded.isItemDonated());
+        assertNull(degraded.getPickedUpAt());
+        assertEquals(compensation, degraded.getPaidAmount());
+        verify(auditLogger).log(eq(owner), eq("DONATE_CONSIGNED_ITEM"), eq("PRODUCT"), eq(PRODUCT_ID),
+                argThat(detail -> detail.get("caseType").asText().equals("C3")));
+    }
+
+    @Test
+    void donate_warehouseWithoutEndOfTermDecision_rejectsProduct() {
+        product.setStatus(ProductStatus.WAREHOUSE);
+        stubFindProduct();
+
+        assertError(ErrorCode.PRODUCT_NOT_DONATABLE, () -> service.donate(owner, PRODUCT_ID, donationRequest));
+        verify(donationRepository, never()).save(any());
+    }
+
 }

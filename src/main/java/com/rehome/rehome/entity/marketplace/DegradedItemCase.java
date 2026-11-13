@@ -86,9 +86,17 @@ public class DegradedItemCase {
     @Column(name = "last_reminder_sent_at", nullable = true)
     private Instant lastReminderSentAt;
 
+    @Column(nullable = false)
+    @org.hibernate.annotations.ColumnDefault("false")
+    private boolean itemDonated;
+
     @PrePersist
     private void onCreate() {
         Instant now = Instant.now();
         if (createdAt == null) createdAt = now;
     }
+    @Version
+    @Column(nullable = false)
+    @org.hibernate.annotations.ColumnDefault("0")
+    private long version;
 }

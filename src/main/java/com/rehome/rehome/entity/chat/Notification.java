@@ -48,7 +48,7 @@ public class Notification {
 
     // Khóa đa hình giống targetType, không đặt FK vì tuỳ loại trỏ bảng khác nhau (giống ViolationReport)
     @Column(name = "target_id", nullable = true)
-    private UUID targetId;
+    private String targetId;
 
     // DONATION_RECORDED: kho đã ghi nhận lượt quyên góp, để app mở đúng màn chờ lấy của kho đó (OC-07).
     // Tách riêng khỏi targetId vì không phải một phần khóa đa hình (campaignId mới là target)

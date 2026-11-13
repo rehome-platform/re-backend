@@ -148,4 +148,8 @@ public class Product implements Persistable<String> {
     void markNotNew() {
         this.isNew = false;
     }
+    @Version
+    @Column(nullable = false)
+    @org.hibernate.annotations.ColumnDefault("0")
+    private long version;
 }

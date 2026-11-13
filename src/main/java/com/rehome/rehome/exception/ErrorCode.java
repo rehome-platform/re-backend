@@ -60,7 +60,7 @@ public enum ErrorCode {
     NOT_MEMBER_CREATE_FORM(HttpStatus.FORBIDDEN, "Chỉ tài khoản member mới được tạo form ký gửi."),
     // API 23 - giảm giá sản phẩm (F-025, F-026)
     INVALID_NEW_PRICE(HttpStatus.BAD_REQUEST, "Giá mới phải thấp hơn giá hiện tại."),
-    PRODUCT_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền giảm giá sản phẩm này."),
+    PRODUCT_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền thao tác với sản phẩm này."),
     PRODUCT_NOT_ON_SALE(HttpStatus.CONFLICT, "Chỉ giảm giá được sản phẩm đang bán."),
     BELOW_FLOOR_PRICE(HttpStatus.CONFLICT, "BELOW_FLOOR_PRICE: giá mới không được thấp hơn giá sàn."),
     PRICE_CHANGE_LIMIT_REACHED(HttpStatus.CONFLICT, "PRICE_CHANGE_LIMIT_REACHED: sản phẩm đã đạt số lần giảm giá tối đa trong ngày."),
@@ -213,10 +213,12 @@ public enum ErrorCode {
             "Yêu cầu rút hàng không còn ở trạng thái chờ duyệt."),
 
     // POST /products/{id}/donate: Member quyên góp sản phẩm ký gửi
+    CAMPAIGN_NOT_ACCEPTING(HttpStatus.CONFLICT, "Chiến dịch hiện không nhận quyên góp."),
+    CAMPAIGN_HIDDEN(HttpStatus.CONFLICT, "Chiến dịch đang bị ẩn."),
+    CAMPAIGN_NOT_AT_WAREHOUSE(HttpStatus.CONFLICT, "Chiến dịch không nhận đồ tại kho đang giữ sản phẩm."),
     PRODUCT_NOT_DONATABLE(HttpStatus.CONFLICT,
             "Sản phẩm không ở trạng thái có thể quyên góp."),
-    PRODUCT_DONATE_FORBIDDEN(HttpStatus.FORBIDDEN, "Bạn không có quyền quyên góp sản phẩm này."),
-    DONATE_WITHDRAWAL_PENDING_APPROVAL(HttpStatus.CONFLICT,
+    WITHDRAWAL_PENDING_APPROVAL(HttpStatus.CONFLICT,
             "Yêu cầu rút hàng đang chờ Moderator duyệt, chưa thể quyên góp sản phẩm này."),
 
     // API 95 - F-036: Member quyết định cách xử lý hàng xuống cấp

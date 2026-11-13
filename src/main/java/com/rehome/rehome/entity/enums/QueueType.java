@@ -11,5 +11,6 @@ public enum QueueType {
     WITHDRAWAL,
     // Member quyên góp sản phẩm ký gửi (POST /products/{id}/donate) - Moderator của kho giữ hàng
     // cần biết để đến lấy món, refId là id của Donation. Đóng ở DonationServiceImpl.handoverDonations.
-    DONATION_PICKUP
+    DONATION_PICKUP,
+    DONATION_PREP
 }

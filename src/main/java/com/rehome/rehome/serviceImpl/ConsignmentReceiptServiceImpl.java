@@ -125,6 +125,9 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
     }
 
     private void activateReConsignedProduct(Product product, ConsignmentReceipt newReceipt, Instant now) {
+        if (product.getStatus() == ProductStatus.DONATED) {
+            throw new AppException(ErrorCode.PRODUCT_NOT_DONATABLE);
+        }
         product.setConsignmentReceipt(newReceipt);
         product.setCurrentPrice(newReceipt.getAgreedPrice());
         product.setCurrentTerm((short) 1);

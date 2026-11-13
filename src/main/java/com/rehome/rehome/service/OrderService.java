@@ -6,6 +6,7 @@ import com.rehome.rehome.dto.request.PayOrdersRequest;
 import com.rehome.rehome.dto.request.RateOrderRequest;
 import com.rehome.rehome.dto.request.UpdateOrderShippingAddressRequest;
 import com.rehome.rehome.dto.response.CreateShipmentResponse;
+import com.rehome.rehome.dto.response.ShipmentLabelResponse;
 import com.rehome.rehome.dto.response.OrderCancelResponse;
 import com.rehome.rehome.dto.response.OrderConfirmReceiptResponse;
 import com.rehome.rehome.dto.response.OrderDetailResponse;
@@ -67,6 +68,9 @@ public interface OrderService {
 
     // API 70 (F-127) - Moderator tạo vận đơn GHN sau khi đã quét đủ món
     CreateShipmentResponse createShipment(UUID orderId);
+
+    // Moderator lấy link in phiếu vận đơn GHN (A5 | 80x80 | 52x70) để dán lên kiện hàng
+    ShipmentLabelResponse getShipmentLabel(UUID orderId, String size);
 
     // API 64 (F-060) - Member xem lịch sử vận chuyển đồng bộ từ GHN
     OrderTrackingResponse getTracking(String email, UUID orderId);

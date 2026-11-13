@@ -43,6 +43,12 @@ public class MyProductResponse {
     private DegradedCaseRef degradedCase;
     private BigDecimal expectedPayout;
 
+    // Quyền lợi "ưu tiên hiển thị" của gói VIP: featured = featuredUntil > now().
+    // Trả cả mốc hết hạn để M-09 hiện banner "...đến {ngày hết hạn}".
+    // Hệ thống tự bật/tắt, KHÔNG có API cho Member bật/tắt từng món.
+    private boolean featured;
+    private Instant featuredUntil;
+
     // Điều khoản kỳ ký gửi, lấy từ biên nhận của món (mục 22)
     private Integer termLengthDays;
     private Integer maxRenewals;

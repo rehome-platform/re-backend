@@ -71,6 +71,10 @@ public class SecurityConfig {
                                 "/api/auth/logout").authenticated()
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/warehouses").permitAll()
+                        // Bảng giá gói thành viên: khách chưa đăng nhập cũng phải xem được để
+                        // quyết định có đăng ký hay không (màn M-01 mở từ trang giới thiệu).
+                        // Rule hẹp này phải đứng TRƯỚC /memberships/** (mọi API khác cần MEMBER).
+                        .requestMatchers(HttpMethod.GET, "/memberships/plans").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
                         // F-139: giấy tờ pháp lý tổ chức từng được lưu ở storage và serve công khai
                         // tại /files/organization-documents/**. Giờ chúng nằm trong DB và chỉ ra qua

@@ -1,6 +1,7 @@
 package com.rehome.rehome.controller;
 
 import com.rehome.rehome.dto.request.CreateTryOnImageRequest;
+import com.rehome.rehome.dto.response.AiTryOnQuotaResponse;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.TryOnImageResponse;
@@ -8,6 +9,7 @@ import com.rehome.rehome.dto.response.TryOnSuggestionResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.service.MembershipService;
 import com.rehome.rehome.service.TryOnService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +27,27 @@ import java.util.UUID;
 public class TryOnController {
 
     private final TryOnService tryOnService;
+    private final MembershipService membershipService;
+
+    /**
+     * §8.8 - hạn mức phối đồ AI (ảnh tĩnh) theo gói thành viên, tính theo NGÀY.
+     *
+     * <p>Đặt cạnh {@code POST /tryon/images} chứ không ở nhóm {@code /memberships} để màn phòng
+     * phối đồ (M-06) chỉ gọi một nhóm API, và để song song với {@code GET /tryon/live/quota}.
+     *
+     * <p>Mobile gọi trước khi bấm "Sinh ảnh" để hiện "Còn X/{limitPerDay} lượt hôm nay", và dùng
+     * {@code upsellTier} để hiện nút "Nâng cấp" trong dialog lỗi 429 TRYON_IMAGE_QUOTA_EXCEEDED.
+     */
+    @GetMapping("/quota")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<AiTryOnQuotaResponse>> getQuota(
+            @AuthenticationPrincipal Account account) {
+
+        if (account == null) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+        return ResponseEntity.ok(ApiResponse.success(membershipService.getAiTryOnQuota(account)));
+    }
 
     // API 97 (F-072..F-079): sinh ảnh thử đồ. Gọi đồng bộ, có thể mất vài chục giây vì chờ AI.
     @PostMapping("/images")

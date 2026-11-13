@@ -85,7 +85,21 @@ public class Order {
     @Column(name = "shipping_fee", nullable = false, precision = 19, scale = 2)
     private BigDecimal shippingFee;
 
-    // Số tiền người mua trả = subtotal + shipping_fee
+    // Mã giảm giá đã dùng cho đơn này. KHÔNG đặt UNIQUE: một mã áp cho cả lần thanh toán nên
+    // nhiều đơn của cùng lần đó chia nhau một mã, mỗi đơn giữ phần discountAmount của mình.
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "voucher_id", nullable = true)
+    private com.rehome.rehome.entity.membership.MemberVoucher voucher;
+
+    // Phần giảm giá của riêng đơn này (nền tảng chịu, KHÔNG trừ vào tiền người ký gửi).
+    // ddl-auto: update thêm cột với NULL cho dòng cũ -> phải chạy
+    // scripts/backfill-order-discount-amount.sql trên Postgres trước khi dựa vào NOT NULL.
+    @Column(name = "discount_amount", nullable = false, precision = 19, scale = 2)
+    @ColumnDefault("0")
+    @Builder.Default
+    private BigDecimal discountAmount = BigDecimal.ZERO;
+
+    // Số tiền người mua trả = subtotal + shipping_fee − discount_amount
     @Column(name = "total_amount", nullable = false, precision = 19, scale = 2)
     private BigDecimal totalAmount;
 

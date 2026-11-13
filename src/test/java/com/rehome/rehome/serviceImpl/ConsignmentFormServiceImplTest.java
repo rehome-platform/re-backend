@@ -1,5 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.component.MembershipQuotaResolver;
+import com.rehome.rehome.entity.enums.MembershipTier;
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.ConsignmentFormRequest;
 import com.rehome.rehome.dto.request.RejectConsignmentFormRequest;
@@ -93,6 +95,7 @@ class ConsignmentFormServiceImplTest {
     private SystemConfigReader systemConfigReader;
     private ConsignmentFormServiceImpl service;
 
+    private MembershipQuotaResolver membershipQuotaResolver;
     private int maxPending = 5;
     private int bringInDays = 2;
 
@@ -122,10 +125,18 @@ class ConsignmentFormServiceImplTest {
             return null;
         });
 
+        // Hạn mức form chờ duyệt giờ đọc theo GÓI THÀNH VIÊN, không còn từ system_configs.
+        // Resolver trả về maxPending hiện tại để từng test đổi được giữa chừng như trước.
+        membershipQuotaResolver = mock(MembershipQuotaResolver.class);
+        when(membershipQuotaResolver.resolve(any())).thenAnswer(inv ->
+                new MembershipQuotaResolver.EffectiveQuota(
+                        null, MembershipTier.FREE, "Thành viên thường",
+                        2, null, 10, 5, null, false, maxPending, null, null));
+
         service = new ConsignmentFormServiceImpl(
                 consignmentFormRepository, categoryRepository, brandRepository, warehouseRepository,
                 photoRepository, consignmentFormMapper, consignmentReceiptRepository,
-                systemConfigReader, accountRepository, queueService);
+                systemConfigReader, membershipQuotaResolver, accountRepository, queueService);
 
         memberId = UUID.randomUUID();
         member = mock(Account.class);

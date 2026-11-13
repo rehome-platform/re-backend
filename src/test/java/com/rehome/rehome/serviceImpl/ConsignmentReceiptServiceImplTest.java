@@ -89,6 +89,10 @@ class ConsignmentReceiptServiceImplTest {
     @Spy
     private SystemConfigReader systemConfigReader = new DefaultConfigReader();
 
+    // Ký gửi lại gắn lại nhãn "Nổi bật" theo gói VIP của chủ món (§8.10)
+    @Mock
+    private com.rehome.rehome.component.FeaturedListingManager featuredListingManager;
+
     @InjectMocks
     private ConsignmentReceiptServiceImpl service;
 

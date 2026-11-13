@@ -25,4 +25,11 @@ public interface TryOnImageRepository extends JpaRepository<TryOnImage, UUID> {
             "bottomProduct", "bottomProduct.warehouse",
             "dressProduct", "dressProduct.warehouse"})
     Optional<TryOnImage> findWithProductsById(UUID id);
+
+    /**
+     * Hạn mức phối đồ AI theo gói: đếm số LƯỢT SINH ẢNH trong khoảng [from, to) giờ VN, tức số
+     * row đã tạo ra ở bảng này - KHÔNG phải số ảnh còn trong bộ sưu tập. Member xóa ảnh không
+     * được hoàn lượt (đặc tả §8.8), nên nếu sau này có xóa mềm thì phải đếm cả dòng đã xóa.
+     */
+    long countByMember_IdAndCreatedAtBetween(UUID memberId, java.time.Instant from, java.time.Instant to);
 }

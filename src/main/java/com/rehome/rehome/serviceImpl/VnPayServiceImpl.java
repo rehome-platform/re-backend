@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.client.VnPayApi;
+import com.rehome.rehome.component.MembershipGatewayPaymentBuilder;
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.QueryVnPayRequest;
 import com.rehome.rehome.dto.response.CreateVnPayResponse;
@@ -16,6 +17,7 @@ import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.PaymentRepository;
 import com.rehome.rehome.service.ItemWithdrawalRequestService;
+import com.rehome.rehome.service.MembershipService;
 import com.rehome.rehome.service.OrderService;
 import com.rehome.rehome.service.VnPayService;
 import lombok.RequiredArgsConstructor;
@@ -64,6 +66,9 @@ public class VnPayServiceImpl implements VnPayService {
     private final PaymentRepository paymentRepository;
     private final OrderService orderService;
     private final ItemWithdrawalRequestService itemWithdrawalRequestService;
+    // Không có phụ thuộc vòng: MembershipServiceImpl mở giao dịch cổng qua
+    // MembershipGatewayPaymentBuilder, không gọi vào service này.
+    private final MembershipService membershipService;
 
     @Override
     @Transactional
@@ -184,7 +189,21 @@ public class VnPayServiceImpl implements VnPayService {
             return new VnPayIpnResult("97", "Invalid signature");
         }
 
-        List<Payment> payments = paymentRepository.findAllByVnpTxnRef(params.get("vnp_TxnRef"));
+        String txnRef = params.get("vnp_TxnRef");
+
+        // Route theo TIỀN TỐ: "SUB-" = mua gói thành viên. Xem MembershipGatewayPaymentBuilder.
+        // Mua gói chỉ mở một giao dịch cho một subscription nên không có bước đối chiếu tổng tiền
+        // của cả lô như đơn hàng; số tiền đã nằm trong membership_payments.
+        if (MembershipGatewayPaymentBuilder.isMembershipRef(txnRef)) {
+            if (membershipService.applyVnPayResult(txnRef, params.get("vnp_ResponseCode"),
+                    params.get("vnp_TransactionNo"))) {
+                return new VnPayIpnResult("00", "Confirm Success");
+            }
+            log.warn(">>>> IPN mua goi cho vnp_TxnRef={} khong khop giao dich nao, bo qua", txnRef);
+            return new VnPayIpnResult("01", "Order not found");
+        }
+
+        List<Payment> payments = paymentRepository.findAllByVnpTxnRef(txnRef);
         if (payments.isEmpty()) {
             // Không phải thanh toán đơn hàng - có thể là phí rút hàng (API 91 / F-033)
             boolean handled = itemWithdrawalRequestService.applyVnPayFeePaymentResult(

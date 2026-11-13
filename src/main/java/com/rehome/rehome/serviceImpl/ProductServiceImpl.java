@@ -3,6 +3,7 @@ package com.rehome.rehome.serviceImpl;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.component.AuditLogger;
+import com.rehome.rehome.component.FeaturedListingManager;
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.CreateProductRequest;
 import com.rehome.rehome.dto.request.DonateProductRequest;
@@ -86,6 +87,7 @@ public class ProductServiceImpl implements ProductService {
     private final QueueService queueService;
     private final NotificationService notificationService;
     private final AuditLogger auditLogger;
+    private final FeaturedListingManager featuredListingManager;
 
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
@@ -131,6 +133,7 @@ public class ProductServiceImpl implements ProductService {
                 .originalPrice(product.getConsignmentReceipt().getAgreedPrice())
                 .currentPrice(product.getCurrentPrice())
                 .isMine(isOwnedBy(product, viewerId))
+                .featured(FeaturedListingManager.isFeatured(product))
                 .build());
 
         return PageResponse.from(mapped);
@@ -201,6 +204,7 @@ public class ProductServiceImpl implements ProductService {
                 .warehouseName(product.getWarehouse().getName())
                 .photos(photos)
                 .isMine(isOwnedBy(product, viewerId))
+                .featured(FeaturedListingManager.isFeatured(product))
                 .build();
     }
 
@@ -638,6 +642,8 @@ public class ProductServiceImpl implements ProductService {
                 .endOfTermDeadline(now.plus(Duration.ofDays(
                         (long) receipt.getTermLengthDays() * (receipt.getMaxRenewals() + 1))))
                 .build();
+
+        featuredListingManager.applyForNewProduct(product);
 
         productRepository.save(product);
         savePhotos(product, request.getPhotoUrls());

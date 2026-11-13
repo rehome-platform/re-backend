@@ -56,6 +56,8 @@ class ProductServiceImplInventoryTest {
     @Mock private DegradedItemCaseRepository degradedItemCaseRepository;
 
     // Các dependency còn lại của ProductServiceImpl không dùng trong test này, Mockito truyền null
+    @Mock private com.rehome.rehome.component.FeaturedListingManager featuredListingManager;
+
     @InjectMocks
     private ProductServiceImpl productService;
 

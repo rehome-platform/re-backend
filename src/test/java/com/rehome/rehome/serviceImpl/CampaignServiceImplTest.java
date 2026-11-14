@@ -65,6 +65,8 @@ class CampaignServiceImplTest {
     @Mock private SystemConfigReader systemConfigReader;
     @Mock private NotificationService notificationService;
 
+    @Mock private com.rehome.rehome.service.ContentModerationService moderation;
+
     @InjectMocks private CampaignServiceImpl service;
 
     private Warehouse warehouse(UUID id, String name) {

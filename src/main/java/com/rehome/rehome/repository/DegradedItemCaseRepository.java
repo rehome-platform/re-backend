@@ -58,6 +58,11 @@ public interface DegradedItemCaseRepository extends JpaRepository<DegradedItemCa
             + "where c.product.id in :productIds and c.choice is null")
     List<DegradedItemCase> findPendingByProductIds(@Param("productIds") List<String> productIds);
 
+    @Query("select c from DegradedItemCase c where c.product.id in :productIds and "
+            + "(c.choice is null or (c.choice = com.rehome.rehome.entity.enums.DegradedItemChoice.PARTIAL_WITH_ITEM_BACK "
+            + "and c.pickedUpAt is null and c.itemDonated = false)) order by c.createdAt desc, c.id desc")
+    List<DegradedItemCase> findOpenByProductIds(@Param("productIds") List<String> productIds);
+
     // Member Tasks (API 27): đã chọn PARTIAL_WITH_ITEM_BACK nhưng chưa đến quầy nhận hàng
     @Query("select c from DegradedItemCase c join fetch c.product p "
             + "where p.member.id = :memberId "

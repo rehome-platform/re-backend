@@ -125,6 +125,8 @@ class OrderServiceImplTest {
     @Mock GhnApi ghnApi;
     @Mock GhnShippingFeeCalculator ghnShippingFeeCalculator;
     @Mock SystemConfigReader systemConfigReader;
+    @Mock private com.rehome.rehome.service.ContentModerationService moderation;
+
     @InjectMocks
     OrderServiceImpl orderService;
 

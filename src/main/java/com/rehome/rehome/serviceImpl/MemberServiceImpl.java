@@ -26,6 +26,7 @@ public class MemberServiceImpl implements MemberService {
 
     private static final Pattern PHONE_PATTERN = Pattern.compile("^0\\d{9}$");
 
+    private final com.rehome.rehome.service.ContentModerationService moderation;
     private final AccountRepository accountRepository;
     private final MemberProfileRepository memberProfileRepository;
 
@@ -58,6 +59,7 @@ public class MemberServiceImpl implements MemberService {
         MemberProfile memberProfile = memberProfileRepository.findByAccountId(account.getId())
                 .orElseThrow(() -> new AppException(ErrorCode.MEMBER_PROFILE_NOT_FOUND));
 
+        moderation.check(memberProfile.getAccountId(), "MEMBER_PROFILE", request.getFullName());
         if (StringUtils.hasText(request.getFullName())) {
             memberProfile.setFullName(request.getFullName().trim());
         }

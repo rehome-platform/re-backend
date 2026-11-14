@@ -136,7 +136,7 @@ class ConsignmentFormServiceImplTest {
         service = new ConsignmentFormServiceImpl(
                 consignmentFormRepository, categoryRepository, brandRepository, warehouseRepository,
                 photoRepository, consignmentFormMapper, consignmentReceiptRepository,
-                systemConfigReader, membershipQuotaResolver, accountRepository, queueService);
+                systemConfigReader, membershipQuotaResolver, accountRepository, queueService, mock(com.rehome.rehome.service.ContentModerationService.class));
 
         memberId = UUID.randomUUID();
         member = mock(Account.class);

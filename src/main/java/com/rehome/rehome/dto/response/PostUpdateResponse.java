@@ -16,6 +16,7 @@ import java.util.List;
 @Builder
 public class PostUpdateResponse {
     private String id;
+    private String status;
     private String content;
     private List<String> photoUrls;
     private String campaignId;

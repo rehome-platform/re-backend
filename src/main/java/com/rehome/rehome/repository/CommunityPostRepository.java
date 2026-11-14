@@ -13,6 +13,9 @@ import java.util.UUID;
 @Repository
 public interface CommunityPostRepository extends JpaRepository<CommunityPost, UUID> {
 
+    Page<CommunityPost> findByReviewStatus(com.rehome.rehome.entity.enums.ContentReviewStatus reviewStatus,
+                                     Pageable pageable);
+
     Page<CommunityPost> findByOrganization_AccountIdAndStatus(UUID organizationId, ContentStatus status, Pageable pageable);
 
     Page<CommunityPost> findByOrganization_AccountIdInAndStatus(Collection<UUID> organizationIds, ContentStatus status, Pageable pageable);

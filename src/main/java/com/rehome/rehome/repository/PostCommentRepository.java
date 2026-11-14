@@ -15,6 +15,9 @@ import java.util.UUID;
 @Repository
 public interface PostCommentRepository extends JpaRepository<PostComment, UUID> {
 
+    Page<PostComment> findByReviewStatus(com.rehome.rehome.entity.enums.ContentReviewStatus reviewStatus,
+                                     Pageable pageable);
+
     // Mọi bình luận của 1 bài, kể cả REMOVED (vẫn trả về, chỉ bỏ content ở tầng response - OB-05)
     long countByPost_Id(UUID postId);
     Page<PostComment> findByPost_Id(UUID postId, Pageable pageable);

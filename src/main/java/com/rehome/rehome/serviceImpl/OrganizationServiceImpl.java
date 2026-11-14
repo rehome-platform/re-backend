@@ -76,6 +76,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     private static final String LEGAL_CHANGE_REQUEST_NOT_FOUND = "Không tìm thấy yêu cầu đổi thông tin.";
     private static final int MAX_PAGE_SIZE = 50;
 
+    private final com.rehome.rehome.service.ContentModerationService moderation;
     private final OrganizationProfileRepository organizationProfileRepository;
     private final OrganizationProfileMapper organizationProfileMapper;
     private final AccountRepository accountRepository;
@@ -93,6 +94,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Override
     @Transactional
     public RegisterOrganizationResponse registerOrganization(UUID accountId, RegisterOrganizationRequest request) {
+        moderation.check(accountId, "ORGANIZATION_PROFILE", request.getDisplayName(), request.getDescription());
         Account account = accountRepository.findById(accountId)
                 .orElseThrow(() -> new AppException(ErrorCode.UNAUTHORIZED));
 
@@ -133,6 +135,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Override
     @Transactional
     public OrganizationResubmitResponse resubmit(Account account, RegisterOrganizationRequest request) {
+        moderation.check(account.getId(), "ORGANIZATION_PROFILE", request.getDisplayName(), request.getDescription());
         OrganizationProfile profile = organizationProfileRepository.findByAccountId(account.getId())
                 .orElseThrow(() -> new AppException(ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND));
 
@@ -340,6 +343,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Transactional
     public OrganizationProfileUpdateResponse updateMyProfile(UUID accountId,
                                                              UpdateOrganizationProfileRequest request) {
+        moderation.check(accountId, "ORGANIZATION_PROFILE", request.getDisplayName(), request.getDescription());
         OrganizationProfile profile = organizationProfileRepository.findById(accountId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND));
 

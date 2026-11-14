@@ -89,6 +89,7 @@ public class ProductServiceImpl implements ProductService {
     private final NotificationService notificationService;
     private final FeaturedListingManager featuredListingManager;
     private final AuditLogger auditLogger;
+    private final FeaturedListingManager featuredListingManager;
 
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
@@ -147,6 +148,44 @@ public class ProductServiceImpl implements ProductService {
                 .build());
 
         return PageResponse.from(mapped);
+    }
+
+    @Override
+    @Transactional
+    public ProductDetailResponse updateProduct(Account moderator, String id,
+                                               com.rehome.rehome.dto.request.UpdateProductRequest request) {
+        Product product = productRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+        if (moderator.getRole() != Role.MODERATOR || moderator.getWarehouse() == null
+                || product.getWarehouse() == null
+                || !moderator.getWarehouse().getId().equals(product.getWarehouse().getId())) {
+            throw new AppException(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);
+        }
+        if ((product.getStatus() != ProductStatus.ON_SALE && product.getStatus() != ProductStatus.WAREHOUSE)
+                || !orderItemRepository.findActiveByProductIds(List.of(id)).isEmpty()) {
+            throw new AppException(ErrorCode.PRODUCT_UPDATE_CONFLICT);
+        }
+
+        product.setName(request.name().strip());
+        productRepository.save(product);
+        List<ProductPhoto> existing = productPhotoRepository.findByProduct_IdOrderByDisplayOrderAscIdAsc(id);
+        Map<String, java.util.ArrayDeque<ProductPhoto>> byUrl = new java.util.HashMap<>();
+        for (ProductPhoto photo : existing) {
+            byUrl.computeIfAbsent(photo.getImageUrl(), key -> new java.util.ArrayDeque<>()).add(photo);
+        }
+        List<ProductPhoto> photos = new ArrayList<>();
+        for (String value : request.photoUrls()) {
+            String url = value.strip();
+            var matches = byUrl.get(url);
+            ProductPhoto photo = matches == null || matches.isEmpty()
+                    ? ProductPhoto.builder().product(product).imageUrl(url).build()
+                    : matches.removeFirst();
+            photo.setDisplayOrder(photos.size());
+            photos.add(photo);
+        }
+        productPhotoRepository.deleteAll(byUrl.values().stream().flatMap(java.util.Collection::stream).toList());
+        productPhotoRepository.saveAll(photos);
+        return getProductDetail(id, moderator.getId());
     }
 
     @Override
@@ -238,7 +277,7 @@ public class ProductServiceImpl implements ProductService {
                         (first, second) -> first));
 
         Map<String, DegradedItemCase> degradedCases = degradedItemCaseRepository
-                .findPendingByProductIds(ids).stream()
+                .findOpenByProductIds(ids).stream()
                 .collect(Collectors.toMap(
                         c -> c.getProduct().getId(),
                         c -> c,
@@ -295,7 +334,7 @@ public class ProductServiceImpl implements ProductService {
                 .findFirst().orElse(null);
 
         DegradedItemCase degradedCase = degradedItemCaseRepository
-                .findPendingByProductIds(List.of(id)).stream()
+                .findOpenByProductIds(List.of(id)).stream()
                 .findFirst().orElse(null);
 
         MyProductResponse response = productMapper.toMyProductDetail(
@@ -405,11 +444,6 @@ public class ProductServiceImpl implements ProductService {
 
         return new PriceReductionResponse(product.getCurrentPrice());
     }
-
-    // POST /products/{id}/donate: Member quyên góp sản phẩm ký gửi thay vì tiếp tục bán/rút về.
-    // Cho phép ở cả 3 trạng thái ON_SALE (đang bán), WAREHOUSE (hết kỳ, chờ chọn TAKE_BACK/RE_CONSIGN)
-    // và WITHDRAWN (đang có yêu cầu rút hàng) - mỗi trạng thái có một việc phải đóng nốt trước khi
-    // chuyển sang DONATED, xem các nhánh dưới đây.
 
     @Override
     @Transactional

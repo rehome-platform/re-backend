@@ -17,6 +17,8 @@ import org.springframework.stereotype.Repository;
 public interface ViolationWordRepository
         extends JpaRepository<ViolationWord, UUID>, JpaSpecificationExecutor<ViolationWord> {
 
+    java.util.List<ViolationWord> findAllByIsActiveTrue();
+
     Page<ViolationWord> findByWordContainingIgnoreCase(String keyword, Pageable pageable);
 
     Page<ViolationWord> findByCategory(ViolationWordCategory category, Pageable pageable);

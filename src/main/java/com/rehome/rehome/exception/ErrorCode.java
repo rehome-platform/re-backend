@@ -129,6 +129,7 @@ public enum ErrorCode {
     // API 44 - lọc danh mục/thương hiệu
     INVALID_STATUS(HttpStatus.BAD_REQUEST, "status không hợp lệ."),
     // API 42 - đổi vị trí kệ
+    PRODUCT_UPDATE_CONFLICT(HttpStatus.CONFLICT, "Trạng thái hoặc đơn hàng hiện tại không cho phép cập nhật sản phẩm."),
     PRODUCT_NOT_IN_YOUR_WAREHOUSE(HttpStatus.FORBIDDEN, "Sản phẩm không thuộc kho bạn quản lý."),
     // API 39 - tem SKU
     SKU_LABEL_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo file PDF tem SKU."),
@@ -250,6 +251,7 @@ public enum ErrorCode {
 
     // API 146 - F-157: Admin chỉnh tham số cấu hình
     CONFIG_KEY_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy tham số."),
+    CONTENT_VIOLATION(HttpStatus.BAD_REQUEST, "Nội dung có từ ngữ không phù hợp. Vui lòng sửa lại."),
     CONFIG_VALUE_INVALID(HttpStatus.UNPROCESSABLE_ENTITY, "Giá trị không hợp lệ cho tham số này."),
 
     // API 148 - F-159: xuất báo cáo dashboard

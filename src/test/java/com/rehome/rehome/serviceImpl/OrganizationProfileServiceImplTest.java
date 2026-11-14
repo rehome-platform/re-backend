@@ -92,6 +92,8 @@ class OrganizationProfileServiceImplTest {
     @Mock private CampaignRepository campaignRepository;
     @Mock private SystemConfigReader systemConfigReader;
 
+    @Mock private com.rehome.rehome.service.ContentModerationService moderation;
+
     @InjectMocks private OrganizationServiceImpl service;
 
     private static final String RAW_EMAIL = "  Org@Mail.COM ";

@@ -34,6 +34,7 @@ public class ViolationWordServiceImpl implements ViolationWordService {
     private static final String TARGET_TYPE = "VIOLATION_WORD";
 
     private final ViolationWordRepository violationWordRepository;
+    private final org.springframework.context.ApplicationEventPublisher events;
     private final AuditLogger auditLogger;
     private final ObjectMapper objectMapper;
 
@@ -70,6 +71,7 @@ public class ViolationWordServiceImpl implements ViolationWordService {
         ViolationWord saved = saveOrConflict(entity);
 
         auditLogger.log(admin, "CREATE_VIOLATION_WORD", TARGET_TYPE, saved.getId().toString(), snapshot(saved));
+        events.publishEvent(new com.rehome.rehome.service.ContentModerationService.WordsChanged());
         return ViolationWordResponse.from(saved);
     }
 
@@ -97,6 +99,7 @@ public class ViolationWordServiceImpl implements ViolationWordService {
         detail.set("before", before);
         detail.set("after", snapshot(saved));
         auditLogger.log(admin, "UPDATE_VIOLATION_WORD", TARGET_TYPE, saved.getId().toString(), detail);
+        events.publishEvent(new com.rehome.rehome.service.ContentModerationService.WordsChanged());
         return ViolationWordResponse.from(saved);
     }
 
@@ -106,6 +109,7 @@ public class ViolationWordServiceImpl implements ViolationWordService {
         ViolationWord entity = findOrThrow(id);
         ObjectNode detail = snapshot(entity);
         violationWordRepository.delete(entity);
+        events.publishEvent(new com.rehome.rehome.service.ContentModerationService.WordsChanged());
         auditLogger.log(admin, "DELETE_VIOLATION_WORD", TARGET_TYPE, id.toString(), detail);
     }
 
@@ -122,6 +126,7 @@ public class ViolationWordServiceImpl implements ViolationWordService {
         detail.put("beforeIsActive", before);
         detail.put("afterIsActive", saved.getIsActive());
         auditLogger.log(admin, "TOGGLE_VIOLATION_WORD", TARGET_TYPE, saved.getId().toString(), detail);
+        events.publishEvent(new com.rehome.rehome.service.ContentModerationService.WordsChanged());
         return ViolationWordResponse.from(saved);
     }
 

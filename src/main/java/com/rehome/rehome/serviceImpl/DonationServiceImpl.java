@@ -69,6 +69,7 @@ public class DonationServiceImpl implements DonationService {
     private static final String INVALID_DONATION_LIST = "Danh sách quyên góp không hợp lệ.";
     private static final int MAX_PAGE_SIZE = 50;
 
+    private final com.rehome.rehome.service.ContentModerationService moderation;
     private final DonationRepository donationRepository;
     private final DonationNoteRepository donationNoteRepository;
     private final WarehouseRepository warehouseRepository;
@@ -363,6 +364,7 @@ public class DonationServiceImpl implements DonationService {
 
     private DonationNoteResponse saveDonationNote(OrganizationProfile organization, Campaign campaign,
                                                    String donorName, boolean anonymous, String note) {
+        moderation.check(organization.getAccountId(), "DONATION_NOTE", note);
         DonationNote donationNote = DonationNote.builder()
                 .organization(organization)
                 .campaign(campaign)

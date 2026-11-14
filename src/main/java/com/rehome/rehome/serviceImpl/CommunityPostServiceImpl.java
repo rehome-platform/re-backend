@@ -17,6 +17,8 @@ import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.CampaignStatus;
 import com.rehome.rehome.entity.enums.ContentStatus;
+import com.rehome.rehome.entity.enums.ContentReviewStatus;
+import com.rehome.rehome.entity.enums.ViolationWordAction;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.entity.enums.Role;
@@ -189,7 +191,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         boolean isOwner = viewerId != null && post.getOrganization().getAccountId().equals(viewerId);
         // REMOVED (Moderator gỡ do vi phạm): chỉ tổ chức sở hữu xem được, kèm lý do gỡ. Member/Guest
         // coi như không tồn tại - giống hành vi với Campaign HIDDEN (CampaignServiceImpl.getPublicDetail)
-        if (post.getStatus() == ContentStatus.REMOVED && !isOwner) {
+        if (post.getStatus() != ContentStatus.VISIBLE && !isOwner) {
             throw new IllegalArgumentException("Không tìm thấy bài viết.");
         }
 
@@ -221,7 +223,8 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                 .likedByMe(likedByMe)
                 .status(post.getStatus().name())
                 .removalReason(isOwner && post.getStatus() == ContentStatus.REMOVED
-                        ? latestResolutionReason(ViolationTargetType.POST, postId)
+                        ? (post.getReviewReason() != null ? post.getReviewReason()
+                                : latestResolutionReason(ViolationTargetType.POST, postId))
                         : null)
                 .build();
     }
@@ -314,6 +317,9 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                 .parent(rootParent)
                 .content(request.getContent())
                 .build();
+        if (moderationAction == ViolationWordAction.AUTO_FLAG) {
+            comment.setReviewStatus(ContentReviewStatus.PENDING_REVIEW);
+        }
         postCommentRepository.save(comment);
         moderation.recordMatch(authorId, "POST_COMMENT", comment.getId(), moderationAction);
 
@@ -437,6 +443,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                 .content(request.getContent())
                 .campaign(campaign)
                 .build();
+        applyPostReview(post, moderationAction);
         communityPostRepository.save(post);
         moderation.recordMatch(organizationAccountId, "POST", post.getId(), moderationAction);
 
@@ -447,10 +454,12 @@ public class CommunityPostServiceImpl implements CommunityPostService {
 
         // UC-44: báo cho người theo dõi tổ chức khi có bài viết mới. Chỉ gửi lúc TẠO, không gửi
         // khi sửa (updatePost không gọi hàm này).
-        notificationService.notifyFollowers(organizationAccountId, NotificationType.FOLLOWED_ORG_POST,
-                organization.getDisplayName() + " có bài viết mới",
-                truncate(request.getContent(), POST_NOTIFICATION_BODY_LENGTH),
-                NotificationTargetType.POST, post.getId());
+        if (post.getStatus() == ContentStatus.VISIBLE) {
+            notificationService.notifyFollowers(organizationAccountId, NotificationType.FOLLOWED_ORG_POST,
+                    organization.getDisplayName() + " có bài viết mới",
+                    truncate(request.getContent(), POST_NOTIFICATION_BODY_LENGTH),
+                    NotificationTargetType.POST, post.getId());
+        }
 
         return PostCreateResponse.builder()
                 .id(post.getId().toString())
@@ -480,6 +489,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         var moderationAction = moderation.evaluate(request.getContent());
         post.setContent(request.getContent());
         post.setCampaign(campaign);
+        applyPostReview(post, moderationAction);
         communityPostRepository.save(post);
         moderation.recordMatch(organizationAccountId, "POST", post.getId(), moderationAction);
 
@@ -491,12 +501,26 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         }
 
         return PostUpdateResponse.builder()
+                .status(post.getStatus().name())
                 .id(post.getId().toString())
                 .content(post.getContent())
                 .photoUrls(photos.stream().map(CommunityPostPhoto::getImageUrl).toList())
                 .campaignId(campaign == null ? null : campaign.getId().toString())
                 .campaignTitle(campaign == null ? null : campaign.getTitle())
                 .build();
+    }
+
+    private static void applyPostReview(CommunityPost post, ViolationWordAction action) {
+        if (action == ViolationWordAction.AUTO_FLAG) {
+            post.setReviewStatus(ContentReviewStatus.PENDING_REVIEW);
+            post.setStatus(ContentStatus.PENDING_REVIEW);
+        } else {
+            post.setReviewStatus(null);
+            post.setReviewReason(null);
+            post.setReviewedAt(null);
+            post.setReviewedBy(null);
+            post.setStatus(ContentStatus.VISIBLE);
+        }
     }
 
     // Giới hạn mobile đang áp (content <= 2000 ký tự, tối đa 5 ảnh) — BE trước đây không kiểm,
@@ -610,7 +634,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                     .reportCount(reportCounts.getOrDefault(post.getId(), 0L))
                     .likedByMe(likedByMePostIds.contains(post.getId()))
                     .status(post.getStatus().name())
-                    .removalReason(removalReasonsByPost.get(post.getId()))
+                    .removalReason(post.getReviewReason() != null ? post.getReviewReason() : removalReasonsByPost.get(post.getId()))
                     .build();
         }));
     }
@@ -659,6 +683,8 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                 // REMOVED: Moderator đã ẩn -> bỏ nội dung, dòng vẫn trả về (OB-05)
                 .content(removed ? null : comment.getContent())
                 .status(comment.getStatus().name())
+                .reviewStatus(comment.getReviewStatus())
+                .reviewReason(authorAccount.getId().equals(viewerId) ? comment.getReviewReason() : null)
                 .author(CommentAuthorResponse.builder()
                         .id(authorAccount.getId().toString())
                         .type(authorInfo != null ? authorInfo.type() : authorAccount.getRole().name())

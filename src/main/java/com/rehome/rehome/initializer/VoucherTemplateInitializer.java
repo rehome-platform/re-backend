@@ -1,5 +1,6 @@
 package com.rehome.rehome.initializer;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import com.rehome.rehome.entity.enums.MembershipTier;
 import com.rehome.rehome.entity.enums.VoucherDiscountKind;
 import com.rehome.rehome.entity.enums.VoucherType;
@@ -33,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 @Order(1)
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.initializer.seed-enabled", havingValue = "true")
 public class VoucherTemplateInitializer implements CommandLineRunner {
 
     private static final String SHIPPING_NAME = "Miễn phí vận chuyển";

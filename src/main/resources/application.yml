@@ -68,6 +68,15 @@ springdoc:
 
 # ==================== APPLICATION CONFIG ====================
 app:
+  # Các initializer TỰ SEED dữ liệu mẫu (tài khoản, kho, danh mục, thương hiệu, gói thành viên,
+  # mẫu voucher, tham số hệ thống, sản phẩm demo). Mặc định TẮT: toàn bộ dữ liệu demo giờ nằm
+  # trong scripts/seed_demo_full.sql, chạy file đó là có đủ. Bật lại bằng APP_INITIALIZER_SEED=true
+  # nếu muốn quay về cách seed bằng code.
+  # KHÔNG ảnh hưởng: SequenceInitializer (tạo sequence, bắt buộc) và 3 initializer chuẩn hóa tên
+  # (chỉ điền cột *_normalized đang NULL) - các bean đó luôn chạy.
+  initializer:
+    seed-enabled: ${APP_INITIALIZER_SEED:false}
+
   storage:
     # local      = ghi vào ổ đĩa server, serve qua /files/** (CHỈ dev - Azure thay sạch wwwroot mỗi lần deploy)
     # cloudinary = upload lên Cloudinary (dùng khi deploy), cần 3 biến cloudinary.* bên dưới

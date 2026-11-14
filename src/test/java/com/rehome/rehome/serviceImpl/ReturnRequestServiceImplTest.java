@@ -93,6 +93,8 @@ class ReturnRequestServiceImplTest {
     @Mock private ReturnRequestRepository returnRequestRepository;
     @Mock private ReturnRequestPhotoRepository returnRequestPhotoRepository;
     @Mock private DegradedItemCaseRepository degradedItemCaseRepository;
+    @Mock private com.rehome.rehome.service.ContentModerationService moderation;
+    @Mock private com.rehome.rehome.component.AuditLogger auditLogger;
     @Mock private com.rehome.rehome.repository.MemberProfileRepository memberProfileRepository;
     @Mock private com.rehome.rehome.repository.ProductPhotoRepository productPhotoRepository;
     @Mock private OrderService orderService;
@@ -100,7 +102,6 @@ class ReturnRequestServiceImplTest {
     @Mock private GhnApi ghnApi;
     @Mock private com.rehome.rehome.service.SystemConfigReader systemConfigReader;
 
-    @Mock private com.rehome.rehome.service.ContentModerationService moderation;
 
     @InjectMocks
     private ReturnRequestServiceImpl service;
@@ -949,6 +950,12 @@ class ReturnRequestServiceImplTest {
             ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INSPECTING);
             rr.setDegraded(true);
             OrderItem item = givenOrderItem();
+            // Repo thật gán id lúc persist; mock thì phải gán thay
+            when(degradedItemCaseRepository.save(any(DegradedItemCase.class))).thenAnswer(inv -> {
+                DegradedItemCase saved = inv.getArgument(0);
+                saved.setId(UUID.randomUUID());
+                return saved;
+            });
 
             service.resolve(moderator, RR_ID, resolveReq("VALID", null, "Xuống cấp"));
 

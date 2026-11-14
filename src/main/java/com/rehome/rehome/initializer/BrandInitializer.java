@@ -1,5 +1,6 @@
 package com.rehome.rehome.initializer;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import com.rehome.rehome.entity.enums.CatalogStatus;
 import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.repository.BrandRepository;
@@ -19,6 +20,7 @@ import java.util.stream.Collectors;
 @Component
 @Order(2)
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.initializer.seed-enabled", havingValue = "true")
 public class BrandInitializer implements ApplicationRunner {
 
     private final BrandRepository brandRepository;

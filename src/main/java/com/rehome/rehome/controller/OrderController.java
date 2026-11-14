@@ -232,9 +232,11 @@ public class OrderController {
     // API 70 (F-127)
     @PostMapping("/{id}/shipment")
     @PreAuthorize("hasRole('MODERATOR')")
-    public ResponseEntity<ApiResponse<CreateShipmentResponse>> createShipment(@PathVariable UUID id) {
+    public ResponseEntity<ApiResponse<CreateShipmentResponse>> createShipment(
+            Authentication authentication,
+            @PathVariable UUID id) {
 
-        CreateShipmentResponse result = orderService.createShipment(id);
+        CreateShipmentResponse result = orderService.createShipment(authentication.getName(), id);
 
         return ResponseEntity.ok(ApiResponse.success(result, "Đã tạo vận đơn"));
     }

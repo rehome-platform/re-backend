@@ -11,14 +11,12 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rehome.rehome.dto.request.ConfirmTransferRequest;
 import com.rehome.rehome.dto.response.ProductStatusResponse;
-import com.rehome.rehome.entity.audit.AuditLog;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
-import com.rehome.rehome.repository.AuditLogRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import java.util.Optional;
 import java.util.UUID;
@@ -44,9 +42,9 @@ class UnclaimedProductServiceImplTest {
     private static final String SKU = "Q7-AK-000845";
 
     @Mock private ProductRepository productRepository;
-    @Mock private AuditLogRepository auditLogRepository;
     @Spy private ObjectMapper objectMapper = new ObjectMapper();
 
+    @Mock private com.rehome.rehome.component.AuditLogger auditLogger;
     @InjectMocks private UnclaimedProductServiceImpl service;
 
     private Warehouse warehouse;
@@ -115,16 +113,19 @@ class UnclaimedProductServiceImplTest {
         assertThat(product.getStatus()).isEqualTo(ProductStatus.DONATED);
         verify(productRepository).save(product);
 
-        ArgumentCaptor<AuditLog> captor = ArgumentCaptor.forClass(AuditLog.class);
-        verify(auditLogRepository).save(captor.capture());
-        AuditLog audit = captor.getValue();
-        assertThat(audit.getActorAccount()).isSameAs(moderator);
-        assertThat(audit.getActionType()).isEqualTo("CONFIRM_UNCLAIMED_TRANSFER");
-        assertThat(audit.getTargetType()).isEqualTo("PRODUCT");
-        assertThat(audit.getTargetId()).isEqualTo(SKU);
-        assertThat(audit.getDetail().get("partnerOrganizationName").asText()).isEqualTo("Quỹ Từ Thiện Ánh Dương");
-        assertThat(audit.getDetail().get("previousStatus").asText()).isEqualTo("UNCLAIMED");
-        assertThat(audit.getDetail().get("newStatus").asText()).isEqualTo("DONATED");
+        ArgumentCaptor<com.fasterxml.jackson.databind.JsonNode> captor =
+                ArgumentCaptor.forClass(com.fasterxml.jackson.databind.JsonNode.class);
+        verify(auditLogger).logWarehouse(org.mockito.ArgumentMatchers.eq(moderator),
+                org.mockito.ArgumentMatchers.eq(product.getWarehouse()),
+                org.mockito.ArgumentMatchers.eq(com.rehome.rehome.entity.enums.WarehouseAuditGroup.INVENTORY),
+                org.mockito.ArgumentMatchers.eq("CONFIRM_UNCLAIMED_TRANSFER"),
+                org.mockito.ArgumentMatchers.eq("PRODUCT"), org.mockito.ArgumentMatchers.eq(SKU),
+                org.mockito.ArgumentMatchers.eq("TRANSFERRED"), captor.capture());
+        com.fasterxml.jackson.databind.JsonNode detail = captor.getValue();
+        assertThat(detail.get("partnerOrganizationName").asText()).isEqualTo("Quỹ Từ Thiện Ánh Dương");
+        assertThat(detail.get("previousStatus").asText()).isEqualTo("UNCLAIMED");
+        assertThat(detail.get("newStatus").asText()).isEqualTo("DONATED");
+        assertThat(detail.get("label").asText()).isEqualTo(SKU);
     }
 
     @ParameterizedTest(name = "partnerOrganizationName = \"{0}\"")
@@ -135,7 +136,7 @@ class UnclaimedProductServiceImplTest {
         assertAppError(
                 () -> service.confirmTransfer(SKU, request(partnerName), moderator),
                 ErrorCode.PARTNER_ORGANIZATION_NAME_REQUIRED);
-        verifyNoInteractions(productRepository, auditLogRepository);
+        verifyNoInteractions(productRepository, auditLogger);
     }
 
     @Test
@@ -155,7 +156,7 @@ class UnclaimedProductServiceImplTest {
 
         assertAppError(
                 () -> service.confirmTransfer(SKU, request("Quỹ A"), noWh), ErrorCode.MODERATOR_NO_WAREHOUSE);
-        verifyNoInteractions(productRepository, auditLogRepository);
+        verifyNoInteractions(productRepository, auditLogger);
     }
 
     @Test
@@ -166,7 +167,7 @@ class UnclaimedProductServiceImplTest {
         assertAppError(
                 () -> service.confirmTransfer(SKU, request("Quỹ A"), moderator), ErrorCode.PRODUCT_NOT_FOUND);
         verify(productRepository, never()).save(any());
-        verifyNoInteractions(auditLogRepository);
+        verifyNoInteractions(auditLogger);
     }
 
     @Test
@@ -180,7 +181,7 @@ class UnclaimedProductServiceImplTest {
                 ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);
         assertThat(product.getStatus()).isEqualTo(ProductStatus.UNCLAIMED);
         verify(productRepository, never()).save(any());
-        verifyNoInteractions(auditLogRepository);
+        verifyNoInteractions(auditLogger);
     }
 
     @ParameterizedTest(name = "status = {0}")
@@ -194,7 +195,7 @@ class UnclaimedProductServiceImplTest {
                 () -> service.confirmTransfer(SKU, request("Quỹ A"), moderator), ErrorCode.PRODUCT_NOT_UNCLAIMED);
         assertThat(product.getStatus()).isEqualTo(status);
         verify(productRepository, never()).save(any());
-        verifyNoInteractions(auditLogRepository);
+        verifyNoInteractions(auditLogger);
     }
 
     @Test
@@ -206,6 +207,7 @@ class UnclaimedProductServiceImplTest {
 
         assertAppError(
                 () -> service.confirmTransfer(SKU, request("Quỹ A"), moderator), ErrorCode.PRODUCT_NOT_UNCLAIMED);
-        verify(auditLogRepository).save(any(AuditLog.class)); // đúng 1 lần, của lần gọi đầu
+        verify(auditLogger, org.mockito.Mockito.times(1)).logWarehouse(any(), any(com.rehome.rehome.entity.marketplace.Warehouse.class),
+                any(), any(), any(), any(), any(), any()); // đúng 1 lần, của lần gọi đầu
     }
 }

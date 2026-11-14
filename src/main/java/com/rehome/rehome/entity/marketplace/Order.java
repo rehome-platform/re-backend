@@ -124,6 +124,11 @@ public class Order {
     @Column(name = "expected_delivery_date", nullable = true)
     private Instant expectedDeliveryDate;
 
+    // Thời điểm tạo vận đơn GHN thành công. Đơn cũ (tạo vận đơn trước khi có cột) để null,
+    // không suy ra từ updated_at vì updated_at đổi theo mọi thao tác khác
+    @Column(name = "shipment_created_at", nullable = true)
+    private Instant shipmentCreatedAt;
+
     // Hạn thanh toán, mặc định 15 phút; quá hạn hủy đơn và nhả hàng về sàn
     @Column(name = "payment_deadline", nullable = false)
     private Instant paymentDeadline;

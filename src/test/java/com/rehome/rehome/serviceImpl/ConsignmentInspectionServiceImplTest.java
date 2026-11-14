@@ -53,6 +53,7 @@ class ConsignmentInspectionServiceImplTest {
     @Mock private ReceiptNoGenerator receiptNoGenerator;
     @Mock private QueueService queueService;
 
+    @Mock private com.rehome.rehome.component.AuditLogger auditLogger;
     @InjectMocks private ConsignmentInspectionServiceImpl service;
 
     private UUID formId;

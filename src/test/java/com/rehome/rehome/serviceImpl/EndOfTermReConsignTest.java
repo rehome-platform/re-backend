@@ -57,6 +57,7 @@ class EndOfTermReConsignTest {
     @Mock ConsignmentReceiptRepository consignmentReceiptRepository;
     @Spy ConsignmentProperties consignmentProperties = new ConsignmentProperties();
     @Mock SystemConfigReader systemConfigReader;
+    @Mock com.rehome.rehome.component.AuditLogger auditLogger;
 
     @InjectMocks EndOfTermDecisionServiceImpl service;
 

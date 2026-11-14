@@ -1,5 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.component.AuditLogger;
+import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.DecideDegradedItemCaseRequest;
 import com.rehome.rehome.dto.request.OpenDegradedItemCaseRequest;
@@ -52,6 +54,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
+    private final AuditLogger auditLogger;
 
     private final DegradedItemCaseRepository degradedItemCaseRepository;
     private final ProductRepository productRepository;
@@ -105,6 +108,10 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
         // Tạm ẩn khỏi sàn chờ Member quyết định (F-036) - hàng vẫn nằm trong kho, không phải WITHDRAWN
         product.setStatus(ProductStatus.WAREHOUSE);
         productRepository.save(product);
+
+        auditLogger.logWarehouseOp(moderator, product.getWarehouse(), WarehouseAuditGroup.INVENTORY,
+                "OPEN_DEGRADED_CASE", "DEGRADED_ITEM_CASE", degradedCase.getId().toString(), "OPENED",
+                product.getId());
 
         return toDetailResponse(degradedCase);
     }
@@ -180,6 +187,10 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
         degradedItemCaseRepository.save(degradedCase);
 
         creditSellerWallet(degradedCase, account, paidAmount);
+
+        auditLogger.logWarehouseOp(account, product.getWarehouse(), WarehouseAuditGroup.INVENTORY,
+                "RESOLVE_DEGRADED_CASE", "DEGRADED_ITEM_CASE", degradedCase.getId().toString(), choice.name(),
+                product.getId());
 
         return toResponse(degradedCase);
     }

@@ -89,6 +89,8 @@ class QueueServiceImplTest {
     @Mock private ProductPhotoRepository productPhotoRepository;
     @Mock private DonationRepository donationRepository;
 
+    @Mock private com.rehome.rehome.component.AuditLogger auditLogger;
+    @org.mockito.Spy private com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
     @InjectMocks
     private QueueServiceImpl service;
 
@@ -562,6 +564,47 @@ class QueueServiceImplTest {
         }
 
         @Test
+        void packingTask_success_writesClaimAuditLog() {
+            QueueItem item = mock(QueueItem.class);
+            when(item.getType()).thenReturn(QueueType.PACKING);
+            when(item.getRefId()).thenReturn(UUID.randomUUID().toString());
+            when(item.getWarehouse()).thenReturn(warehouse);
+            when(queueItemRepository.findById("Q1")).thenReturn(Optional.of(item));
+            when(queueItemRepository.claimIfFree(eq("Q1"), eq(moderator), any(Instant.class))).thenReturn(1);
+
+            service.claim("Q1", moderator);
+
+            verify(auditLogger).logWarehouse(eq(moderator), eq(warehouse),
+                    eq(com.rehome.rehome.entity.enums.WarehouseAuditGroup.PACKING), eq("CLAIM_TASK"),
+                    eq("ORDER"), any(), eq("SUCCESS"), any());
+        }
+
+        @Test
+        void packingTask_alreadyClaimed_writesNoAuditLog() {
+            QueueItem item = mock(QueueItem.class);
+            when(item.getType()).thenReturn(QueueType.PACKING);
+            when(item.getWarehouse()).thenReturn(warehouse);
+            when(queueItemRepository.findById("Q1")).thenReturn(Optional.of(item));
+            when(queueItemRepository.claimIfFree(eq("Q1"), eq(moderator), any(Instant.class))).thenReturn(0);
+
+            assertAppError(() -> service.claim("Q1", moderator), ErrorCode.QUEUE_ITEM_ALREADY_CLAIMED);
+            verify(auditLogger, never()).logWarehouse(any(), any(Warehouse.class), any(), any(), any(), any(), any(), any());
+        }
+
+        @Test
+        void nonPackingTask_success_writesNoAuditLog() {
+            QueueItem item = mock(QueueItem.class);
+            when(item.getType()).thenReturn(QueueType.FORM_REVIEW);
+            when(item.getWarehouse()).thenReturn(warehouse);
+            when(queueItemRepository.findById("Q1")).thenReturn(Optional.of(item));
+            when(queueItemRepository.claimIfFree(eq("Q1"), eq(moderator), any(Instant.class))).thenReturn(1);
+
+            service.claim("Q1", moderator);
+
+            verify(auditLogger, never()).logWarehouse(any(), any(Warehouse.class), any(), any(), any(), any(), any(), any());
+        }
+
+        @Test
         void success_returnsClaimInfo() {
             QueueItem item = mock(QueueItem.class);
             when(item.getWarehouse()).thenReturn(warehouse);
@@ -607,6 +650,22 @@ class QueueServiceImplTest {
 
             assertAppError(() -> service.release("Q1", moderator), ErrorCode.QUEUE_ITEM_NOT_CLAIMED_BY_YOU);
             verify(queueItemRepository, never()).save(any());
+        }
+
+        @Test
+        void packingTask_release_writesReleaseAuditLog() {
+            QueueItem item = mock(QueueItem.class);
+            when(item.getClaimedBy()).thenReturn(moderator);
+            when(item.getType()).thenReturn(QueueType.PACKING);
+            when(item.getRefId()).thenReturn(UUID.randomUUID().toString());
+            when(item.getWarehouse()).thenReturn(warehouse);
+            when(queueItemRepository.findById("Q1")).thenReturn(Optional.of(item));
+
+            service.release("Q1", moderator);
+
+            verify(auditLogger).logWarehouse(eq(moderator), eq(warehouse),
+                    eq(com.rehome.rehome.entity.enums.WarehouseAuditGroup.PACKING), eq("RELEASE_TASK"),
+                    eq("ORDER"), any(), eq("SUCCESS"), any());
         }
 
         @Test

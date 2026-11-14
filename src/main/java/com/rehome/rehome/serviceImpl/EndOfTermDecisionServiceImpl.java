@@ -1,5 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.component.AuditLogger;
+import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import com.rehome.rehome.config.ConsignmentProperties;
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.DecideEndOfTermRequest;
@@ -38,6 +40,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
+    private final AuditLogger auditLogger;
     private final EndOfTermDecisionRepository decisionRepository;
     private final ProductRepository productRepository;
     private final ConsignmentReceiptRepository consignmentReceiptRepository;
@@ -112,6 +115,10 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
         decision.setDecision(choice);
         decision.setDecidedAt(now);
         decisionRepository.save(decision);
+
+        auditLogger.logWarehouseOp(account, product.getWarehouse(), WarehouseAuditGroup.INVENTORY,
+                "END_OF_TERM_DECISION", "END_OF_TERM_DECISION", decision.getId().toString(), choice.name(),
+                product.getId());
 
         return new DecideEndOfTermResponse(choice, null);
     }
@@ -198,6 +205,10 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
 
         decision.setNewReceipt(newReceipt);
         decisionRepository.save(decision);
+
+        auditLogger.logWarehouseOp(moderator, product.getWarehouse(), WarehouseAuditGroup.INVENTORY,
+                "PROPOSE_RECONSIGN_TERMS", "END_OF_TERM_DECISION", decision.getId().toString(), "PROPOSED",
+                product.getId());
 
         return new ReConsignTermsResponse(decision.getId(), newReceipt.getId());
     }

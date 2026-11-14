@@ -57,6 +57,20 @@ public class PostComment {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Enumerated(EnumType.STRING)
+    private com.rehome.rehome.entity.enums.ContentReviewStatus reviewStatus;
+
+    @jakarta.persistence.Version
+    @Column(nullable = false)
+    @org.hibernate.annotations.ColumnDefault("0")
+    private long version;
+
+    @Column(columnDefinition = "text")
+    private String reviewReason;
+
+    private UUID reviewedBy;
+    private Instant reviewedAt;
+
     @PrePersist
     private void onCreate() {
         Instant now = Instant.now();

@@ -71,6 +71,7 @@ class AuthServiceImplTest {
     @InjectMocks AuthServiceImpl service;
 
 
+    @Mock com.rehome.rehome.service.ContentModerationService moderation;
     @InjectMocks OrganizationServiceImpl service1;
 
     // ==================== helper ====================

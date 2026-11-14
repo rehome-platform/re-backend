@@ -266,7 +266,7 @@ public class ProductServiceImpl implements ProductService {
                         (first, second) -> first));
 
         Map<String, DegradedItemCase> degradedCases = degradedItemCaseRepository
-                .findPendingByProductIds(ids).stream()
+                .findOpenByProductIds(ids).stream()
                 .collect(Collectors.toMap(
                         c -> c.getProduct().getId(),
                         c -> c,
@@ -323,7 +323,7 @@ public class ProductServiceImpl implements ProductService {
                 .findFirst().orElse(null);
 
         DegradedItemCase degradedCase = degradedItemCaseRepository
-                .findPendingByProductIds(List.of(id)).stream()
+                .findOpenByProductIds(List.of(id)).stream()
                 .findFirst().orElse(null);
 
         MyProductResponse response = productMapper.toMyProductDetail(

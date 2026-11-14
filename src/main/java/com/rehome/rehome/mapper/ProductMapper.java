@@ -21,6 +21,10 @@ import java.util.UUID;
 @Component
 public class ProductMapper {
 
+    @org.springframework.beans.factory.annotation.Value("${app.end-of-term.take-back-pickup-deadline-days}")
+    private long takeBackPickupDeadlineDays;
+
+
     // Dòng của danh sách /products/mine: không có priceChanges, termHistory
     public MyProductResponse toMyProduct(Product product, String photoUrl,
                                          EndOfTermDecision decision, OrderItem orderItem,
@@ -73,7 +77,11 @@ public class ProductMapper {
                 .endOfTermDecision(d == null ? null
                         : new MyProductResponse.EndOfTermDecisionInfo(
                         d.getId(), d.getDeadline(), d.getDecision(),
-                        d.getNewReceipt() == null ? null : d.getNewReceipt().getId()))
+                        d.getNewReceipt() == null ? null : d.getNewReceipt().getId(),
+                        d.getDecidedAt(), d.getTakenBackAt(),
+                        d.getDecision() == com.rehome.rehome.entity.enums.EndOfTermChoice.TAKE_BACK
+                                && d.getDecidedAt() != null
+                                ? d.getDecidedAt().plus(Duration.ofDays(takeBackPickupDeadlineDays)) : null))
                 .order(o == null ? null
                         : new MyProductResponse.OrderRef(
                         o.getId(), o.getOrderNo(), o.getStatus(),
@@ -92,8 +100,9 @@ public class ProductMapper {
                         w.getId(), w.getStatus().name(), w.getPickupDeadline()))
                 .degradedCase(dc == null ? null
                         : new MyProductResponse.DegradedCaseRef(
-                        dc.getId(), DegradedItemCaseStatus.PENDING_DECISION.name(), dc.getDecisionDeadline(),
-                        dc.getChoice() == null ? null : dc.getChoice().name()))
+                        dc.getId(), (dc.getChoice() == null ? DegradedItemCaseStatus.PENDING_DECISION
+                                : DegradedItemCaseStatus.DECIDED).name(), dc.getDecisionDeadline(),
+                        dc.getChoice() == null ? null : dc.getChoice().name(), dc.getPickedUpAt()))
                 .receiptId(currentReceiptId(r, d))
                 .freeWithdrawalWindowDays(r.getFreeWithdrawalWindowDays())
                 .withdrawalFee(r.getWithdrawalFee())

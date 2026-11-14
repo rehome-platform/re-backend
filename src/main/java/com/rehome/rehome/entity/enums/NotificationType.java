@@ -2,6 +2,7 @@ package com.rehome.rehome.entity.enums;
 
 public enum NotificationType {
     ORDER_UPDATE,
+    CONTENT_REVIEW,
     WITHDRAWAL_APPROVED,
     WITHDRAWAL_REJECTED,
     WALLET_EVENT,

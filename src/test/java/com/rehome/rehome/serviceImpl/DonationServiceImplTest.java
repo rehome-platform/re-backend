@@ -78,6 +78,8 @@ class DonationServiceImplTest {
     @Mock private QueueService queueService;
     @Mock private com.rehome.rehome.repository.ProductPhotoRepository productPhotoRepository;
 
+    @Mock private com.rehome.rehome.service.ContentModerationService moderation;
+
     @InjectMocks private DonationServiceImpl service;
 
     private Account moderator(UUID warehouseId) {

@@ -80,7 +80,7 @@ public class MyProductResponse {
 
     // newReceiptId: null = chờ Moderator chốt giá (khi decision = RE_CONSIGN) hoặc chưa chọn;
     // có giá trị = biên nhận ký gửi lại đã sẵn sàng, chờ Member xác nhận
-    public record EndOfTermDecisionInfo(UUID id, Instant deadline, EndOfTermChoice decision, UUID newReceiptId) {}
+    public record EndOfTermDecisionInfo(UUID id, Instant deadline, EndOfTermChoice decision, UUID newReceiptId, Instant decidedAt, Instant takenBackAt, Instant pickupDeadline) {}
     // payoutDueAt = mốc dự kiến tiền vào ví (deliveredAt + hạn trả hàng), payoutAt = đã trả lúc
     // nào, null nếu chưa trả. App hiện "Tiền vào ví sau dd/MM HH:mm" dựa trên 2 mốc này.
     // status/commissionRateApplied/orderedTerm/orderedAt: tiến trình đơn và hoa hồng đã chốt lúc đặt (mục 23)
@@ -93,7 +93,7 @@ public class MyProductResponse {
     // 30 ngày (F-036), quá hạn tự chuyển vô thừa nhận. decision null cho tới khi Member quyết định
     // (FULL_COMPENSATION / PARTIAL_WITH_ITEM_BACK) - trong thực tế luôn null ở record này vì chỉ
     // ca PENDING mới được gắn.
-    public record DegradedCaseRef(UUID id, String status, Instant decisionDeadline, String decision) {}
+    public record DegradedCaseRef(UUID id, String status, Instant decisionDeadline, String decision, Instant pickedUpAt) {}
     public record PriceChange(Instant changedAt, BigDecimal oldPrice, BigDecimal newPrice) {}
     public record TermInfo(int term, BigDecimal price, BigDecimal commissionRate) {}
 }

@@ -251,6 +251,7 @@ public enum ErrorCode {
 
     // API 146 - F-157: Admin chỉnh tham số cấu hình
     CONFIG_KEY_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy tham số."),
+    CONTENT_VIOLATION(HttpStatus.BAD_REQUEST, "Nội dung có từ ngữ không phù hợp. Vui lòng sửa lại."),
     CONFIG_VALUE_INVALID(HttpStatus.UNPROCESSABLE_ENTITY, "Giá trị không hợp lệ cho tham số này."),
 
     // API 148 - F-159: xuất báo cáo dashboard

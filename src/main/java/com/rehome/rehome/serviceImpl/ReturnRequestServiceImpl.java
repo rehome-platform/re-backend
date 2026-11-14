@@ -81,6 +81,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     // Vận đơn chiều trả bị GHN báo thất lạc/hư hỏng/tiêu hủy -> F-136
     private static final List<String> LOST_GHN_STATUSES = List.of("lost", "damage", "scrap");
 
+    private final com.rehome.rehome.service.ContentModerationService moderation;
     private final AccountRepository accountRepository;
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
@@ -175,6 +176,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             throw new ConflictException("Đơn đã có yêu cầu trả hàng đang xử lý.", "RETURN_REQUEST_EXISTS");
         }
 
+        moderation.check(buyer.getId(), "RETURN_REQUEST", request.getReason());
         ReturnRequest returnRequest = ReturnRequest.builder()
                 .order(order)
                 .reason(request.getReason())

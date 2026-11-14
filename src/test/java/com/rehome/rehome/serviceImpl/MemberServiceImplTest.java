@@ -43,6 +43,8 @@ class MemberServiceImplTest {
     @Mock
     private MemberProfileRepository memberProfileRepository;
 
+    @Mock private com.rehome.rehome.service.ContentModerationService moderation;
+
     @InjectMocks
     private MemberServiceImpl service;
 

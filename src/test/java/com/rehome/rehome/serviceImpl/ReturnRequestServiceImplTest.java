@@ -102,7 +102,6 @@ class ReturnRequestServiceImplTest {
     @Mock private GhnApi ghnApi;
     @Mock private com.rehome.rehome.service.SystemConfigReader systemConfigReader;
 
-    @Mock private com.rehome.rehome.service.ContentModerationService moderation;
 
     @InjectMocks
     private ReturnRequestServiceImpl service;

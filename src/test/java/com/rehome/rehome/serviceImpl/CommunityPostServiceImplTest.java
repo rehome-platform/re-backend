@@ -85,6 +85,8 @@ class CommunityPostServiceImplTest {
     @Mock private ViolationReportRepository violationReportRepository;
     @Mock private NotificationService notificationService;
 
+    @Mock private com.rehome.rehome.service.ContentModerationService moderation;
+
     @InjectMocks private CommunityPostServiceImpl service;
 
     private CommunityPost post(UUID id, UUID organizationId, ContentStatus status) {

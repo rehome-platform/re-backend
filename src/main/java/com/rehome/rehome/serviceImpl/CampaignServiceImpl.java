@@ -65,6 +65,7 @@ public class CampaignServiceImpl implements CampaignService {
     private static final String RECEIVE_WAY_REQUIRED =
             "Phải chọn nhận tại địa chỉ riêng hoặc chọn ít nhất 1 kho.";
 
+    private final com.rehome.rehome.service.ContentModerationService moderation;
     private final CampaignRepository campaignRepository;
     private final OrganizationProfileRepository organizationProfileRepository;
     private final WarehouseRepository warehouseRepository;
@@ -126,6 +127,7 @@ public class CampaignServiceImpl implements CampaignService {
                     "CAMPAIGN_LIMIT_REACHED");
         }
 
+        var moderationAction = moderation.evaluate(request.getTitle(), request.getDescription());
         Campaign campaign = Campaign.builder()
                 .organization(organization)
                 .title(request.getTitle())
@@ -139,6 +141,7 @@ public class CampaignServiceImpl implements CampaignService {
                 .createdAt(Instant.now())
                 .build();
         campaignRepository.save(campaign);
+        moderation.recordMatch(organizationAccountId, "CAMPAIGN", campaign.getId(), moderationAction);
 
         // UC-44: báo cho người theo dõi tổ chức khi có chiến dịch mới. Chỉ gửi lúc TẠO, không
         // gửi khi sửa (updateCampaign không gọi hàm này).
@@ -164,6 +167,7 @@ public class CampaignServiceImpl implements CampaignService {
 
         // Body giống API 119 nhưng field nào bỏ trống thì giữ nguyên: PUT toàn phần sẽ
         // xoá mất startTime/endTime (NOT NULL) khi client chỉ gửi vài field
+        var moderationAction = moderation.evaluate(request.getTitle(), request.getDescription());
         if (StringUtils.hasText(request.getTitle())) {
             campaign.setTitle(request.getTitle());
         }
@@ -201,6 +205,7 @@ public class CampaignServiceImpl implements CampaignService {
         requireValidWindow(campaign.getStartTime(), campaign.getEndTime());
 
         campaignRepository.save(campaign);
+        moderation.recordMatch(organizationAccountId, "CAMPAIGN", campaign.getId(), moderationAction);
         return toPublicResponse(campaign);
     }
 

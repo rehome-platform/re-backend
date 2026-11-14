@@ -61,6 +61,7 @@ public class ViolationReportServiceImpl implements ViolationReportService {
 
     private static final String MISSING_FIELDS_MESSAGE = "targetType, targetId và reason là bắt buộc.";
 
+    private final com.rehome.rehome.service.ContentModerationService moderation;
     private final ViolationReportRepository violationReportRepository;
     private final CommunityPostRepository communityPostRepository;
     private final CommunityPostPhotoRepository communityPostPhotoRepository;
@@ -103,6 +104,7 @@ public class ViolationReportServiceImpl implements ViolationReportService {
             throw new AppException(ErrorCode.DUPLICATE_PENDING_REPORT);
         }
 
+        moderation.check(reporterId, "VIOLATION_REPORT", request.getReason());
         ViolationReport report = ViolationReport.builder()
                 .reporterMember(reporter)
                 .targetType(targetType)

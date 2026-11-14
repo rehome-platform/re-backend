@@ -49,7 +49,7 @@ class ViolationWordServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new ViolationWordServiceImpl(repository, auditLogger, new ObjectMapper());
+        service = new ViolationWordServiceImpl(repository, org.mockito.Mockito.mock(org.springframework.context.ApplicationEventPublisher.class), auditLogger, new ObjectMapper());
         admin = Account.builder().id(UUID.randomUUID()).build();
     }
 

@@ -77,6 +77,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
     private static final String CAMPAIGN_NOT_FOUND = "Không tìm thấy chiến dịch.";
     private static final String COMMENT_NOT_FOUND = "Không tìm thấy bình luận.";
 
+    private final com.rehome.rehome.service.ContentModerationService moderation;
     private final CommunityPostRepository communityPostRepository;
     private final FollowRepository followRepository;
     private final PostLikeRepository postLikeRepository;
@@ -306,6 +307,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         PostComment rootParent = replyTarget == null ? null
                 : (replyTarget.getParent() != null ? replyTarget.getParent() : replyTarget);
 
+        var moderationAction = moderation.evaluate(request.getContent());
         PostComment comment = PostComment.builder()
                 .post(post)
                 .author(author)
@@ -313,6 +315,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                 .content(request.getContent())
                 .build();
         postCommentRepository.save(comment);
+        moderation.recordMatch(authorId, "POST_COMMENT", comment.getId(), moderationAction);
 
         notifyAboutComment(post, author, replyTarget);
 
@@ -428,12 +431,14 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         // chính tổ chức này, ngoài phạm vi đó coi như không tìm thấy (giống DonationServiceImpl)
         Campaign campaign = resolveOwnOpenCampaignOrNull(organizationAccountId, request.getCampaignId(), null);
 
+        var moderationAction = moderation.evaluate(request.getContent());
         CommunityPost post = CommunityPost.builder()
                 .organization(organization)
                 .content(request.getContent())
                 .campaign(campaign)
                 .build();
         communityPostRepository.save(post);
+        moderation.recordMatch(organizationAccountId, "POST", post.getId(), moderationAction);
 
         List<CommunityPostPhoto> photos = toPhotoEntities(post, request.getPhotoUrls());
         if (!photos.isEmpty()) {
@@ -472,9 +477,11 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         }
         Campaign campaign = resolveOwnOpenCampaignOrNull(organizationAccountId, request.getCampaignId(), post.getCampaign());
 
+        var moderationAction = moderation.evaluate(request.getContent());
         post.setContent(request.getContent());
         post.setCampaign(campaign);
         communityPostRepository.save(post);
+        moderation.recordMatch(organizationAccountId, "POST", post.getId(), moderationAction);
 
         // OB-03: danh sách ảnh mới thay thế hẳn danh sách cũ, không patch từng ảnh
         communityPostPhotoRepository.deleteByPost_Id(postId);

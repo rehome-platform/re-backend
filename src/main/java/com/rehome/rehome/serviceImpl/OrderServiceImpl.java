@@ -136,6 +136,7 @@ public class OrderServiceImpl implements OrderService {
             ReturnRequestStatus.SHIPPED_BACK,
             ReturnRequestStatus.INSPECTING);
 
+    private final com.rehome.rehome.service.ContentModerationService moderation;
     private final AccountRepository accountRepository;
     private final ShippingAddressRepository shippingAddressRepository;
     private final CartRepository cartRepository;
@@ -1314,6 +1315,7 @@ public class OrderServiceImpl implements OrderService {
         CloudinaryImageUrls.requireOwnUrls(imageUrls, "imageUrls chỉ được chứa ảnh đã upload qua hệ thống.");
 
         order.setServiceRating(request.getServiceRating());
+        moderation.check(order.getBuyer().getId(), "ORDER_RATING", request.getComment());
         order.setRatingComment(request.getComment());
         order.setRatingImageUrls(imageUrls);
         order.setRatedAt(Instant.now());

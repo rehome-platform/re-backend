@@ -1,0 +1,30 @@
+-- Demo only. Existing administrator rules take precedence.
+INSERT INTO public.violation_words (id, word, category, severity, action, is_active, created_at, updated_at)
+VALUES
+    (gen_random_uuid(), 'đồ mất dạy', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'đồ khốn nạn', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'đồ chó chết', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'đồ súc sinh', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'đồ vô học', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'đồ hạ đẳng', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'đồ đần độn', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'đồ ngu xuẩn', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'đồ rác rưởi', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'đồ thối tha', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'đồ bẩn thỉu', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'đồ đê tiện', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'đồ cặn bã', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'cút mẹ đi', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'cút con mẹ mày', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'ngu như chó', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'ngu như bò', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'ngu hết phần thiên hạ', 'PROFANITY', 'BLOCKED', 'AUTO_REJECT', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'đồ ngu', 'PROFANITY', 'WARNING', 'AUTO_FLAG', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'đồ điên', 'PROFANITY', 'WARNING', 'AUTO_FLAG', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'đồ ngốc', 'PROFANITY', 'WARNING', 'AUTO_FLAG', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'mặt dày', 'PROFANITY', 'WARNING', 'AUTO_FLAG', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'vô duyên', 'PROFANITY', 'WARNING', 'AUTO_FLAG', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'chuyển tiền ngoài app', 'FRAUD', 'WARNING', 'NOTIFY_ADMIN', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'gửi mình mã otp', 'FRAUD', 'WARNING', 'NOTIFY_ADMIN', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'nhập thông tin thẻ để nhận tiền', 'FRAUD', 'WARNING', 'NOTIFY_ADMIN', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT (word) DO NOTHING;

@@ -73,6 +73,7 @@ public class ConversationServiceImpl implements ConversationService {
     // Rate limit gửi tin nhắn: tối đa 10 tin / 30 giây / Member, giữ trong bộ nhớ theo accountId.
     private static final int MESSAGE_RATE_LIMIT_MAX = 10;
     private static final Duration MESSAGE_RATE_LIMIT_WINDOW = Duration.ofSeconds(30);
+    private final com.rehome.rehome.service.ContentModerationService moderation;
     private final Map<UUID, Deque<Instant>> messageSendTimestamps = new ConcurrentHashMap<>();
 
     // Đơn đang trong luồng giao hàng, dùng cho shippingCount ở hộp thư Moderator
@@ -290,6 +291,7 @@ public class ConversationServiceImpl implements ConversationService {
         Account sender = accountRepository.findById(viewer.getId())
                 .orElseThrow(() -> new AppException(ErrorCode.UNAUTHORIZED));
 
+        var moderationAction = moderation.evaluate(request.getContent());
         Message message = Message.builder()
                 .conversation(conversation)
                 .senderAccount(sender)
@@ -298,6 +300,7 @@ public class ConversationServiceImpl implements ConversationService {
                 .sentAt(Instant.now())
                 .build();
         messageRepository.save(message);
+        moderation.recordMatch(viewer.getId(), "CHAT", message.getId(), moderationAction);
 
         MessageResponse response = toMessageResponse(message, viewer.getId());
         // isMine phụ thuộc viewer nên broadcast riêng 1 bản trung lập (không ai được đánh dấu "của mình")

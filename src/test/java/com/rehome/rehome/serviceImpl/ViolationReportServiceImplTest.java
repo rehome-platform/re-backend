@@ -74,6 +74,8 @@ class ViolationReportServiceImplTest {
     @Mock private AuditLogger auditLogger;
     @Mock private ObjectMapper objectMapper;
 
+    @Mock private com.rehome.rehome.service.ContentModerationService moderation;
+
     @InjectMocks private ViolationReportServiceImpl service;
 
     private void stubSaveAssignsId() {

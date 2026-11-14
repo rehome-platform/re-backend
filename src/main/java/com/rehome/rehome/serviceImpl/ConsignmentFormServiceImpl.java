@@ -55,6 +55,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     private final MembershipQuotaResolver membershipQuotaResolver;
     private final AccountRepository accountRepository;
     private final QueueService queueService;
+    private final com.rehome.rehome.service.ContentModerationService moderation;
 
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final int DEFAULT_SIZE = 20;
@@ -65,6 +66,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     @Override
     @Transactional
     public ConsignmentFormResponse create(ConsignmentFormRequest request, Account account) {
+        moderation.check(account.getId(), "CONSIGNMENT_FORM", request.getProductName(), request.getDescription());
 
         if (account.getRole() != Role.MEMBER) {
             throw new AppException(ErrorCode.NOT_MEMBER_CREATE_FORM);
@@ -152,6 +154,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     @Override
     @Transactional
     public ConsignmentFormDetailResponse update(UUID id, ConsignmentFormRequest request, Account account) {
+        moderation.check(account.getId(), "CONSIGNMENT_FORM", request.getProductName(), request.getDescription());
 
         if (account.getRole() != Role.MEMBER) {
             throw new AppException(ErrorCode.NOT_MEMBER_ACCOUNT);
@@ -201,6 +204,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     @Override
     @Transactional
     public ConsignmentFormDetailResponse createDraft(ConsignmentFormRequest request, Account account) {
+        moderation.check(account.getId(), "CONSIGNMENT_FORM", request.getProductName(), request.getDescription());
         if (account.getRole() != Role.MEMBER) {
             throw new AppException(ErrorCode.NOT_MEMBER_CREATE_FORM);
         }
@@ -224,6 +228,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     @Override
     @Transactional
     public ConsignmentFormDetailResponse updateDraft(UUID id, ConsignmentFormRequest request, Account account) {
+        moderation.check(account.getId(), "CONSIGNMENT_FORM", request.getProductName(), request.getDescription());
         if (account.getRole() != Role.MEMBER) {
             throw new AppException(ErrorCode.NOT_MEMBER_ACCOUNT);
         }
@@ -308,6 +313,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
                 continue;
             }
 
+            moderation.check(account.getId(), "CONSIGNMENT_FORM", form.getProductName(), form.getDescription());
             form.setWarehouse(warehouse);
             form.setStatus(ConsignmentFormStatus.PENDING);
             form.setFormNo(String.format("KG-%06d", consignmentFormRepository.nextFormNo()));

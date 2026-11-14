@@ -67,7 +67,7 @@ public interface OrderService {
     PackScanResponse packScan(String email, UUID orderId, PackScanRequest request);
 
     // API 70 (F-127) - Moderator tạo vận đơn GHN sau khi đã quét đủ món
-    CreateShipmentResponse createShipment(UUID orderId);
+    CreateShipmentResponse createShipment(String email, UUID orderId);
 
     // Moderator lấy link in phiếu vận đơn GHN (A5 | 80x80 | 52x70) để dán lên kiện hàng
     ShipmentLabelResponse getShipmentLabel(UUID orderId, String size);

@@ -1,5 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.component.AuditLogger;
+import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import static com.rehome.rehome.constant.SystemConfigKeys.*;
 
 import com.rehome.rehome.component.ReceiptNoGenerator;
@@ -29,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class ConsignmentInspectionServiceImpl implements ConsignmentInspectionService {
+    private final AuditLogger auditLogger;
 
     private final ConsignmentFormRepository consignmentFormRepository;
     private final ConsignmentReceiptRepository consignmentReceiptRepository;
@@ -84,6 +87,9 @@ public class ConsignmentInspectionServiceImpl implements ConsignmentInspectionSe
 
         // Việc kiểm định này đã xong, đóng trong hàng đợi
         queueService.dequeue(QueueType.INSPECTION, formId.toString());
+
+        auditLogger.logWarehouseOp(moderator, form.getWarehouse(), WarehouseAuditGroup.INSPECTION,
+                "COMPLETE_INSPECTION", "CONSIGNMENT_FORM", form.getId().toString(), "PASSED", form.getFormNo());
 
         return CompleteInspectionResponse.builder().receiptId(saved.getId()).build();
     }

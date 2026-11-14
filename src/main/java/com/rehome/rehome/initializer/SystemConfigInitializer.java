@@ -1,5 +1,6 @@
 package com.rehome.rehome.initializer;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import com.rehome.rehome.constant.SystemConfigCatalog;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.Role;
@@ -24,6 +25,7 @@ import java.util.Map;
 @Component
 @Order(1)
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.initializer.seed-enabled", havingValue = "true")
 public class SystemConfigInitializer implements CommandLineRunner {
 
     private final SystemConfigRepository systemConfigRepository;

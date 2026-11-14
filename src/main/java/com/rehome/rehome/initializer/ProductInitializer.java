@@ -1,5 +1,6 @@
 package com.rehome.rehome.initializer;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
@@ -29,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 @Order(100)
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.initializer.seed-enabled", havingValue = "true")
 public class ProductInitializer implements CommandLineRunner {
 
     private final ProductRepository productRepository;

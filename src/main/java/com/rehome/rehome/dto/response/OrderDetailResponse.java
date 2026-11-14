@@ -50,6 +50,8 @@ public class OrderDetailResponse {
     private String ghnTrackingCode;
     // Ngày giao dự kiến do GHN trả về lúc tạo vận đơn, null nếu chưa có vận đơn
     private Instant expectedDeliveryDate;
+    // Thời điểm kho tạo vận đơn; null nếu chưa có vận đơn hoặc đơn cũ tạo trước khi có cột này
+    private Instant shipmentCreatedAt;
     private Instant deliveredAt;
     private Instant autoCompleteDeadline;
     private Instant completedAt;

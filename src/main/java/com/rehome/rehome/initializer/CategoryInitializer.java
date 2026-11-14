@@ -1,5 +1,6 @@
 package com.rehome.rehome.initializer;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import com.rehome.rehome.config.CodeGenerator;
 import com.rehome.rehome.entity.enums.CatalogStatus;
 import com.rehome.rehome.entity.enums.TryOnSlot;
@@ -26,6 +27,7 @@ import java.util.stream.Collectors;
 @Component
 @Order(1)
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.initializer.seed-enabled", havingValue = "true")
 public class CategoryInitializer implements ApplicationRunner {
 
     private final CategoryRepository categoryRepository;
@@ -83,6 +85,7 @@ public class CategoryInitializer implements ApplicationRunner {
 
     @Component
     @RequiredArgsConstructor
+    @ConditionalOnProperty(name = "app.initializer.seed-enabled", havingValue = "true")
     public class CodeBackfillRunner implements CommandLineRunner {
 
         private final WarehouseRepository warehouseRepository;

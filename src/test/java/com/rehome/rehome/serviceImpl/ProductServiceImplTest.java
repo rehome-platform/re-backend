@@ -109,7 +109,6 @@ class ProductServiceImplTest {
     @Mock com.rehome.rehome.component.FeaturedListingManager featuredListingManager;
 
 
-
     @InjectMocks ProductServiceImpl service;
 
     private Account moderator;
@@ -1444,7 +1443,6 @@ class ProductServiceImplTest {
     // =====================================================================
     // donate() - POST /products/{id}/donate
     // =====================================================================
-
 
     private final DonateProductRequest donationRequest = new DonateProductRequest(UUID.randomUUID(), true);
 

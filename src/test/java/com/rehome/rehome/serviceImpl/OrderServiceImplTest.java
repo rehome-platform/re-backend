@@ -129,6 +129,7 @@ class OrderServiceImplTest {
     @Mock GhnShippingFeeCalculator ghnShippingFeeCalculator;
     @Mock SystemConfigReader systemConfigReader;
     @Mock private com.rehome.rehome.component.AuditLogger auditLogger;
+    @Mock private com.rehome.rehome.service.ContentModerationService moderation;
     @org.mockito.Spy private com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
     @InjectMocks
     OrderServiceImpl orderService;

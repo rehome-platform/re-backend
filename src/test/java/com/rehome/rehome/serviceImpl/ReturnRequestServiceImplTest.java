@@ -93,6 +93,7 @@ class ReturnRequestServiceImplTest {
     @Mock private ReturnRequestRepository returnRequestRepository;
     @Mock private ReturnRequestPhotoRepository returnRequestPhotoRepository;
     @Mock private DegradedItemCaseRepository degradedItemCaseRepository;
+    @Mock private com.rehome.rehome.service.ContentModerationService moderation;
     @Mock private com.rehome.rehome.component.AuditLogger auditLogger;
     @Mock private com.rehome.rehome.repository.MemberProfileRepository memberProfileRepository;
     @Mock private com.rehome.rehome.repository.ProductPhotoRepository productPhotoRepository;

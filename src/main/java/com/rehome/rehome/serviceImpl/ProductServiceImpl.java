@@ -89,7 +89,6 @@ public class ProductServiceImpl implements ProductService {
     private final NotificationService notificationService;
     private final FeaturedListingManager featuredListingManager;
     private final AuditLogger auditLogger;
-    private final FeaturedListingManager featuredListingManager;
 
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;

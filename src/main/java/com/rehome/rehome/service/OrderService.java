@@ -72,9 +72,6 @@ public interface OrderService {
     // Moderator lấy link in phiếu vận đơn GHN (A5 | 80x80 | 52x70) để dán lên kiện hàng
     ShipmentLabelResponse getShipmentLabel(UUID orderId, String size);
 
-    // Moderator lấy link in phiếu vận đơn GHN (A5 | 80x80 | 52x70) để dán lên kiện hàng
-    ShipmentLabelResponse getShipmentLabel(UUID orderId, String size);
-
     // API 64 (F-060) - Member xem lịch sử vận chuyển đồng bộ từ GHN
     OrderTrackingResponse getTracking(String email, UUID orderId);
 

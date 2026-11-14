@@ -1,5 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import com.rehome.rehome.dto.request.CounterHandoverRequest;
 import com.rehome.rehome.dto.request.CounterLookupRequest;
 import com.rehome.rehome.dto.response.MemberLookupItemResponse;
@@ -48,6 +49,7 @@ public class CounterServiceImpl implements CounterService {
     private final DegradedItemCaseRepository degradedItemCaseRepository;
     private final OrderItemRepository orderItemRepository;
     private final AuditLogRepository auditLogRepository;
+    private final com.rehome.rehome.component.AuditLogger auditLogger;
     private final QueueService queueService;
 
     private static final List<ConsignmentFormStatus> OPEN_FORM_STATUSES =
@@ -89,9 +91,9 @@ public class CounterServiceImpl implements CounterService {
 
         switch (context) {
             case ITEM_WITHDRAWAL -> handoverItemWithdrawal(request.getAccountId(), refId);
-            case END_OF_TERM_TAKE_BACK -> handoverEndOfTermTakeBack(request.getAccountId(), refId);
+            case END_OF_TERM_TAKE_BACK -> handoverEndOfTermTakeBack(moderator, request.getAccountId(), refId);
             case INVALID_RETURN_PICKUP -> handoverInvalidReturnPickup(request.getAccountId(), refId);
-            case DEGRADED_ITEM_PICKUP -> handoverDegradedItemPickup(request.getAccountId(), refId);
+            case DEGRADED_ITEM_PICKUP -> handoverDegradedItemPickup(moderator, request.getAccountId(), refId);
         }
     }
 
@@ -137,7 +139,7 @@ public class CounterServiceImpl implements CounterService {
         queueService.dequeue(QueueType.WITHDRAWAL, withdrawal.getId().toString());
     }
 
-    private void handoverEndOfTermTakeBack(UUID accountId, UUID refId) {
+    private void handoverEndOfTermTakeBack(Account moderator, UUID accountId, UUID refId) {
         EndOfTermDecision decision = endOfTermDecisionRepository.findById(refId)
                 .filter(d -> d.getProduct().getMember().getId().equals(accountId))
                 .filter(d -> d.getDecision() == EndOfTermChoice.TAKE_BACK)
@@ -146,6 +148,10 @@ public class CounterServiceImpl implements CounterService {
 
         decision.setTakenBackAt(Instant.now());
         endOfTermDecisionRepository.save(decision);
+
+        auditLogger.logWarehouseOp(moderator, decision.getProduct().getWarehouse(), WarehouseAuditGroup.INVENTORY,
+                "HANDOVER_END_OF_TERM", "END_OF_TERM_DECISION", decision.getId().toString(), "HANDED_OVER",
+                decision.getProduct().getId());
     }
 
     private void handoverInvalidReturnPickup(UUID accountId, UUID refId) {
@@ -160,7 +166,7 @@ public class CounterServiceImpl implements CounterService {
         returnRequestRepository.save(returnRequest);
     }
 
-    private void handoverDegradedItemPickup(UUID accountId, UUID refId) {
+    private void handoverDegradedItemPickup(Account moderator, UUID accountId, UUID refId) {
         DegradedItemCase degradedCase = degradedItemCaseRepository.findById(refId)
                 .filter(c -> c.getProduct().getMember().getId().equals(accountId))
                 .filter(c -> c.getChoice() == DegradedItemChoice.PARTIAL_WITH_ITEM_BACK)
@@ -169,6 +175,10 @@ public class CounterServiceImpl implements CounterService {
 
         degradedCase.setPickedUpAt(Instant.now());
         degradedItemCaseRepository.save(degradedCase);
+
+        auditLogger.logWarehouseOp(moderator, degradedCase.getProduct().getWarehouse(), WarehouseAuditGroup.INVENTORY,
+                "HANDOVER_DEGRADED_ITEM", "DEGRADED_ITEM_CASE", degradedCase.getId().toString(), "HANDED_OVER",
+                degradedCase.getProduct().getId());
     }
 
     @Override

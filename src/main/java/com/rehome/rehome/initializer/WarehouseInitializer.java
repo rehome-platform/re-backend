@@ -1,5 +1,6 @@
 package com.rehome.rehome.initializer;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import com.rehome.rehome.entity.enums.CatalogStatus;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.repository.WarehouseRepository;
@@ -25,6 +26,7 @@ import com.rehome.rehome.repository.AccountRepository;
 @Component
 @Order(3)
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.initializer.seed-enabled", havingValue = "true")
 public class WarehouseInitializer implements CommandLineRunner {
 
     // Số nhận hàng trả về kho (to_phone của vận đơn GHN chiều trả) - tạm dùng chung một hotline

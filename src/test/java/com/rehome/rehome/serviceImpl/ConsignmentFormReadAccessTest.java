@@ -44,6 +44,7 @@ class ConsignmentFormReadAccessTest {
     @Mock SystemConfigReader systemConfigReader;
     @Mock AccountRepository accountRepository;
     @Mock QueueService queueService;
+    @Mock com.rehome.rehome.component.AuditLogger auditLogger;
 
     @InjectMocks ConsignmentFormServiceImpl service;
 

@@ -99,6 +99,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.rehome.rehome.component.AuditLogger;
+import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.Year;
@@ -157,6 +161,8 @@ public class OrderServiceImpl implements OrderService {
     private final SystemConfigReader systemConfigReader;
     private final MemberVoucherRepository memberVoucherRepository;
     private final VoucherCalculator voucherCalculator;
+    private final AuditLogger auditLogger;
+    private final ObjectMapper objectMapper;
 
     // Chưa có cấu hình thuế thật, tạm để 0
     @Value("${app.order.tax-rate:0}")
@@ -737,6 +743,7 @@ public class OrderServiceImpl implements OrderService {
                 .items(items)
                 .ghnTrackingCode(order.getGhnTrackingCode())
                 .expectedDeliveryDate(order.getExpectedDeliveryDate())
+                .shipmentCreatedAt(order.getShipmentCreatedAt())
                 .deliveredAt(order.getDeliveredAt())
                 .autoCompleteDeadline(order.getAutoCompleteDeadline())
                 .serviceRating(order.getServiceRating())
@@ -1333,7 +1340,9 @@ public class OrderServiceImpl implements OrderService {
         Account moderator = accountRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
 
-        Order order = orderRepository.findById(orderId)
+        // Khóa đơn rồi mới tới dòng hàng đợi (cùng thứ tự với createShipment để không deadlock):
+        // hai lần quét song song cùng một SKU phải nối đuôi nhau, lần sau thấy scanned = true và không làm gì
+        Order order = orderRepository.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
 
         if (moderator.getWarehouse() == null
@@ -1344,6 +1353,9 @@ public class OrderServiceImpl implements OrderService {
         if (!StringUtils.hasText(request.getProductId())) {
             throw new BadRequestException("productId là bắt buộc.");
         }
+
+        requireActiveClaim(moderator, orderId);
+        requirePackable(order);
 
         List<OrderItem> items = orderItemRepository.findAllByOrder_Id(orderId);
         int totalCount = items.size();
@@ -1369,12 +1381,21 @@ public class OrderServiceImpl implements OrderService {
         item.setScanned(true);
         orderItemRepository.save(item);
 
-        int newScannedCount = order.getScannedCount() + 1;
+        int newScannedCount = (order.getScannedCount() == null ? 0 : order.getScannedCount()) + 1;
         order.setScannedCount(newScannedCount);
         if (order.getStatus() == OrderStatus.PAID) {
             order.setStatus(OrderStatus.PACKING);
         }
         orderRepository.save(order);
+
+        // Chỉ lần quét đầu của mỗi SKU mới tới đây nên mỗi SKU đúng một dòng log
+        ObjectNode detail = objectMapper.createObjectNode();
+        detail.put("label", order.getOrderNo());
+        detail.put("productId", item.getProduct().getId());
+        detail.put("scannedCount", newScannedCount);
+        detail.put("totalCount", totalCount);
+        auditLogger.logWarehouse(moderator, order.getWarehouse(), WarehouseAuditGroup.PACKING, "SCAN_SKU",
+                "ORDER", order.getId().toString(), "SUCCESS", detail);
 
         return PackScanResponse.builder()
                 .matched(true)
@@ -1382,6 +1403,26 @@ public class OrderServiceImpl implements OrderService {
                 .totalCount(totalCount)
                 .scannedProductId(item.getProduct().getId())
                 .build();
+    }
+
+    // Moderator phải đang giữ việc đóng gói của đơn này. Khóa dòng queue (PESSIMISTIC_WRITE) để việc không bị
+    // nhả/nhận lại giữa chừng. Việc không tồn tại (đơn chưa vào hàng đợi / đã gỡ) cũng không cho thao tác
+    private void requireActiveClaim(Account moderator, UUID orderId) {
+        QueueItem queueItem = queueItemRepository.findByTypeAndRefIdForUpdate(QueueType.PACKING, orderId.toString())
+                .orElseThrow(() -> new AppException(ErrorCode.QUEUE_ITEM_NOT_FOUND));
+        if (queueItem.getClaimedBy() == null || !queueItem.getClaimedBy().getId().equals(moderator.getId())) {
+            throw new AppException(ErrorCode.QUEUE_ITEM_NOT_CLAIMED_BY_YOU);
+        }
+    }
+
+    // Chỉ đóng gói khi đơn còn PAID/PACKING và chưa có vận đơn
+    private void requirePackable(Order order) {
+        if (order.getStatus() != OrderStatus.PAID && order.getStatus() != OrderStatus.PACKING) {
+            throw new ConflictException("Đơn không ở trạng thái đóng gói.", "ORDER_NOT_PACKABLE");
+        }
+        if (StringUtils.hasText(order.getGhnTrackingCode())) {
+            throw new ConflictException("Đơn đã có vận đơn.", "SHIPMENT_ALREADY_CREATED");
+        }
     }
 
     // Quét sai SKU (không thuộc đơn đang xử lý): không đổi tiến độ quét, chỉ trả hướng dẫn
@@ -1430,12 +1471,23 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional
-    public CreateShipmentResponse createShipment(UUID orderId) {
+    public CreateShipmentResponse createShipment(String email, UUID orderId) {
 
-        Order order = orderRepository.findById(orderId)
+        Account moderator = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        // Khóa đơn trước, dòng hàng đợi sau (cùng thứ tự với packScan). Bấm đúp / hai Moderator cùng bấm sẽ
+        // nối đuôi nhau; request sau thấy đã có vận đơn nên không gọi GHN lần nữa
+        Order order = orderRepository.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
 
-        // Đã tạo vận đơn thành công trước đó (ví dụ Moderator bấm lại) - trả lại kết quả cũ, không gọi GHN lần nữa
+        if (moderator.getWarehouse() == null
+                || !order.getWarehouse().getId().equals(moderator.getWarehouse().getId())) {
+            throw new ForbiddenException("Bạn không có quyền tạo vận đơn cho đơn này.");
+        }
+
+        // Đã có vận đơn (Moderator bấm lại): trả kết quả cũ ngay, không gọi GHN, không ghi log thêm.
+        // Phải đứng trước kiểm tra claim vì tạo xong thì dòng hàng đợi đã bị gỡ
         if (StringUtils.hasText(order.getGhnTrackingCode())) {
             return CreateShipmentResponse.builder()
                     .id(order.getId().toString())
@@ -1444,10 +1496,19 @@ public class OrderServiceImpl implements OrderService {
                     .build();
         }
 
+        requireActiveClaim(moderator, orderId);
+        requirePackable(order);
+
         List<OrderItem> items = orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId);
         int totalCount = items.size();
 
-        if (order.getScannedCount() == null || order.getScannedCount() < totalCount) {
+        if (totalCount == 0) {
+            throw new ConflictException("Đơn không có món nào để đóng gói.", "ORDER_HAS_NO_ITEMS");
+        }
+
+        // Quét đủ 100%: đếm theo cờ scanned của từng món, không tin riêng scannedCount
+        long scannedItems = items.stream().filter(i -> Boolean.TRUE.equals(i.getScanned())).count();
+        if (order.getScannedCount() == null || order.getScannedCount() < totalCount || scannedItems < totalCount) {
             throw new ConflictException("Chưa quét đủ tất cả món trong đơn.", "ORDER_NOT_FULLY_SCANNED");
         }
 
@@ -1472,9 +1533,16 @@ public class OrderServiceImpl implements OrderService {
 
         order.setGhnTrackingCode(ghnResponse.getData().getOrderCode());
         order.setExpectedDeliveryDate(parseGhnTime(ghnResponse.getData().getExpectedDeliveryTime()));
+        order.setShipmentCreatedAt(Instant.now());
         order.setStatus(OrderStatus.SHIPPING);
         orderRepository.save(order);
         queueService.dequeue(QueueType.PACKING, order.getId().toString());
+
+        ObjectNode detail = objectMapper.createObjectNode();
+        detail.put("label", order.getOrderNo());
+        detail.put("ghnTrackingCode", order.getGhnTrackingCode());
+        auditLogger.logWarehouse(moderator, order.getWarehouse(), WarehouseAuditGroup.PACKING, "CREATE_SHIPMENT",
+                "ORDER", order.getId().toString(), "SUCCESS", detail);
 
         return CreateShipmentResponse.builder()
                 .id(order.getId().toString())

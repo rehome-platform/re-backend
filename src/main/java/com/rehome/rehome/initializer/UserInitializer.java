@@ -1,5 +1,6 @@
 package com.rehome.rehome.initializer;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.enums.AccountStatus;
@@ -22,6 +23,7 @@ import java.util.List;
 @Component
 @Order(0)
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.initializer.seed-enabled", havingValue = "true")
 public class UserInitializer implements CommandLineRunner {
 
     private static final int REQUIRED_MODERATORS = 3;

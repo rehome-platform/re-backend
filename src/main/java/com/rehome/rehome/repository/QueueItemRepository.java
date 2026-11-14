@@ -27,6 +27,11 @@ public interface QueueItemRepository extends JpaRepository<QueueItem, String> {
 
     Optional<QueueItem> findByTypeAndRefId(QueueType type, String refId);
 
+    // Đóng gói: khóa dòng queue cùng lúc với đơn để kiểm tra claim và hoàn tất việc không bị chen ngang
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select q from QueueItem q left join fetch q.claimedBy where q.type = :type and q.refId = :refId")
+    Optional<QueueItem> findByTypeAndRefIdForUpdate(@Param("type") QueueType type, @Param("refId") String refId);
+
     // API 140: Moderator còn giữ việc (việc xong thì dòng queue bị gỡ) thì không cho chuyển kho
     boolean existsByClaimedBy_Id(java.util.UUID accountId);
 

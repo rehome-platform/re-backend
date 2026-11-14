@@ -79,6 +79,7 @@ class CounterServiceImplTest {
     @Mock private AuditLogRepository auditLogRepository;
     @Mock private QueueService queueService;
 
+    @Mock private com.rehome.rehome.component.AuditLogger auditLogger;
     @InjectMocks private CounterServiceImpl service;
 
     private final UUID moderatorId = UUID.randomUUID();

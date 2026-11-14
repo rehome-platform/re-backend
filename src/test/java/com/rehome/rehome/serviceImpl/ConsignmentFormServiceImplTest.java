@@ -134,6 +134,7 @@ class ConsignmentFormServiceImplTest {
                         2, null, 10, 5, null, false, maxPending, null, null));
 
         service = new ConsignmentFormServiceImpl(
+                mock(com.rehome.rehome.component.AuditLogger.class),
                 consignmentFormRepository, categoryRepository, brandRepository, warehouseRepository,
                 photoRepository, consignmentFormMapper, consignmentReceiptRepository,
                 systemConfigReader, membershipQuotaResolver, accountRepository, queueService);

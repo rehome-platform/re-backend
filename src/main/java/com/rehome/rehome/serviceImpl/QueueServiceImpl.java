@@ -31,6 +31,10 @@ import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.QueueItemRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.service.QueueService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.rehome.rehome.component.AuditLogger;
+import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -61,6 +65,8 @@ public class QueueServiceImpl implements QueueService {
     private final ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
     private final ProductPhotoRepository productPhotoRepository;
     private final DonationRepository donationRepository;
+    private final AuditLogger auditLogger;
+    private final ObjectMapper objectMapper;
 
     // Không đặt readOnly: tab RETURN có thể phải bù dòng hàng đợi còn thiếu (syncPendingReturnRequests)
     @Override
@@ -380,6 +386,7 @@ public class QueueServiceImpl implements QueueService {
         if (updated == 0) {
             throw new AppException(ErrorCode.QUEUE_ITEM_ALREADY_CLAIMED);
         }
+        logPackingTask(moderator, warehouse, item, "CLAIM_TASK");
         return QueueClaimResponse.builder()
                 .id(id)
                 .claimedBy(moderator.getId().toString())
@@ -399,6 +406,23 @@ public class QueueServiceImpl implements QueueService {
         item.setClaimedBy(null);
         item.setClaimedAt(null);
         queueItemRepository.save(item);
+        Warehouse warehouse = item.getWarehouse() != null ? item.getWarehouse() : moderator.getWarehouse();
+        logPackingTask(moderator, warehouse, item, "RELEASE_TASK");
+    }
+
+    // Chỉ việc đóng gói thuộc nhóm lịch sử PACKING; các loại việc khác không ghi ở đây.
+    // Gọi trong transaction của claim/release nên claim thất bại (409) thì không có log
+    private void logPackingTask(Account moderator, Warehouse warehouse, QueueItem item, String action) {
+        if (item.getType() != QueueType.PACKING || warehouse == null) {
+            return;
+        }
+        UUID orderId = parseUuid(item.getRefId());
+        String orderNo = orderId == null ? null : orderRepository.findById(orderId).map(Order::getOrderNo).orElse(null);
+        ObjectNode detail = objectMapper.createObjectNode();
+        detail.put("label", orderNo != null ? orderNo : item.getRefId());
+        detail.put("queueItemId", item.getId());
+        auditLogger.logWarehouse(moderator, warehouse, WarehouseAuditGroup.PACKING, action,
+                "ORDER", item.getRefId(), "SUCCESS", detail);
     }
 
     @Override

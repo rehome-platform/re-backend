@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public interface MembershipPaymentRepository extends JpaRepository<MembershipPayment, UUID> {
+public interface MembershipPaymentRepository extends JpaRepository<MembershipPayment, UUID>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<MembershipPayment> {
 
     List<MembershipPayment> findAllBySubscription_IdOrderByCreatedAtAsc(UUID subscriptionId);
 

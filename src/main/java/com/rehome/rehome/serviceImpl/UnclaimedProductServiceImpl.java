@@ -1,17 +1,17 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.component.AuditLogger;
+import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.rehome.rehome.dto.request.ConfirmTransferRequest;
 import com.rehome.rehome.dto.response.ProductStatusResponse;
-import com.rehome.rehome.entity.audit.AuditLog;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
-import com.rehome.rehome.repository.AuditLogRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.service.UnclaimedProductService;
 import lombok.RequiredArgsConstructor;
@@ -21,9 +21,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class UnclaimedProductServiceImpl implements UnclaimedProductService {
+    private final AuditLogger auditLogger;
 
     private final ProductRepository productRepository;
-    private final AuditLogRepository auditLogRepository;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -58,13 +58,10 @@ public class UnclaimedProductServiceImpl implements UnclaimedProductService {
         detail.put("partnerOrganizationName", partner);
         detail.put("previousStatus", previous.name());
         detail.put("newStatus", ProductStatus.DONATED.name());
-        auditLogRepository.save(AuditLog.builder()
-                .actorAccount(moderator)
-                .actionType("CONFIRM_UNCLAIMED_TRANSFER")
-                .targetType("PRODUCT")
-                .targetId(product.getId())
-                .detail(detail)
-                .build());
+        // label là phần duy nhất của detail được hiện ở lịch sử kho
+        detail.put("label", product.getId());
+        auditLogger.logWarehouse(moderator, product.getWarehouse(), WarehouseAuditGroup.INVENTORY,
+                "CONFIRM_UNCLAIMED_TRANSFER", "PRODUCT", product.getId(), "TRANSFERRED", detail);
 
         return ProductStatusResponse.builder()
                 .id(product.getId())

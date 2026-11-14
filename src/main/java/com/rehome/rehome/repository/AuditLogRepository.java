@@ -12,6 +12,16 @@ import java.util.UUID;
 
 public interface AuditLogRepository extends JpaRepository<AuditLog, UUID>, JpaSpecificationExecutor<AuditLog> {
 
+    // Lịch sử kho của Moderator: một kho, một nhóm; mới nhất trước, id giảm dần làm khóa phụ để phân trang ổn định
+    @Query(value = "select l from AuditLog l join fetch l.actorAccount "
+            + "where l.warehouseId = :warehouseId and l.auditGroup = :auditGroup "
+            + "order by l.createdAt desc, l.id desc",
+            countQuery = "select count(l) from AuditLog l "
+                    + "where l.warehouseId = :warehouseId and l.auditGroup = :auditGroup")
+    org.springframework.data.domain.Page<AuditLog> findWarehouseHistory(
+            @Param("warehouseId") UUID warehouseId, @Param("auditGroup") String auditGroup,
+            org.springframework.data.domain.Pageable pageable);
+
     // API filter-options: chỉ lấy loại thao tác thực sự có trong log
     @Query("select distinct l.actionType from AuditLog l order by l.actionType")
     List<String> findDistinctActionTypes();

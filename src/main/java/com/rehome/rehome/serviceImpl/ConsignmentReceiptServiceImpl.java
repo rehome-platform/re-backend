@@ -1,5 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.component.AuditLogger;
+import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import com.rehome.rehome.component.FeaturedListingManager;
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.CompleteInspectionRequest;
@@ -46,6 +48,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService {
+    private final AuditLogger auditLogger;
 
     private final ConsignmentReceiptRepository consignmentReceiptRepository;
     private final ConsignmentReceiptPdfRepository consignmentReceiptPdfRepository;
@@ -104,8 +107,6 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         // không bao giờ "có hiệu lực" mà thiếu file bằng chứng.
         byte[] pdf = receiptPdfService.generate(receipt);
 
-        // TODO: ghi audit log (account, receipt id, thời điểm xác nhận)
-
         consignmentReceiptRepository.save(receipt);
         consignmentReceiptPdfRepository.save(ConsignmentReceiptPdf.builder()
                 .receipt(receipt)
@@ -118,8 +119,19 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         // F-030: biên nhận này là biên nhận ký gửi lại (được tạo ở setReConsignTerms) - sản phẩm
         // đã có SKU từ lần ký gửi đầu, chỉ cần đổi biên nhận/điều khoản và bán lại ngay, không phải
         // chờ Moderator nhập kho lại như lần ký gửi đầu tiên
-        endOfTermDecisionRepository.findByNewReceipt_Id(receipt.getId())
-                .ifPresent(reConsign -> activateReConsignedProduct(reConsign.getProduct(), receipt, now));
+        var reConsignDecision = endOfTermDecisionRepository.findByNewReceipt_Id(receipt.getId());
+        reConsignDecision.ifPresent(reConsign -> activateReConsignedProduct(reConsign.getProduct(), receipt, now));
+
+        // Biên nhận ký gửi lại thuộc nhóm tồn kho (CONFIRM_RECONSIGN); biên nhận lần đầu thuộc nhóm kiểm định
+        if (reConsignDecision.isPresent()) {
+            auditLogger.logWarehouseOp(account, receipt.getWarehouse(), WarehouseAuditGroup.INVENTORY,
+                    "CONFIRM_RECONSIGN", "CONSIGNMENT_RECEIPT", receipt.getId().toString(), "CONFIRMED",
+                    receipt.getReceiptNo());
+        } else {
+            auditLogger.logWarehouseOp(account, receipt.getWarehouse(), WarehouseAuditGroup.INSPECTION,
+                    "CONFIRM_RECEIPT", "CONSIGNMENT_RECEIPT", receipt.getId().toString(), "CONFIRMED",
+                    receipt.getReceiptNo());
+        }
 
         return ConsignmentReceiptMapper.toConfirmResponse(receipt);
     }
@@ -261,6 +273,10 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
                 .build();
 
         consignmentReceiptRepository.save(receipt);
+
+        // Endpoint cũ /consignment-receipts/{id}/inspection/complete: cũng phải vào lịch sử kho
+        auditLogger.logWarehouseOp(moderator, form.getWarehouse(), WarehouseAuditGroup.INSPECTION,
+                "COMPLETE_INSPECTION", "CONSIGNMENT_FORM", form.getId().toString(), "PASSED", form.getFormNo());
         return new CompleteInspectionResponse(receipt.getId());
     }
 

@@ -1,5 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.component.AuditLogger;
+import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.ConsignmentFormRequest;
 import com.rehome.rehome.dto.request.RejectConsignmentFormRequest;
@@ -44,6 +46,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ConsignmentFormServiceImpl implements ConsignmentFormService {
+    private final AuditLogger auditLogger;
     private final ConsignmentFormRepository consignmentFormRepository;
     private final CategoryRepository categoryRepository;
     private final BrandRepository brandRepository;
@@ -353,7 +356,9 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
                 LocalDate.now(VN_ZONE).plusDays(bringInDeadlineDays()));
         form.setRejectReason(null);
 
-        return consignmentFormMapper.toResponse(consignmentFormRepository.save(form));
+        ConsignmentForm saved = consignmentFormRepository.save(form);
+        logForm(moderator, form, "APPROVE_FORM", "APPROVED");
+        return consignmentFormMapper.toResponse(saved);
     }
 
     @Override
@@ -370,6 +375,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         form.setStatus(ConsignmentFormStatus.INSPECTING);
         consignmentFormRepository.save(form);
         queueService.enqueue(QueueType.INSPECTION, form.getId().toString(), form.getWarehouse());
+        logForm(moderator, form, "START_INSPECTION", "STARTED");
     }
 
     @Override
@@ -389,6 +395,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         form.setBringInDeadline(null);
 
         consignmentFormRepository.save(form);
+        logForm(moderator, form, "REJECT_FORM", "REJECTED");
         return new ConsignmentFormStatusResponse(form.getId(), form.getStatus());
     }
 
@@ -409,10 +416,17 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         form.setBringInDeadline(null);
 
         consignmentFormRepository.save(form);
+        logForm(moderator, form, "RETURN_ONSITE", "RETURNED");
         return new ConsignmentFormStatusResponse(form.getId(), form.getStatus());
     }
 
     // --------------------------------------------------------------- helpers
+
+    // Log nhóm INSPECTION; gọi trong transaction của thao tác nên lỗi/rollback thì không còn log
+    private void logForm(Account moderator, ConsignmentForm form, String action, String result) {
+        auditLogger.logWarehouseOp(moderator, form.getWarehouse(), WarehouseAuditGroup.INSPECTION, action,
+                "CONSIGNMENT_FORM", form.getId().toString(), result, form.getFormNo());
+    }
 
     // Moderator chỉ thao tác trên form thuộc kho mình phụ trách
     private void assertModeratorOwnsWarehouse(Account moderator, ConsignmentForm form) {

@@ -34,6 +34,9 @@ public class QueueItemResponse {
     private String orderNo;
     private String recipientName;
     private Integer itemCount;
+    // Thời điểm đặt đơn (Order.createdAt); createdAt phía trên là lúc việc vào hàng đợi.
+    // waitingMinutes tính từ orderCreatedAt đến hiện tại
+    private Instant orderCreatedAt;
     private Long waitingMinutes;
 
     // Chung cho mọi loại việc (trừ VIOLATION_REPORT): tên đối tượng hiển thị trên queue và dòng phụ
@@ -92,6 +95,7 @@ public class QueueItemResponse {
         response.setOrderNo(order.getOrderNo());
         response.setRecipientName(order.getShippingRecipientName());
         response.setItemCount(itemCount);
+        response.setOrderCreatedAt(order.getCreatedAt());
         response.setWaitingMinutes(waitingMinutes);
         response.setTargetName(order.getOrderNo());
         response.setSubjectSubtitle(order.getShippingRecipientName());

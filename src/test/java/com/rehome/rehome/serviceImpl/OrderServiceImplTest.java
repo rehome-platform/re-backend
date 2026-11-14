@@ -50,7 +50,10 @@ import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.entity.marketplace.WalletTransaction;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.exception.AppException;
+import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.exception.ConflictException;
+import com.rehome.rehome.dto.response.CreateShipmentResponse;
 import com.rehome.rehome.exception.ForbiddenException;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.CartItemRepository;
@@ -125,6 +128,8 @@ class OrderServiceImplTest {
     @Mock GhnApi ghnApi;
     @Mock GhnShippingFeeCalculator ghnShippingFeeCalculator;
     @Mock SystemConfigReader systemConfigReader;
+    @Mock private com.rehome.rehome.component.AuditLogger auditLogger;
+    @org.mockito.Spy private com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
     @InjectMocks
     OrderServiceImpl orderService;
 
@@ -2723,6 +2728,17 @@ class OrderServiceImplTest {
         return Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR).warehouse(warehouse).build();
     }
 
+    // Moderator đang giữ việc đóng gói của đơn: dòng queue PACKING của đơn do chính moderator này nhận
+    private Account claimingModerator(UUID orderId, Warehouse warehouse) {
+        Account moderator = moderatorWithWarehouse(warehouse);
+        QueueItem queueItem = QueueItem.builder().id(UUID.randomUUID().toString()).type(QueueType.PACKING)
+                .refId(orderId.toString()).claimedBy(moderator).build();
+        org.mockito.Mockito.lenient().when(queueItemRepository
+                .findByTypeAndRefIdForUpdate(QueueType.PACKING, orderId.toString()))
+                .thenReturn(Optional.of(queueItem));
+        return moderator;
+    }
+
     @Test
     void packScan_throwsNotFound_whenAccountDoesNotExist() {
         UUID orderId = UUID.randomUUID();
@@ -2737,8 +2753,9 @@ class OrderServiceImplTest {
     @Test
     void packScan_throwsNotFound_whenOrderDoesNotExist() {
         UUID orderId = UUID.randomUUID();
-        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
-        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
+        Account modTmp = claimingModerator(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(modTmp));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> orderService.packScan(
                 "mod@example.com", orderId, new PackScanRequest(product1.getId())))
@@ -2751,7 +2768,7 @@ class OrderServiceImplTest {
         UUID orderId = UUID.randomUUID();
         Order order = Order.builder().id(orderId).warehouse(warehouse1).build();
         when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(null)));
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.packScan(
                 "mod@example.com", orderId, new PackScanRequest(product1.getId())))
@@ -2764,7 +2781,7 @@ class OrderServiceImplTest {
         UUID orderId = UUID.randomUUID();
         Order order = Order.builder().id(orderId).warehouse(warehouse1).build();
         when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(warehouse2)));
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.packScan(
                 "mod@example.com", orderId, new PackScanRequest(product1.getId())))
@@ -2778,8 +2795,9 @@ class OrderServiceImplTest {
     void packScan_throwsBadRequest_whenProductIdBlank() {
         UUID orderId = UUID.randomUUID();
         Order order = Order.builder().id(orderId).warehouse(warehouse1).build();
-        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        Account modTmp = claimingModerator(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(modTmp));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.packScan("mod@example.com", orderId, new PackScanRequest("  ")))
                 .isInstanceOf(BadRequestException.class)
@@ -2793,8 +2811,9 @@ class OrderServiceImplTest {
         OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).scanned(false).build();
         OrderItem item2 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product2).scanned(false).build();
 
-        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        Account modTmp = claimingModerator(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(modTmp));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
         when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1, item2));
 
         PackScanResponse result = orderService.packScan(
@@ -2816,8 +2835,9 @@ class OrderServiceImplTest {
         Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.PACKING).scannedCount(1).build();
         OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).scanned(true).build();
 
-        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        Account modTmp = claimingModerator(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(modTmp));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
         when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
 
         PackScanResponse result = orderService.packScan(
@@ -2832,11 +2852,12 @@ class OrderServiceImplTest {
     @Test
     void packScan_wrongSku_productNotFoundAnywhere_throwsBadRequest() {
         UUID orderId = UUID.randomUUID();
-        Order order = Order.builder().id(orderId).warehouse(warehouse1).scannedCount(0).build();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.PAID).scannedCount(0).build();
         OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).scanned(false).build();
 
-        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        Account modTmp = claimingModerator(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(modTmp));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
         when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
         when(productRepository.findById("NOT-A-SKU")).thenReturn(Optional.empty());
 
@@ -2849,7 +2870,7 @@ class OrderServiceImplTest {
     void packScan_wrongSku_belongsToAnotherOrderSameWarehouse_returnsGuidanceWithoutChangingProgress() {
         UUID orderId = UUID.randomUUID();
         UUID otherOrderId = UUID.randomUUID();
-        Order order = Order.builder().id(orderId).warehouse(warehouse1).scannedCount(0).build();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.PAID).scannedCount(0).build();
         OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).scanned(false).build();
 
         product2.setWarehouse(warehouse1);
@@ -2858,8 +2879,9 @@ class OrderServiceImplTest {
         Order otherOrder = Order.builder().id(otherOrderId).orderNo("OD-2026-000777").warehouse(warehouse1).build();
         OrderItem otherOrderItem = OrderItem.builder().id(UUID.randomUUID()).order(otherOrder).product(product2).build();
 
-        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        Account modTmp = claimingModerator(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(modTmp));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
         when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
         when(productRepository.findById(product2.getId())).thenReturn(Optional.of(product2));
         when(orderItemRepository.findActiveByProductIds(List.of(product2.getId()))).thenReturn(List.of(otherOrderItem));
@@ -2884,12 +2906,13 @@ class OrderServiceImplTest {
     @Test
     void packScan_wrongSku_fromAnotherWarehouse_doesNotLeakProductDetails() {
         UUID orderId = UUID.randomUUID();
-        Order order = Order.builder().id(orderId).warehouse(warehouse1).scannedCount(0).build();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.PAID).scannedCount(0).build();
         OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).scanned(false).build();
 
         // product2 thuộc warehouse2 - khác kho của moderator (warehouse1)
-        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        Account modTmp = claimingModerator(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(modTmp));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
         when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
         when(productRepository.findById(product2.getId())).thenReturn(Optional.of(product2));
 
@@ -2902,5 +2925,214 @@ class OrderServiceImplTest {
         assertThat(result.getWrongItem().getBelongsToOrderNo()).isNull();
         verify(orderItemRepository, never()).findActiveByProductIds(any());
         verify(orderItemRepository, never()).save(any());
+    }
+
+    // ---- packScan: khóa, claim, trạng thái, idempotency, audit ----
+
+    private Account moderatorWhoDoesNotHoldTask(UUID orderId, Warehouse warehouse) {
+        Account moderator = moderatorWithWarehouse(warehouse);
+        Account other = moderatorWithWarehouse(warehouse);
+        QueueItem queueItem = QueueItem.builder().id(UUID.randomUUID().toString()).type(QueueType.PACKING)
+                .refId(orderId.toString()).claimedBy(other).build();
+        when(queueItemRepository.findByTypeAndRefIdForUpdate(QueueType.PACKING, orderId.toString()))
+                .thenReturn(Optional.of(queueItem));
+        return moderator;
+    }
+
+    @Test
+    void packScan_throwsNotClaimedByYou_whenAnotherModeratorHoldsTask() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.PAID).scannedCount(0).build();
+        Account modTmp = moderatorWhoDoesNotHoldTask(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(modTmp));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.packScan(
+                "mod@example.com", orderId, new PackScanRequest(product1.getId())))
+                .isInstanceOf(AppException.class)
+                .extracting(e -> ((AppException) e).getErrorCode())
+                .isEqualTo(ErrorCode.QUEUE_ITEM_NOT_CLAIMED_BY_YOU);
+        verify(orderItemRepository, never()).save(any());
+        verify(auditLogger, never()).logWarehouse(any(), any(Warehouse.class), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void packScan_throwsConflict_whenOrderAlreadyShipping() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.SHIPPING).scannedCount(1).build();
+        Account modTmp = claimingModerator(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(modTmp));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.packScan(
+                "mod@example.com", orderId, new PackScanRequest(product1.getId())))
+                .isInstanceOf(ConflictException.class);
+        verify(orderItemRepository, never()).save(any());
+    }
+
+    @Test
+    void packScan_firstScan_writesOneAuditLog() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).orderNo("OD-1").warehouse(warehouse1)
+                .status(OrderStatus.PAID).scannedCount(0).build();
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).scanned(false).build();
+        Account moderator = claimingModerator(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderator));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+
+        orderService.packScan("mod@example.com", orderId, new PackScanRequest(product1.getId()));
+
+        verify(auditLogger).logWarehouse(eq(moderator), eq(warehouse1),
+                eq(com.rehome.rehome.entity.enums.WarehouseAuditGroup.PACKING), eq("SCAN_SKU"),
+                eq("ORDER"), eq(orderId.toString()), eq("SUCCESS"), any());
+    }
+
+    @Test
+    void packScan_duplicateScan_isNoOpAndWritesNoAuditLog() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.PACKING).scannedCount(1).build();
+        OrderItem item1 = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).scanned(true).build();
+        Account modTmp = claimingModerator(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(modTmp));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_Id(orderId)).thenReturn(List.of(item1));
+
+        orderService.packScan("mod@example.com", orderId, new PackScanRequest(product1.getId()));
+
+        assertThat(order.getScannedCount()).isEqualTo(1);
+        verify(auditLogger, never()).logWarehouse(any(), any(Warehouse.class), any(), any(), any(), any(), any(), any());
+    }
+
+    // ---- createShipment ----
+
+    @Test
+    void createShipment_alreadyHasShipment_returnsExistingWithoutGhnOrAudit() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.SHIPPING)
+                .ghnTrackingCode("GHN123").build();
+        when(accountRepository.findByEmail("mod@example.com"))
+                .thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+
+        CreateShipmentResponse result = orderService.createShipment("mod@example.com", orderId);
+
+        assertThat(result.getGhnTrackingCode()).isEqualTo("GHN123");
+        verify(ghnApi, never()).createOrder(any(), any(), any());
+        verify(auditLogger, never()).logWarehouse(any(), any(Warehouse.class), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void createShipment_throwsForbidden_whenOrderBelongsToAnotherWarehouse() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.PACKING)
+                .ghnTrackingCode("GHN123").build();
+        when(accountRepository.findByEmail("mod@example.com"))
+                .thenReturn(Optional.of(moderatorWithWarehouse(warehouse2)));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.createShipment("mod@example.com", orderId))
+                .isInstanceOf(ForbiddenException.class);
+        verify(ghnApi, never()).createOrder(any(), any(), any());
+    }
+
+    @Test
+    void createShipment_throwsNotClaimedByYou_whenAnotherModeratorHoldsTask() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.PACKING).build();
+        Account modTmp = moderatorWhoDoesNotHoldTask(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(modTmp));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.createShipment("mod@example.com", orderId))
+                .isInstanceOf(AppException.class);
+        verify(ghnApi, never()).createOrder(any(), any(), any());
+    }
+
+    @Test
+    void createShipment_throwsConflict_whenNotFullyScanned() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.PACKING).scannedCount(1).build();
+        OrderItem scanned = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).scanned(true).build();
+        OrderItem notScanned = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product2).scanned(false).build();
+        Account modTmp = claimingModerator(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(modTmp));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId))
+                .thenReturn(List.of(scanned, notScanned));
+
+        assertThatThrownBy(() -> orderService.createShipment("mod@example.com", orderId))
+                .isInstanceOf(ConflictException.class);
+        verify(ghnApi, never()).createOrder(any(), any(), any());
+    }
+
+    @Test
+    void createShipment_throwsConflict_whenOrderHasNoItems() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.PACKING).scannedCount(0).build();
+        Account modTmp = claimingModerator(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(modTmp));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId)).thenReturn(List.of());
+
+        assertThatThrownBy(() -> orderService.createShipment("mod@example.com", orderId))
+                .isInstanceOf(ConflictException.class);
+        verify(ghnApi, never()).createOrder(any(), any(), any());
+    }
+
+    @Test
+    void createShipment_success_savesShipmentTimeShippingDequeuesAndLogs() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).orderNo("OD-1").warehouse(warehouse1)
+                .status(OrderStatus.PACKING).scannedCount(1).subtotal(new java.math.BigDecimal("100000"))
+                .totalAmount(new java.math.BigDecimal("100000")).build();
+        OrderItem item = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).scanned(true)
+                .priceAtOrder(new java.math.BigDecimal("100000")).build();
+        Account moderator = claimingModerator(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderator));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId)).thenReturn(List.of(item));
+
+        com.rehome.rehome.dto.response.GhnOrderData data = new com.rehome.rehome.dto.response.GhnOrderData();
+        data.setOrderCode("GHN999");
+        data.setExpectedDeliveryTime("2026-11-20T10:00:00+07:00");
+        com.rehome.rehome.dto.response.GhnCreateOrderResponse ghnResponse =
+                new com.rehome.rehome.dto.response.GhnCreateOrderResponse();
+        ghnResponse.setData(data);
+        when(ghnApi.createOrder(any(), any(), any())).thenReturn(ghnResponse);
+
+        java.time.Instant before = java.time.Instant.now();
+        CreateShipmentResponse result = orderService.createShipment("mod@example.com", orderId);
+
+        assertThat(result.getGhnTrackingCode()).isEqualTo("GHN999");
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.SHIPPING);
+        assertThat(order.getExpectedDeliveryDate()).isNotNull();
+        assertThat(order.getShipmentCreatedAt()).isAfterOrEqualTo(before);
+        verify(queueService).dequeue(QueueType.PACKING, orderId.toString());
+        verify(auditLogger).logWarehouse(eq(moderator), eq(warehouse1),
+                eq(com.rehome.rehome.entity.enums.WarehouseAuditGroup.PACKING), eq("CREATE_SHIPMENT"),
+                eq("ORDER"), eq(orderId.toString()), eq("SUCCESS"), any());
+    }
+
+    @Test
+    void createShipment_ghnFailure_logsNothingAndKeepsShipmentEmpty() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).orderNo("OD-1").warehouse(warehouse1)
+                .status(OrderStatus.PACKING).scannedCount(1).subtotal(new java.math.BigDecimal("100000"))
+                .totalAmount(new java.math.BigDecimal("100000")).build();
+        OrderItem item = OrderItem.builder().id(UUID.randomUUID()).order(order).product(product1).scanned(true)
+                .priceAtOrder(new java.math.BigDecimal("100000")).build();
+        Account modTmp = claimingModerator(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(modTmp));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(orderId)).thenReturn(List.of(item));
+        when(ghnApi.createOrder(any(), any(), any())).thenThrow(new RuntimeException("boom"));
+
+        assertThatThrownBy(() -> orderService.createShipment("mod@example.com", orderId))
+                .isInstanceOf(com.rehome.rehome.exception.GhnException.class);
+
+        assertThat(order.getShipmentCreatedAt()).isNull();
+        assertThat(order.getGhnTrackingCode()).isNull();
+        verify(auditLogger, never()).logWarehouse(any(), any(Warehouse.class), any(), any(), any(), any(), any(), any());
     }
 }

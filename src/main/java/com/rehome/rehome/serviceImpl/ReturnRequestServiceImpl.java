@@ -1,5 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.component.AuditLogger;
+import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import com.rehome.rehome.client.GhnApi;
 import com.rehome.rehome.dto.request.CreateReturnRequestRequest;
 import com.rehome.rehome.dto.request.GhnCreateOrderRequest;
@@ -71,6 +73,7 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 @Slf4j
 public class ReturnRequestServiceImpl implements ReturnRequestService {
+    private final AuditLogger auditLogger;
 
     private static final List<ReturnRequestStatus> OPEN_STATUSES = List.of(
             ReturnRequestStatus.PENDING,
@@ -527,6 +530,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .build();
 
         degradedItemCaseRepository.save(degradedCase);
+
+        auditLogger.logWarehouseOp(moderator, item.getProduct().getWarehouse(), WarehouseAuditGroup.INVENTORY,
+                "OPEN_DEGRADED_CASE", "DEGRADED_ITEM_CASE", degradedCase.getId().toString(), "OPENED",
+                item.getProduct().getId());
     }
 
     // F-070: Member chọn gửi lại (tự trả phí) hoặc đến kho nhận hàng trả không hợp lệ

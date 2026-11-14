@@ -1,5 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.component.AuditLogger;
@@ -399,6 +400,9 @@ public class ProductServiceImpl implements ProductService {
                 .changedAt(now)
                 .build());
 
+        auditLogger.logWarehouseOp(account, product.getWarehouse(), WarehouseAuditGroup.INVENTORY, "UPDATE_PRICE",
+                "PRODUCT", product.getId(), "SUCCESS", product.getId());
+
         return new PriceReductionResponse(product.getCurrentPrice());
     }
 
@@ -625,6 +629,9 @@ public class ProductServiceImpl implements ProductService {
 
         productRepository.save(product);
         savePhotos(product, request.getPhotoUrls());
+
+        auditLogger.logWarehouseOp(account, product.getWarehouse(), WarehouseAuditGroup.INSPECTION, "STOCK_IN",
+                "PRODUCT", product.getId(), "ON_SALE", product.getId());
 
         return new ProductResponse(product.getId(), product.getName(), product.getStatus());
     }

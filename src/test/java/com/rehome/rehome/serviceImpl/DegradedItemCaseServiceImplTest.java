@@ -63,6 +63,7 @@ class DegradedItemCaseServiceImplTest {
     @Mock PlatformFundRepository platformFundRepository;
     @Mock com.rehome.rehome.service.SystemConfigReader systemConfigReader;
 
+    @Mock private com.rehome.rehome.component.AuditLogger auditLogger;
     @InjectMocks
     DegradedItemCaseServiceImpl service;
 

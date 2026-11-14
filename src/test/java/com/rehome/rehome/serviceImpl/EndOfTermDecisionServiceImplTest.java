@@ -50,6 +50,7 @@ class EndOfTermDecisionServiceImplTest {
     @Mock private ConsignmentProperties consignmentProperties;
     @Mock private SystemConfigReader systemConfigReader;
 
+    @Mock private com.rehome.rehome.component.AuditLogger auditLogger;
     @InjectMocks private EndOfTermDecisionServiceImpl service;
 
     @Mock private Account account;
@@ -68,6 +69,7 @@ class EndOfTermDecisionServiceImplTest {
 
         lenient().when(decisionRepository.findByIdForUpdate(decisionId)).thenReturn(Optional.of(decision));
         lenient().when(decision.getProduct()).thenReturn(product);
+        lenient().when(decision.getId()).thenReturn(decisionId);
         lenient().when(decision.getDecision()).thenReturn(null);
         lenient().when(decision.getDeadline()).thenReturn(Instant.now().plus(1, ChronoUnit.DAYS));
 

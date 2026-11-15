@@ -18,6 +18,8 @@ public interface TryOnService {
     PageResponse<TryOnImageResponse> getCollection(Account account, int page, int size);
 
     // API 96 (F-075): gợi ý món còn thiếu cho slot TOP/BOTTOM, chỉ ON_SALE; rỗng thì FE tự mở GET /products (F-076)
+    List<TryOnSuggestionResponse> getOutfitSuggestions(String productId, Double latitude, Double longitude);
+
     List<TryOnSuggestionResponse> getSuggestions(String slot, String excludeProductId);
 
     // GET /tryon/images/{id}: xem 1 ảnh trong bộ sưu tập, chỉ chủ ảnh được xem

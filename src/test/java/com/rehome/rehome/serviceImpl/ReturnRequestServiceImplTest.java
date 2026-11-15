@@ -97,6 +97,7 @@ class ReturnRequestServiceImplTest {
     @Mock private com.rehome.rehome.repository.ProductPhotoRepository productPhotoRepository;
     @Mock private OrderService orderService;
     @Mock private QueueService queueService;
+    @Mock private com.rehome.rehome.component.AuditLogger auditLogger;
     @Mock private GhnApi ghnApi;
     @Mock private com.rehome.rehome.service.SystemConfigReader systemConfigReader;
 
@@ -949,6 +950,12 @@ class ReturnRequestServiceImplTest {
             ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INSPECTING);
             rr.setDegraded(true);
             OrderItem item = givenOrderItem();
+
+            when(degradedItemCaseRepository.save(any(DegradedItemCase.class))).thenAnswer(invocation -> {
+                DegradedItemCase saved = invocation.getArgument(0);
+                saved.setId(UUID.randomUUID());
+                return saved;
+            });
 
             service.resolve(moderator, RR_ID, resolveReq("VALID", null, "Xuống cấp"));
 

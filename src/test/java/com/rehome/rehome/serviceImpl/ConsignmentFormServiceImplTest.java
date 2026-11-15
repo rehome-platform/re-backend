@@ -1,5 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.component.MembershipQuotaResolver;
 import com.rehome.rehome.entity.enums.MembershipTier;
 import com.rehome.rehome.constant.SystemConfigKeys;
@@ -133,7 +134,7 @@ class ConsignmentFormServiceImplTest {
                         null, MembershipTier.FREE, "Thành viên thường",
                         2, null, 10, 5, null, false, maxPending, null, null));
 
-        service = new ConsignmentFormServiceImpl(
+        service = new ConsignmentFormServiceImpl(mock(AuditLogger.class),
                 consignmentFormRepository, categoryRepository, brandRepository, warehouseRepository,
                 photoRepository, consignmentFormMapper, consignmentReceiptRepository,
                 systemConfigReader, membershipQuotaResolver, accountRepository, queueService, mock(com.rehome.rehome.service.ContentModerationService.class));

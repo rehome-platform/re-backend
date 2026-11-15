@@ -6,6 +6,7 @@ import com.rehome.rehome.entity.marketplace.Product;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
@@ -29,6 +30,10 @@ public interface ProductRepository extends JpaRepository<Product, String>, JpaSp
 
 
     // API 97: nạp luôn category (cần tryonSlot) để service kiểm slot mà không phụ thuộc session
+    @EntityGraph(attributePaths = {"brand", "category", "warehouse", "consignmentReceipt"})
+    Slice<Product> findByStatusAndCategory_TryonSlot(
+            ProductStatus status, TryOnSlot slot, Pageable pageable);
+
     // Nạp luôn warehouse để TryOnImageResponse.ProductInfo.warehouseId không chạm lazy proxy sau khi hết session
     @EntityGraph(attributePaths = {"category", "warehouse"})
     List<Product> findWithCategoryByIdIn(Collection<String> ids);

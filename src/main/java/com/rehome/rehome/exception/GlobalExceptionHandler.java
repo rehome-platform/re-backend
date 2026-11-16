@@ -24,7 +24,14 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(OtpException.class)
     public ResponseEntity<ApiError> handleOtp(OtpException ex, HttpServletRequest req) {
-        return build(ex.getStatus(), ex.getMessage(), req);
+        var response = build(ex.getStatus(), ex.getMessage(), req);
+        if (ex.getRetryAfterSeconds() == null) {
+            return response;
+        }
+        return ResponseEntity.status(response.getStatusCode())
+                .headers(response.getHeaders())
+                .header("Retry-After", ex.getRetryAfterSeconds().toString())
+                .body(response.getBody());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

@@ -22,7 +22,9 @@ public class CommentResponse {
     private String parentId;
     private String content;
     private String status;
+    private com.rehome.rehome.entity.enums.ContentReviewStatus reviewStatus;
     private CommentAuthorResponse author;
+    private String reviewReason;
     private Instant createdAt;
 
     // Bình luận này có phải của chính người đang xem không; false khi Guest (không có viewerId)

@@ -9,6 +9,8 @@ import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.repository.CampaignRepository;
+import com.rehome.rehome.entity.enums.CampaignStatus;
 import com.rehome.rehome.repository.AuditLogRepository;
 import com.rehome.rehome.service.RefreshTokenService;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -38,6 +40,9 @@ class AccountAdminServiceImplTest {
 
     @Mock
     AccountRepository accountRepository;
+
+    @Mock
+    CampaignRepository campaignRepository;
 
     @Mock
     RefreshTokenService refreshTokenService;
@@ -86,6 +91,16 @@ class AccountAdminServiceImplTest {
     }
 
     // ==================== ban ====================
+
+    @Test
+    void ban_organizationHidesCampaigns() {
+        target.setRole(Role.ORGANIZATION);
+        when(accountRepository.findById(targetId)).thenReturn(Optional.of(target));
+
+        service.ban(admin, targetId, "Spam");
+
+        verify(campaignRepository).hideCampaignsByOrganization(targetId, CampaignStatus.HIDDEN);
+    }
 
     @Test
     @DisplayName("ban: thành công -> BANNED, lưu lý do, thu hồi refresh token, ghi audit, trả response")

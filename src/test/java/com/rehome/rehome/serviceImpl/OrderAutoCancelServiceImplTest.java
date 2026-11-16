@@ -37,6 +37,8 @@ class OrderAutoCancelServiceImplTest {
     @Mock
     OrderCancelExecutor orderCancelExecutor;
 
+    @org.mockito.Mock com.rehome.rehome.component.AuditLogger auditLogger;
+
     @InjectMocks
     OrderAutoCancelServiceImpl orderAutoCancelService;
 

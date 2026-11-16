@@ -26,6 +26,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class CategoryServiceImpl implements CategoryService {
 
+    private final com.rehome.rehome.component.AuditLogger auditLogger;
     private final CategoryRepository categoryRepository;
     private final ProductRepository productRepository;
     private final ConsignmentFormRepository consignmentFormRepository;
@@ -50,6 +51,7 @@ public class CategoryServiceImpl implements CategoryService {
                 .status(CatalogStatus.ACTIVE)
                 .build());
 
+        auditLogger.logCurrentOperation("CREATE_CATEGORY", "CATEGORY", category.getId(), "SUCCESS");
         return toResponse(category);
     }
 
@@ -71,6 +73,7 @@ public class CategoryServiceImpl implements CategoryService {
             category.setStatus(request.getStatus());
         }
         categoryRepository.save(category);
+        auditLogger.logCurrentOperation("UPDATE_CATEGORY", "CATEGORY", category.getId(), "SUCCESS");
 
         return toResponse(category);
     }
@@ -93,6 +96,7 @@ public class CategoryServiceImpl implements CategoryService {
         if (category.getStatus() != CatalogStatus.HIDDEN) {
             category.setStatus(CatalogStatus.HIDDEN);
             categoryRepository.save(category);
+            auditLogger.logCurrentOperation("HIDE_CATEGORY", "CATEGORY", category.getId(), "SUCCESS");
         }
 
         return new CatalogStatusResponse(category.getStatus());
@@ -119,5 +123,6 @@ public class CategoryServiceImpl implements CategoryService {
         }
 
         categoryRepository.delete(category);
+        auditLogger.logCurrentOperation("DELETE_CATEGORY", "CATEGORY", category.getId(), "SUCCESS");
     }
 }

@@ -48,6 +48,8 @@ class OrderCancelExecutorTest {
     @Mock
     ProductRepository productRepository;
 
+    @org.mockito.Mock com.rehome.rehome.component.AuditLogger auditLogger;
+
     @InjectMocks
     OrderCancelExecutor executor;
 

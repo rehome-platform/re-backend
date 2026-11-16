@@ -76,6 +76,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     private static final String LEGAL_CHANGE_REQUEST_NOT_FOUND = "Không tìm thấy yêu cầu đổi thông tin.";
     private static final int MAX_PAGE_SIZE = 50;
 
+    private final com.rehome.rehome.component.AuditLogger auditLogger;
     private final com.rehome.rehome.service.ContentModerationService moderation;
     private final OrganizationProfileRepository organizationProfileRepository;
     private final OrganizationProfileMapper organizationProfileMapper;
@@ -484,6 +485,7 @@ public class OrganizationServiceImpl implements OrganizationService {
                 profile.getAccountId(),
                 null);
 
+        auditLogger.logOperation(moderator, "VERIFY_ORGANIZATION", "ORGANIZATION", organizationId, "VERIFIED");
         return toVerifyResponse(profile);
     }
 
@@ -523,6 +525,7 @@ public class OrganizationServiceImpl implements OrganizationService {
                 profile.getAccountId(),
                 null);
 
+        auditLogger.logOperation(moderator, "REJECT_ORGANIZATION", "ORGANIZATION", organizationId, "REJECTED");
         return OrganizationRejectResponse.builder()
                 .id(profile.getAccountId().toString())
                 .verificationStatus(profile.getVerificationStatus())
@@ -595,6 +598,7 @@ public class OrganizationServiceImpl implements OrganizationService {
                 changeRequest.getId(),
                 null);
 
+        auditLogger.logOperation(moderator, "APPROVE_ORGANIZATION_LEGAL_CHANGE", "ORGANIZATION_LEGAL_CHANGE", requestId, "APPROVED");
         return toLegalChangeResponse(changeRequest);
     }
 
@@ -626,6 +630,7 @@ public class OrganizationServiceImpl implements OrganizationService {
                 changeRequest.getId(),
                 null);
 
+        auditLogger.logOperation(moderator, "REJECT_ORGANIZATION_LEGAL_CHANGE", "ORGANIZATION_LEGAL_CHANGE", requestId, "REJECTED");
         return toLegalChangeResponse(changeRequest);
     }
 

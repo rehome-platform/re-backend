@@ -90,7 +90,7 @@ public class CounterServiceImpl implements CounterService {
         UUID refId = parseRefId(request.getRefId());
 
         switch (context) {
-            case ITEM_WITHDRAWAL -> handoverItemWithdrawal(request.getAccountId(), refId);
+            case ITEM_WITHDRAWAL -> handoverItemWithdrawal(moderator, request.getAccountId(), refId);
             case END_OF_TERM_TAKE_BACK -> handoverEndOfTermTakeBack(moderator, request.getAccountId(), refId);
             case INVALID_RETURN_PICKUP -> handoverInvalidReturnPickup(request.getAccountId(), refId);
             case DEGRADED_ITEM_PICKUP -> handoverDegradedItemPickup(moderator, request.getAccountId(), refId);
@@ -125,7 +125,7 @@ public class CounterServiceImpl implements CounterService {
     // F-034: đóng yêu cầu rút hàng khi Moderator bàn giao xong tại quầy (record phải khớp thực
     // tế: hàng đã về tay người ký gửi). Sản phẩm đã WITHDRAWN từ lúc tạo yêu cầu (F-032 - ngừng
     // bán ngay), ở đây chỉ cần đóng yêu cầu.
-    private void handoverItemWithdrawal(UUID accountId, UUID refId) {
+    private void handoverItemWithdrawal(Account moderator, UUID accountId, UUID refId) {
         ItemWithdrawalRequest withdrawal = itemWithdrawalRequestRepository.findById(refId)
                 .filter(r -> r.getMember().getId().equals(accountId))
                 .filter(r -> r.getStatus() == ItemWithdrawalStatus.PENDING_PICKUP)
@@ -134,6 +134,7 @@ public class CounterServiceImpl implements CounterService {
         withdrawal.setStatus(ItemWithdrawalStatus.COMPLETED);
         withdrawal.setCompletedAt(Instant.now());
         itemWithdrawalRequestRepository.save(withdrawal);
+        auditLogger.logOperation(moderator, "HANDOVER_WITHDRAWAL", "WITHDRAWAL", refId, "COMPLETED");
 
         // API 72: việc trong hàng đợi (mở ở API 90 lúc tạo yêu cầu) đã xử lý xong
         queueService.dequeue(QueueType.WITHDRAWAL, withdrawal.getId().toString());

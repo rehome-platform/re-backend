@@ -24,6 +24,38 @@ public class AuditLogger {
     private final AuditLogRepository auditLogRepository;
     private final ObjectMapper objectMapper;
 
+    public void logOperation(Account actor, String actionType, String targetType, Object targetId, String result) {
+        log(actor, actionType, targetType, String.valueOf(targetId), objectMapper.createObjectNode().put("result", result));
+    }
+
+    public void logSystemOperation(String actionType, String targetType, Object targetId, String result, String source) {
+        log(null, actionType, targetType, String.valueOf(targetId),
+                objectMapper.createObjectNode().put("result", result).put("source", source));
+    }
+
+    public void logActorOrSystemOperation(String actionType, String targetType, Object targetId,
+                                          String result, String source) {
+        Account actor = currentActor();
+        if (actor == null) {
+            logSystemOperation(actionType, targetType, targetId, result, source);
+        } else {
+            logOperation(actor, actionType, targetType, targetId, result);
+        }
+    }
+
+    public void logCurrentOperation(String actionType, String targetType, Object targetId, String result) {
+        Account actor = currentActor();
+        if (actor != null) {
+            logOperation(actor, actionType, targetType, targetId, result);
+        }
+    }
+
+    private Account currentActor() {
+        var authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        return authentication != null && authentication.isAuthenticated()
+                && authentication.getPrincipal() instanceof Account actor ? actor : null;
+    }
+
     public void log(Account actor, String actionType, String targetType, String targetId, JsonNode detail) {
         auditLogRepository.save(AuditLog.builder()
                 .actorAccount(actor)

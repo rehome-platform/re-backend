@@ -69,6 +69,7 @@ public class DonationServiceImpl implements DonationService {
     private static final String INVALID_DONATION_LIST = "Danh sách quyên góp không hợp lệ.";
     private static final int MAX_PAGE_SIZE = 50;
 
+    private final com.rehome.rehome.component.AuditLogger auditLogger;
     private final com.rehome.rehome.service.ContentModerationService moderation;
     private final DonationRepository donationRepository;
     private final DonationNoteRepository donationNoteRepository;
@@ -110,6 +111,7 @@ public class DonationServiceImpl implements DonationService {
                 warehouse.getId());
 
         // Ghi nhận trực tiếp (DIRECT) không có món ký gửi nên không cần tra ảnh
+        auditLogger.logOperation(moderator, "RECORD_DONATION", "DONATION", donation.getId(), "PENDING_PICKUP");
         return toResponse(donation, resolveModeratorCode(moderator.getId()), Map.of());
     }
 
@@ -218,6 +220,7 @@ public class DonationServiceImpl implements DonationService {
         donationRepository.saveAll(donations);
 
         for (Donation donation : donations) {
+            auditLogger.logOperation(moderator, "HANDOVER_DONATION", "DONATION", donation.getId(), "HANDED_OVER");
             if (donation.getSource() == DonationSource.CONSIGNED_ITEM && donation.getProduct() != null) {
                 String refId = donation.getId().toString();
                 queueService.dequeue(QueueType.DONATION_PREP, refId);

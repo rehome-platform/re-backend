@@ -117,6 +117,10 @@ class OrderVoucherIntegrationTest {
     @Spy
     VoucherCalculator voucherCalculator = new VoucherCalculator(new StubConfigReader());
 
+    @Mock private com.rehome.rehome.service.ContentModerationService moderation;
+
+    @org.mockito.Mock com.rehome.rehome.component.AuditLogger auditLogger;
+
     @InjectMocks
     OrderServiceImpl orderService;
 

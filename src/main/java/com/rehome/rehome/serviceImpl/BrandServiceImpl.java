@@ -25,6 +25,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class BrandServiceImpl implements BrandService {
 
+    private final com.rehome.rehome.component.AuditLogger auditLogger;
     private final BrandRepository brandRepository;
     private final ProductRepository productRepository;
     private final ConsignmentFormRepository consignmentFormRepository;
@@ -43,6 +44,7 @@ public class BrandServiceImpl implements BrandService {
                 .status(CatalogStatus.ACTIVE)
                 .build());
 
+        auditLogger.logCurrentOperation("CREATE_BRAND", "BRAND", brand.getId(), "SUCCESS");
         return new BrandResponse(brand.getId(), brand.getName(), brand.getStatus());
     }
 
@@ -63,6 +65,7 @@ public class BrandServiceImpl implements BrandService {
             brand.setStatus(request.getStatus());
         }
         brandRepository.save(brand);
+        auditLogger.logCurrentOperation("UPDATE_BRAND", "BRAND", brand.getId(), "SUCCESS");
 
         return new BrandResponse(brand.getId(), brand.getName(), brand.getStatus());
     }
@@ -76,6 +79,7 @@ public class BrandServiceImpl implements BrandService {
         if (brand.getStatus() != CatalogStatus.HIDDEN) {
             brand.setStatus(CatalogStatus.HIDDEN);
             brandRepository.save(brand);
+            auditLogger.logCurrentOperation("HIDE_BRAND", "BRAND", brand.getId(), "SUCCESS");
         }
 
         return new CatalogStatusResponse(brand.getStatus());
@@ -102,5 +106,6 @@ public class BrandServiceImpl implements BrandService {
         }
 
         brandRepository.delete(brand);
+        auditLogger.logCurrentOperation("DELETE_BRAND", "BRAND", brand.getId(), "SUCCESS");
     }
 }

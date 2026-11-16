@@ -80,6 +80,8 @@ class DonationServiceImplTest {
 
     @Mock private com.rehome.rehome.service.ContentModerationService moderation;
 
+    @org.mockito.Mock com.rehome.rehome.component.AuditLogger auditLogger;
+
     @InjectMocks private DonationServiceImpl service;
 
     private Account moderator(UUID warehouseId) {

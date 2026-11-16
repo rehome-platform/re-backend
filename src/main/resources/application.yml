@@ -4,6 +4,16 @@ server:
 spring:
   config:
     import: 'optional:file:./.env[.properties]'
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      ssl:
+        enabled: ${REDIS_SSL:false}
+      connect-timeout: 2s
+      timeout: 2s
   application:
     name: rehome
 
@@ -97,6 +107,10 @@ app:
     ttl-seconds: 300
     resend-seconds: 60
     max-attempts: 5
+    rate-limit:
+      email-limit: ${OTP_RATE_LIMIT_EMAIL:3}
+      ip-limit: ${OTP_RATE_LIMIT_IP:30}
+      window-seconds: ${OTP_RATE_LIMIT_WINDOW_SECONDS:900}
 
   # JWT
   jwt:

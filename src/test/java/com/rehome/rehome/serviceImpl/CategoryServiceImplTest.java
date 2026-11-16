@@ -37,6 +37,8 @@ class CategoryServiceImplTest {
     @Mock private CategoryRepository categoryRepository;
     @Mock private ProductRepository productRepository;
     @Mock private ConsignmentFormRepository consignmentFormRepository;
+    @org.mockito.Mock com.rehome.rehome.component.AuditLogger auditLogger;
+
     @InjectMocks private CategoryServiceImpl categoryService;
 
     private CreateCategoryRequest createReq(String name, TryOnSlot slot) {

@@ -38,6 +38,9 @@ public class LiveTryOnQuotaResponse {
     private long usedThisMonth;
     private Integer remainingThisMonth;
     private int maxSeconds;
+    // true cả khi hết quota gói mà còn lượt thưởng (bonusCredits > 0)
     private boolean canStart;
+    // Lượt mua bằng điểm còn lại, chỉ bị trừ khi quota gói đã hết
+    private int bonusCredits;
     private MembershipTier upsellTier;
 }

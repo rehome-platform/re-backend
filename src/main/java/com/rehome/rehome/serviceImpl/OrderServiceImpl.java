@@ -141,6 +141,7 @@ public class OrderServiceImpl implements OrderService {
             ReturnRequestStatus.INSPECTING);
 
     private final com.rehome.rehome.service.ContentModerationService moderation;
+    private final com.rehome.rehome.service.PointsService pointsService;
     private final AccountRepository accountRepository;
     private final ShippingAddressRepository shippingAddressRepository;
     private final CartRepository cartRepository;
@@ -1298,6 +1299,11 @@ public class OrderServiceImpl implements OrderService {
 
         order.setPayoutAt(Instant.now());
         orderRepository.save(order);
+
+        // Tích điểm cho người mua ở đây, không phải lúc COMPLETED: payoutOrder chỉ chạy khi hết hạn
+        // trả hàng và đơn không bị hoàn (đơn RETURNED/CANCELLED không bao giờ tới đây), lại idempotent
+        // qua payoutAt - nên không cần luồng thu hồi điểm và không thể cộng hai lần.
+        pointsService.awardForOrder(order);
     }
 
     @Override
@@ -1559,10 +1565,19 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    public ShipmentLabelResponse getShipmentLabel(UUID orderId, String size) {
+    public ShipmentLabelResponse getShipmentLabel(String email, UUID orderId, String size) {
+
+        Account moderator = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
 
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
+
+        // Kho của Moderator phải trùng kho của đơn (giống createShipment) - kiểm tra trước khi gọi GHN
+        if (moderator.getWarehouse() == null
+                || !order.getWarehouse().getId().equals(moderator.getWarehouse().getId())) {
+            throw new ForbiddenException("Bạn không có quyền in phiếu vận đơn của đơn này.");
+        }
 
         if (!StringUtils.hasText(order.getGhnTrackingCode())) {
             throw new ConflictException("Đơn chưa có vận đơn, vui lòng tạo vận đơn trước.", "SHIPMENT_NOT_CREATED");

@@ -5,6 +5,7 @@ import com.rehome.rehome.entity.enums.MembershipTier;
 import com.rehome.rehome.entity.membership.MembershipPlan;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
+import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.TryOnImageRepository;
 import com.rehome.rehome.util.VnTimeWindow;
 import java.util.UUID;
@@ -30,11 +31,13 @@ public class AiTryOnQuotaGuard {
 
     private final TryOnImageRepository tryOnImageRepository;
     private final MembershipQuotaResolver quotaResolver;
+    private final MemberProfileRepository memberProfileRepository;
 
     public record Usage(
             EffectiveQuota quota,
             long usedToday,
-            long usedThisMonth) {
+            long usedThisMonth,
+            int bonusCredits) {
 
         public Integer remainingToday() {
             return MembershipQuotaResolver.remaining(quota.aiTryonPerDay(), usedToday);
@@ -44,15 +47,22 @@ public class AiTryOnQuotaGuard {
             return MembershipQuotaResolver.remaining(quota.aiTryonPerMonth(), usedThisMonth);
         }
 
-        public boolean canGenerate() {
+        // Còn quota của gói (chưa tính lượt thưởng mua bằng điểm)
+        public boolean withinPlanQuota() {
             return !MembershipQuotaResolver.exhausted(quota.aiTryonPerDay(), usedToday)
                     && !MembershipQuotaResolver.exhausted(quota.aiTryonPerMonth(), usedThisMonth);
+        }
+
+        // Hết quota gói vẫn sinh được nếu còn lượt thưởng
+        public boolean canGenerate() {
+            return withinPlanQuota() || bonusCredits > 0;
         }
     }
 
     @Transactional(readOnly = true)
     public Usage usage(UUID memberId) {
-        return new Usage(quotaResolver.resolve(memberId), countToday(memberId), countThisMonth(memberId));
+        int bonus = memberProfileRepository.findBonusAiTryonCredits(memberId).orElse(0);
+        return new Usage(quotaResolver.resolve(memberId), countToday(memberId), countThisMonth(memberId), bonus);
     }
 
     public long countToday(UUID memberId) {
@@ -70,11 +80,28 @@ public class AiTryOnQuotaGuard {
                 MembershipPlan::getAiTryonPerDay);
     }
 
-    /** Gọi TRƯỚC khi gửi request sang AI server, để chặn chi phí thật trước khi phát sinh. */
+    /**
+     * Gọi TRƯỚC khi gửi request sang AI server, để chặn chi phí thật trước khi phát sinh.
+     *
+     * @return true nếu lượt này phải trả bằng lượt thưởng (quota gói đã hết) - caller gọi
+     *         {@link #consumeBonusCredit} sau khi lưu ảnh thành công. Giữ đúng nguyên tắc cũ: sinh
+     *         ảnh lỗi (502) không mất lượt, kể cả lượt thưởng.
+     */
     @Transactional(readOnly = true)
-    public void assertCanGenerate(UUID memberId) {
-        if (!usage(memberId).canGenerate()) {
-            throw new AppException(ErrorCode.TRYON_IMAGE_QUOTA_EXCEEDED);                            // 429
+    public boolean assertCanGenerate(UUID memberId) {
+        Usage usage = usage(memberId);
+        if (usage.withinPlanQuota()) {
+            return false;
         }
+        if (usage.bonusCredits() > 0) {
+            return true;
+        }
+        throw new AppException(ErrorCode.TRYON_IMAGE_QUOTA_EXCEEDED);                                // 429
+    }
+
+    /** Trừ 1 lượt thưởng bằng UPDATE nguyên tử; false nếu request khác đã dùng mất lượt cuối. */
+    @Transactional
+    public boolean consumeBonusCredit(UUID memberId) {
+        return memberProfileRepository.consumeAiTryonCredit(memberId) > 0;
     }
 }

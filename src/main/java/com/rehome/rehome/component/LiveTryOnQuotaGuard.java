@@ -9,6 +9,7 @@ import com.rehome.rehome.entity.tryon.LiveTryOnSession;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.LiveTryOnSessionRepository;
+import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.util.VnTimeWindow;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -36,12 +37,14 @@ public class LiveTryOnQuotaGuard {
 
     private final LiveTryOnSessionRepository liveTryOnSessionRepository;
     private final MembershipQuotaResolver quotaResolver;
+    private final MemberProfileRepository memberProfileRepository;
 
     /** Ảnh chụp hạn mức + số đã dùng của một account, đủ để dựng response GET /tryon/live/quota. */
     public record Usage(
             EffectiveQuota quota,
             long usedToday,
-            long usedThisMonth) {
+            long usedThisMonth,
+            int bonusCredits) {
 
         public Integer remainingToday() {
             return MembershipQuotaResolver.remaining(quota.liveTryonPerDay(), usedToday);
@@ -51,16 +54,22 @@ public class LiveTryOnQuotaGuard {
             return MembershipQuotaResolver.remaining(quota.liveTryonPerMonth(), usedThisMonth);
         }
 
-        // canStart = false khi hết lượt ngày HOẶC hết lượt tháng (nếu có trần tháng)
-        public boolean canStart() {
+        // Còn quota của gói: false khi hết lượt ngày HOẶC hết lượt tháng (nếu có trần tháng)
+        public boolean withinPlanQuota() {
             return !MembershipQuotaResolver.exhausted(quota.liveTryonPerDay(), usedToday)
                     && !MembershipQuotaResolver.exhausted(quota.liveTryonPerMonth(), usedThisMonth);
+        }
+
+        // Hết quota gói vẫn bắt đầu được nếu còn lượt thưởng mua bằng điểm
+        public boolean canStart() {
+            return withinPlanQuota() || bonusCredits > 0;
         }
     }
 
     @Transactional(readOnly = true)
     public Usage usage(UUID memberId) {
-        return new Usage(quotaResolver.resolve(memberId), countToday(memberId), countThisMonth(memberId));
+        int bonus = memberProfileRepository.findBonusLiveTryonCredits(memberId).orElse(0);
+        return new Usage(quotaResolver.resolve(memberId), countToday(memberId), countThisMonth(memberId), bonus);
     }
 
     public long countToday(UUID memberId) {
@@ -84,8 +93,13 @@ public class LiveTryOnQuotaGuard {
     @Transactional
     public LiveTryOnSession reserve(Account account, Product product, String modelId) {
         Usage usage = usage(account.getId());
-        if (!usage.canStart()) {
-            throw new AppException(ErrorCode.TRYON_LIVE_QUOTA_EXCEEDED);                             // 429
+        if (!usage.withinPlanQuota()) {
+            // Hết quota gói: trả bằng 1 lượt thưởng. UPDATE nguyên tử nên hai request đồng thời
+            // không cùng dùng lượt cuối; cùng transaction với việc tạo session nên lỗi ghi session
+            // thì lượt thưởng cũng được hoàn.
+            if (memberProfileRepository.consumeLiveTryonCredit(account.getId()) == 0) {
+                throw new AppException(ErrorCode.TRYON_LIVE_QUOTA_EXCEEDED);                         // 429
+            }
         }
         return liveTryOnSessionRepository.save(LiveTryOnSession.builder()
                 .member(account)

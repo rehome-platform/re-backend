@@ -109,6 +109,7 @@ import static org.mockito.Mockito.lenient;
 @ExtendWith(MockitoExtension.class)
 class OrderServiceImplTest {
 
+    @Mock com.rehome.rehome.service.PointsService pointsService;
     @Mock AccountRepository accountRepository;
     @Mock ShippingAddressRepository shippingAddressRepository;
     @Mock CartRepository cartRepository;
@@ -149,6 +150,7 @@ class OrderServiceImplTest {
     void setup() {
         ReflectionTestUtils.setField(orderService, "taxRate", BigDecimal.ZERO);
         ReflectionTestUtils.setField(orderService, "taxRate", BigDecimal.ZERO);
+        ReflectionTestUtils.setField(orderService, "ghnBaseUrl", "https://dev-online-gateway.ghn.vn/shiip/public-api");
         lenient().when(systemConfigReader.getInt(eq(SystemConfigKeys.ORDER_PAYMENT_TIMEOUT_MINUTES), anyInt()))
                 .thenReturn(15);
         lenient().when(systemConfigReader.getInt(eq(SystemConfigKeys.RETURN_REQUEST_WINDOW_DAYS), anyInt()))
@@ -1415,6 +1417,8 @@ class OrderServiceImplTest {
                 .isEqualByComparingTo(new BigDecimal("198000"));
 
         assertThat(order.getPayoutAt()).isNotNull();
+        // Tích điểm cho người mua chạy đúng một lần, cùng lúc payout
+        verify(pointsService).awardForOrder(order);
 
         ArgumentCaptor<WalletTransaction> txCaptor =
                 ArgumentCaptor.forClass(WalletTransaction.class);
@@ -1456,6 +1460,7 @@ class OrderServiceImplTest {
         verify(orderItemRepository, never()).findAllByOrder_Id(any());
         verify(walletTransactionRepository, never()).save(any());
         verify(orderRepository, never()).save(any());
+        verify(pointsService, never()).awardForOrder(any());
     }
 
     @Test
@@ -3135,5 +3140,86 @@ class OrderServiceImplTest {
         assertThat(order.getShipmentCreatedAt()).isNull();
         assertThat(order.getGhnTrackingCode()).isNull();
         verify(auditLogger, never()).logWarehouse(any(), any(Warehouse.class), any(), any(), any(), any(), any(), any());
+    }
+
+    // ---- getShipmentLabel ----
+
+    @Test
+    void getShipmentLabel_throwsForbidden_whenOrderBelongsToAnotherWarehouse() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).ghnTrackingCode("GHN123").build();
+        when(accountRepository.findByEmail("mod@example.com"))
+                .thenReturn(Optional.of(moderatorWithWarehouse(warehouse2)));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.getShipmentLabel("mod@example.com", orderId, "A5"))
+                .isInstanceOf(ForbiddenException.class);
+        verify(ghnApi, never()).genPrintToken(any(), any(), any());
+    }
+
+    @Test
+    void getShipmentLabel_throwsConflict_whenNoTrackingCode() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).ghnTrackingCode("  ").build();
+        when(accountRepository.findByEmail("mod@example.com"))
+                .thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.getShipmentLabel("mod@example.com", orderId, "A5"))
+                .isInstanceOf(ConflictException.class);
+        verify(ghnApi, never()).genPrintToken(any(), any(), any());
+    }
+
+    @Test
+    void getShipmentLabel_throwsGhnException_whenGhnCallFails() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).orderNo("OD-1").warehouse(warehouse1)
+                .ghnTrackingCode("GHN123").build();
+        when(accountRepository.findByEmail("mod@example.com"))
+                .thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(ghnApi.genPrintToken(any(), any(), any())).thenThrow(new RuntimeException("boom"));
+
+        assertThatThrownBy(() -> orderService.getShipmentLabel("mod@example.com", orderId, "A5"))
+                .isInstanceOf(com.rehome.rehome.exception.GhnException.class);
+    }
+
+    @Test
+    void getShipmentLabel_throwsGhnException_whenTokenIsBlank() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).orderNo("OD-1").warehouse(warehouse1)
+                .ghnTrackingCode("GHN123").build();
+        when(accountRepository.findByEmail("mod@example.com"))
+                .thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        com.rehome.rehome.dto.response.GhnGenTokenResponse tokenResponse =
+                new com.rehome.rehome.dto.response.GhnGenTokenResponse(200, "ok",
+                        new com.rehome.rehome.dto.response.GhnGenTokenResponse.Data(""));
+        when(ghnApi.genPrintToken(any(), any(), any())).thenReturn(tokenResponse);
+
+        assertThatThrownBy(() -> orderService.getShipmentLabel("mod@example.com", orderId, "A5"))
+                .isInstanceOf(com.rehome.rehome.exception.GhnException.class);
+    }
+
+    @Test
+    void getShipmentLabel_success_buildsPrintA5Url() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).orderNo("OD-1").warehouse(warehouse1)
+                .ghnTrackingCode("GHN123").build();
+        when(accountRepository.findByEmail("mod@example.com"))
+                .thenReturn(Optional.of(moderatorWithWarehouse(warehouse1)));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        com.rehome.rehome.dto.response.GhnGenTokenResponse tokenResponse =
+                new com.rehome.rehome.dto.response.GhnGenTokenResponse(200, "ok",
+                        new com.rehome.rehome.dto.response.GhnGenTokenResponse.Data("tok-abc"));
+        when(ghnApi.genPrintToken(any(), any(), any())).thenReturn(tokenResponse);
+
+        com.rehome.rehome.dto.response.ShipmentLabelResponse result =
+                orderService.getShipmentLabel("mod@example.com", orderId, "A5");
+
+        assertThat(result.getId()).isEqualTo(orderId.toString());
+        assertThat(result.getGhnTrackingCode()).isEqualTo("GHN123");
+        assertThat(result.getSize()).isEqualTo("A5");
+        assertThat(result.getPrintUrl()).contains("/a5/public-api/printA5?token=tok-abc");
     }
 }

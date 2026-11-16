@@ -5,7 +5,9 @@ import com.rehome.rehome.component.LiveTryOnQuotaGuard;
 import com.rehome.rehome.component.MembershipQuotaResolver;
 import com.rehome.rehome.dto.request.CompleteLiveTryOnRequest;
 import com.rehome.rehome.dto.request.StartLiveTryOnRequest;
+import com.rehome.rehome.dto.response.LiveTryOnHistoryItemResponse;
 import com.rehome.rehome.dto.response.LiveTryOnQuotaResponse;
+import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.LiveTryOnSessionResponse;
 import com.rehome.rehome.dto.response.LiveTryOnSessionVideoResponse;
 import com.rehome.rehome.entity.auth.Account;
@@ -27,10 +29,16 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -54,6 +62,9 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
 
     private static final byte[] MAGIC_WEBM = {(byte) 0x1A, (byte) 0x45, (byte) 0xDF, (byte) 0xA3};
     private static final byte[] MAGIC_MP4_FTYP = "ftyp".getBytes(StandardCharsets.US_ASCII);
+
+    private static final int HISTORY_DEFAULT_SIZE = 20;
+    private static final int HISTORY_MAX_SIZE = 50;
 
     private final LiveTryOnSessionRepository liveTryOnSessionRepository;
     private final ProductRepository productRepository;
@@ -216,6 +227,42 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
         liveTryOnSessionRepository.save(session);
 
         return LiveTryOnSessionVideoResponse.builder().videoUrl(videoUrl).build();
+    }
+
+    // ================================================================ GET /tryon/live/sessions
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<LiveTryOnHistoryItemResponse> getHistory(Account account, int page, int size) {
+        int safePage = Math.max(page, 0);
+        int safeSize = size < 1 ? HISTORY_DEFAULT_SIZE : Math.min(size, HISTORY_MAX_SIZE);
+        Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        Page<LiveTryOnSession> result = liveTryOnSessionRepository
+                .findByMember_IdAndStatusAndVideoUrlIsNotNull(account.getId(), LiveTryOnStatus.COMPLETED, pageable);
+
+        // Ảnh đại diện của mọi món trong trang lấy bằng một query, tránh N+1
+        List<String> productIds = result.getContent().stream()
+                .map(s -> s.getProduct().getId())
+                .distinct()
+                .toList();
+        Map<String, String> thumbnails = productIds.isEmpty() ? Map.of()
+                : productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(productIds).stream()
+                .collect(Collectors.toMap(
+                        ph -> ph.getProduct().getId(),
+                        ProductPhoto::getImageUrl,
+                        (first, second) -> first));
+
+        return PageResponse.from(result.map(s -> LiveTryOnHistoryItemResponse.builder()
+                .sessionId(s.getId())
+                .productId(s.getProduct().getId())
+                .productName(s.getProduct().getName())
+                .productThumbnailUrl(thumbnails.get(s.getProduct().getId()))
+                .videoUrl(s.getVideoUrl())
+                .actualDurationSeconds(s.getActualDurationSeconds())
+                .createdAt(s.getCreatedAt())
+                .completedAt(s.getCompletedAt())
+                .build()));
     }
 
     private LiveTryOnSession findOwnStartedSession(Account account, UUID sessionId) {

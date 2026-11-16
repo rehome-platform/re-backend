@@ -3,7 +3,9 @@ package com.rehome.rehome.controller;
 import com.rehome.rehome.dto.request.CompleteLiveTryOnRequest;
 import com.rehome.rehome.dto.request.StartLiveTryOnRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
+import com.rehome.rehome.dto.response.LiveTryOnHistoryItemResponse;
 import com.rehome.rehome.dto.response.LiveTryOnQuotaResponse;
+import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.LiveTryOnSessionResponse;
 import com.rehome.rehome.dto.response.LiveTryOnSessionVideoResponse;
 import com.rehome.rehome.entity.auth.Account;
@@ -61,6 +63,17 @@ public class LiveTryOnController {
         requireAccount(account);
         LiveTryOnSessionVideoResponse uploaded = liveTryOnService.uploadVideo(account, id, video);
         return ResponseEntity.ok(ApiResponse.success(uploaded, "Đã lưu video thử đồ"));
+    }
+
+    // Lịch sử video đã quay xong của chính Member (mới nhất trước) để xem lại / tải lại
+    @GetMapping("/sessions")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<PageResponse<LiveTryOnHistoryItemResponse>>> getHistory(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal Account account) {
+        requireAccount(account);
+        return ResponseEntity.ok(ApiResponse.success(liveTryOnService.getHistory(account, page, size)));
     }
 
     // Mobile tự báo khi không có video (vd. mất kết nối giữa chừng) - chỉ để audit, không hoàn quota

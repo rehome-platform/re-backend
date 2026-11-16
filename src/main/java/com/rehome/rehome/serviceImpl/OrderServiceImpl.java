@@ -1554,10 +1554,19 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    public ShipmentLabelResponse getShipmentLabel(UUID orderId, String size) {
+    public ShipmentLabelResponse getShipmentLabel(String email, UUID orderId, String size) {
+
+        Account moderator = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
 
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
+
+        // Kho của Moderator phải trùng kho của đơn (giống createShipment) - kiểm tra trước khi gọi GHN
+        if (moderator.getWarehouse() == null
+                || !order.getWarehouse().getId().equals(moderator.getWarehouse().getId())) {
+            throw new ForbiddenException("Bạn không có quyền in phiếu vận đơn của đơn này.");
+        }
 
         if (!StringUtils.hasText(order.getGhnTrackingCode())) {
             throw new ConflictException("Đơn chưa có vận đơn, vui lòng tạo vận đơn trước.", "SHIPMENT_NOT_CREATED");

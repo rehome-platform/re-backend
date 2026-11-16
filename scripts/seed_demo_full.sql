@@ -2081,7 +2081,31 @@ WHERE s.member_id = p.member_id
   AND s.expires_at > now()
   AND p.status IN ('ON_SALE', 'RESERVED', 'WAREHOUSE');
 
--- 18.8 Đẩy các sequence lên quá số đã dùng, nếu không mã do app sinh sau này sẽ TRÙNG
+-- 18.8 ĐIỂM TÍCH LŨY (member_profiles.points_balance) tính từ chính các đơn đã payout, đúng công thức
+-- PointsServiceImpl.awardForOrder: floor(total_amount / points_vnd_per_point), mỗi đơn làm tròn riêng.
+-- Chỉ đơn có payout_at (đã hết hạn trả hàng, không bị hoàn) mới được tích, giống code thật: đơn
+-- RETURNED/CANCELLED hay còn trong hạn trả hàng thì chưa có điểm. Tỉ lệ đọc từ system_configs
+-- (bước 6.3) nên đổi tỉ lệ ở đó thì điểm tự theo, không lệch.
+UPDATE member_profiles m
+SET points_balance = COALESCE((
+    SELECT SUM(floor(o.total_amount /
+               (SELECT "value"::numeric FROM system_configs WHERE "key" = 'points_vnd_per_point')))
+    FROM orders o
+    WHERE o.buyer_id = m.account_id AND o.payout_at IS NOT NULL), 0)::int
+WHERE (SELECT "value"::int FROM system_configs WHERE "key" = 'points_vnd_per_point') > 0;
+
+-- Demo lượt thưởng: Nguyễn Văn An (MB000001) đã đổi 3 lượt AI phối đồ + 1 lượt real-time.
+-- Trừ đúng số điểm đã "tiêu" khỏi số dư vừa tính ở trên (đơn giá lấy từ system_configs) để số dư
+-- và số lượt khớp nhau như khi đổi thật; GREATEST chỉ để không âm nếu ai đó đổi tỉ lệ cấu hình.
+UPDATE member_profiles
+SET bonus_ai_tryon_credits   = 3,
+    bonus_live_tryon_credits = 1,
+    points_balance = GREATEST(0, points_balance
+        - 3 * (SELECT "value"::int FROM system_configs WHERE "key" = 'points_cost_per_ai_tryon')
+        - 1 * (SELECT "value"::int FROM system_configs WHERE "key" = 'points_cost_per_live_tryon'))
+WHERE member_code = 'MB000001';
+
+-- 18.9 Đẩy các sequence lên quá số đã dùng, nếu không mã do app sinh sau này sẽ TRÙNG
 -- với dữ liệu seed và chết ở unique constraint (member_code, receipt_no, form_no, SKU).
 SELECT setval('member_code_seq',
               (SELECT COALESCE(MAX(substring(member_code FROM 3)::bigint), 0)

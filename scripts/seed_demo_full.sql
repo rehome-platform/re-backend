@@ -379,7 +379,7 @@ INSERT INTO brands (id, name, status) VALUES
 ('5e000000-0000-4000-8000-000000000019', 'Biluxury',        'ACTIVE'),
 ('5e000000-0000-4000-8000-000000000020', 'Khác',            'ACTIVE');
 
--- 6.3 THAM SỐ HỆ THỐNG (đủ 26 key trong SystemConfigCatalog.defaults(), Admin sửa ở F-157)
+-- 6.3 THAM SỐ HỆ THỐNG (đủ 29 key trong SystemConfigCatalog.defaults(), Admin sửa ở F-157)
 -- Toàn bộ là giá trị mặc định của catalog, TRỪ withdrawal_fee: đặt 50.000đ để demo được
 -- luồng trả phí rút hàng (mặc định của code là 0 = miễn phí, lúc đó luồng không có gì xảy ra).
 -- Giá trị này phải khớp consignment_receipts.withdrawal_fee ở bước 7.
@@ -409,7 +409,10 @@ INSERT INTO system_configs (id, "key", "value", updated_by, updated_at) VALUES
 ('5f000000-0000-4000-8000-000000000023', 'return_handover_carrier_days',   '3',       '2a000000-0000-4000-8000-000000000001', now() - interval '399 days'),
 ('5f000000-0000-4000-8000-000000000024', 'counter_pickup_days',            '7',       '2a000000-0000-4000-8000-000000000001', now() - interval '399 days'),
 ('5f000000-0000-4000-8000-000000000025', 'membership_expiry_reminder_days','3',       '2a000000-0000-4000-8000-000000000001', now() - interval '399 days'),
-('5f000000-0000-4000-8000-000000000026', 'voucher_max_ratio_of_commission','1.00',    '2a000000-0000-4000-8000-000000000001', now() - interval '399 days');
+('5f000000-0000-4000-8000-000000000026', 'voucher_max_ratio_of_commission','1.00',    '2a000000-0000-4000-8000-000000000001', now() - interval '399 days'),
+('5f000000-0000-4000-8000-000000000027', 'points_vnd_per_point',           '10000',   '2a000000-0000-4000-8000-000000000001', now() - interval '399 days'),
+('5f000000-0000-4000-8000-000000000028', 'points_cost_per_ai_tryon',       '10',      '2a000000-0000-4000-8000-000000000001', now() - interval '399 days'),
+('5f000000-0000-4000-8000-000000000029', 'points_cost_per_live_tryon',     '20',      '2a000000-0000-4000-8000-000000000001', now() - interval '399 days');
 
 -- 6.4 GÓI THÀNH VIÊN VIP (4 hạng, trùng khớp MembershipPlanInitializer)
 -- Mọi hạn mức là DỮ LIỆU: Admin sửa ở màn W-01, code không hard-code con nào.

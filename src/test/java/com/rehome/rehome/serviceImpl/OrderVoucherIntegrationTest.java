@@ -88,6 +88,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 @MockitoSettings(strictness = Strictness.LENIENT)
 class OrderVoucherIntegrationTest {
 
+    @Mock com.rehome.rehome.service.PointsService pointsService;
     @Mock AccountRepository accountRepository;
     @Mock ShippingAddressRepository shippingAddressRepository;
     @Mock CartRepository cartRepository;

@@ -575,6 +575,7 @@ public class MembershipServiceImpl implements MembershipService {
                 .usedThisMonth(usage.usedThisMonth())
                 .remainingThisMonth(usage.remainingThisMonth())
                 .canGenerate(usage.canGenerate())
+                .bonusCredits(usage.bonusCredits())
                 .upsellTier(aiTryOnQuotaGuard.upsellTier(quota))
                 .build();
     }

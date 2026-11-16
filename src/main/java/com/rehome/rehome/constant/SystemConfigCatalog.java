@@ -55,7 +55,12 @@ public final class SystemConfigCatalog {
             int_(MEMBERSHIP_EXPIRY_REMINDER_DAYS, 1, 30),
             // Trần 1.00 = voucher giảm tối đa bằng đúng hoa hồng nền tảng thu trên đơn (hòa vốn).
             // Cho phép tới 2.00 để Admin chủ động chịu lỗ trên đơn khi chạy khuyến mãi mạnh.
-            dec(VOUCHER_MAX_RATIO_OF_COMMISSION, ZERO, new BigDecimal("2.00")));
+            dec(VOUCHER_MAX_RATIO_OF_COMMISSION, ZERO, new BigDecimal("2.00")),
+            // Điểm tích lũy. 0 = tắt: vnd_per_point = 0 thì không tích điểm, đơn giá đổi = 0 thì đóng quy đổi
+            // loại đó (cố ý không cho đơn giá âm; đơn giá 0 không bao giờ biến thành "đổi miễn phí").
+            int_(POINTS_VND_PER_POINT, 0, 10_000_000),
+            int_(POINTS_COST_PER_AI_TRYON, 0, 10_000),
+            int_(POINTS_COST_PER_LIVE_TRYON, 0, 10_000));
 
     public static Optional<Spec> find(String key) {
         return Optional.ofNullable(SPECS.get(key));
@@ -94,6 +99,9 @@ public final class SystemConfigCatalog {
         m.put(COUNTER_PICKUP_DAYS, String.valueOf(DEFAULT_COUNTER_PICKUP_DAYS));
         m.put(MEMBERSHIP_EXPIRY_REMINDER_DAYS, String.valueOf(DEFAULT_MEMBERSHIP_EXPIRY_REMINDER_DAYS));
         m.put(VOUCHER_MAX_RATIO_OF_COMMISSION, DEFAULT_VOUCHER_MAX_RATIO_OF_COMMISSION.toPlainString());
+        m.put(POINTS_VND_PER_POINT, String.valueOf(DEFAULT_POINTS_VND_PER_POINT));
+        m.put(POINTS_COST_PER_AI_TRYON, String.valueOf(DEFAULT_POINTS_COST_PER_AI_TRYON));
+        m.put(POINTS_COST_PER_LIVE_TRYON, String.valueOf(DEFAULT_POINTS_COST_PER_LIVE_TRYON));
         return m;
     }
 

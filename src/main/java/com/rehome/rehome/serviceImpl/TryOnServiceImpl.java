@@ -78,7 +78,8 @@ public class TryOnServiceImpl implements TryOnService {
         // Lượt được tính bằng chính row try_on_images lưu sau khi sinh thành công, nên sinh ảnh lỗi
         // (502) KHÔNG mất lượt - khác LiveTryOnQuotaGuard vốn trừ ngay lúc mint token.
         // Xóa ảnh khỏi bộ sưu tập cũng KHÔNG hoàn lượt (đặc tả §8.8).
-        aiTryOnQuotaGuard.assertCanGenerate(account.getId());                                 // 429
+        // true = quota gói đã hết, lượt này trả bằng lượt thưởng (mua bằng điểm), trừ sau khi lưu ảnh xong.
+        boolean viaBonusCredit = aiTryOnQuotaGuard.assertCanGenerate(account.getId());        // 429
 
         String topId = blankToNull(request.getTopProductId());
         String bottomId = blankToNull(request.getBottomProductId());
@@ -132,6 +133,12 @@ public class TryOnServiceImpl implements TryOnService {
             // Không để file mồ côi khi ghi DB lỗi
             removeFile(imageUrl, null);
             throw e;
+        }
+
+        // Ảnh đã lưu thành công mới trừ lượt thưởng. Nếu request khác đã dùng mất lượt cuối trong lúc
+        // AI đang sinh thì chấp nhận lệch 1 lượt (cùng mức đánh đổi với race đã ghi ở LiveTryOnQuotaGuard).
+        if (viaBonusCredit) {
+            aiTryOnQuotaGuard.consumeBonusCredit(account.getId());
         }
 
         Map<String, String> thumbnails = photos.stream().collect(Collectors.toMap(

@@ -309,7 +309,15 @@ public enum ErrorCode {
 
     // Phối đồ AI (ảnh tĩnh) - hạn mức theo ngày của gói, reset 00:00 giờ VN
     TRYON_IMAGE_QUOTA_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS,
-            "Bạn đã dùng hết lượt phối đồ AI hôm nay.");
+            "Bạn đã dùng hết lượt phối đồ AI hôm nay."),
+
+    // Điểm tích lũy
+    POINTS_NOT_ENOUGH(HttpStatus.CONFLICT,
+            "Bạn không đủ điểm để đổi."),
+    POINTS_INVALID_QUANTITY(HttpStatus.BAD_REQUEST,
+            "Số lượt muốn đổi phải từ 1 đến 100."),
+    POINTS_REDEEM_UNAVAILABLE(HttpStatus.CONFLICT,
+            "Quy đổi điểm đang tạm đóng.");
 
     private final HttpStatus status;
     private final String defaultMessage;

@@ -2,7 +2,9 @@ package com.rehome.rehome.service;
 
 import com.rehome.rehome.dto.request.CompleteLiveTryOnRequest;
 import com.rehome.rehome.dto.request.StartLiveTryOnRequest;
+import com.rehome.rehome.dto.response.LiveTryOnHistoryItemResponse;
 import com.rehome.rehome.dto.response.LiveTryOnQuotaResponse;
+import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.LiveTryOnSessionResponse;
 import com.rehome.rehome.dto.response.LiveTryOnSessionVideoResponse;
 import com.rehome.rehome.entity.auth.Account;
@@ -18,4 +20,6 @@ public interface LiveTryOnService {
     void completeSession(Account account, UUID sessionId, CompleteLiveTryOnRequest request);
 
     LiveTryOnSessionVideoResponse uploadVideo(Account account, UUID sessionId, MultipartFile video);
+
+    PageResponse<LiveTryOnHistoryItemResponse> getHistory(Account account, int page, int size);
 }

@@ -21,16 +21,21 @@ import com.rehome.rehome.repository.TryOnImageRepository;
 import com.rehome.rehome.service.FileStorageService;
 import com.rehome.rehome.service.TryOnImageGenerator;
 import com.rehome.rehome.service.TryOnService;
+import com.rehome.rehome.util.OutfitMatchingRules;
+import java.util.Comparator;
+import org.springframework.data.domain.Slice;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -60,6 +65,7 @@ public class TryOnServiceImpl implements TryOnService {
     private final ProductRepository productRepository;
     private final TryOnImageGenerator tryOnImageGenerator;
     private final AiTryOnQuotaGuard aiTryOnQuotaGuard;
+    private final com.rehome.rehome.client.GeminiOutfitClient geminiOutfitClient;
 
     // ================================================================ API 97: F-077, F-078, F-079
 
@@ -211,6 +217,10 @@ public class TryOnServiceImpl implements TryOnService {
                 excludeId == null ? "" : excludeId,
                 preferredWarehouse,
                 PageRequest.of(0, SUGGESTION_LIMIT));
+        return mapSuggestions(products);
+    }
+
+    private List<TryOnSuggestionResponse> mapSuggestions(List<Product> products) {
         if (products.isEmpty()) {
             return List.of();
         }
@@ -227,6 +237,56 @@ public class TryOnServiceImpl implements TryOnService {
         return products.stream()
                 .map(p -> toSuggestion(p, thumbnails.get(p.getId())))
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TryOnSuggestionResponse> getOutfitSuggestions(
+            String productId, Double latitude, Double longitude) {
+        if ((latitude == null) != (longitude == null)
+                || (latitude != null && (!Double.isFinite(latitude) || !Double.isFinite(longitude)
+                    || Math.abs(latitude) > 90 || Math.abs(longitude) > 180))) {
+            throw new AppException(ErrorCode.INVALID_COORDINATES);
+        }
+
+        Product selected = productRepository.findById(productId.trim())
+                .filter(product -> product.getStatus() == ProductStatus.ON_SALE)
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+        TryOnSlot selectedSlot = selected.getCategory().getTryonSlot();
+        if (selectedSlot != TryOnSlot.TOP && selectedSlot != TryOnSlot.BOTTOM) {
+            throw new AppException(ErrorCode.INVALID_SUGGESTION_SLOT);
+        }
+        TryOnSlot target = selectedSlot == TryOnSlot.TOP ? TryOnSlot.BOTTOM : TryOnSlot.TOP;
+        var selectedTraits = OutfitMatchingRules.traits(selected);
+        UUID selectedWarehouse = selected.getWarehouse().getId();
+
+        record Match(Product product, int color, int style, boolean sameWarehouse, double distance) {}
+        Comparator<Match> ranking = Comparator.comparingInt(Match::color).reversed()
+                .thenComparing(Comparator.comparingInt(Match::style).reversed())
+                .thenComparing(Match::sameWarehouse, Comparator.reverseOrder())
+                .thenComparingDouble(Match::distance)
+                .thenComparing(match -> match.product().getCreatedAt(), Comparator.reverseOrder())
+                .thenComparing(match -> match.product().getId());
+
+        List<Match> best = new ArrayList<>();
+        Pageable page = PageRequest.of(0, 100, Sort.by("id"));
+        Slice<Product> candidates;
+        do {
+            candidates = productRepository.findByStatusAndCategory_TryonSlot(ProductStatus.ON_SALE, target, page);
+            for (Product product : candidates) {
+                var traits = OutfitMatchingRules.traits(product);
+                best.add(new Match(product, selectedTraits.colorScore(traits), selectedTraits.styleScore(traits),
+                        selectedWarehouse.equals(product.getWarehouse().getId()),
+                        OutfitMatchingRules.distanceKm(product.getWarehouse(), latitude, longitude)));
+            }
+            best.sort(ranking);
+            if (best.size() > SUGGESTION_LIMIT) {
+                best.subList(SUGGESTION_LIMIT, best.size()).clear();
+            }
+            page = candidates.nextPageable();
+        } while (candidates.hasNext());
+        List<TryOnSuggestionResponse> suggestions = mapSuggestions(best.stream().map(Match::product).toList());
+        return geminiOutfitClient.rank(selected.getName(), selected.getCategory().getName(), suggestions);
     }
 
     private static TryOnSuggestionResponse toSuggestion(Product p, String thumbnailUrl) {

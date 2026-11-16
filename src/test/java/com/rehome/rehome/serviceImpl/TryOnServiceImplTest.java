@@ -34,6 +34,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.SliceImpl;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -66,6 +67,7 @@ class TryOnServiceImplTest {
     private static final byte[] DRESS_BYTES = {3, 3, 3};
     private static final byte[] RESULT_PNG = {9, 9, 9};
 
+    @Mock private com.rehome.rehome.client.GeminiOutfitClient geminiOutfitClient;
     @Mock private TryOnImageRepository tryOnImageRepository;
     @Mock private ProductPhotoRepository productPhotoRepository;
     @Mock private FileStorageService fileStorageService;
@@ -842,5 +844,66 @@ class TryOnServiceImplTest {
         assertDoesNotThrow(() -> tryOnService.deleteImage(member, image.getId()));
 
         verify(tryOnImageRepository).delete(image);
+    }
+
+    @Test
+    void getOutfitSuggestions_ranksColorBeforeStyleAndWarehouse() {
+        Warehouse source = outfitWarehouse("10.734");
+        Warehouse other = outfitWarehouse("10.771");
+        Product selected = outfitProduct(TOP_ID, "Ao so mi xanh duong", TryOnSlot.TOP, source);
+        Product formalBlack = outfitProduct("black-formal", "Quan tay den", TryOnSlot.BOTTOM, other);
+        Product sportBlack = outfitProduct("black-sport", "Quan jogger den", TryOnSlot.BOTTOM, source);
+        Product formalOrange = outfitProduct("orange-formal", "Quan tay cam", TryOnSlot.BOTTOM, source);
+        when(productRepository.findById(TOP_ID)).thenReturn(Optional.of(selected));
+        when(productRepository.findByStatusAndCategory_TryonSlot(eq(ProductStatus.ON_SALE),
+                eq(TryOnSlot.BOTTOM), any(Pageable.class)))
+                .thenReturn(new SliceImpl<>(List.of(formalOrange, sportBlack, formalBlack)));
+
+        when(geminiOutfitClient.rank(anyString(), anyString(), anyList()))
+                .thenAnswer(invocation -> invocation.getArgument(2));
+        var result = tryOnService.getOutfitSuggestions(TOP_ID, 10.734, 106.722);
+
+        assertEquals(List.of("black-formal", "black-sport", "orange-formal"),
+                result.stream().map(TryOnSuggestionResponse::getId).toList());
+    }
+
+    @Test
+    void getOutfitSuggestions_withoutTraitsPrefersSameWarehouseThenDistance() {
+        Warehouse source = outfitWarehouse("10.820");
+        Product selected = outfitProduct(BOTTOM_ID, "Quan nam", TryOnSlot.BOTTOM, source);
+        Product same = outfitProduct("same", "Ao nam", TryOnSlot.TOP, source);
+        Product near = outfitProduct("near", "Ao gym do", TryOnSlot.TOP, outfitWarehouse("10.734"));
+        Product far = outfitProduct("far", "Ao so mi trang", TryOnSlot.TOP, outfitWarehouse("10.771"));
+        when(productRepository.findById(BOTTOM_ID)).thenReturn(Optional.of(selected));
+        when(productRepository.findByStatusAndCategory_TryonSlot(eq(ProductStatus.ON_SALE),
+                eq(TryOnSlot.TOP), any(Pageable.class)))
+                .thenReturn(new SliceImpl<>(List.of(far, near, same)));
+
+        when(geminiOutfitClient.rank(anyString(), anyString(), anyList()))
+                .thenAnswer(invocation -> invocation.getArgument(2));
+        var result = tryOnService.getOutfitSuggestions(BOTTOM_ID, 10.734, 106.722);
+
+        assertEquals(List.of("same", "near", "far"),
+                result.stream().map(TryOnSuggestionResponse::getId).toList());
+    }
+
+    @Test
+    void getOutfitSuggestions_rejectsPartialCoordinatesBeforeLookup() {
+        AppException error = assertThrows(AppException.class,
+                () -> tryOnService.getOutfitSuggestions(TOP_ID, 10.734, null));
+
+        assertEquals(ErrorCode.INVALID_COORDINATES, error.getErrorCode());
+        verifyNoInteractions(productRepository);
+    }
+
+    private static Warehouse outfitWarehouse(String latitude) {
+        return Warehouse.builder().id(UUID.randomUUID())
+                .latitude(new BigDecimal(latitude)).longitude(new BigDecimal("106.722")).build();
+    }
+
+    private static Product outfitProduct(String id, String name, TryOnSlot slot, Warehouse warehouse) {
+        return Product.builder().id(id).name(name).status(ProductStatus.ON_SALE)
+                .category(Category.builder().name(slot.name()).tryonSlot(slot).build())
+                .warehouse(warehouse).createdAt(Instant.EPOCH).build();
     }
 }

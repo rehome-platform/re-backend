@@ -5,5 +5,6 @@ public enum ContentStatus {
     // PostComment: REMOVED = Moderator ẩn, dòng vẫn được trả về (GET /posts/{id}/comments)
     // nhưng content = null ở tầng response (CommunityPostServiceImpl.toCommentResponse).
     VISIBLE,
+    PENDING_REVIEW,
     REMOVED
 }

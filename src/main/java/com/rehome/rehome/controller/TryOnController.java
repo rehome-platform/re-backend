@@ -91,6 +91,16 @@ public class TryOnController {
         return ResponseEntity.ok(ApiResponse.success(tryOnService.getImage(account, id)));
     }
 
+    @GetMapping("/outfit-suggestions")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<List<TryOnSuggestionResponse>>> getOutfitSuggestions(
+            @RequestParam String productId,
+            @RequestParam(required = false) Double latitude,
+            @RequestParam(required = false) Double longitude) {
+        return ResponseEntity.ok(ApiResponse.success(
+                tryOnService.getOutfitSuggestions(productId, latitude, longitude)));
+    }
+
     // API 96 (F-075): gợi ý món còn thiếu. slot nhận String để slot sai/thiếu trả đúng message của spec
     @GetMapping("/suggestions")
     @PreAuthorize("hasRole('MEMBER')")

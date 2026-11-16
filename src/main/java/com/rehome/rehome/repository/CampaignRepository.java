@@ -5,6 +5,7 @@ import com.rehome.rehome.entity.marketplace.Campaign;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -15,6 +16,14 @@ import java.util.UUID;
 
 @Repository
 public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update Campaign c set c.status = :hidden
+            where c.organization.accountId = :organizationId and c.status <> :hidden
+            """)
+    int hideCampaignsByOrganization(@Param("organizationId") UUID organizationId,
+                                    @Param("hidden") CampaignStatus hidden);
 
     // Đếm chiến dịch đang chạy của 1 tổ chức, để chặn vượt hạn mức (F-099)
     long countByOrganization_AccountIdAndStatus(UUID organizationId, CampaignStatus status);

@@ -24,4 +24,6 @@ public class TryOnSuggestionResponse {
     private BigDecimal originalPrice;
     private BigDecimal currentPrice;
     private UUID warehouseId;
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private String reason;
 }

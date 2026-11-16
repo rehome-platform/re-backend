@@ -99,6 +99,7 @@ class ReturnRequestServiceImplTest {
     @Mock private com.rehome.rehome.repository.ProductPhotoRepository productPhotoRepository;
     @Mock private OrderService orderService;
     @Mock private QueueService queueService;
+    @Mock private com.rehome.rehome.component.AuditLogger auditLogger;
     @Mock private GhnApi ghnApi;
     @Mock private com.rehome.rehome.service.SystemConfigReader systemConfigReader;
 

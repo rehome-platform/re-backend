@@ -1,5 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.component.MembershipQuotaResolver;
 import com.rehome.rehome.entity.enums.MembershipTier;
 import com.rehome.rehome.constant.SystemConfigKeys;

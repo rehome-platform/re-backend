@@ -53,6 +53,19 @@ public final class SystemConfigKeys {
     public static final String MIN_PAYOUT_AMOUNT = "min_payout_amount";
     public static final BigDecimal DEFAULT_MIN_PAYOUT_AMOUNT = new BigDecimal("50000");
 
+    // ---- Điểm tích lũy ----
+    // Mỗi bao nhiêu đồng của đơn (total_amount, đã trừ voucher) thì được 1 điểm. Đặt 0 hoặc âm để tắt tích điểm.
+    public static final String POINTS_VND_PER_POINT = "points_vnd_per_point";
+    public static final int DEFAULT_POINTS_VND_PER_POINT = 10000;
+
+    // Số điểm đổi 1 lượt phối đồ AI (ảnh tĩnh)
+    public static final String POINTS_COST_PER_AI_TRYON = "points_cost_per_ai_tryon";
+    public static final int DEFAULT_POINTS_COST_PER_AI_TRYON = 10;
+
+    // Số điểm đổi 1 lượt thử đồ AI real-time (chi phí thật cao hơn nên mặc định đắt hơn)
+    public static final String POINTS_COST_PER_LIVE_TRYON = "points_cost_per_live_tryon";
+    public static final int DEFAULT_POINTS_COST_PER_LIVE_TRYON = 20;
+
     // Số yêu cầu rút tiền tối đa mỗi ngày của một Member
     public static final String MAX_PAYOUT_REQUESTS_PER_DAY = "max_payout_requests_per_day";
     public static final int DEFAULT_MAX_PAYOUT_REQUESTS_PER_DAY = 3;

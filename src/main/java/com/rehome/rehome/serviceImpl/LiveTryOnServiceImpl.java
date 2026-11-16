@@ -92,6 +92,7 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
                 .remainingThisMonth(usage.remainingThisMonth())
                 .maxSeconds(quota.liveTryonMaxSeconds())
                 .canStart(usage.canStart())
+                .bonusCredits(usage.bonusCredits())
                 .upsellTier(quotaGuard.upsellTier(quota))
                 .build();
     }

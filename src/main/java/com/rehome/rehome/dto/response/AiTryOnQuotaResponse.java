@@ -27,6 +27,9 @@ public class AiTryOnQuotaResponse {
     private Integer limitPerMonth;
     private long usedThisMonth;
     private Integer remainingThisMonth;
+    // true cả khi hết quota gói mà còn lượt thưởng (bonusCredits > 0)
     private boolean canGenerate;
+    // Lượt mua bằng điểm còn lại, chỉ bị trừ khi quota gói đã hết
+    private int bonusCredits;
     private MembershipTier upsellTier;
 }

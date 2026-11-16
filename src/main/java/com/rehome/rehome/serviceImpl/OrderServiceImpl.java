@@ -141,6 +141,7 @@ public class OrderServiceImpl implements OrderService {
             ReturnRequestStatus.INSPECTING);
 
     private final com.rehome.rehome.service.ContentModerationService moderation;
+    private final com.rehome.rehome.service.PointsService pointsService;
     private final AccountRepository accountRepository;
     private final ShippingAddressRepository shippingAddressRepository;
     private final CartRepository cartRepository;
@@ -1293,6 +1294,11 @@ public class OrderServiceImpl implements OrderService {
 
         order.setPayoutAt(Instant.now());
         orderRepository.save(order);
+
+        // Tích điểm cho người mua ở đây, không phải lúc COMPLETED: payoutOrder chỉ chạy khi hết hạn
+        // trả hàng và đơn không bị hoàn (đơn RETURNED/CANCELLED không bao giờ tới đây), lại idempotent
+        // qua payoutAt - nên không cần luồng thu hồi điểm và không thể cộng hai lần.
+        pointsService.awardForOrder(order);
     }
 
     @Override

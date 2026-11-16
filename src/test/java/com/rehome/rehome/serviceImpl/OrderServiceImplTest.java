@@ -109,6 +109,7 @@ import static org.mockito.Mockito.lenient;
 @ExtendWith(MockitoExtension.class)
 class OrderServiceImplTest {
 
+    @Mock com.rehome.rehome.service.PointsService pointsService;
     @Mock AccountRepository accountRepository;
     @Mock ShippingAddressRepository shippingAddressRepository;
     @Mock CartRepository cartRepository;
@@ -1416,6 +1417,8 @@ class OrderServiceImplTest {
                 .isEqualByComparingTo(new BigDecimal("198000"));
 
         assertThat(order.getPayoutAt()).isNotNull();
+        // Tích điểm cho người mua chạy đúng một lần, cùng lúc payout
+        verify(pointsService).awardForOrder(order);
 
         ArgumentCaptor<WalletTransaction> txCaptor =
                 ArgumentCaptor.forClass(WalletTransaction.class);
@@ -1457,6 +1460,7 @@ class OrderServiceImplTest {
         verify(orderItemRepository, never()).findAllByOrder_Id(any());
         verify(walletTransactionRepository, never()).save(any());
         verify(orderRepository, never()).save(any());
+        verify(pointsService, never()).awardForOrder(any());
     }
 
     @Test

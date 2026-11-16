@@ -245,10 +245,12 @@ public class OrderController {
     @GetMapping("/{id}/shipment/label")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<ShipmentLabelResponse>> getShipmentLabel(
+            Authentication authentication,
             @PathVariable UUID id,
             @RequestParam(defaultValue = "A5") String size) {
 
-        return ResponseEntity.ok(ApiResponse.success(orderService.getShipmentLabel(id, size)));
+        return ResponseEntity.ok(ApiResponse.success(
+                orderService.getShipmentLabel(authentication.getName(), id, size)));
     }
 
     // API 64 (F-060)

@@ -258,6 +258,9 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
                 .productId(s.getProduct().getId())
                 .productName(s.getProduct().getName())
                 .productThumbnailUrl(thumbnails.get(s.getProduct().getId()))
+                .productStatus(s.getProduct().getStatus())
+                .isMine(s.getProduct().getMember() != null
+                        && account.getId().equals(s.getProduct().getMember().getId()))
                 .videoUrl(s.getVideoUrl())
                 .actualDurationSeconds(s.getActualDurationSeconds())
                 .createdAt(s.getCreatedAt())

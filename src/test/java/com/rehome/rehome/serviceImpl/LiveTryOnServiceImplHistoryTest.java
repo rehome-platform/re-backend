@@ -13,6 +13,7 @@ import com.rehome.rehome.dto.response.LiveTryOnHistoryItemResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.LiveTryOnStatus;
+import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.tryon.LiveTryOnSession;
@@ -94,6 +95,30 @@ class LiveTryOnServiceImplHistoryTest {
         assertThat(item.getProductName()).isEqualTo("Áo khoác denim");
         assertThat(item.getProductThumbnailUrl()).isEqualTo("https://img/p1.jpg");
         assertThat(item.getVideoUrl()).endsWith("a.mp4");
+        // Product mặc định ON_SALE, không có chủ ký gửi → mua được
+        assertThat(item.getProductStatus()).isEqualTo(ProductStatus.ON_SALE);
+        assertThat(item.getIsMine()).isFalse();
+    }
+
+    @Test
+    void getHistory_marksOwnProduct_andReportsCurrentProductStatus() {
+        Account account = member();
+        Product own = product("P-2", "Quần jeans");
+        own.setMember(account);
+        own.setStatus(ProductStatus.SOLD);
+        LiveTryOnSession s = session(own, "https://res.cloudinary.com/x/raw/upload/v1/try-on-live/b.mp4");
+
+        when(sessionRepository.findByMember_IdAndStatusAndVideoUrlIsNotNull(
+                eq(account.getId()), eq(LiveTryOnStatus.COMPLETED), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(s)));
+        when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(List.of("P-2")))
+                .thenReturn(List.of());
+
+        LiveTryOnHistoryItemResponse item = service.getHistory(account, 0, 20).getContent().get(0);
+
+        assertThat(item.getProductStatus()).isEqualTo(ProductStatus.SOLD);
+        assertThat(item.getIsMine()).isTrue();
+        assertThat(item.getProductThumbnailUrl()).isNull();
     }
 
     @Test

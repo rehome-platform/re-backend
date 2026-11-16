@@ -40,7 +40,7 @@ public class AuditLogSpecifications {
             }
             if (search != null && !search.isBlank()) {
                 String pattern = "%" + search.trim().toLowerCase(Locale.ROOT) + "%";
-                Join<AuditLog, Account> actor = root.join("actorAccount");
+                Join<AuditLog, Account> actor = root.join("actorAccount", jakarta.persistence.criteria.JoinType.LEFT);
 
                 List<Predicate> anyOf = new ArrayList<>();
                 anyOf.add(cb.like(cb.lower(root.<String>get("actionType")), pattern));

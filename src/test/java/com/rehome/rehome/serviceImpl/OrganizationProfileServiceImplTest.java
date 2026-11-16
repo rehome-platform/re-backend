@@ -94,6 +94,8 @@ class OrganizationProfileServiceImplTest {
 
     @Mock private com.rehome.rehome.service.ContentModerationService moderation;
 
+    @org.mockito.Mock com.rehome.rehome.component.AuditLogger auditLogger;
+
     @InjectMocks private OrganizationServiceImpl service;
 
     private static final String RAW_EMAIL = "  Org@Mail.COM ";

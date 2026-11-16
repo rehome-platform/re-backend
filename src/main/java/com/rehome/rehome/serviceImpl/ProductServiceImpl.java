@@ -167,6 +167,7 @@ public class ProductServiceImpl implements ProductService {
 
         product.setName(request.name().strip());
         productRepository.save(product);
+        auditLogger.logOperation(moderator, "UPDATE_PRODUCT", "PRODUCT", id, "SUCCESS");
         List<ProductPhoto> existing = productPhotoRepository.findByProduct_IdOrderByDisplayOrderAscIdAsc(id);
         Map<String, java.util.ArrayDeque<ProductPhoto>> byUrl = new java.util.HashMap<>();
         for (ProductPhoto photo : existing) {

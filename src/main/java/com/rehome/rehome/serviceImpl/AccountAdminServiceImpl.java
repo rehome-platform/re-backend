@@ -15,6 +15,8 @@ import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.repository.CampaignRepository;
+import com.rehome.rehome.entity.enums.CampaignStatus;
 import com.rehome.rehome.repository.AuditLogRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.ModeratorProfileRepository;
@@ -42,6 +44,7 @@ import java.util.stream.Collectors;
 public class AccountAdminServiceImpl implements AccountAdminService {
 
     private final AccountRepository accountRepository;
+    private final CampaignRepository campaignRepository;
     private final RefreshTokenService refreshTokenService;
     private final AuditLogRepository auditLogRepository;
     private final ObjectMapper objectMapper;
@@ -142,6 +145,10 @@ public class AccountAdminServiceImpl implements AccountAdminService {
         target.setStatus(AccountStatus.BANNED);
         target.setBanReason(reason.trim());
         accountRepository.save(target);
+
+        if (target.getRole() == Role.ORGANIZATION) {
+            campaignRepository.hideCampaignsByOrganization(targetId, CampaignStatus.HIDDEN);
+        }
 
         // Đá khỏi các phiên đang đăng nhập; access token còn hạn bị JwtAuthenticationFilter chặn
         refreshTokenService.revokeAllAccountTokens(target);

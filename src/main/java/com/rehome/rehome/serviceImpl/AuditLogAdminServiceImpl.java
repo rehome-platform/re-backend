@@ -79,13 +79,14 @@ public class AuditLogAdminServiceImpl implements AuditLogAdminService {
 
         // Nạp actor theo lô cho cả trang (4 truy vấn cố định) thay vì từng dòng log
         Set<UUID> actorIds = logs.getContent().stream()
+                .filter(l -> l.getActorAccount() != null)
                 .map(l -> l.getActorAccount().getId())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         Map<UUID, Account> accounts = loadAccounts(actorIds);
         Map<UUID, String> names = loadNames(accounts.keySet());
 
         return PageResponse.of(logs.map(l -> {
-            UUID actorId = l.getActorAccount().getId();
+            UUID actorId = l.getActorAccount() == null ? null : l.getActorAccount().getId();
             return AuditLogResponse.from(l, accounts.get(actorId), names.get(actorId));
         }));
     }

@@ -67,6 +67,8 @@ class CampaignServiceImplTest {
 
     @Mock private com.rehome.rehome.service.ContentModerationService moderation;
 
+    @org.mockito.Mock com.rehome.rehome.component.AuditLogger auditLogger;
+
     @InjectMocks private CampaignServiceImpl service;
 
     private Warehouse warehouse(UUID id, String name) {

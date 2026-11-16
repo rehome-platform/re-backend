@@ -65,6 +65,7 @@ public class CampaignServiceImpl implements CampaignService {
     private static final String RECEIVE_WAY_REQUIRED =
             "Phải chọn nhận tại địa chỉ riêng hoặc chọn ít nhất 1 kho.";
 
+    private final com.rehome.rehome.component.AuditLogger auditLogger;
     private final com.rehome.rehome.service.ContentModerationService moderation;
     private final CampaignRepository campaignRepository;
     private final OrganizationProfileRepository organizationProfileRepository;
@@ -141,6 +142,7 @@ public class CampaignServiceImpl implements CampaignService {
                 .createdAt(Instant.now())
                 .build();
         campaignRepository.save(campaign);
+        auditLogger.logCurrentOperation("CREATE_CAMPAIGN", "CAMPAIGN", campaign.getId(), campaign.getStatus().name());
         moderation.recordMatch(organizationAccountId, "CAMPAIGN", campaign.getId(), moderationAction);
 
         // UC-44: báo cho người theo dõi tổ chức khi có chiến dịch mới. Chỉ gửi lúc TẠO, không
@@ -206,6 +208,7 @@ public class CampaignServiceImpl implements CampaignService {
 
         campaignRepository.save(campaign);
         moderation.recordMatch(organizationAccountId, "CAMPAIGN", campaign.getId(), moderationAction);
+        auditLogger.logCurrentOperation("UPDATE_CAMPAIGN", "CAMPAIGN", campaignId, campaign.getStatus().name());
         return toPublicResponse(campaign);
     }
 
@@ -225,6 +228,7 @@ public class CampaignServiceImpl implements CampaignService {
         if (campaign.getStatus() != CampaignStatus.CLOSED) {
             campaign.setStatus(CampaignStatus.CLOSED);
             campaignRepository.save(campaign);
+            auditLogger.logCurrentOperation("CLOSE_CAMPAIGN", "CAMPAIGN", campaignId, "CLOSED");
         }
 
         return CampaignStatusResponse.builder()

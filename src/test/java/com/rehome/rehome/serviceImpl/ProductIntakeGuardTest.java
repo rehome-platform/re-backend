@@ -37,6 +37,8 @@ class ProductIntakeGuardTest {
     @Mock ProductRepository productRepository;
     @Mock CreateProductRequest request;
 
+    @org.mockito.Mock com.rehome.rehome.component.AuditLogger auditLogger;
+
     @InjectMocks ProductServiceImpl service;
 
     private Account moderator(Warehouse warehouse) {

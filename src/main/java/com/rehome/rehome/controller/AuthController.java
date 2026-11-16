@@ -7,6 +7,8 @@ import com.rehome.rehome.dto.response.OtpResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.OtpService;
 import com.rehome.rehome.service.AuthService;
+import com.rehome.rehome.service.OtpRateLimiter;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -21,10 +23,12 @@ public class AuthController {
 
     private final AuthService authService;
     private final OtpService otpService;
+    private final OtpRateLimiter otpRateLimiter;
 
     @PostMapping("/resend-otp")
     public ResponseEntity<ApiResponse<OtpResponse>> resendOtp(
-            @Valid @RequestBody OtpRequest request) {
+            @Valid @RequestBody OtpRequest request, HttpServletRequest httpRequest) {
+        otpRateLimiter.check(request.email(), httpRequest.getRemoteAddr());
         return ResponseEntity.ok(ApiResponse.success(otpService.resend(request)));
     }
 
@@ -60,7 +64,8 @@ public class AuthController {
 
     // Luôn trả như nhau để không lộ email có tồn tại hay không
     @PostMapping("/password/forgot")
-    public ResponseEntity<ApiResponse<Void>> forgot(@Valid @RequestBody ForgotPasswordRequest request) {
+    public ResponseEntity<ApiResponse<Void>> forgot(@Valid @RequestBody ForgotPasswordRequest request, HttpServletRequest httpRequest) {
+        otpRateLimiter.check(request.getEmail(), httpRequest.getRemoteAddr());
         otpService.forgotPassword(request);
         return ResponseEntity.ok(ApiResponse.success(null));
     }

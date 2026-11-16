@@ -58,6 +58,8 @@ class ProductServiceImplInventoryTest {
     // Các dependency còn lại của ProductServiceImpl không dùng trong test này, Mockito truyền null
     @Mock private com.rehome.rehome.component.FeaturedListingManager featuredListingManager;
 
+    @org.mockito.Mock com.rehome.rehome.component.AuditLogger auditLogger;
+
     @InjectMocks
     private ProductServiceImpl productService;
 

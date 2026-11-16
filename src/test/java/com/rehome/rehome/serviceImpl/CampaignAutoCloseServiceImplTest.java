@@ -26,6 +26,8 @@ class CampaignAutoCloseServiceImplTest {
 
     @Mock private CampaignRepository campaignRepository;
 
+    @org.mockito.Mock com.rehome.rehome.component.AuditLogger auditLogger;
+
     @InjectMocks private CampaignAutoCloseServiceImpl service;
 
     private Campaign openCampaign(UUID id, Instant endTime) {

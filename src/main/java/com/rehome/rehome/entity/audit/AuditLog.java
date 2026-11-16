@@ -26,8 +26,8 @@ public class AuditLog {
     private UUID id;
 
     // Người thực hiện thao tác
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "actor_account_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "actor_account_id")
     private Account actorAccount;
 
     // Loại thao tác, ví dụ VERIFY_ORGANIZATION, UPDATE_CONFIG

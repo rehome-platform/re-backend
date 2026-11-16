@@ -39,7 +39,7 @@ public class AuditLogResponse {
         return AuditLogResponse.builder()
                 .id(a.getId())
                 // getId() trên proxy lazy không chạm DB
-                .actorAccountId(a.getActorAccount().getId())
+                .actorAccountId(a.getActorAccount() == null ? null : a.getActorAccount().getId())
                 .actorName(actorName)
                 .actorEmail(actor != null ? actor.getEmail() : null)
                 .actorRole(actor != null ? actor.getRole() : null)

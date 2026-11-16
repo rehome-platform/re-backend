@@ -198,6 +198,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .toList();
         returnRequestPhotoRepository.saveAll(photos);
 
+        auditLogger.logOperation(buyer, "CREATE_RETURN", "RETURN_REQUEST", returnRequest.getId(), returnRequest.getStatus().name());
         return toResponse(returnRequest, request.getPhotoUrls());
     }
 
@@ -296,6 +297,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         returnRequest.setHandoverDeadline(Instant.now().plus(handoverDeadlineDays(), ChronoUnit.DAYS));
         returnRequestRepository.save(returnRequest);
 
+        auditLogger.logCurrentOperation("APPROVE_RETURN", "RETURN_REQUEST", id, returnRequest.getStatus().name());
         return toResponseWithPhotos(returnRequest);
     }
 
@@ -322,6 +324,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         payoutIfReturnWindowPassed(returnRequest.getOrder(),
                 "Yêu cầu trả hàng bị từ chối sau hạn trả hàng - đơn " + returnRequest.getOrder().getOrderNo());
 
+        auditLogger.logCurrentOperation("REJECT_RETURN", "RETURN_REQUEST", id, returnRequest.getStatus().name());
         return toResponseWithPhotos(returnRequest);
     }
 
@@ -415,6 +418,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .toList();
         returnRequestPhotoRepository.saveAll(evidencePhotos);
 
+        auditLogger.logCurrentOperation("START_RETURN_INSPECTION", "RETURN_REQUEST", id, returnRequest.getStatus().name());
         return toResponseWithPhotos(returnRequest);
     }
 
@@ -484,6 +488,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                             + returnRequest.getOrder().getOrderNo());
         }
 
+        auditLogger.logOperation(moderator, "RESOLVE_RETURN", "RETURN_REQUEST", id, returnRequest.getStatus().name());
         return toResponseWithPhotos(returnRequest);
     }
 
@@ -628,6 +633,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         }
 
         markLost(returnRequest, request.getNote());
+        auditLogger.logCurrentOperation("MARK_RETURN_LOST", "RETURN_REQUEST", id, "LOST");
 
         return toResponseWithPhotos(returnRequest);
     }

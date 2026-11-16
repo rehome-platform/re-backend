@@ -29,6 +29,7 @@ import java.util.UUID;
 @Slf4j
 public class OrderCancelExecutor {
 
+    private final com.rehome.rehome.component.AuditLogger auditLogger;
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final ProductRepository productRepository;
@@ -57,6 +58,7 @@ public class OrderCancelExecutor {
         order.setCancelReason(CancelReason.PAYMENT_EXPIRED);
         order.setCancelledAt(Instant.now());
         orderRepository.save(order);
+        auditLogger.logSystemOperation("AUTO_CANCEL_ORDER", "ORDER", orderId, "CANCELLED", "SCHEDULER");
 
         // Quá hạn thanh toán: chưa thu tiền và người mua không có lỗi -> trả mã về ví (§12.4)
         releaseVoucher(order);

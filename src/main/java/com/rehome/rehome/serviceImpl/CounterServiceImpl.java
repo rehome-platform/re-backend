@@ -202,11 +202,8 @@ public class CounterServiceImpl implements CounterService {
         if (phone != null) {
             found = memberProfileRepository.findByAccount_Phone(phone);
         } else {
+            // Giả định: qrPayload chứa đúng memberCode
             String code = memberCode != null ? memberCode : qrPayload;
-            String prefix = com.rehome.rehome.util.MemberQrPayload.PREFIX;
-            if (qrPayload != null && qrPayload.regionMatches(true, 0, prefix, 0, prefix.length())) {
-                code = com.rehome.rehome.util.MemberQrPayload.decodeMemberCode(qrPayload);
-            }
             found = memberProfileRepository.findByMemberCode(code).map(List::of).orElse(List.of());
         }
 

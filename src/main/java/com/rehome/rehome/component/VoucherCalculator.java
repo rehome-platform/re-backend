@@ -22,7 +22,7 @@ import org.springframework.stereotype.Component;
  * đơn. Đặc tả §12.1 (một đơn) và §12.6 (nhiều đơn).
  *
  * <p><b>Vì sao áp cho cả lần thanh toán chứ không cho một đơn lẻ?</b> Giỏ 3 món tạo 3 đơn riêng
- * nhưng người mua chỉ thấy một màn thanh toán và trả một lần tiền (MoMo/VNPay cũng chỉ mở một giao
+ * nhưng người mua chỉ thấy một màn thanh toán và trả một lần tiền (VNPay cũng chỉ mở một giao
  * dịch cho cả lô - xem {@code CLAUDE.md} §Order payment). Giỏ một món - tình huống phổ biến nhất
  * của hàng second-hand vì mỗi món là duy nhất - cho kết quả giống hệt cách áp theo đơn, phần phân
  * bổ chỉ chạy khi giỏ nhiều món.

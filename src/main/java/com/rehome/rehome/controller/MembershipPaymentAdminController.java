@@ -25,7 +25,7 @@ public class MembershipPaymentAdminController {
 
     @GetMapping
     @Operation(summary = "Danh sách giao dịch mua gói, mới nhất trước. from/to là yyyy-MM-dd theo giờ VN (from <= to), "
-            + "tier = SILVER/GOLD/DIAMOND, method = WALLET/MOMO/VNPAY")
+            + "tier = SILVER/GOLD/DIAMOND, method = WALLET/VNPAY")
     public ResponseEntity<ApiResponse<PageResponse<AdminMembershipPaymentResponse>>> search(
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,

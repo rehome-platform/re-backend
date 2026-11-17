@@ -25,13 +25,11 @@ public interface ItemWithdrawalRequestService {
     // Moderator từ chối, bắt buộc có lý do -> REJECTED, sản phẩm trả lại ON_SALE
     ItemWithdrawalResponse reject(Account moderator, UUID id, RejectItemWithdrawalRequest request);
 
-    // API 91 (F-033) - Member trả phí rút hàng bằng ví, MoMo hoặc VNPay (chọn đúng 1, không chia nhỏ)
+    // API 91 (F-033) - Member trả phí rút hàng bằng ví hoặc VNPay (chọn đúng 1, không chia nhỏ)
     PayItemWithdrawalFeeResponse payFee(
             Account account, UUID id, PayItemWithdrawalFeeRequest request, String clientIp);
 
-    // Webhook MoMo/VNPay gọi khi có kết quả thanh toán phí rút hàng; trả về true nếu khớp một yêu cầu
-    boolean applyMomoFeePaymentResult(String momoOrderId, int resultCode, String transId);
-
+    // Webhook VNPay gọi khi có kết quả thanh toán phí rút hàng; trả về true nếu khớp một yêu cầu
     boolean applyVnPayFeePaymentResult(String vnpTxnRef, String responseCode, String transactionNo);
 
     // Member xem chi tiết một yêu cầu rút hàng của mình

@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.UUID;
 
 public interface VnPayService {
-    // Một giao dịch VNPay cho nhiều đơn - xem MomoService.createPaymentForOrders
+    // Một giao dịch VNPay cho nhiều đơn
     CreateVnPayResponse createPaymentForOrders(String email, List<UUID> orderIds, String customReturnUrl,
                                                String clientIp);
 

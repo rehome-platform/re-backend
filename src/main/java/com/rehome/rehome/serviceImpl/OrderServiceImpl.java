@@ -1001,8 +1001,8 @@ public class OrderServiceImpl implements OrderService {
         OrderPaymentMethod method = parsePaymentMethod(request.getMethod());
         if (method != OrderPaymentMethod.WALLET) {
             throw new BadRequestException(
-                    "method chỉ nhận WALLET ở endpoint này. Trả bằng MoMo/VNPay dùng "
-                            + "POST /api/momo/create hoặc POST /api/vnpay/create.");
+                    "method chỉ nhận WALLET ở endpoint này. Trả bằng VNPay dùng "
+                            + "POST /api/vnpay/create.");
         }
 
         Account buyer = accountRepository.findByEmail(email)

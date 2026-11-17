@@ -14,7 +14,7 @@ import lombok.NoArgsConstructor;
  * <ul>
  *   <li>Trả ví -> {@code status = ACTIVE}, {@code payUrl = null}, gói có hiệu lực ngay và
  *       {@code vouchersIssued} là số mã vừa phát đợt đầu.</li>
- *   <li>Trả MoMo/VNPay -> {@code status = PENDING_PAYMENT}, {@code expiresAt = null},
+ *   <li>Trả VNPay -> {@code status = PENDING_PAYMENT}, {@code expiresAt = null},
  *       {@code payUrl} để mobile mở WebView. Mobile <b>không được tin</b> kết quả cổng hiển thị,
  *       phải gọi lại {@code GET /memberships/me} sau khi callback về.</li>
  * </ul>

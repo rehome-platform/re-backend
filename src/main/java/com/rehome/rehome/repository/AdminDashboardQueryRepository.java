@@ -12,6 +12,7 @@ import org.springframework.stereotype.Repository;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -32,6 +33,14 @@ public class AdminDashboardQueryRepository {
     private static final List<OrderStatus> PAID_STATUSES = List.of(
             OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.SHIPPING, OrderStatus.DELIVERED,
             OrderStatus.COMPLETED, OrderStatus.RETURNED);
+
+    // Đơn đã thanh toán nhưng chưa hoàn tất: tiền người mua đã trả, nền tảng đang giữ
+    private static final List<OrderStatus> HELD_STATUSES = List.of(
+            OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.SHIPPING, OrderStatus.DELIVERED);
+
+    // Hai loại bút toán cấu thành doanh thu nền tảng (khớp sumCompletedCommission + sumWithdrawalFeeRevenue)
+    private static final List<WalletTransactionType> PLATFORM_REVENUE_TYPES = List.of(
+            WalletTransactionType.COMMISSION_REVENUE, WalletTransactionType.WITHDRAWAL_FEE_REVENUE);
 
     @PersistenceContext
     private EntityManager em;
@@ -138,6 +147,54 @@ public class AdminDashboardQueryRepository {
 
     /** Một dòng tổng hợp doanh thu bán theo kỳ: tổng giá bán, tổng hoa hồng, số món. */
     public record TermSales(short term, BigDecimal salesRevenue, BigDecimal commission, long itemCount) {}
+
+    // Số món còn nằm trong kho theo từng trạng thái; luôn có đủ mọi trạng thái tồn kho (không có hàng = 0)
+    // và đúng thứ tự STOCK_STATUSES để màn hình hiển thị ổn định
+    public Map<ProductStatus, Long> countStockedProductsByStatus() {
+        List<Object[]> rows = em.createQuery(
+                        "select p.status, count(p) from Product p where p.status in :statuses group by p.status",
+                        Object[].class)
+                .setParameter("statuses", STOCK_STATUSES)
+                .getResultList();
+        Map<ProductStatus, Long> result = new LinkedHashMap<>();
+        STOCK_STATUSES.forEach(status -> result.put(status, 0L));
+        rows.forEach(r -> result.put((ProductStatus) r[0], ((Number) r[1]).longValue()));
+        return result;
+    }
+
+    // Tổng tiền các đơn đã thanh toán nhưng chưa hoàn tất (tiền nền tảng đang giữ hộ)
+    public BigDecimal sumHeldOrderAmount() {
+        return orZero(em.createQuery("select sum(o.totalAmount) from Order o where o.status in :statuses",
+                        BigDecimal.class)
+                .setParameter("statuses", HELD_STATUSES)
+                .getSingleResult());
+    }
+
+    public long countHeldOrders() {
+        return em.createQuery("select count(o) from Order o where o.status in :statuses", Long.class)
+                .setParameter("statuses", HELD_STATUSES)
+                .getSingleResult();
+    }
+
+    // Từng bút toán doanh thu nền tảng trong [from, to) để service gom theo ngày/tuần/tháng giờ VN
+    public List<RevenueEntry> findPlatformRevenueEntries(Instant from, Instant to) {
+        List<Object[]> rows = em.createQuery(
+                        "select t.createdAt, t.amount from WalletTransaction t "
+                                + "where t.walletType = :walletType and t.type in :types and t.status = :status "
+                                + "and t.createdAt >= :from and t.createdAt < :to", Object[].class)
+                .setParameter("walletType", WalletType.PLATFORM)
+                .setParameter("types", PLATFORM_REVENUE_TYPES)
+                .setParameter("status", TransactionStatus.SUCCESS)
+                .setParameter("from", from)
+                .setParameter("to", to)
+                .getResultList();
+        return rows.stream()
+                .map(r -> new RevenueEntry((Instant) r[0], orZero((BigDecimal) r[1])))
+                .toList();
+    }
+
+    /** Một bút toán doanh thu nền tảng: thời điểm ghi và số tiền. */
+    public record RevenueEntry(Instant createdAt, BigDecimal amount) {}
 
     // Việc còn trong hàng đợi (xong thì dòng bị gỡ) mà vào hàng đợi trước mốc deadline
     public long countQueueItemsCreatedBefore(Instant deadline) {

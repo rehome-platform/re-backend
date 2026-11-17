@@ -36,12 +36,15 @@ public class AdminDashboardController {
         return ResponseEntity.ok(ApiResponse.success(adminDashboardService.getDashboard(from, to), "OK"));
     }
 
-    // from/to nhận String để sai định dạng cũng ra 400 INVALID_DATE_RANGE đúng message trong docs
+    // from/to nhận String để sai định dạng cũng ra 400 INVALID_DATE_RANGE đúng message trong docs.
+    // sections: danh sách khối cách nhau dấu phẩy (REVENUE, USERS, WAREHOUSE); bỏ trống = xuất cả ba.
+    // Bảng "Món đã bán" luôn có trong file, không phụ thuộc sections.
     @GetMapping("/export")
-    @Operation(summary = "API 148 - Xuất báo cáo dashboard ra Excel (F-159), from/to dạng yyyy-MM-dd")
+    @Operation(summary = "API 148 - Xuất báo cáo dashboard ra Excel (F-159), from/to dạng yyyy-MM-dd, sections tuỳ chọn")
     public ResponseEntity<byte[]> export(@RequestParam(required = false) String from,
-                                         @RequestParam(required = false) String to) {
-        AdminDashboardService.DashboardExport file = adminDashboardService.export(from, to);
+                                         @RequestParam(required = false) String to,
+                                         @RequestParam(required = false) String sections) {
+        AdminDashboardService.DashboardExport file = adminDashboardService.export(from, to, sections);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_TYPE, XLSX)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + file.fileName() + "\"")

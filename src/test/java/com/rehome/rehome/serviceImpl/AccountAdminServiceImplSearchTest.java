@@ -64,7 +64,7 @@ class AccountAdminServiceImplSearchTest {
         Account org = account(Role.ORGANIZATION, "org@rehome.com");
         Account adminAcc = account(Role.ADMIN, "admin@rehome.com");
 
-        when(accountRepository.searchForAdmin(any(), any(), any(), any(Pageable.class)))
+        when(accountRepository.searchForAdmin(any(), any(), any(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(member, moderator, org, adminAcc)));
         when(memberProfileRepository.findAllById(any())).thenReturn(List.of(
                 MemberProfile.builder().accountId(member.getId()).fullName("Nguyễn Văn An")
@@ -75,7 +75,7 @@ class AccountAdminServiceImplSearchTest {
         when(organizationProfileRepository.findAllById(any())).thenReturn(List.of(
                 OrganizationProfile.builder().accountId(org.getId()).displayName("Quỹ Hy Vọng").build()));
 
-        PageResponse<AdminAccountResponse> result = service.search(null, null, null, null, null, 0, 20);
+        PageResponse<AdminAccountResponse> result = service.search(null, null, null, null, null, null, null, 0, 20);
 
         assertThat(result.getContent()).extracting(AdminAccountResponse::getFullName)
                 .containsExactly("Nguyễn Văn An", "Trần Mod", "Quỹ Hy Vọng", null);
@@ -86,35 +86,35 @@ class AccountAdminServiceImplSearchTest {
     @Test
     @DisplayName("search: từ khoá được trim, chuyển chữ thường và bọc % ; không có từ khoá thì dùng %%")
     void search_buildsPattern() {
-        when(accountRepository.searchForAdmin(any(), any(), any(), any(Pageable.class)))
+        when(accountRepository.searchForAdmin(any(), any(), any(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
         when(memberProfileRepository.findAllById(any())).thenReturn(List.of());
         when(moderatorProfileRepository.findAllById(any())).thenReturn(List.of());
         when(organizationProfileRepository.findAllById(any())).thenReturn(List.of());
 
-        service.search("  NguYen@  ", Role.MEMBER, AccountStatus.BANNED, null, null, 0, 20);
-        service.search(null, null, null, null, null, 0, 20);
+        service.search("  NguYen@  ", Role.MEMBER, AccountStatus.BANNED, null, null, null, null, 0, 20);
+        service.search(null, null, null, null, null, null, null, 0, 20);
 
         ArgumentCaptor<String> pattern = ArgumentCaptor.forClass(String.class);
         verify(accountRepository).searchForAdmin(eq(Role.MEMBER), eq(AccountStatus.BANNED),
-                pattern.capture(), any(Pageable.class));
+                pattern.capture(), any(), any(), any(Pageable.class));
         assertThat(pattern.getValue()).isEqualTo("%nguyen@%");
-        verify(accountRepository).searchForAdmin(isNull(), isNull(), eq("%%"), any(Pageable.class));
+        verify(accountRepository).searchForAdmin(isNull(), isNull(), eq("%%"), any(), any(), any(Pageable.class));
     }
 
     @Test
     @DisplayName("search: size bị chặn tối đa 100, page âm đưa về 0")
     void search_clampsPaging() {
-        when(accountRepository.searchForAdmin(any(), any(), any(), any(Pageable.class)))
+        when(accountRepository.searchForAdmin(any(), any(), any(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
         when(memberProfileRepository.findAllById(any())).thenReturn(List.of());
         when(moderatorProfileRepository.findAllById(any())).thenReturn(List.of());
         when(organizationProfileRepository.findAllById(any())).thenReturn(List.of());
 
-        service.search(null, null, null, null, null, -5, 9999);
+        service.search(null, null, null, null, null, null, null, -5, 9999);
 
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
-        verify(accountRepository).searchForAdmin(any(), any(), any(), pageable.capture());
+        verify(accountRepository).searchForAdmin(any(), any(), any(), any(), any(), pageable.capture());
         assertThat(pageable.getValue().getPageNumber()).isZero();
         assertThat(pageable.getValue().getPageSize()).isEqualTo(100);
     }
@@ -122,31 +122,31 @@ class AccountAdminServiceImplSearchTest {
     @Test
     @DisplayName("search: từ khoá là số điện thoại (+84, khoảng trắng, dấu gạch) được chuẩn hóa về dạng 0xxxxxxxxx")
     void search_normalizesPhoneKeyword() {
-        when(accountRepository.searchForAdmin(any(), any(), any(), any(Pageable.class)))
+        when(accountRepository.searchForAdmin(any(), any(), any(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
         when(memberProfileRepository.findAllById(any())).thenReturn(List.of());
         when(moderatorProfileRepository.findAllById(any())).thenReturn(List.of());
         when(organizationProfileRepository.findAllById(any())).thenReturn(List.of());
 
-        service.search("+84 912-345-678", null, null, null, null, 0, 20);
-        service.search("0912 345", null, null, null, null, 0, 20);
+        service.search("+84 912-345-678", null, null, null, null, null, null, 0, 20);
+        service.search("0912 345", null, null, null, null, null, null, 0, 20);
 
-        verify(accountRepository).searchForAdmin(isNull(), isNull(), eq("%0912345678%"), any(Pageable.class));
-        verify(accountRepository).searchForAdmin(isNull(), isNull(), eq("%0912345%"), any(Pageable.class));
+        verify(accountRepository).searchForAdmin(isNull(), isNull(), eq("%0912345678%"), any(), any(), any(Pageable.class));
+        verify(accountRepository).searchForAdmin(isNull(), isNull(), eq("%0912345%"), any(), any(), any(Pageable.class));
     }
 
     @Test
     @DisplayName("search: từ khoá không phải số điện thoại giữ nguyên (chỉ trim + chữ thường)")
     void search_keepsNonPhoneKeyword() {
-        when(accountRepository.searchForAdmin(any(), any(), any(), any(Pageable.class)))
+        when(accountRepository.searchForAdmin(any(), any(), any(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
         when(memberProfileRepository.findAllById(any())).thenReturn(List.of());
         when(moderatorProfileRepository.findAllById(any())).thenReturn(List.of());
         when(organizationProfileRepository.findAllById(any())).thenReturn(List.of());
 
-        service.search(" An 2 ", null, null, null, null, 0, 20);
+        service.search(" An 2 ", null, null, null, null, null, null, 0, 20);
 
-        verify(accountRepository).searchForAdmin(isNull(), isNull(), eq("%an 2%"), any(Pageable.class));
+        verify(accountRepository).searchForAdmin(isNull(), isNull(), eq("%an 2%"), any(), any(), any(Pageable.class));
     }
 
     @Test
@@ -154,7 +154,7 @@ class AccountAdminServiceImplSearchTest {
     void search_defaultSort() {
         stubEmptyPage();
 
-        service.search(null, null, null, null, null, 0, 20);
+        service.search(null, null, null, null, null, null, null, 0, 20);
 
         Sort sort = capturePageable().getSort();
         assertThat(sort.getOrderFor("createdAt")).isNotNull();
@@ -167,7 +167,7 @@ class AccountAdminServiceImplSearchTest {
     void search_sortByStatusAsc() {
         stubEmptyPage();
 
-        service.search(null, null, null, "status", "ASC", 0, 20);
+        service.search(null, null, null, null, null, "status", "ASC", 0, 20);
 
         Sort sort = capturePageable().getSort();
         assertThat(sort.getOrderFor("status").getDirection()).isEqualTo(Sort.Direction.ASC);
@@ -179,7 +179,7 @@ class AccountAdminServiceImplSearchTest {
     void search_unsupportedSortFallsBackToDefault() {
         stubEmptyPage();
 
-        service.search(null, null, null, "passwordHash", "sideways", 0, 20);
+        service.search(null, null, null, null, null, "passwordHash", "sideways", 0, 20);
 
         Sort sort = capturePageable().getSort();
         assertThat(sort).hasSize(1);
@@ -187,7 +187,7 @@ class AccountAdminServiceImplSearchTest {
     }
 
     private void stubEmptyPage() {
-        when(accountRepository.searchForAdmin(any(), any(), any(), any(Pageable.class)))
+        when(accountRepository.searchForAdmin(any(), any(), any(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
         when(memberProfileRepository.findAllById(any())).thenReturn(List.of());
         when(moderatorProfileRepository.findAllById(any())).thenReturn(List.of());
@@ -196,7 +196,7 @@ class AccountAdminServiceImplSearchTest {
 
     private Pageable capturePageable() {
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
-        verify(accountRepository).searchForAdmin(any(), any(), any(), pageable.capture());
+        verify(accountRepository).searchForAdmin(any(), any(), any(), any(), any(), pageable.capture());
         return pageable.getValue();
     }
 }

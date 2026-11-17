@@ -1,5 +1,9 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.service.DonationService;
+import com.rehome.rehome.service.ViolationReportService;
+import com.rehome.rehome.repository.CommunityPostRepository;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.rehome.rehome.dto.response.AccountStatusResponse;
@@ -46,6 +50,9 @@ public class AccountAdminServiceImpl implements AccountAdminService {
 
     private final AccountRepository accountRepository;
     private final CampaignRepository campaignRepository;
+    private final CommunityPostRepository communityPostRepository;
+    private final DonationService donationService;
+    private final ViolationReportService violationReportService;
     private final RefreshTokenService refreshTokenService;
     private final AuditLogRepository auditLogRepository;
     private final ObjectMapper objectMapper;
@@ -134,12 +141,16 @@ public class AccountAdminServiceImpl implements AccountAdminService {
     @Override
     @Transactional
     public AccountStatusResponse ban(Account admin, UUID targetId, String reason) {
-        Account target = accountRepository.findById(targetId)
+        Account target = accountRepository.findByIdForUpdate(targetId)
                 .orElseThrow(() -> new AppException(ErrorCode.ACCOUNT_NOT_FOUND));
 
         if (target.getRole() == Role.ADMIN || target.getId().equals(admin.getId())) {
             throw new AppException(ErrorCode.CANNOT_BAN_ADMIN_OR_SELF);
         }
+        if (admin.getRole() == Role.MODERATOR && target.getRole() != Role.ORGANIZATION) {
+            throw new org.springframework.security.access.AccessDeniedException("Moderator chỉ được khóa tổ chức.");
+        }
+
         if (target.getStatus() == AccountStatus.BANNED) {
             throw new AppException(ErrorCode.ACCOUNT_ALREADY_BANNED);
         }
@@ -151,6 +162,9 @@ public class AccountAdminServiceImpl implements AccountAdminService {
 
         if (target.getRole() == Role.ORGANIZATION) {
             campaignRepository.hideCampaignsByOrganization(targetId, CampaignStatus.HIDDEN);
+            communityPostRepository.hidePostsOfBannedOrganization(targetId);
+            donationService.holdPendingDonations(targetId);
+            violationReportService.resolvePendingForBannedOrganization(admin, targetId);
         }
 
         // Đá khỏi các phiên đang đăng nhập; access token còn hạn bị JwtAuthenticationFilter chặn

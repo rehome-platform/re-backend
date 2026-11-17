@@ -4,6 +4,9 @@ import com.rehome.rehome.dto.request.CreateCampaignDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateDonationRequest;
 import com.rehome.rehome.dto.request.HandoverDonationsRequest;
+import com.rehome.rehome.dto.request.TransferDonationsRequest;
+import com.rehome.rehome.entity.enums.AccountStatus;
+import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.dto.response.DonationHandoverResponse;
 import com.rehome.rehome.dto.response.DonationNoteResponse;
 import com.rehome.rehome.dto.response.DonationResponse;
@@ -68,6 +71,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class DonationServiceImplTest {
 
+    @Mock private AccountRepository accountRepository;
     @Mock private DonationRepository donationRepository;
     @Mock private DonationNoteRepository donationNoteRepository;
     @Mock private WarehouseRepository warehouseRepository;
@@ -115,8 +119,56 @@ class DonationServiceImplTest {
     }
 
     private void stubCampaignServingWarehouse(UUID campaignId, UUID warehouseId) {
-        when(campaignRepository.findById(campaignId))
+        when(campaignRepository.findByIdForUpdate(campaignId))
                 .thenReturn(Optional.of(campaignServingWarehouse(campaignId, warehouseId)));
+    }
+
+    @Test
+    void recordDonation_preservesPhotoOrder() {
+        UUID warehouseId = UUID.randomUUID();
+        UUID campaignId = UUID.randomUUID();
+        Warehouse warehouse = Warehouse.builder().id(warehouseId).name("Kho").build();
+        when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
+        stubCampaignServingWarehouse(campaignId, warehouseId);
+        stubSaveAssignsId();
+        List<String> urls = List.of("http://localhost:8080/files/donations/a.jpg", "http://localhost:8080/files/donations/b.jpg");
+
+        DonationResponse response = service.recordDonation(moderator(warehouseId), warehouseId,
+                new CreateDonationRequest(campaignId.toString(), null, true, "Áo khoác", urls));
+
+        assertThat(response.getPhotoUrls()).containsExactlyElementsOf(urls);
+        assertThat(response.getNote()).isEqualTo("Áo khoác");
+    }
+
+    @Test
+    void transferHeldDonation_assignsNewCampaignAndReturnsToPickup() {
+        UUID warehouseId = UUID.randomUUID();
+        Warehouse warehouse = Warehouse.builder().id(warehouseId).name("Kho").build();
+        Campaign original = campaignServingWarehouse(UUID.randomUUID(), warehouseId);
+        Campaign destination = campaignServingWarehouse(UUID.randomUUID(), warehouseId);
+        destination.setEndTime(Instant.now().plusSeconds(3600));
+        OrganizationProfile recipient = destination.getOrganization();
+        recipient.setVerificationStatus(VerificationStatus.VERIFIED);
+        recipient.getAccount().setStatus(AccountStatus.ACTIVE);
+        Donation donation = Donation.builder().id(UUID.randomUUID()).warehouse(warehouse).campaign(original)
+                .status(DonationStatus.HELD_FOR_TRANSFER).build();
+        when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
+        when(organizationProfileRepository.findById(recipient.getAccountId())).thenReturn(Optional.of(recipient));
+        when(accountRepository.findByIdForUpdate(recipient.getAccountId())).thenReturn(Optional.of(recipient.getAccount()));
+        when(campaignRepository.findByIdForUpdate(destination.getId())).thenReturn(Optional.of(destination));
+        when(donationRepository.findByIdInAndWarehouse_Id(List.of(donation.getId()), warehouseId))
+                .thenReturn(List.of(donation));
+
+        List<DonationResponse> response = service.transferHeldDonations(moderator(warehouseId), warehouseId,
+                new TransferDonationsRequest(recipient.getAccountId(), destination.getId(),
+                        List.of(donation.getId().toString())));
+
+        assertThat(donation.getCampaign()).isSameAs(destination);
+        assertThat(donation.getStatus()).isEqualTo(DonationStatus.PENDING_PICKUP);
+        assertThat(response).singleElement().satisfies(item -> {
+            assertThat(item.getOrganizationId()).isEqualTo(recipient.getAccountId().toString());
+            assertThat(item.getPhotoUrls()).isEmpty();
+        });
     }
 
     @Test
@@ -164,7 +216,7 @@ class DonationServiceImplTest {
         Campaign campaign = campaignServingWarehouse(campaignId, warehouseId);
 
         when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
-        when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(campaign));
+        when(campaignRepository.findByIdForUpdate(campaignId)).thenReturn(Optional.of(campaign));
         stubSaveAssignsId();
 
         service.recordDonation(moderatorAccount, warehouseId,
@@ -321,7 +373,7 @@ class DonationServiceImplTest {
         UUID campaignId = UUID.randomUUID();
         when(warehouseRepository.findById(warehouseId))
                 .thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
-        when(campaignRepository.findById(campaignId)).thenReturn(Optional.empty());
+        when(campaignRepository.findByIdForUpdate(campaignId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.recordDonation(moderator(warehouseId), warehouseId,
                 new CreateDonationRequest(campaignId.toString(), "Nguyễn Văn A", false, null)))
@@ -357,7 +409,7 @@ class DonationServiceImplTest {
                 .thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
         Campaign hidden = campaignServingWarehouse(campaignId, warehouseId);
         hidden.setStatus(CampaignStatus.HIDDEN);
-        when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(hidden));
+        when(campaignRepository.findByIdForUpdate(campaignId)).thenReturn(Optional.of(hidden));
 
         assertThatThrownBy(() -> service.recordDonation(moderator(warehouseId), warehouseId,
                 new CreateDonationRequest(campaignId.toString(), "Nguyễn Văn A", false, null)))

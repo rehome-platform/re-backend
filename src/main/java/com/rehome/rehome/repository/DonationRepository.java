@@ -18,6 +18,15 @@ import java.util.UUID;
 @Repository
 public interface DonationRepository extends JpaRepository<Donation, UUID> {
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select d from Donation d
+            where d.status = com.rehome.rehome.entity.enums.DonationStatus.PENDING_PICKUP
+              and d.campaign.id in (select c.id from Campaign c where c.organization.accountId = :organizationId)
+            order by d.id
+            """)
+    List<Donation> findPendingForOrganization(@Param("organizationId") UUID organizationId);
+
     List<Donation> findByWarehouse_IdOrderByCreatedAtDesc(UUID warehouseId);
 
     List<Donation> findByWarehouse_IdAndStatusOrderByCreatedAtDesc(UUID warehouseId, DonationStatus status);

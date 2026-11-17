@@ -1,5 +1,14 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.dto.request.TransferDonationsRequest;
+
+import java.util.ArrayList;
+import java.net.URI;
+import org.springframework.beans.factory.annotation.Value;
+import com.rehome.rehome.util.CloudinaryImageUrls;
+import com.rehome.rehome.entity.enums.AccountStatus;
+import com.rehome.rehome.repository.AccountRepository;
+
 import com.rehome.rehome.dto.request.CreateCampaignDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateDonationRequest;
@@ -71,6 +80,7 @@ public class DonationServiceImpl implements DonationService {
 
     private final com.rehome.rehome.component.AuditLogger auditLogger;
     private final com.rehome.rehome.service.ContentModerationService moderation;
+    private final AccountRepository accountRepository;
     private final DonationRepository donationRepository;
     private final DonationNoteRepository donationNoteRepository;
     private final WarehouseRepository warehouseRepository;
@@ -80,6 +90,12 @@ public class DonationServiceImpl implements DonationService {
     private final ProductPhotoRepository productPhotoRepository;
     private final NotificationService notificationService;
     private final QueueService queueService;
+
+    @Value("${app.storage.public-base-url:http://localhost:8080/files}")
+    private String localUploadBaseUrl = "http://localhost:8080/files";
+
+    @Value("${cloudinary.cloud-name:}")
+    private String cloudName = "";
 
     @Override
     @Transactional
@@ -94,6 +110,7 @@ public class DonationServiceImpl implements DonationService {
 
         Donation donation = Donation.pendingAt(warehouse, campaign, request.getDonorName(), anonymous,
                         request.getNote())
+                .photoUrls(validatePhotoUrls(request.getPhotoUrls()))
                 .recordedBy(moderator)
                 .createdAt(Instant.now())
                 .build();
@@ -150,7 +167,7 @@ public class DonationServiceImpl implements DonationService {
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException(CAMPAIGN_NOT_FOUND);
         }
-        Campaign campaign = campaignRepository.findById(campaignId)
+        Campaign campaign = campaignRepository.findByIdForUpdate(campaignId)
                 .orElseThrow(() -> new IllegalArgumentException(CAMPAIGN_NOT_FOUND));
         boolean servesThisWarehouse = campaign.getWarehouses().stream()
                 .anyMatch(w -> w.getId().equals(warehouse.getId()));
@@ -242,6 +259,96 @@ public class DonationServiceImpl implements DonationService {
                 .organizationId(organization.getAccountId().toString())
                 .status(DonationStatus.HANDED_OVER.name())
                 .build();
+    }
+
+    private List<String> validatePhotoUrls(List<String> urls) {
+        if (urls == null) {
+            return new ArrayList<>();
+        }
+        if (urls.size() > 5) {
+            throw new BadRequestException("Tối đa 5 ảnh quyên góp.");
+        }
+        for (String url : urls) {
+            if (!isUploadUrl(url)) {
+                throw new BadRequestException("URL ảnh quyên góp không hợp lệ.");
+            }
+        }
+        return new ArrayList<>(urls);
+    }
+
+    private boolean isUploadUrl(String url) {
+        if (url == null || url.isBlank() || url.length() > 2048) {
+            return false;
+        }
+        try {
+            URI uri = URI.create(url);
+            if (!uri.equals(uri.normalize()) || uri.getUserInfo() != null || uri.getFragment() != null) {
+                return false;
+            }
+            String localPrefix = localUploadBaseUrl.endsWith("/") ? localUploadBaseUrl : localUploadBaseUrl + "/";
+            if (url.startsWith(localPrefix)) {
+                return true;
+            }
+            return !cloudName.isBlank() && CloudinaryImageUrls.isOwnCloudinaryUrl(url)
+                    && uri.getPath().startsWith("/" + cloudName + "/image/upload/");
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
+    }
+
+    @Override
+    @Transactional
+    public void holdPendingDonations(UUID organizationId) {
+        List<Donation> donations = donationRepository.findPendingForOrganization(organizationId);
+        for (Donation donation : donations) {
+            donation.setStatus(DonationStatus.HELD_FOR_TRANSFER);
+            if (donation.getSource() == DonationSource.CONSIGNED_ITEM) {
+                queueService.dequeue(QueueType.DONATION_PREP, donation.getId().toString());
+                queueService.dequeue(QueueType.DONATION_PICKUP, donation.getId().toString());
+            }
+        }
+    }
+
+    @Override
+    @Transactional
+    public List<DonationResponse> transferHeldDonations(Account moderator, UUID warehouseId,
+                                                         TransferDonationsRequest request) {
+        Warehouse warehouse = requireOwnWarehouse(moderator, warehouseId, ORGANIZATION_OR_WAREHOUSE_NOT_FOUND);
+        OrganizationProfile recipient = requireVerifiedOrganization(request.organizationId().toString());
+        accountRepository.findByIdForUpdate(recipient.getAccountId())
+                .filter(account -> account.getStatus() == AccountStatus.ACTIVE)
+                .orElseThrow(() -> new BadRequestException("Tổ chức nhận phải đang hoạt động."));
+        Campaign campaign = requireCampaignServingWarehouse(warehouse, request.campaignId().toString());
+        Instant now = Instant.now();
+        if (!campaign.getOrganization().getAccountId().equals(recipient.getAccountId())
+                || campaign.getStatus() != CampaignStatus.OPEN || !campaign.getEndTime().isAfter(now)) {
+            throw new BadRequestException("Chọn chiến dịch còn mở của tổ chức nhận tại kho này.");
+        }
+
+        List<UUID> ids = parseDonationIds(request.donationIds());
+        List<Donation> donations = donationRepository.findByIdInAndWarehouse_Id(ids, warehouseId);
+        if (donations.size() != ids.size() || donations.stream().anyMatch(d ->
+                d.getStatus() != DonationStatus.HELD_FOR_TRANSFER
+                        || d.getCampaign().getOrganization().getAccountId().equals(recipient.getAccountId()))) {
+            throw new BadRequestException(INVALID_DONATION_LIST);
+        }
+        for (Donation donation : donations) {
+            UUID oldCampaignId = donation.getCampaign().getId();
+            donation.setCampaign(campaign);
+            donation.setStatus(DonationStatus.PENDING_PICKUP);
+            if (donation.getSource() == DonationSource.CONSIGNED_ITEM) {
+                queueService.enqueue(QueueType.DONATION_PREP, donation.getId().toString(), warehouse);
+            }
+            auditLogger.logOperation(moderator, "TRANSFER_DONATION", "DONATION", donation.getId(),
+                    "campaign " + oldCampaignId + " -> " + campaign.getId());
+        }
+        notificationService.notify(recipient.getAccount(), NotificationType.DONATION_RECORDED,
+                "Có lượt quyên góp được chuyển đến",
+                "Kho " + warehouse.getName() + " đã chuyển " + donations.size() + " lượt quyên góp cho tổ chức của bạn.",
+                NotificationTargetType.CAMPAIGN, campaign.getId(), warehouseId);
+        Map<UUID, ModeratorProfile> moderators = loadModeratorProfiles(donations);
+        Map<String, String> photos = loadFirstPhotoUrls(donations);
+        return donations.stream().map(d -> toResponse(d, moderators, photos)).toList();
     }
 
     private List<UUID> parseDonationIds(List<String> rawIds) {
@@ -484,6 +591,7 @@ public class DonationServiceImpl implements DonationService {
                 .donorName(donation.getDonorName())
                 .isAnonymous(Boolean.TRUE.equals(donation.getIsAnonymous()))
                 .note(donation.getNote())
+                .photoUrls(List.copyOf(donation.getPhotoUrls()))
                 .status(donation.getStatus().name())
                 .source(donation.getSource().name())
                 .recordedBy(moderatorCode)

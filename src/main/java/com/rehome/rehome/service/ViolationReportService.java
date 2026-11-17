@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.UUID;
 
 public interface ViolationReportService {
+    void resolvePendingForBannedOrganization(com.rehome.rehome.entity.auth.Account actor, UUID organizationId);
+
 
     // F-088: báo cáo vi phạm, dùng chung cho bài viết / chiến dịch / tài khoản tổ chức. 409
     // DUPLICATE_PENDING_REPORT nếu Member này đã có báo cáo PENDING cho đúng target.

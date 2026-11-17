@@ -106,20 +106,11 @@ public class ProductServiceImpl implements ProductService {
             throw new BadRequestException("priceMin không được lớn hơn priceMax.");
         }
 
-        // Ưu tiên hiển thị của gói VIP: món còn hiệu lực "Nổi bật" xếp lên đầu, trong mỗi nhóm thì
-        // mới nhất trước.
-        //
-        // ⚠️ BẮT BUỘC .nullsLast(): Postgres mặc định xếp NULL LÊN ĐẦU khi sort DESC, nên thiếu nó
-        // thì toàn bộ sản phẩm KHÔNG nổi bật (featuredUntil = null) sẽ nằm trên - ngược hẳn ý định.
-        //
-        // featured_until trong quá khứ (gói đã hết hạn mà job chưa kịp dọn) vẫn tự xếp xuống dưới
-        // các mốc tương lai, nên không cần job dọn cột này.
-        PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1),
-                Sort.by(Sort.Order.desc("featuredUntil").nullsLast(),
-                        Sort.Order.desc("createdAt")));
+        PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1));
 
         Page<Product> result = productRepository.findAll(
-                ProductSpecifications.filter(search, categoryId, brandId, priceMin, priceMax, warehouseId, tryonSlot),
+                ProductSpecifications.filter(search, categoryId, brandId, priceMin, priceMax, warehouseId, tryonSlot)
+                        .and(ProductSpecifications.featuredFirst(Instant.now())),
                 pageable
         );
 
@@ -515,7 +506,7 @@ public class ProductServiceImpl implements ProductService {
             throw new AppException(ErrorCode.PRODUCT_NOT_DONATABLE);
         }
 
-        Campaign campaign = campaignRepository.findById(request.campaignId())
+        Campaign campaign = campaignRepository.findByIdForUpdate(request.campaignId())
                 .orElseThrow(() -> new AppException(ErrorCode.CAMPAIGN_NOT_ACCEPTING));
         if (campaign.getStatus() == CampaignStatus.HIDDEN) {
             throw new AppException(ErrorCode.CAMPAIGN_HIDDEN);

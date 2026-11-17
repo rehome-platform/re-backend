@@ -39,6 +39,10 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
     List<Campaign> findAllByStatusAndEndTimeBefore(CampaignStatus status, Instant endTime);
 
     // F-103: chiến dịch của chính tổ chức đang đăng nhập
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from Campaign c where c.id = :id")
+    java.util.Optional<Campaign> findByIdForUpdate(@Param("id") UUID id);
+
     Page<Campaign> findByOrganization_AccountId(UUID organizationId, Pageable pageable);
 
     Page<Campaign> findByOrganization_AccountIdAndStatus(UUID organizationId, CampaignStatus status,

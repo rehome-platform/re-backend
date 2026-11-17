@@ -120,11 +120,26 @@ public class ViolationReportServiceImpl implements ViolationReportService {
                 .build();
     }
 
+    private boolean canReportOrganization(UUID organizationId) {
+        return accountRepository.findByIdForUpdate(organizationId)
+                .filter(a -> a.getRole() == com.rehome.rehome.entity.enums.Role.ORGANIZATION)
+                .filter(a -> a.getStatus() != com.rehome.rehome.entity.enums.AccountStatus.BANNED)
+                .isPresent();
+    }
+
     private boolean targetExists(ViolationTargetType targetType, UUID targetId) {
         return switch (targetType) {
-            case POST -> communityPostRepository.existsById(targetId);
-            case CAMPAIGN -> campaignRepository.existsById(targetId);
-            case ORGANIZATION_ACCOUNT -> accountRepository.existsById(targetId);
+            case POST -> communityPostRepository.findById(targetId)
+                    .filter(p -> p.getStatus() == com.rehome.rehome.entity.enums.ContentStatus.VISIBLE)
+                    .map(p -> p.getOrganization().getAccountId())
+                    .filter(this::canReportOrganization)
+                    .isPresent();
+            case CAMPAIGN -> campaignRepository.findById(targetId)
+                    .filter(c -> c.getStatus() != com.rehome.rehome.entity.enums.CampaignStatus.HIDDEN)
+                    .map(c -> c.getOrganization().getAccountId())
+                    .filter(this::canReportOrganization)
+                    .isPresent();
+            case ORGANIZATION_ACCOUNT -> canReportOrganization(targetId);
         };
     }
 
@@ -482,6 +497,21 @@ public class ViolationReportServiceImpl implements ViolationReportService {
     }
 
     // Task 5: báo cho MỖI người đã báo cáo (trong các báo cáo vừa đóng) đúng 1 lần
+    @Override
+    @Transactional
+    public void resolvePendingForBannedOrganization(Account actor, UUID organizationId) {
+        List<ViolationReport> reports = violationReportRepository.findPendingForOrganization(organizationId);
+        Instant now = Instant.now();
+        for (ViolationReport report : reports) {
+            report.setStatus(ViolationReportStatus.RESOLVED);
+            report.setResolvedBy(actor);
+            report.setResolvedAt(now);
+            report.setResolutionReason("Tổ chức đã bị khóa");
+            queueService.dequeue(QueueType.VIOLATION_REPORT, report.getId().toString());
+        }
+        notifyReporters(reports);
+    }
+
     private void notifyReporters(List<ViolationReport> closedReports) {
         Set<UUID> notified = new HashSet<>();
         for (ViolationReport r : closedReports) {

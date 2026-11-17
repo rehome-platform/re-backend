@@ -609,7 +609,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional
     public ProductResponse create(CreateProductRequest request, Account account) {
-        ConsignmentReceipt receipt = receiptRepository.findById(request.getReceiptId())
+        ConsignmentReceipt receipt = receiptRepository.findByIdForUpdate(request.getReceiptId())
                 .orElseThrow(() -> new AppException(ErrorCode.RECEIPT_NOT_FOUND));          // 404
 
         // Moderator chỉ nhập kho biên nhận thuộc kho mình phụ trách
@@ -617,7 +617,7 @@ public class ProductServiceImpl implements ProductService {
                 || !account.getWarehouse().getId().equals(receipt.getWarehouse().getId())) {
             throw new AppException(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);                 // 403
         }
-        if (receipt.getConfirmedAt() == null) {
+        if (receipt.effectiveStatus() != com.rehome.rehome.entity.enums.ReceiptStatus.CONFIRMED) {
             throw new AppException(ErrorCode.RECEIPT_NOT_CONFIRMED);                         // 409
         }
         if (productRepository.existsByConsignmentReceiptId(receipt.getId())) {

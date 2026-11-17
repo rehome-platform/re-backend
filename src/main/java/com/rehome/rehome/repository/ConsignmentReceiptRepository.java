@@ -27,6 +27,8 @@ public interface ConsignmentReceiptRepository extends JpaRepository<ConsignmentR
     @Query("select r from ConsignmentReceipt r where r.id = :id")
     Optional<ConsignmentReceipt> findByIdForUpdate(@Param("id") UUID id);
 
+    Optional<ConsignmentReceipt> findByPreviousReceipt_Id(UUID id);
+
     boolean existsByConsignmentFormId(UUID consignmentFormId);
 
     @Query(value = "SELECT nextval('receipt_no_seq')", nativeQuery = true)
@@ -39,7 +41,8 @@ public interface ConsignmentReceiptRepository extends JpaRepository<ConsignmentR
     // và với LATEST_RECEIPT_GUARD ở ConsignmentFormRepository, nên danh sách và chi tiết luôn khớp nhau.
     @Query("select r from ConsignmentReceipt r "
             + "where r.consignmentForm.id in :formIds "
+            + "and (r.status is null or r.status <> com.rehome.rehome.entity.enums.ReceiptStatus.VOIDED) "
             + "and not exists (select 1 from ConsignmentReceipt r2 "
-            + "where r2.consignmentForm = r.consignmentForm and r2.createdAt > r.createdAt)")
+            + "where r2.consignmentForm = r.consignmentForm and r2.createdAt > r.createdAt and (r2.status is null or r2.status <> com.rehome.rehome.entity.enums.ReceiptStatus.VOIDED))")
     List<ConsignmentReceipt> findLatestByFormIds(@Param("formIds") Collection<UUID> formIds);
 }

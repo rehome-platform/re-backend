@@ -50,7 +50,9 @@ public class ConsignmentInspectionServiceImpl implements ConsignmentInspectionSe
         if (form.getStatus() != ConsignmentFormStatus.INSPECTING) {
             throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_INSPECTING);
         }
-        if (consignmentReceiptRepository.existsByConsignmentForm_Id(formId)) {
+        ConsignmentReceipt previous = consignmentReceiptRepository
+                .findFirstByConsignmentForm_IdOrderByCreatedAtDesc(form.getId()).orElse(null);
+        if (previous != null && previous.effectiveStatus() != com.rehome.rehome.entity.enums.ReceiptStatus.VOIDED) {
             throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_ALREADY_EXISTS);
         }
 
@@ -59,7 +61,7 @@ public class ConsignmentInspectionServiceImpl implements ConsignmentInspectionSe
         BigDecimal floorPrice = agreedPrice.multiply(floorRatio).setScale(2, RoundingMode.HALF_UP);
         int termLengthDays = req.getTermLengthDays() != null
                 ? req.getTermLengthDays()
-                : systemConfigReader.getInt(TERM_LENGTH_DAYS, DEFAULT_TERM_LENGTH_DAYS);
+                : (previous != null ? previous.getTermLengthDays() : systemConfigReader.getInt(TERM_LENGTH_DAYS, DEFAULT_TERM_LENGTH_DAYS));
 
         // Các giá trị snapshot: đọc config tại thời điểm tạo phiếu, đổi config sau không ảnh hưởng phiếu này
         ConsignmentReceipt receipt = ConsignmentReceipt.builder()
@@ -71,17 +73,22 @@ public class ConsignmentInspectionServiceImpl implements ConsignmentInspectionSe
                 .agreedPrice(agreedPrice)
                 .floorPrice(floorPrice)
                 .termLengthDays(termLengthDays)
-                .maxRenewals(systemConfigReader.getInt(MAX_RENEWALS, DEFAULT_MAX_RENEWALS))
+                .maxRenewals((previous != null ? previous.getMaxRenewals() : systemConfigReader.getInt(MAX_RENEWALS, DEFAULT_MAX_RENEWALS)))
                 .freeWithdrawalWindowDays(
-                        systemConfigReader.getInt(FREE_WITHDRAWAL_WINDOW_DAYS, DEFAULT_FREE_WITHDRAWAL_WINDOW_DAYS))
-                .commissionRateTerm1(systemConfigReader.getDecimal(COMMISSION_RATE_TERM1, DEFAULT_COMMISSION_RATE_TERM1))
-                .commissionRateTerm2(systemConfigReader.getDecimal(COMMISSION_RATE_TERM2, DEFAULT_COMMISSION_RATE_TERM2))
-                .commissionRateTerm3(systemConfigReader.getDecimal(COMMISSION_RATE_TERM3, DEFAULT_COMMISSION_RATE_TERM3))
-                .withdrawalFee(systemConfigReader.getDecimal(WITHDRAWAL_FEE, DEFAULT_WITHDRAWAL_FEE))
+                        (previous != null ? previous.getFreeWithdrawalWindowDays() : systemConfigReader.getInt(FREE_WITHDRAWAL_WINDOW_DAYS, DEFAULT_FREE_WITHDRAWAL_WINDOW_DAYS)))
+                .commissionRateTerm1((previous != null ? previous.getCommissionRateTerm1() : systemConfigReader.getDecimal(COMMISSION_RATE_TERM1, DEFAULT_COMMISSION_RATE_TERM1)))
+                .commissionRateTerm2((previous != null ? previous.getCommissionRateTerm2() : systemConfigReader.getDecimal(COMMISSION_RATE_TERM2, DEFAULT_COMMISSION_RATE_TERM2)))
+                .commissionRateTerm3((previous != null ? previous.getCommissionRateTerm3() : systemConfigReader.getDecimal(COMMISSION_RATE_TERM3, DEFAULT_COMMISSION_RATE_TERM3)))
+                .withdrawalFee((previous != null ? previous.getWithdrawalFee() : systemConfigReader.getDecimal(WITHDRAWAL_FEE, DEFAULT_WITHDRAWAL_FEE)))
                 .degradedCompensationRate(
-                        systemConfigReader.getDecimal(DEGRADED_COMPENSATION_RATE, DEFAULT_DEGRADED_COMPENSATION_RATE))
+                        (previous != null ? previous.getDegradedCompensationRate() : systemConfigReader.getDecimal(DEGRADED_COMPENSATION_RATE, DEFAULT_DEGRADED_COMPENSATION_RATE)))
+                .moderatorNote(trimToNull(req.getModeratorNote()))
                 .conditionNote(trimToNull(req.getConditionNote()))
                 .build();
+
+        if (previous != null) {
+            receipt.replaceVoided(previous);
+        }
 
         ConsignmentReceipt saved = consignmentReceiptRepository.save(receipt);
 

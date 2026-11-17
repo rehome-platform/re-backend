@@ -48,7 +48,7 @@ class ProductIntakeGuardTest {
     private ConsignmentReceipt receipt(Warehouse warehouse, Instant confirmedAt) {
         ConsignmentReceipt receipt = ConsignmentReceipt.builder().id(UUID.randomUUID())
                 .warehouse(warehouse).confirmedAt(confirmedAt).build();
-        when(receiptRepository.findById(any())).thenReturn(Optional.of(receipt));
+        when(receiptRepository.findByIdForUpdate(any())).thenReturn(Optional.of(receipt));
         return receipt;
     }
 

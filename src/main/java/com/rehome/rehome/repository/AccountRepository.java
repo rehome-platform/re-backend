@@ -12,6 +12,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -51,11 +52,13 @@ public interface AccountRepository extends JpaRepository<Account, UUID>, JpaSpec
 
     // API 135: tìm theo email, số điện thoại hoặc họ tên/tên tổ chức (:pattern đã là dạng %từ khoá% chữ thường,
     // "%" nếu không tìm; từ khoá giống số điện thoại đã được chuẩn hóa về dạng 0xxxxxxxxx).
-    // role/status null = không lọc.
+    // role/status null = không lọc. from/to lọc theo ngày tạo tài khoản, luôn khác null (xem AdminDateRange) -
+    // Postgres không suy được kiểu của tham số null trong "(:p is null or ...)" cho timestamp.
     @Query("""
         select a from Account a
         where (:role is null or a.role = :role)
           and (:status is null or a.status = :status)
+          and a.createdAt >= :from and a.createdAt < :to
           and (lower(a.email) like :pattern
                or a.phone like :pattern
                or exists (select 1 from MemberProfile m
@@ -69,6 +72,8 @@ public interface AccountRepository extends JpaRepository<Account, UUID>, JpaSpec
     Page<Account> searchForAdmin(@Param("role") Role role,
                                  @Param("status") AccountStatus status,
                                  @Param("pattern") String pattern,
+                                 @Param("from") Instant from,
+                                 @Param("to") Instant to,
                                  Pageable pageable);
 
     // API 139: danh sách Moderator (search/status/warehouse qua AccountSpecifications.moderators),

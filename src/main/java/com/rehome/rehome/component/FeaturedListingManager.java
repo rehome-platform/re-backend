@@ -65,7 +65,7 @@ public class FeaturedListingManager {
 
         List<Product> products = productRepository.findAllByMember_IdAndStatusIn(memberId, SELLABLE_STATUSES);
         for (Product p : products) {
-            p.setFeaturedUntil(subscription.getExpiresAt());
+            applyRank(p, subscription);
         }
         productRepository.saveAll(products);
         log.info(">>>> Bat uu tien hien thi cho {} mon cua memberId={} den {}",
@@ -84,7 +84,21 @@ public class FeaturedListingManager {
         memberSubscriptionRepository.findActiveByMemberId(product.getMember().getId())
                 .filter(s -> s.isEffectiveAt(now))
                 .filter(s -> Boolean.TRUE.equals(s.getFeaturedListing()))
-                .ifPresent(s -> product.setFeaturedUntil(s.getExpiresAt()));
+                .ifPresentOrElse(s -> applyRank(product, s), () -> {
+                    product.setFeaturedRank(null);
+                    product.setFeaturedUntil(null);
+                });
+    }
+
+    private void applyRank(Product product, MemberSubscription subscription) {
+        Integer rank = switch (subscription.getTier()) {
+            case DIAMOND -> 3;
+            case GOLD -> 2;
+            case SILVER -> 1;
+            default -> null;
+        };
+        product.setFeaturedRank(rank);
+        product.setFeaturedUntil(rank == null ? null : subscription.getExpiresAt());
     }
 
     /** Thời điểm 3. Gói hết hạn / bị hủy / bị thay thế: xóa nhãn trên mọi món của Member. */

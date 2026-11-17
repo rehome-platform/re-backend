@@ -94,7 +94,9 @@ class ViolationReportServiceImplTest {
         CreateViolationReportRequest request =
                 new CreateViolationReportRequest("POST", targetId.toString(), "Nội dung sai sự thật");
 
-        when(communityPostRepository.existsById(targetId)).thenReturn(true);
+        when(communityPostRepository.findById(targetId)).thenReturn(Optional.of(CommunityPost.builder()
+                .organization(OrganizationProfile.builder().accountId(targetId).build()).build()));
+        stubReportableOrganization(targetId);
         when(accountRepository.findById(reporterId)).thenReturn(Optional.of(reporter));
         stubSaveAssignsId();
 
@@ -121,13 +123,15 @@ class ViolationReportServiceImplTest {
         CreateViolationReportRequest request =
                 new CreateViolationReportRequest("CAMPAIGN", targetId.toString(), "Chiến dịch giả mạo");
 
-        when(campaignRepository.existsById(targetId)).thenReturn(true);
+        when(campaignRepository.findById(targetId)).thenReturn(Optional.of(Campaign.builder()
+                .organization(OrganizationProfile.builder().accountId(targetId).build()).build()));
+        stubReportableOrganization(targetId);
         when(accountRepository.findById(reporterId)).thenReturn(Optional.of(reporter));
         stubSaveAssignsId();
 
         service.create(reporterId, request);
 
-        verify(campaignRepository).existsById(targetId);
+        verify(campaignRepository).findById(targetId);
         verifyNoInteractions(communityPostRepository);
     }
 
@@ -139,13 +143,13 @@ class ViolationReportServiceImplTest {
         CreateViolationReportRequest request =
                 new CreateViolationReportRequest("ORGANIZATION_ACCOUNT", targetId.toString(), "Tổ chức lừa đảo");
 
-        when(accountRepository.existsById(targetId)).thenReturn(true);
+        stubReportableOrganization(targetId);
         when(accountRepository.findById(reporterId)).thenReturn(Optional.of(reporter));
         stubSaveAssignsId();
 
         service.create(reporterId, request);
 
-        verify(accountRepository).existsById(targetId);
+        verify(accountRepository).findByIdForUpdate(targetId);
         verifyNoInteractions(communityPostRepository, campaignRepository);
     }
 
@@ -199,7 +203,7 @@ class ViolationReportServiceImplTest {
         CreateViolationReportRequest request =
                 new CreateViolationReportRequest("POST", targetId.toString(), "Nội dung sai sự thật");
 
-        when(communityPostRepository.existsById(targetId)).thenReturn(false);
+        when(communityPostRepository.findById(targetId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.create(reporterId, request))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -215,7 +219,9 @@ class ViolationReportServiceImplTest {
         CreateViolationReportRequest request =
                 new CreateViolationReportRequest("POST", targetId.toString(), "Nội dung sai sự thật");
 
-        when(communityPostRepository.existsById(targetId)).thenReturn(true);
+        when(communityPostRepository.findById(targetId)).thenReturn(Optional.of(CommunityPost.builder()
+                .organization(OrganizationProfile.builder().accountId(targetId).build()).build()));
+        stubReportableOrganization(targetId);
         when(accountRepository.findById(reporterId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.create(reporterId, request))
@@ -232,7 +238,9 @@ class ViolationReportServiceImplTest {
         CreateViolationReportRequest request =
                 new CreateViolationReportRequest("POST", targetId.toString(), "Nội dung sai sự thật");
 
-        when(communityPostRepository.existsById(targetId)).thenReturn(true);
+        when(communityPostRepository.findById(targetId)).thenReturn(Optional.of(CommunityPost.builder()
+                .organization(OrganizationProfile.builder().accountId(targetId).build()).build()));
+        stubReportableOrganization(targetId);
         when(accountRepository.findById(reporterId)).thenReturn(Optional.of(Account.builder().id(reporterId).build()));
         when(violationReportRepository.existsByReporterMember_IdAndTargetTypeAndTargetIdAndStatus(
                 reporterId, ViolationTargetType.POST, targetId, ViolationReportStatus.PENDING)).thenReturn(true);
@@ -527,5 +535,32 @@ class ViolationReportServiceImplTest {
                 any(), any(), isNull(), isNull(), isNull());
 
         assertThat(res.getStatus()).isEqualTo("DISMISSED");
+    }
+    @Test
+    void resolvePendingForBannedOrganization_closesReportsAndNotifiesEachReporterOnce() {
+        UUID organizationId = UUID.randomUUID();
+        Account actor = Account.builder().id(UUID.randomUUID()).build();
+        Account reporter = Account.builder().id(UUID.randomUUID()).build();
+        ViolationReport first = ViolationReport.builder().id(UUID.randomUUID()).reporterMember(reporter).build();
+        ViolationReport second = ViolationReport.builder().id(UUID.randomUUID()).reporterMember(reporter).build();
+        when(violationReportRepository.findPendingForOrganization(organizationId))
+                .thenReturn(List.of(first, second));
+
+        service.resolvePendingForBannedOrganization(actor, organizationId);
+
+        for (ViolationReport report : List.of(first, second)) {
+            assertThat(report.getStatus()).isEqualTo(ViolationReportStatus.RESOLVED);
+            assertThat(report.getResolvedBy()).isSameAs(actor);
+            assertThat(report.getResolvedAt()).isNotNull();
+            assertThat(report.getResolutionReason()).isEqualTo("Tổ chức đã bị khóa");
+            verify(queueService).dequeue(QueueType.VIOLATION_REPORT, report.getId().toString());
+        }
+        verify(notificationService).notify(eq(reporter), eq(NotificationType.VIOLATION_REPORT_HANDLED),
+                anyString(), anyString(), isNull(), isNull(), isNull());
+    }
+
+    private void stubReportableOrganization(UUID organizationId) {
+        when(accountRepository.findByIdForUpdate(organizationId)).thenReturn(Optional.of(
+                Account.builder().id(organizationId).role(com.rehome.rehome.entity.enums.Role.ORGANIZATION).build()));
     }
 }

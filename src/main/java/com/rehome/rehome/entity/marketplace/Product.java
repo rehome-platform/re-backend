@@ -109,6 +109,9 @@ public class Product implements Persistable<String> {
     @Column(name = "featured_until", nullable = true)
     private Instant featuredUntil;
 
+    @Column(name = "featured_rank")
+    private Integer featuredRank;
+
     // Thời điểm nhập kho
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

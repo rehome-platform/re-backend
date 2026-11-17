@@ -7,6 +7,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
 import java.time.Instant;
 
 /**
@@ -28,6 +29,8 @@ public class DonationResponse {
     private boolean isAnonymous;
 
     private String note;
+    @Builder.Default
+    private List<String> photoUrls = List.of();
     private String status;
 
     // DIRECT | CONSIGNED_ITEM (xem DonationSource)

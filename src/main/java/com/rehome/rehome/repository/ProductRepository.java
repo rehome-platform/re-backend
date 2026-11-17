@@ -135,7 +135,7 @@ WHERE p.warehouse.id = :warehouseId
     // Gói hết hạn/đổi hạng: xóa nhãn trên MỌI món của Member, kể cả món đã rời sàn, để không còn
     // dòng rác featured_until trong DB
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("update Product p set p.featuredUntil = null where p.member.id = :memberId "
+    @Query("update Product p set p.featuredUntil = null, p.featuredRank = null where p.member.id = :memberId "
             + "and p.featuredUntil is not null")
     int clearFeaturedByMemberId(@Param("memberId") UUID memberId);
 

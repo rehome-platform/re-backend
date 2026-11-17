@@ -5,6 +5,8 @@ import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.DonationSource;
 import com.rehome.rehome.entity.enums.DonationStatus;
 import jakarta.persistence.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.*;
@@ -68,6 +70,13 @@ public class Donation {
     // Ghi chú tự do của Moderator, ví dụ "2 áo khoác, 1 chăn" — không ghi số kg
     @Column(name = "note", nullable = true, columnDefinition = "text")
     private String note;
+
+    @ElementCollection
+    @CollectionTable(name = "donation_photos", joinColumns = @JoinColumn(name = "donation_id"))
+    @OrderColumn(name = "display_order")
+    @Column(name = "url", nullable = false, length = 2048)
+    @Builder.Default
+    private List<String> photoUrls = new ArrayList<>();
 
     // PENDING_PICKUP — chờ tổ chức đến lấy; HANDED_OVER — đã bàn giao
     @Enumerated(EnumType.STRING)

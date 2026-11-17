@@ -1,5 +1,7 @@
 package com.rehome.rehome.service;
 
+import com.rehome.rehome.dto.request.TransferDonationsRequest;
+
 import com.rehome.rehome.dto.request.CreateCampaignDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateDonationRequest;
@@ -23,6 +25,10 @@ public interface DonationService {
     List<DonationResponse> listDonations(Account moderator, UUID warehouseId, UUID campaignId, DonationStatus status);
 
     // F-165: bàn giao các lượt đang chờ lấy cho tổ chức đến nhận. Hoặc bàn giao hết, hoặc không lượt nào.
+    void holdPendingDonations(UUID organizationId);
+
+    List<DonationResponse> transferHeldDonations(Account moderator, UUID warehouseId, TransferDonationsRequest request);
+
     DonationHandoverResponse handoverDonations(Account moderator, UUID warehouseId,
                                                HandoverDonationsRequest request);
 

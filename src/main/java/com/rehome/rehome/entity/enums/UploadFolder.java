@@ -14,6 +14,8 @@ public enum UploadFolder {
     /** Ảnh sản phẩm - {@link com.rehome.rehome.entity.marketplace.ProductPhoto} */
     PRODUCTS("products", false),
 
+    DONATION("donations", false),
+
     /** Ảnh Member chụp kèm khi tạo form ký gửi - ConsignmentFormPhoto */
     CONSIGNMENT_FORMS("consignment-forms", false),
 

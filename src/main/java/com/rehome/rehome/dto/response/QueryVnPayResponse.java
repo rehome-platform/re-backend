@@ -12,6 +12,18 @@ import lombok.*;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class QueryVnPayResponse {
     // "00" = truy vấn thành công; khác "00" là lỗi ở chính request truy vấn (không phải trạng thái giao dịch)
+    @JsonProperty("vnp_ResponseId")
+    private String responseId;
+
+    @JsonProperty("vnp_Command")
+    private String command;
+
+    @JsonProperty("vnp_PromotionCode")
+    private String promotionCode;
+
+    @JsonProperty("vnp_PromotionAmount")
+    private String promotionAmount;
+
     @JsonProperty("vnp_ResponseCode")
     private String responseCode;
 

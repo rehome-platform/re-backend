@@ -3,6 +3,7 @@ package com.rehome.rehome.dto.response;
 import com.rehome.rehome.entity.enums.BillingCycle;
 import com.rehome.rehome.entity.enums.MembershipTier;
 import com.rehome.rehome.entity.enums.SubscriptionStatus;
+import java.math.BigDecimal;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -33,6 +34,8 @@ public class MyMembershipResponse {
     private Instant expiresAt;
     // null khi FREE; làm tròn lên nên gói hết hạn trong hôm nay vẫn hiện "còn 1 ngày"
     private Integer daysRemaining;
+    private BigDecimal pricePaid;
+    private BigDecimal remainingValue;
     private Quota quota;
     private VoucherSummary voucherSummary;
 

@@ -204,7 +204,13 @@ public class MembershipServiceImpl implements MembershipService {
                 ? null
                 : memberSubscriptionRepository.findById(quota.subscriptionId()).orElse(null);
 
+        BigDecimal pricePaid = subscription == null ? BigDecimal.ZERO
+                : membershipPaymentRepository.sumSuccessfulPayments(subscription.getId())
+                        .orElseGet(() -> java.util.Objects.requireNonNullElse(subscription.getPricePaid(), BigDecimal.ZERO));
+
         return MyMembershipResponse.builder()
+                .pricePaid(pricePaid)
+                .remainingValue(remainingValue(pricePaid, quota.startedAt(), quota.expiresAt(), now))
                 .subscriptionId(quota.subscriptionId() == null ? null : quota.subscriptionId().toString())
                 .tier(quota.tier())
                 .tierName(quota.tierName())
@@ -254,6 +260,20 @@ public class MembershipServiceImpl implements MembershipService {
     }
 
     /** Làm tròn LÊN: gói hết hạn trong hôm nay vẫn hiện "còn 1 ngày" chứ không phải 0. */
+    private static BigDecimal remainingValue(BigDecimal pricePaid, Instant startedAt, Instant expiresAt, Instant now) {
+        if (pricePaid.signum() <= 0 || startedAt == null || expiresAt == null
+                || !expiresAt.isAfter(now) || !expiresAt.isAfter(startedAt)) {
+            return BigDecimal.ZERO;
+        }
+        Instant effectiveNow = now.isBefore(startedAt) ? startedAt : now;
+        long totalMillis = Duration.between(startedAt, expiresAt).toMillis();
+        if (totalMillis == 0) {
+            return BigDecimal.ZERO;
+        }
+        return pricePaid.multiply(BigDecimal.valueOf(Duration.between(effectiveNow, expiresAt).toMillis()))
+                .divide(BigDecimal.valueOf(totalMillis), 0, java.math.RoundingMode.HALF_UP);
+    }
+
     private static Integer daysRemaining(Instant expiresAt, Instant now) {
         if (expiresAt == null) {
             return null;
@@ -285,7 +305,7 @@ public class MembershipServiceImpl implements MembershipService {
             throw new BadRequestException("paymentMethod là bắt buộc.");
         }
         if (method != OrderPaymentMethod.WALLET && !StringUtils.hasText(request.getRedirectUrl())) {
-            throw new BadRequestException("redirectUrl là bắt buộc khi thanh toán qua MoMo/VNPay.");
+            throw new BadRequestException("redirectUrl là bắt buộc khi thanh toán qua VNPay.");
         }
 
         MembershipPlan plan = membershipPlanRepository.findById(request.getPlanId())
@@ -301,6 +321,9 @@ public class MembershipServiceImpl implements MembershipService {
 
         // Một giao dịch chờ thanh toán là đủ: cho mở nhiều link cùng lúc sẽ dẫn tới hai lần thu
         // tiền cho hai subscription của cùng một người.
+        Instant paymentCheckAt = Instant.now();
+        memberSubscriptionRepository.cancelExpiredPendingPayments(account.getId(),
+                paymentCheckAt.minus(Duration.ofMinutes(MembershipGatewayPaymentBuilder.PAY_LINK_MINUTES)), paymentCheckAt);
         if (!memberSubscriptionRepository
                 .findAllByMember_IdAndStatus(account.getId(), SubscriptionStatus.PENDING_PAYMENT)
                 .isEmpty()) {
@@ -409,13 +432,12 @@ public class MembershipServiceImpl implements MembershipService {
                 .status(PaymentStatus.PENDING)
                 .build();
 
-        String payUrl = method == OrderPaymentMethod.MOMO
-                ? gatewayPaymentBuilder.createMomoPayment(payment, redirectUrl)
-                : gatewayPaymentBuilder.createVnPayPayment(payment, redirectUrl, null);
+        String payUrl = gatewayPaymentBuilder.createVnPayPayment(payment, redirectUrl, null);
         membershipPaymentRepository.save(payment);
 
         return SubscribeMembershipResponse.builder()
                 .subscriptionId(pending.getId().toString())
+                .paymentId(payment.getId())
                 .status(pending.getStatus())
                 .tier(pending.getTier())
                 .tierName(plan.getName())
@@ -584,39 +606,6 @@ public class MembershipServiceImpl implements MembershipService {
 
     @Override
     @Transactional
-    public boolean applyMomoResult(String momoOrderId, int resultCode, String transactionId) {
-        if (!MembershipGatewayPaymentBuilder.isMembershipRef(momoOrderId)) {
-            return false;
-        }
-        MembershipPayment payment = membershipPaymentRepository.findByMomoOrderId(momoOrderId).orElse(null);
-        if (payment == null) {
-            log.warn(">>>> IPN mua goi cho momoOrderId={} khong khop dong membership_payments nao", momoOrderId);
-            return false;
-        }
-        if (payment.getStatus() != PaymentStatus.PENDING) {
-            log.info(">>>> IPN mua goi cho momoOrderId={} da xu ly truoc do, bo qua", momoOrderId);
-            return true;
-        }
-
-        if (resultCode != 0) {
-            payment.setStatus(PaymentStatus.FAILED);
-            membershipPaymentRepository.save(payment);
-            failPendingSubscription(payment, "MoMo báo thất bại, resultCode=" + resultCode);
-            return true;
-        }
-
-        payment.setStatus(PaymentStatus.SUCCESS);
-        payment.setMomoTransactionId(transactionId);
-        payment.setPaidAt(Instant.now());
-        membershipPaymentRepository.save(payment);
-
-        applyGatewayPaymentSuccess(payment.getSubscription().getId(), OrderPaymentMethod.MOMO,
-                "Hoàn tiền MoMo về sau khi giao dịch mua gói không còn chờ thanh toán");
-        return true;
-    }
-
-    @Override
-    @Transactional
     public boolean applyVnPayResult(String vnpTxnRef, String responseCode, String transactionNo) {
         if (!MembershipGatewayPaymentBuilder.isMembershipRef(vnpTxnRef)) {
             return false;
@@ -662,7 +651,7 @@ public class MembershipServiceImpl implements MembershipService {
     @Override
     @Transactional
     public void applyGatewayPaymentSuccess(UUID subscriptionId, OrderPaymentMethod method, String note) {
-        MemberSubscription subscription = memberSubscriptionRepository.findById(subscriptionId).orElse(null);
+        MemberSubscription subscription = memberSubscriptionRepository.findByIdForUpdate(subscriptionId).orElse(null);
         if (subscription == null) {
             log.warn(">>>> Ket qua thanh toan thanh cong cho subscriptionId={} khong con dong tuong ung",
                     subscriptionId);
@@ -775,7 +764,8 @@ public class MembershipServiceImpl implements MembershipService {
     }
 
     private void failPendingSubscription(MembershipPayment payment, String reason) {
-        MemberSubscription subscription = payment.getSubscription();
+        MemberSubscription subscription = memberSubscriptionRepository.findByIdForUpdate(payment.getSubscription().getId())
+                .orElseThrow();
         if (subscription.getStatus() != SubscriptionStatus.PENDING_PAYMENT) {
             return;
         }

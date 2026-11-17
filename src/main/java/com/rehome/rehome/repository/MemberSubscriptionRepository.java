@@ -34,6 +34,22 @@ public interface MemberSubscriptionRepository extends JpaRepository<MemberSubscr
             + "com.rehome.rehome.entity.enums.SubscriptionStatus.ACTIVE")
     Optional<MemberSubscription> findActiveByMemberIdForUpdate(@Param("memberId") UUID memberId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from MemberSubscription s where s.id = :id")
+    Optional<MemberSubscription> findByIdForUpdate(@Param("id") UUID id);
+
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @Query("""
+            update MemberSubscription s
+            set s.status = com.rehome.rehome.entity.enums.SubscriptionStatus.CANCELLED,
+                s.cancelledAt = :now, s.cancelReason = 'VNPay payment window expired'
+            where s.status = com.rehome.rehome.entity.enums.SubscriptionStatus.PENDING_PAYMENT
+              and s.createdAt <= :cutoff
+              and (:memberId is null or s.member.id = :memberId)
+            """)
+    int cancelExpiredPendingPayments(@Param("memberId") UUID memberId, @Param("cutoff") Instant cutoff,
+                                     @Param("now") Instant now);
+
     @EntityGraph(attributePaths = {"plan"})
     @Query("select s from MemberSubscription s where s.member.id = :memberId and s.status = "
             + "com.rehome.rehome.entity.enums.SubscriptionStatus.ACTIVE")

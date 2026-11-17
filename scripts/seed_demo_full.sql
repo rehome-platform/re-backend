@@ -793,7 +793,7 @@ INSERT INTO cart_items (id, cart_id, product_id, added_at) VALUES
 --   member1  SILVER -> REPLACED (đổi lên GOLD giữa kỳ, KHÔNG hoàn tiền phần còn lại)
 --   member1  GOLD     ACTIVE  - trả bằng VÍ  -> có bút toán MEMBERSHIP_PURCHASE
 --   member2  SILVER   ACTIVE  - trả VNPay
---   member3  DIAMOND  ACTIVE  - gói NĂM, trả MoMo
+--   member3  DIAMOND  ACTIVE  - gói NĂM, trả VNPay
 --   member5  SILVER   EXPIRED - hết hạn 20 ngày trước, mất quyền lợi
 --   member4  GOLD     PENDING_PAYMENT - mở cổng thanh toán rồi bỏ giữa đường
 INSERT INTO member_subscriptions (id, member_id, plan_id, tier, billing_cycle, price_paid,
@@ -840,38 +840,34 @@ INSERT INTO member_subscriptions (id, member_id, plan_id, tier, billing_cycle, p
  now() - interval '30 minutes', now() - interval '30 minutes');
 
 -- Lần thanh toán gói. Mã tham chiếu cổng dạng SUB-<uuid không gạch>-<millis> để
--- MomoServiceImpl/VnPayServiceImpl nhận ra IPN này là của gói thành viên (không phải
--- đơn hàng) nhờ tiền tố SUB-. Dấu gạch BẮT BUỘC bị bỏ: MoMo chặn orderId quá 50 ký tự
--- và 4 + 32 + 14 đúng bằng 50.
+-- VnPayServiceImpl nhận ra IPN này là của gói thành viên (không phải đơn hàng) nhờ
+-- tiền tố SUB-.
 INSERT INTO membership_payments (id, subscription_id, member_id, amount, method, status, paid_at,
-                                 momo_order_id, momo_request_id, momo_transaction_id,
                                  vnp_txn_ref, vnp_transaction_no, vnp_create_date, created_at) VALUES
 ('b1000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-000000000001',
  '2a000000-0000-4000-8000-000000000011', 29000, 'VNPAY', 'SUCCESS', now() - interval '40 days',
- NULL, NULL, NULL, 'SUB-b0000000000040008000000000000001-1762000000001', '14521001',
+ 'SUB-b0000000000040008000000000000001-1762000000001', '14521001',
  to_char(now() - interval '40 days', 'YYYYMMDDHH24MISS'), now() - interval '40 days'),
 ('b1000000-0000-4000-8000-000000000002', 'b0000000-0000-4000-8000-000000000002',
  '2a000000-0000-4000-8000-000000000011', 59000, 'WALLET', 'SUCCESS', now() - interval '10 days',
- NULL, NULL, NULL, NULL, NULL, NULL, now() - interval '10 days'),
+ NULL, NULL, NULL, now() - interval '10 days'),
 ('b1000000-0000-4000-8000-000000000003', 'b0000000-0000-4000-8000-000000000003',
  '2a000000-0000-4000-8000-000000000012', 29000, 'VNPAY', 'SUCCESS', now() - interval '5 days',
- NULL, NULL, NULL, 'SUB-b0000000000040008000000000000003-1762000000003', '14521003',
+ 'SUB-b0000000000040008000000000000003-1762000000003', '14521003',
  to_char(now() - interval '5 days', 'YYYYMMDDHH24MISS'), now() - interval '5 days'),
 ('b1000000-0000-4000-8000-000000000004', 'b0000000-0000-4000-8000-000000000004',
- '2a000000-0000-4000-8000-000000000013', 990000, 'MOMO', 'SUCCESS', now() - interval '20 days',
- 'SUB-b0000000000040008000000000000004-1762000000004',
+ '2a000000-0000-4000-8000-000000000013', 990000, 'VNPAY', 'SUCCESS', now() - interval '20 days',
  'SUB-b0000000000040008000000000000004-1762000000004', '2841523004',
- NULL, NULL, NULL, now() - interval '20 days'),
+ to_char(now() - interval '20 days', 'YYYYMMDDHH24MISS'), now() - interval '20 days'),
 ('b1000000-0000-4000-8000-000000000005', 'b0000000-0000-4000-8000-000000000005',
  '2a000000-0000-4000-8000-000000000015', 29000, 'VNPAY', 'SUCCESS', now() - interval '50 days',
- NULL, NULL, NULL, 'SUB-b0000000000040008000000000000005-1762000000005', '14521005',
+ 'SUB-b0000000000040008000000000000005-1762000000005', '14521005',
  to_char(now() - interval '50 days', 'YYYYMMDDHH24MISS'), now() - interval '50 days'),
 -- Bỏ giữa đường: chưa có paid_at, chưa có mã giao dịch của cổng
 ('b1000000-0000-4000-8000-000000000006', 'b0000000-0000-4000-8000-000000000006',
- '2a000000-0000-4000-8000-000000000014', 59000, 'MOMO', 'PENDING', NULL,
- 'SUB-b0000000000040008000000000000006-1762000000006',
+ '2a000000-0000-4000-8000-000000000014', 59000, 'VNPAY', 'PENDING', NULL,
  'SUB-b0000000000040008000000000000006-1762000000006', NULL,
- NULL, NULL, NULL, now() - interval '30 minutes');
+ to_char(now() - interval '30 minutes', 'YYYYMMDDHH24MISS'), now() - interval '30 minutes');
 
 -- Voucher trong ví người dùng. Mỗi mã SNAPSHOT luật của mẫu lúc phát, nên Admin sửa
 -- mẫu về sau KHÔNG đổi các mã đã phát. Mã dạng SHIP-xxxxxx / SALE-xxxxxx để người mua
@@ -942,19 +938,19 @@ INSERT INTO member_vouchers (id, code, member_id, voucher_template_id, source_su
 -- =============================================================================
 -- 10. ĐƠN HÀNG (14 đơn - phủ đủ 8 trạng thái của OrderStatus)
 -- =============================================================================
---   OD-2026-000001  COMPLETED        MoMo    - đã đánh giá 5 sao
+--   OD-2026-000001  COMPLETED        VNPay    - đã đánh giá 5 sao
 --   OD-2026-000002  COMPLETED        VNPay   - món ở KỲ 2 nên hoa hồng 15%
 --   OD-2026-000003  COMPLETED        VÍ      - KHÔNG có dòng payments (bảng đó chỉ dành cho cổng)
---   OD-2026-000004  COMPLETED        MoMo    - món ở KỲ 2
---   OD-2026-000005  COMPLETED        MoMo    - DÙNG VOUCHER giảm 15.000đ phí ship
+--   OD-2026-000004  COMPLETED        VNPay    - món ở KỲ 2
+--   OD-2026-000005  COMPLETED        VNPay    - DÙNG VOUCHER giảm 15.000đ phí ship
 --   OD-2026-000006  RETURNED         VNPay   - trả hàng THẤT LẠC (LOST), đã hoàn tiền
---   OD-2026-000007  RETURNED         MoMo    - trả hàng hợp lệ + hàng XUỐNG CẤP -> mở ca đền bù
+--   OD-2026-000007  RETURNED         VNPay    - trả hàng hợp lệ + hàng XUỐNG CẤP -> mở ca đền bù
 --   OD-2026-000008  PAID             VNPay   - chờ kho đóng gói (có việc PACKING trong hàng đợi)
---   OD-2026-000009  SHIPPING         MoMo    - có mã vận đơn GHN + 2 sự kiện hành trình
+--   OD-2026-000009  SHIPPING         VNPay    - có mã vận đơn GHN + 2 sự kiện hành trình
 --   OD-2026-000010  CANCELLED        -       - quá hạn 15 phút, tự huỷ, hàng về lại sàn
 --   OD-2026-000011  DELIVERED        VNPay   - chờ tự hoàn thành, người mua vừa gửi yêu cầu trả hàng
 --   OD-2026-000012  PACKING          VÍ      - kho đang đóng gói
---   OD-2026-000013  PENDING_PAYMENT  -       - chờ thanh toán (demo MoMo/VNPay/ví)
+--   OD-2026-000013  PENDING_PAYMENT  -       - chờ thanh toán (demo VNPay/ví)
 --   OD-2026-000014  RETURNED         VNPay   - trả hàng hợp lệ, Moderator quyết định TIÊU HUỶ
 --
 -- Ghi chú về tiền:
@@ -975,13 +971,13 @@ INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
                     cancel_reason, cancelled_at, refund_amount, completed_at, payout_at,
                     service_rating, rated_at, rating_comment, buyer_note,
                     created_at, updated_at) VALUES
--- 1. COMPLETED - MoMo, đã đánh giá
+-- 1. COMPLETED - VNPay, đã đánh giá
 ('aa000000-0000-4000-8000-000000000001', 'OD-2026-000001',
  '2a000000-0000-4000-8000-000000000018', '1b000000-0000-4000-8000-000000000001',
  '90000000-0000-4000-8000-000000000005',
  'Bùi Quang Huy', '0900000018', '25 Điện Biên Phủ',
  'Phường Sài Gòn', NULL, 'Hồ Chí Minh', true, NULL, 1,
- 520000, 25000, 0, 545000, NULL, 'MOMO', 'COMPLETED', 'GHN00000001',
+ 520000, 25000, 0, 545000, NULL, 'VNPAY', 'COMPLETED', 'GHN00000001',
  now() - interval '42 days', now() - interval '45 days' + interval '15 minutes',
  now() - interval '41 days', now() - interval '38 days', now() - interval '38 days',
  NULL, NULL, NULL, now() - interval '38 days', now() - interval '38 days',
@@ -1012,13 +1008,13 @@ INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
  5, now() - interval '12 days', 'Áo lụa còn mới y như mô tả, rất đáng tiền.',
  'Giao giờ hành chính giúp mình nhé.',
  now() - interval '20 days', now() - interval '12 days'),
--- 4. COMPLETED - MoMo, kho Hà Nội, món ở KỲ 2
+-- 4. COMPLETED - VNPay, kho Hà Nội, món ở KỲ 2
 ('aa000000-0000-4000-8000-000000000004', 'OD-2026-000004',
  '2a000000-0000-4000-8000-000000000012', '1b000000-0000-4000-8000-000000000002',
  '90000000-0000-4000-8000-000000000003',
  'Trần Thị Bình', '0900000012', '78 Trần Thái Tông, Toà N03',
  'Phường Cầu Giấy', NULL, 'Hà Nội', true, NULL, 1,
- 320000, 25000, 0, 345000, NULL, 'MOMO', 'COMPLETED', 'GHN00000004',
+ 320000, 25000, 0, 345000, NULL, 'VNPAY', 'COMPLETED', 'GHN00000004',
  now() - interval '9 days', now() - interval '12 days' + interval '15 minutes',
  now() - interval '8 days', now() - interval '5 days', now() - interval '5 days',
  NULL, NULL, NULL, now() - interval '5 days', now() - interval '5 days',
@@ -1032,7 +1028,7 @@ INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
  'Nguyễn Văn An (giao tới công ty)', '0912345678', '45 Lê Lợi, Toà nhà Saigon Centre, tầng 9',
  'Phường Bến Thành', NULL, 'Hồ Chí Minh', true, NULL, 1,
  380000, 25000, 15000, 390000, 'b2000000-0000-4000-8000-000000000004',
- 'MOMO', 'COMPLETED', 'GHN00000005',
+ 'VNPAY', 'COMPLETED', 'GHN00000005',
  now() - interval '4 days', now() - interval '7 days' + interval '15 minutes',
  now() - interval '3 days', now() - interval '1 day' + interval '1 hour', now() - interval '1 day' + interval '1 hour',
  NULL, NULL, NULL, now() - interval '1 day', now() - interval '1 day',
@@ -1057,7 +1053,7 @@ INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
  '90000000-0000-4000-8000-000000000003',
  'Trần Thị Bình', '0900000012', '78 Trần Thái Tông, Toà N03',
  'Phường Cầu Giấy', NULL, 'Hà Nội', true, NULL, 1,
- 260000, 25000, 0, 285000, NULL, 'MOMO', 'RETURNED', 'GHN00000007',
+ 260000, 25000, 0, 285000, NULL, 'VNPAY', 'RETURNED', 'GHN00000007',
  now() - interval '12 days', now() - interval '15 days' + interval '15 minutes',
  now() - interval '11 days', now() - interval '8 days', now() - interval '8 days',
  NULL, NULL, 285000, now() - interval '8 days', NULL,
@@ -1079,7 +1075,7 @@ INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
  '90000000-0000-4000-8000-000000000003',
  'Trần Thị Bình', '0900000012', '78 Trần Thái Tông, Toà N03',
  'Phường Cầu Giấy', NULL, 'Hà Nội', true, NULL, 1,
- 370000, 25000, 0, 395000, NULL, 'MOMO', 'SHIPPING', 'GHN00000009',
+ 370000, 25000, 0, 395000, NULL, 'VNPAY', 'SHIPPING', 'GHN00000009',
  now() + interval '1 day', now() - interval '3 days' + interval '15 minutes',
  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
  now() - interval '3 days', now() - interval '18 hours'),
@@ -1117,7 +1113,7 @@ INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
  now() - interval '5 hours', now() - interval '4 hours'),
 -- 13. PENDING_PAYMENT - dùng để demo lại luồng thanh toán từ đầu:
---       POST /api/momo/create   {"orderIds":["aa000000-0000-4000-8000-000000000013"], ...}
+--       POST /api/vnpay/create   {"orderIds":["aa000000-0000-4000-8000-000000000013"], ...}
 --       POST /api/vnpay/create  {"orderIds":["aa000000-0000-4000-8000-000000000013"], ...}
 --       POST /orders/pay        {"orderIds":[...], "method":"WALLET"}
 --     payment_deadline cố ý để +1 ngày (thay vì 15 phút như cấu hình) để job tự huỷ
@@ -1171,50 +1167,55 @@ INSERT INTO order_items (id, order_id, product_id, price_at_order, commission_ra
 ('ab000000-0000-4000-8000-000000000013', 'aa000000-0000-4000-8000-000000000013', 'HN-AP-000071',   200000, 0.10, 0, 1, false),
 ('ab000000-0000-4000-8000-000000000014', 'aa000000-0000-4000-8000-000000000014', 'HCM-AT-000068',   90000, 0.10, 0, 1, true);
 
--- Giao dịch cổng thanh toán. Bảng payments CHỈ dành cho MoMo/VNPay - đơn trả bằng ví
+-- Giao dịch cổng thanh toán. Bảng payments CHỈ dành cho VNPay - đơn trả bằng ví
 -- (OD-2026-000003 và OD-2026-000012) KHÔNG có dòng nào ở đây.
--- momo_order_id / vnp_txn_ref KHÔNG unique: một lần thanh toán cho giỏ nhiều kho sẽ tạo
+-- vnp_txn_ref KHÔNG unique: một lần thanh toán cho giỏ nhiều kho sẽ tạo
 -- nhiều đơn dùng chung một mã giao dịch (xem scripts/drop-payment-gateway-ref-unique.sql).
 INSERT INTO payments (id, order_id, amount, method, status, paid_at,
-                      momo_order_id, momo_request_id, momo_transaction_id,
                       vnp_txn_ref, vnp_transaction_no, vnp_create_date) VALUES
-('ac000000-0000-4000-8000-000000000001', 'aa000000-0000-4000-8000-000000000001', 545000, 'MOMO', 'SUCCESS',
+('ac000000-0000-4000-8000-000000000001', 'aa000000-0000-4000-8000-000000000001', 545000, 'VNPAY', 'SUCCESS',
  now() - interval '45 days' + interval '4 minutes',
- 'OD-2026-000001-1761000000001', 'OD-2026-000001-1761000000001', '2841001001', NULL, NULL, NULL),
+ 'OD-2026-000001-1761000000001', '2841001001',
+ to_char(now() - interval '45 days', 'YYYYMMDDHH24MISS')),
 ('ac000000-0000-4000-8000-000000000002', 'aa000000-0000-4000-8000-000000000002', 325000, 'VNPAY', 'SUCCESS',
  now() - interval '38 days' + interval '3 minutes',
- NULL, NULL, NULL, 'OD-2026-000002-1761000000002', '14001002',
+ 'OD-2026-000002-1761000000002', '14001002',
  to_char(now() - interval '38 days', 'YYYYMMDDHH24MISS')),
-('ac000000-0000-4000-8000-000000000004', 'aa000000-0000-4000-8000-000000000004', 345000, 'MOMO', 'SUCCESS',
+('ac000000-0000-4000-8000-000000000004', 'aa000000-0000-4000-8000-000000000004', 345000, 'VNPAY', 'SUCCESS',
  now() - interval '12 days' + interval '2 minutes',
- 'OD-2026-000004-1761000000004', 'OD-2026-000004-1761000000004', '2841001004', NULL, NULL, NULL),
-('ac000000-0000-4000-8000-000000000005', 'aa000000-0000-4000-8000-000000000005', 390000, 'MOMO', 'SUCCESS',
+ 'OD-2026-000004-1761000000004', '2841001004',
+ to_char(now() - interval '12 days', 'YYYYMMDDHH24MISS')),
+('ac000000-0000-4000-8000-000000000005', 'aa000000-0000-4000-8000-000000000005', 390000, 'VNPAY', 'SUCCESS',
  now() - interval '7 days' + interval '5 minutes',
- 'OD-2026-000005-1761000000005', 'OD-2026-000005-1761000000005', '2841001005', NULL, NULL, NULL),
+ 'OD-2026-000005-1761000000005', '2841001005',
+ to_char(now() - interval '7 days', 'YYYYMMDDHH24MISS')),
 ('ac000000-0000-4000-8000-000000000006', 'aa000000-0000-4000-8000-000000000006', 335000, 'VNPAY', 'SUCCESS',
  now() - interval '18 days' + interval '3 minutes',
- NULL, NULL, NULL, 'OD-2026-000006-1761000000006', '14001006',
+ 'OD-2026-000006-1761000000006', '14001006',
  to_char(now() - interval '18 days', 'YYYYMMDDHH24MISS')),
-('ac000000-0000-4000-8000-000000000007', 'aa000000-0000-4000-8000-000000000007', 285000, 'MOMO', 'SUCCESS',
+('ac000000-0000-4000-8000-000000000007', 'aa000000-0000-4000-8000-000000000007', 285000, 'VNPAY', 'SUCCESS',
  now() - interval '15 days' + interval '2 minutes',
- 'OD-2026-000007-1761000000007', 'OD-2026-000007-1761000000007', '2841001007', NULL, NULL, NULL),
+ 'OD-2026-000007-1761000000007', '2841001007',
+ to_char(now() - interval '15 days', 'YYYYMMDDHH24MISS')),
 ('ac000000-0000-4000-8000-000000000008', 'aa000000-0000-4000-8000-000000000008', 585000, 'VNPAY', 'SUCCESS',
  now() - interval '2 hours' + interval '3 minutes',
- NULL, NULL, NULL, 'OD-2026-000008-1761000000008', '14001008',
+ 'OD-2026-000008-1761000000008', '14001008',
  to_char(now() - interval '2 hours', 'YYYYMMDDHH24MISS')),
-('ac000000-0000-4000-8000-000000000009', 'aa000000-0000-4000-8000-000000000009', 395000, 'MOMO', 'SUCCESS',
+('ac000000-0000-4000-8000-000000000009', 'aa000000-0000-4000-8000-000000000009', 395000, 'VNPAY', 'SUCCESS',
  now() - interval '3 days' + interval '2 minutes',
- 'OD-2026-000009-1761000000009', 'OD-2026-000009-1761000000009', '2841001009', NULL, NULL, NULL),
+ 'OD-2026-000009-1761000000009', '2841001009',
+ to_char(now() - interval '3 days', 'YYYYMMDDHH24MISS')),
 -- Đơn quá hạn: mở cổng rồi không trả -> dòng payments đứng mãi ở PENDING
-('ac000000-0000-4000-8000-000000000010', 'aa000000-0000-4000-8000-000000000010', 445000, 'MOMO', 'PENDING',
- NULL, 'OD-2026-000010-1761000000010', 'OD-2026-000010-1761000000010', NULL, NULL, NULL, NULL),
+('ac000000-0000-4000-8000-000000000010', 'aa000000-0000-4000-8000-000000000010', 445000, 'VNPAY', 'PENDING',
+ NULL, 'OD-2026-000010-1761000000010', NULL,
+ to_char(now() - interval '15 minutes', 'YYYYMMDDHH24MISS')),
 ('ac000000-0000-4000-8000-000000000011', 'aa000000-0000-4000-8000-000000000011', 265000, 'VNPAY', 'SUCCESS',
  now() - interval '5 days' + interval '4 minutes',
- NULL, NULL, NULL, 'OD-2026-000011-1761000000011', '14001011',
+ 'OD-2026-000011-1761000000011', '14001011',
  to_char(now() - interval '5 days', 'YYYYMMDDHH24MISS')),
 ('ac000000-0000-4000-8000-000000000014', 'aa000000-0000-4000-8000-000000000014', 115000, 'VNPAY', 'SUCCESS',
  now() - interval '20 days' + interval '3 minutes',
- NULL, NULL, NULL, 'OD-2026-000014-1761000000014', '14001014',
+ 'OD-2026-000014-1761000000014', '14001014',
  to_char(now() - interval '20 days', 'YYYYMMDDHH24MISS'));
 
 -- Hành trình vận đơn GHN (webhook POST /webhooks/ghn ghi vào đây).
@@ -1330,20 +1331,19 @@ INSERT INTO item_withdrawal_requests (id, product_id, member_id, moderator_id, s
                                       fee_charged, fee_payment_method, fee_paid_at,
                                       fee_payment_deadline, pickup_deadline, reviewed_at,
                                       completed_at, reject_reason, version,
-                                      momo_order_id, momo_request_id,
                                       vnp_txn_ref, vnp_transaction_no, vnp_create_date,
                                       created_at) VALUES
 -- Chờ Moderator duyệt -> có việc WITHDRAWAL trong hàng đợi. Chưa duyệt nên chưa có hạn nào.
 ('c2000000-0000-4000-8000-000000000001', 'HCM-AK2-000072', '2a000000-0000-4000-8000-000000000016',
  NULL, 'PENDING_APPROVAL', 50000, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0,
- NULL, NULL, NULL, NULL, NULL, now() - interval '1 day'),
--- Đã duyệt + ĐÃ TRẢ PHÍ qua MoMo, đang chờ Member ra kho nhận hàng (hạn 7 ngày)
+ NULL, NULL, NULL, now() - interval '1 day'),
+-- Đã duyệt + ĐÃ TRẢ PHÍ qua VNPay, đang chờ Member ra kho nhận hàng (hạn 7 ngày)
 ('c2000000-0000-4000-8000-000000000002', 'HN-QT-000073', '2a000000-0000-4000-8000-000000000019',
- '2a000000-0000-4000-8000-000000000004', 'PENDING_PICKUP', 50000, 'MOMO',
+ '2a000000-0000-4000-8000-000000000004', 'PENDING_PICKUP', 50000, 'VNPAY',
  now() - interval '2 days' + interval '6 minutes', now() - interval '2 days' + interval '15 minutes',
  now() - interval '2 days' + interval '7 days', now() - interval '2 days', NULL, NULL, 0,
- 'WD-c2000000000040008000000000000002-1762000000002',
- 'WD-c2000000000040008000000000000002-1762000000002', NULL, NULL, NULL,
+ 'WD-c2000000000040008000000000000002-1762000000002', '14621002',
+ to_char(now() - interval '2 days', 'YYYYMMDDHH24MISS'),
  now() - interval '3 days');
 
 -- 12.2 YÊU CẦU RÚT TIỀN TỪ VÍ (tối thiểu 50.000đ, tối đa 3 lần/ngày)
@@ -1398,7 +1398,7 @@ INSERT INTO end_of_term_decisions (id, product_id, decision, new_receipt_id, dec
 -- (WT-2026-000001, 000002, ...) và cộng dồn số dư, nên sổ luôn khớp với ví.
 --
 -- /!\ Số dư quỹ nền tảng sẽ ra số ÂM, và đó là ĐÚNG với mô hình hiện tại: tiền người
--- mua trả qua MoMo/VNPay KHÔNG sinh bút toán quỹ nào (applyGatewayPaymentSuccess chỉ
+-- mua trả qua VNPay KHÔNG sinh bút toán quỹ nào (applyGatewayPaymentSuccess chỉ
 -- đổi trạng thái đơn), trong khi tiền trả cho người ký gửi lại trừ quỹ. Nói cách khác
 -- platform_funds chỉ phản ánh phần tiền CHẠY QUA VÍ nội bộ, không phải tổng tiền mặt
 -- của nền tảng. Muốn số này là tổng thu chi thật thì phải ghi thêm bút toán quỹ lúc
@@ -1476,7 +1476,7 @@ INSERT INTO wallet_transactions (id, transaction_no, wallet_type, wallet_id, typ
  'MEMBERSHIP_REVENUE', 29000, NULL, 'SUCCESS', 'Doanh thu gói Thành viên Bạc (VNPay)', NULL,
  NULL, NULL, NULL, NULL, NULL, now() - interval '40 days'),
 ('e0000000-0000-4000-8000-000000000016', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
- 'MEMBERSHIP_REVENUE', 990000, NULL, 'SUCCESS', 'Doanh thu gói Thành viên Kim cương năm (MoMo)', NULL,
+ 'MEMBERSHIP_REVENUE', 990000, NULL, 'SUCCESS', 'Doanh thu gói Thành viên Kim cương năm (VNPay)', NULL,
  NULL, NULL, NULL, NULL, NULL, now() - interval '20 days'),
 ('e0000000-0000-4000-8000-000000000017', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
  'MEMBERSHIP_REVENUE', 29000, NULL, 'SUCCESS', 'Doanh thu gói Thành viên Bạc (VNPay)', NULL,
@@ -2183,7 +2183,7 @@ SELECT setval('product_sku_seq',
 --      Gói BẠC đang chạy (VNPay), 2 voucher chưa dùng, 4 đơn, 1 đơn bị trả hàng do
 --      hàng xuống cấp (đã được hoàn 285.000đ).
 --  member3@rehome.com    MB000003  Lê Hoàng Cường     105.000đ  Người ký gửi lớn nhất
---      (11 món ở kho HCM). Gói KIM CƯƠNG gói NĂM (MoMo) -> sản phẩm có nhãn NỔI BẬT.
+--      (11 món ở kho HCM). Gói KIM CƯƠNG gói NĂM (VNPay) -> sản phẩm có nhãn NỔI BẬT.
 --      Đã rút 300.000đ về ngân hàng (RT-00001 thành công).
 --  member4@rehome.com    MB000004  Phạm Thu Dung      272.000đ  Người ký gửi ở Hà Nội
 --      (10 món). Đang có yêu cầu rút tiền 200.000đ CHỜ XỬ LÝ -> ví bị khoá 200.000đ,
@@ -2196,10 +2196,10 @@ SELECT setval('product_sku_seq',
 --  member7@rehome.com    MB000007  Đỗ Thị Hạnh        234.000đ  Ký gửi 8 món ở Hà Nội.
 --      Vừa nhận 234.000đ ĐỀN BÙ hàng xuống cấp (HN-CV-000057).
 --  member8@rehome.com    MB000008  Bùi Quang Huy      115.000đ  Người mua thuần.
---      4 đơn, trong đó 1 đơn CHỜ THANH TOÁN (demo MoMo/VNPay), 1 đơn ĐANG CHỜ ĐÓNG GÓI,
+--      4 đơn, trong đó 1 đơn CHỜ THANH TOÁN (demo VNPay), 1 đơn ĐANG CHỜ ĐÓNG GÓI,
 --      1 đơn trả hàng đã tiêu huỷ (được hoàn 115.000đ). Giỏ hàng 2 món.
 --  member9@rehome.com    MB000009  Ngô Thị Lan                0đ  Ký gửi 7 món.
---      Đang có YÊU CẦU RÚT HÀNG đã duyệt + ĐÃ TRẢ PHÍ 50.000đ qua MoMo, chờ ra kho nhận.
+--      Đang có YÊU CẦU RÚT HÀNG đã duyệt + ĐÃ TRẢ PHÍ 50.000đ qua VNPay, chờ ra kho nhận.
 --      Đã được xác nhận danh tính tại quầy (còn hiệu lực 30 phút).
 --  member10@rehome.com   MB000010  Hoàng Văn Nam              0đ  TÀI KHOẢN BỊ KHOÁ -
 --      đăng nhập sẽ bị chặn (403), dùng để demo màn Admin quản lý tài khoản.
@@ -2227,7 +2227,7 @@ SELECT setval('product_sku_seq',
 --      BOTTOM, đầm luôn là DRESS và mặc nguyên bộ)
 --   81 phiếu ký gửi (73 đã thành sản phẩm + 8 phiếu ở 7 trạng thái còn lại)
 --   73 biên nhận ký gửi
---   14 đơn hàng phủ đủ 8 trạng thái; 11 giao dịch cổng (MoMo/VNPay); 5 sự kiện GHN
+--   14 đơn hàng phủ đủ 8 trạng thái; 11 giao dịch cổng (VNPay); 5 sự kiện GHN
 --   4 yêu cầu trả hàng (LOST / VALID+xuống cấp / VALID+tiêu huỷ / chờ duyệt)
 --   36 bút toán ví + quỹ; 2 yêu cầu rút tiền; 2 yêu cầu rút hàng
 --   5 quyết định cuối kỳ (chờ chọn / ký gửi lại / lấy về / vô thừa nhận / tặng)

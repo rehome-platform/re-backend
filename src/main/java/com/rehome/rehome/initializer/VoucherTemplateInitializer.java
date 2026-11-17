@@ -37,7 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 @ConditionalOnProperty(name = "app.initializer.seed-enabled", havingValue = "true")
 public class VoucherTemplateInitializer implements CommandLineRunner {
 
-    private static final String SHIPPING_NAME = "Miễn phí vận chuyển";
+    private static final String SHIPPING_NAME = "Giảm 15.000đ phí vận chuyển";
     private static final String ORDER_DISCOUNT_NAME = "Giảm giá đơn hàng";
 
     private final VoucherTemplateRepository voucherTemplateRepository;
@@ -47,7 +47,7 @@ public class VoucherTemplateInitializer implements CommandLineRunner {
     public void run(String... args) {
         int created = 0;
 
-        if (!voucherTemplateRepository.existsByName(SHIPPING_NAME)) {
+        if (!voucherTemplateRepository.existsByType(VoucherType.SHIPPING)) {
             VoucherTemplate shipping = VoucherTemplate.builder()
                     .name(SHIPPING_NAME)
                     .description("Giảm tối đa 15.000đ phí vận chuyển")
@@ -65,7 +65,7 @@ public class VoucherTemplateInitializer implements CommandLineRunner {
             created++;
         }
 
-        if (!voucherTemplateRepository.existsByName(ORDER_DISCOUNT_NAME)) {
+        if (!voucherTemplateRepository.existsByType(VoucherType.ORDER_DISCOUNT)) {
             VoucherTemplate orderDiscount = VoucherTemplate.builder()
                     .name(ORDER_DISCOUNT_NAME)
                     .description("Giảm 10% tiền hàng, tối đa 50.000đ")

@@ -1,5 +1,9 @@
 package com.rehome.rehome.controller;
 
+import com.rehome.rehome.service.AccountAdminService;
+import com.rehome.rehome.dto.request.BanAccountRequest;
+import com.rehome.rehome.dto.response.AccountStatusResponse;
+
 import com.rehome.rehome.dto.request.CreateViolationReportRequest;
 import com.rehome.rehome.dto.request.DismissViolationReportRequest;
 import com.rehome.rehome.dto.request.ResolveViolationReportRequest;
@@ -31,6 +35,16 @@ import java.util.UUID;
 public class ViolationReportController {
 
     private final ViolationReportService violationReportService;
+    private final AccountAdminService accountAdminService;
+
+    @PostMapping("/organizations/{organizationId}/ban")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<AccountStatusResponse>> banOrganization(
+            @AuthenticationPrincipal Account moderator, @PathVariable UUID organizationId,
+            @jakarta.validation.Valid @RequestBody BanAccountRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                accountAdminService.ban(moderator, organizationId, request.getReason())));
+    }
 
     @PostMapping
     @PreAuthorize("hasRole('MEMBER')")

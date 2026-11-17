@@ -21,7 +21,7 @@ public interface MembershipService {
     // API §8.2 - LUÔN trả 200: chưa mua gói thì trả tier FREE với subscriptionId = null
     MyMembershipResponse getMyMembership(Account account);
 
-    // API §8.3 - mua/gia hạn. Ví thì kích hoạt ngay trong transaction; MoMo/VNPay thì tạo
+    // API §8.3 - mua/gia hạn. Ví thì kích hoạt ngay trong transaction; VNPay thì tạo
     // subscription PENDING_PAYMENT + trả payUrl, chờ IPN gọi applyGatewayPaymentSuccess.
     SubscribeMembershipResponse subscribe(Account account, SubscribeMembershipRequest request);
 
@@ -40,15 +40,6 @@ public interface MembershipService {
      * "đã hoàn" để không hoàn hai lần, giống {@code order.refundAmount != null}.
      */
     void applyGatewayPaymentSuccess(UUID subscriptionId, OrderPaymentMethod method, String note);
-
-    /**
-     * MomoServiceImpl.handleIpn dispatch sang đây khi {@code momoOrderId} mang tiền tố {@code SUB-}.
-     * Cùng khuôn với {@code ItemWithdrawalRequestService.applyMomoFeePaymentResult}.
-     *
-     * @return true nếu đây đúng là giao dịch mua gói và đã xử lý xong (kể cả khi kết quả là thất
-     *         bại); false nếu không khớp dòng nào để nơi gọi thử tiếp loại giao dịch khác
-     */
-    boolean applyMomoResult(String momoOrderId, int resultCode, String transactionId);
 
     // VnPayServiceImpl.handleIpn dispatch sang đây khi vnp_TxnRef mang tiền tố SUB-
     boolean applyVnPayResult(String vnpTxnRef, String responseCode, String transactionNo);

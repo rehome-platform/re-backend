@@ -63,6 +63,18 @@ class VoucherCalculatorTest {
 
     // ================================================================ §12.2 - một đơn một món
 
+    @Test
+    void fixedShippingVoucherIsAllocatedAcrossTwoWarehousesOnce() {
+        VoucherCalculator.Result result = calculator.calculate(shippingVoucher("15000"), List.of(
+                line("warehouse-a", "100000", "10000", TERM1_RATE),
+                line("warehouse-b", "100000", "20000", TERM1_RATE)), true);
+
+        assertThat(result.totalDiscount()).isEqualByComparingTo("15000");
+        assertThat(result.allocations()).containsExactly(
+                new VoucherCalculator.Allocation("warehouse-a", new BigDecimal("5000.00")),
+                new VoucherCalculator.Allocation("warehouse-b", new BigDecimal("10000.00")));
+    }
+
     @Nested
     class SingleOrder {
 

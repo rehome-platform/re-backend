@@ -85,4 +85,14 @@ public interface MemberVoucherRepository extends JpaRepository<MemberVoucher, UU
     List<MemberVoucher> findAllBySourceSubscription_IdOrderByIssuedAtAsc(UUID subscriptionId);
 
     boolean existsByCode(String code);
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("""
+            select v from MemberVoucher v
+            where v.status = com.rehome.rehome.entity.enums.MemberVoucherStatus.UNUSED
+              and v.remindedAt is null and v.expiresAt > :now and v.expiresAt <= :until
+            order by v.id
+            """)
+    java.util.List<MemberVoucher> findDueForReminder(
+            @org.springframework.data.repository.query.Param("now") Instant now,
+            @org.springframework.data.repository.query.Param("until") Instant until);
 }

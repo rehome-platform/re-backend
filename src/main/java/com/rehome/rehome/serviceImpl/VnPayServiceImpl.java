@@ -18,6 +18,9 @@ import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.PaymentRepository;
 import com.rehome.rehome.service.ItemWithdrawalRequestService;
 import com.rehome.rehome.service.MembershipService;
+import com.rehome.rehome.dto.response.MembershipPaymentStatusResponse;
+import com.rehome.rehome.entity.membership.MembershipPayment;
+import com.rehome.rehome.repository.MembershipPaymentRepository;
 import com.rehome.rehome.service.OrderService;
 import com.rehome.rehome.service.VnPayService;
 import lombok.RequiredArgsConstructor;
@@ -69,13 +72,14 @@ public class VnPayServiceImpl implements VnPayService {
     // Không có phụ thuộc vòng: MembershipServiceImpl mở giao dịch cổng qua
     // MembershipGatewayPaymentBuilder, không gọi vào service này.
     private final MembershipService membershipService;
+    private final MembershipPaymentRepository membershipPaymentRepository;
 
     @Override
     @Transactional
     public CreateVnPayResponse createPaymentForOrders(String email, List<UUID> orderIds, String customReturnUrl,
                                                        String clientIp) {
 
-        // Quyền sở hữu và trạng thái đơn do OrderService kiểm, để trả ví / MoMo / VNPay
+        // Quyền sở hữu và trạng thái đơn do OrderService kiểm, để trả ví / VNPay
         // dùng chung đúng một bộ mã lỗi ORDER_ALREADY_PAID / ORDER_NOT_PENDING
         List<Order> orders = orderService.loadPayableOrders(email, orderIds);
 
@@ -311,25 +315,67 @@ public class VnPayServiceImpl implements VnPayService {
                 .build();
     }
 
-    private void syncWithVnPay(List<Payment> payments) {
-        Payment payment = payments.get(0);
+    @Override
+    public MembershipPaymentStatusResponse checkMembershipPayment(UUID memberId, UUID paymentId) {
+        MembershipPayment payment = ownedMembershipPayment(memberId, paymentId);
+        if (payment.getStatus() == PaymentStatus.PENDING && payment.getVnpTxnRef() != null) {
+            QueryVnPayResponse result = queryVnPay(payment.getVnpTxnRef(), payment.getVnpCreateDate());
+            if (result != null && "00".equals(result.getResponseCode())
+                    && payment.getVnpTxnRef().equals(result.getTxnRef())
+                    && tmnCode.equals(result.getTmnCode()) && validQuerySignature(result)
+                    && result.getAmount() != null && payment.getAmount().movePointRight(2)
+                            .compareTo(java.math.BigDecimal.valueOf(result.getAmount())) == 0
+                    && ("00".equals(result.getTransactionStatus()) || "02".equals(result.getTransactionStatus()))) {
+                membershipService.applyVnPayResult(payment.getVnpTxnRef(),
+                        result.getTransactionStatus(), result.getTransactionNo());
+                payment = ownedMembershipPayment(memberId, paymentId);
+            }
+        }
+        return new MembershipPaymentStatusResponse(payment.getId(), payment.getStatus(),
+                payment.getSubscription().getId(), payment.getSubscription().getStatus());
+    }
 
-        String requestId = UUID.randomUUID().toString();
+    private MembershipPayment ownedMembershipPayment(UUID memberId, UUID paymentId) {
+        return membershipPaymentRepository.findByIdAndMember_Id(paymentId, memberId)
+                .orElseThrow(() -> new com.rehome.rehome.exception.AppException(
+                        com.rehome.rehome.exception.ErrorCode.MEMBERSHIP_PAYMENT_NOT_FOUND));
+    }
+
+    private boolean validQuerySignature(QueryVnPayResponse response) {
+        if (response.getSecureHash() == null) {
+            return false;
+        }
+        String fields = java.util.stream.Stream.of(response.getResponseId(), response.getCommand(),
+                response.getResponseCode(), response.getMessage(), response.getTmnCode(), response.getTxnRef(),
+                response.getAmount(), response.getBankCode(), response.getPayDate(), response.getTransactionNo(),
+                response.getTransactionType(), response.getTransactionStatus(), response.getOrderInfo(),
+                response.getPromotionCode(), response.getPromotionAmount())
+                .map(value -> value == null ? "" : value.toString())
+                .collect(java.util.stream.Collectors.joining("|"));
+        return java.security.MessageDigest.isEqual(
+                com.rehome.rehome.util.GatewaySignature.hmacSHA512(hashSecret, fields).toLowerCase(java.util.Locale.ROOT)
+                        .getBytes(java.nio.charset.StandardCharsets.US_ASCII),
+                response.getSecureHash().toLowerCase(java.util.Locale.ROOT)
+                        .getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+    }
+
+    private QueryVnPayResponse queryVnPay(String txnRef, String transactionDate) {
+        String requestId = UUID.randomUUID().toString().replace("-", "");
         String createDate = ZonedDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh"))
                 .format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-        String orderInfo = "Truy van giao dich " + payment.getVnpTxnRef();
+        String orderInfo = "Truy van giao dich " + txnRef;
 
         // querydr dùng công thức hash khác (nối chuỗi theo thứ tự cố định bằng "|"), không dùng hashAllFields
         String hashData = String.join("|",
-                requestId, version, "querydr", tmnCode, payment.getVnpTxnRef(),
-                payment.getVnpCreateDate(), createDate, "127.0.0.1", orderInfo);
+                requestId, version, "querydr", tmnCode, txnRef,
+                transactionDate, createDate, "127.0.0.1", orderInfo);
 
         String signature;
         try {
             signature = hmacSHA512(hashSecret, hashData);
         } catch (Exception e) {
             log.error(">>>> Co loi khi tao chu ky querydr VNPay: " + e);
-            return;
+            return null;
         }
 
         QueryVnPayRequest request = QueryVnPayRequest.builder()
@@ -337,9 +383,9 @@ public class VnPayServiceImpl implements VnPayService {
                 .version(version)
                 .command("querydr")
                 .tmnCode(tmnCode)
-                .txnRef(payment.getVnpTxnRef())
+                .txnRef(txnRef)
                 .orderInfo(orderInfo)
-                .transactionDate(payment.getVnpCreateDate())
+                .transactionDate(transactionDate)
                 .createDate(createDate)
                 .ipAddr("127.0.0.1")
                 .secureHash(signature)
@@ -350,8 +396,16 @@ public class VnPayServiceImpl implements VnPayService {
             response = vnPayApi.queryTransaction(request);
         } catch (Exception e) {
             log.error(">>>> Khong the truy van trang thai giao dich VNPay: " + e);
-            return;
+            return null;
         }
+
+        return response;
+    }
+
+    private void syncWithVnPay(List<Payment> payments) {
+        Payment payment = payments.get(0);
+
+        QueryVnPayResponse response = queryVnPay(payment.getVnpTxnRef(), payment.getVnpCreateDate());
 
         if (response == null) {
             return;

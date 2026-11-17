@@ -160,4 +160,24 @@ public class MembershipLifecycleServiceImpl implements MembershipLifecycleServic
         memberVoucherRepository.saveAll(expired);
         log.info(">>>> Het han {} voucher chua dung", expired.size());
     }
+    @Scheduled(cron = "0 0 9 * * *", zone = VN_ZONE)
+    @Transactional
+    public void remindExpiringVouchers() {
+        Instant now = Instant.now();
+        for (MemberVoucher voucher : memberVoucherRepository.findDueForReminder(
+                now, now.plus(java.time.Duration.ofDays(3)))) {
+            voucher.setRemindedAt(now);
+            notificationService.notify(voucher.getMember(), NotificationType.VOUCHER_ISSUED,
+                    "Mã giảm giá sắp hết hạn", "Mã " + voucher.getCode() + " sẽ hết hạn trong vòng 3 ngày.",
+                    null, null, null);
+        }
+    }
+    @Scheduled(fixedDelay = 60_000)
+    @Transactional
+    public void cancelExpiredPendingPayments() {
+        Instant now = Instant.now();
+        memberSubscriptionRepository.cancelExpiredPendingPayments(null,
+                now.minus(java.time.Duration.ofMinutes(
+                        com.rehome.rehome.component.MembershipGatewayPaymentBuilder.PAY_LINK_MINUTES)), now);
+    }
 }

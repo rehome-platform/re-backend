@@ -19,13 +19,15 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
 
     @Modifying(flushAutomatically = true)
     @Query("""
-            update Campaign c set c.status = :hidden
+            update Campaign c set c.statusBeforeOrganizationBan = c.status, c.status = :hidden
             where c.organization.accountId = :organizationId and c.status <> :hidden
             """)
     int hideCampaignsByOrganization(@Param("organizationId") UUID organizationId,
                                     @Param("hidden") CampaignStatus hidden);
 
     // Đếm chiến dịch đang chạy của 1 tổ chức, để chặn vượt hạn mức (F-099)
+    List<Campaign> findByOrganization_AccountIdAndStatusBeforeOrganizationBanIsNotNull(UUID organizationId);
+
     long countByOrganization_AccountIdAndStatus(UUID organizationId, CampaignStatus status);
 
     // F-099 (mở rộng): "đang chạy" = OPEN, hoặc HIDDEN do vi phạm nhưng endTime chưa qua - tổ chức
@@ -39,6 +41,13 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
     List<Campaign> findAllByStatusAndEndTimeBefore(CampaignStatus status, Instant endTime);
 
     // F-103: chiến dịch của chính tổ chức đang đăng nhập
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from Campaign c where c.id = :id")
+    java.util.Optional<Campaign> findByIdForUpdate(@Param("id") UUID id);
+
+    @Query("select c.organization.accountId from Campaign c where c.id = :id")
+    java.util.Optional<UUID> findOrganizationId(@Param("id") UUID id);
+
     Page<Campaign> findByOrganization_AccountId(UUID organizationId, Pageable pageable);
 
     Page<Campaign> findByOrganization_AccountIdAndStatus(UUID organizationId, CampaignStatus status,
@@ -53,6 +62,7 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
     // GET /warehouses/{id}/campaigns: chiến dịch OPEN, CHƯA hết hạn (endTime > now), không HIDDEN/CLOSED,
     // có nhận đồ tại kho này. Dùng chung điều kiện này cho cả ghi nhận trực tiếp lẫn quyên góp món ký gửi.
     @Query("select c from Campaign c where c.status = com.rehome.rehome.entity.enums.CampaignStatus.OPEN "
+            + "and c.organization.account.status <> com.rehome.rehome.entity.enums.AccountStatus.BANNED "
             + "and c.endTime > :now "
             + "and :warehouseId in (select w.id from c.warehouses w)")
     Page<Campaign> findOpenReceivingAtWarehouse(@Param("warehouseId") UUID warehouseId,
@@ -62,6 +72,7 @@ public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
     // chức. keyword "" -> không lọc theo từ khóa, chỉ còn status. warehouseId null -> không lọc
     // theo điểm nhận đồ (cũng dùng cho GET /warehouses/{id}/campaigns với warehouseId luôn có giá trị).
     @Query("select c from Campaign c where c.status = :status "
+            + "and c.organization.account.status <> com.rehome.rehome.entity.enums.AccountStatus.BANNED "
             + "and (c.titleNormalized like concat('%', :keyword, '%') "
             + "or c.organization.displayNameNormalized like concat('%', :keyword, '%')) "
             + "and (:warehouseId is null or :warehouseId in (select w.id from c.warehouses w))")

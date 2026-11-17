@@ -73,17 +73,12 @@ public enum ErrorCode {
 
     // API - giỏ hàng
     // API - hồ sơ Member
-    // Thanh toán MoMo
+    // Thanh toán VNPay
     ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy đơn hàng."),
     ORDER_FORBIDDEN(HttpStatus.FORBIDDEN, "Đơn hàng này không thuộc về bạn."),
     ORDER_NOT_PENDING_PAYMENT(HttpStatus.CONFLICT, "Đơn hàng không ở trạng thái chờ thanh toán."),
     ORDER_ALREADY_PAID(HttpStatus.CONFLICT, "Đơn hàng đã được thanh toán."),
     PAYMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy giao dịch thanh toán."),
-    MOMO_SIGNATURE_CREATE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "Không thể tạo chữ ký thanh toán."),
-    MOMO_CREATE_PAYMENT_FAILED(HttpStatus.BAD_REQUEST, "Tạo giao dịch MoMo thất bại."),
-    MOMO_IPN_VERIFY_FAILED(HttpStatus.BAD_REQUEST, "Không thể xác thực IPN."),
-    MOMO_RETURN_VERIFY_FAILED(HttpStatus.BAD_REQUEST, "Không thể xác thực kết quả thanh toán."),
-    MOMO_INVALID_SIGNATURE(HttpStatus.BAD_REQUEST, "Chữ ký MoMo không hợp lệ."),
     MEMBER_PROFILE_NOT_FOUND(HttpStatus.NOT_FOUND, "Hồ sơ Member không tồn tại."),
     INVALID_PHONE_FORMAT(HttpStatus.BAD_REQUEST, "Số điện thoại không đúng định dạng."),
     // API 71 - webhook GHN
@@ -272,6 +267,7 @@ public enum ErrorCode {
     // viên của Member (MembershipQuotaResolver), không còn là con số cứng 2 lượt/10 giây
     TRYON_LIVE_QUOTA_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS,
             "Bạn đã dùng hết lượt thử đồ AI real-time hôm nay. Nâng cấp gói để thử thêm."),
+    TRYON_LIVE_UNCONFIRMED_LIMIT(HttpStatus.TOO_MANY_REQUESTS, "Đã đạt giới hạn phiên chưa có hình trong ngày."),
     TRYON_LIVE_TOKEN_FAILED(HttpStatus.BAD_GATEWAY,
             "Không thể kết nối tới dịch vụ thử đồ AI real-time lúc này, vui lòng thử lại sau."),
     TRYON_LIVE_SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy phiên thử đồ AI real-time."),
@@ -291,6 +287,7 @@ public enum ErrorCode {
     MEMBERSHIP_PLAN_YEARLY_NOT_AVAILABLE(HttpStatus.BAD_REQUEST, "Gói này không bán theo năm."),
     MEMBERSHIP_ALREADY_ACTIVE_SAME_TIER(HttpStatus.CONFLICT,
             "Bạn đang dùng gói này, hãy dùng chức năng gia hạn."),
+    MEMBERSHIP_PAYMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy giao dịch gói thành viên."),
     MEMBERSHIP_PAYMENT_PENDING(HttpStatus.CONFLICT, "Bạn đang có một giao dịch mua gói chờ thanh toán."),
     MEMBERSHIP_NOT_FOUND(HttpStatus.NOT_FOUND, "Bạn chưa có gói thành viên nào."),
     MEMBERSHIP_SUBSCRIPTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy gói đăng ký."),

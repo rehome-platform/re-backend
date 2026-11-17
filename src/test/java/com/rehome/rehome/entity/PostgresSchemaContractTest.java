@@ -119,17 +119,14 @@ class PostgresSchemaContractTest {
 
     /**
      * ⚠️ Bẫy đã gặp một lần trong repo này - xem {@code scripts/drop-payment-gateway-ref-unique.sql}.
-     * Hibernate đã từng tạo UNIQUE trên {@code payments.momo_order_id} / {@code vnp_txn_ref}, và
-     * {@code ddl-auto: update} KHÔNG drop được index đã tồn tại nên phải chạy script tay trên
-     * Postgres sau deploy.
+     * Hibernate đã từng tạo UNIQUE trên {@code payments.vnp_txn_ref}, và {@code ddl-auto: update}
+     * KHÔNG drop được index đã tồn tại nên phải chạy script tay trên Postgres sau deploy.
      *
      * <p>Khóa lại để lần này không lặp vết xe cũ trên bảng {@code membership_payments}: nếu ai đó
      * thêm {@code unique = true} vào entity thì test đỏ ngay, chứ không phải lúc deploy.
      */
     @Test
     void membershipPaymentGatewayRefs_areNotUnique() {
-        assertThat(isColumnUnique("membership_payments", "momo_order_id"))
-                .as("membership_payments.momo_order_id KHÔNG được UNIQUE").isFalse();
         assertThat(isColumnUnique("membership_payments", "vnp_txn_ref"))
                 .as("membership_payments.vnp_txn_ref KHÔNG được UNIQUE").isFalse();
     }

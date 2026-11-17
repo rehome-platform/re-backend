@@ -9,13 +9,16 @@ import java.util.Map;
 import java.util.UUID;
 
 public interface VnPayService {
-    // Một giao dịch VNPay cho nhiều đơn - xem MomoService.createPaymentForOrders
+    // Một giao dịch VNPay cho nhiều đơn
     CreateVnPayResponse createPaymentForOrders(String email, List<UUID> orderIds, String customReturnUrl,
                                                String clientIp);
 
     VnPayIpnResult handleIpn(Map<String, String> params);
 
     PaymentStatusResponse checkPaymentStatus(String email, UUID orderId);
+
+    com.rehome.rehome.dto.response.MembershipPaymentStatusResponse checkMembershipPayment(
+            UUID memberId, UUID paymentId);
 
     PaymentStatusResponse getReturnInfo(Map<String, String> params);
 }

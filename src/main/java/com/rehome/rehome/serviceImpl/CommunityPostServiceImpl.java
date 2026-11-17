@@ -191,7 +191,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         boolean isOwner = viewerId != null && post.getOrganization().getAccountId().equals(viewerId);
         // REMOVED (Moderator gỡ do vi phạm): chỉ tổ chức sở hữu xem được, kèm lý do gỡ. Member/Guest
         // coi như không tồn tại - giống hành vi với Campaign HIDDEN (CampaignServiceImpl.getPublicDetail)
-        if (post.getStatus() != ContentStatus.VISIBLE && !isOwner) {
+        if (!isOwner && (post.getStatus() != ContentStatus.VISIBLE || isOrganizationBanned(post))) {
             throw new IllegalArgumentException("Không tìm thấy bài viết.");
         }
 
@@ -240,11 +240,16 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                 .orElse(null);
     }
 
+    private static boolean isOrganizationBanned(CommunityPost post) {
+        Account owner = post.getOrganization() == null ? null : post.getOrganization().getAccount();
+        return owner != null && owner.getStatus() == com.rehome.rehome.entity.enums.AccountStatus.BANNED;
+    }
+
     @Override
     @Transactional
     public void like(UUID accountId, UUID postId) {
         CommunityPost post = communityPostRepository.findById(postId)
-                .filter(p -> p.getStatus() == ContentStatus.VISIBLE)
+                .filter(p -> p.getStatus() == ContentStatus.VISIBLE && !isOrganizationBanned(p))
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy bài viết."));
 
         if (!postLikeRepository.existsByPost_IdAndMember_Id(postId, accountId)) {
@@ -268,7 +273,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
     @Transactional(readOnly = true)
     public PageResponse<CommentResponse> listComments(UUID postId, UUID viewerId, int page, int size) {
         communityPostRepository.findById(postId)
-                .filter(p -> p.getStatus() == ContentStatus.VISIBLE)
+                .filter(p -> p.getStatus() == ContentStatus.VISIBLE && !isOrganizationBanned(p))
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy bài viết."));
 
         Pageable pageable = PageRequest.of(
@@ -293,7 +298,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         }
 
         CommunityPost post = communityPostRepository.findById(postId)
-                .filter(p -> p.getStatus() == ContentStatus.VISIBLE)
+                .filter(p -> p.getStatus() == ContentStatus.VISIBLE && !isOrganizationBanned(p))
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy bài viết."));
         Account author = accountRepository.findById(authorId)
                 .orElseThrow(() -> new AppException(ErrorCode.UNAUTHORIZED));
@@ -574,6 +579,9 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         return campaignRepository.findById(campaignId)
                 .filter(c -> c.getOrganization().getAccountId().equals(organizationAccountId))
                 .filter(c -> c.getStatus() == CampaignStatus.OPEN)
+                .filter(c -> c.getOrganization().getAccount() == null
+                        || c.getOrganization().getAccount().getStatus()
+                        != com.rehome.rehome.entity.enums.AccountStatus.BANNED)
                 .orElseThrow(() -> new IllegalArgumentException(CAMPAIGN_NOT_FOUND));
     }
 

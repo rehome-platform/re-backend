@@ -51,7 +51,7 @@ public interface OrderService {
     PayOrdersResponse payOrders(String email, PayOrdersRequest request);
 
     // Nạp các đơn của chính người mua và chắc chắn còn thanh toán được.
-    // Dùng chung cho ví, MoMo và VNPay để ba đường thanh toán không lệch nhau về quyền lẫn mã lỗi
+    // Dùng chung cho ví và VNPay để hai đường thanh toán không lệch nhau về quyền lẫn mã lỗi
     // (ORDER_ALREADY_PAID / ORDER_NOT_PENDING).
     List<Order> loadPayableOrders(String email, List<UUID> orderIds);
 

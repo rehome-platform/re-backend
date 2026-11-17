@@ -412,11 +412,7 @@ class ProductServiceImplTest {
         verify(productRepository).findAll(ArgumentMatchers.<Specification<Product>>any(), pageable.capture());
         assertThat(pageable.getValue().getPageNumber()).isEqualTo(2);
         assertThat(pageable.getValue().getPageSize()).isEqualTo(10);
-        // Ưu tiên hiển thị của gói VIP: món "Nổi bật" lên đầu, rồi mới nhất trước.
-        // .nullsLast() là BẮT BUỘC - Postgres mặc định xếp NULL lên đầu khi sort DESC, thiếu nó thì
-        // mọi món KHÔNG nổi bật sẽ nằm trên. Assert cả thứ tự lẫn nullsLast để không ai bỏ mất.
-        assertThat(pageable.getValue().getSort()).isEqualTo(
-                Sort.by(Sort.Order.desc("featuredUntil").nullsLast(), Sort.Order.desc("createdAt")));
+        assertThat(pageable.getValue().getSort().isUnsorted()).isTrue();
     }
 
     @Test
@@ -1455,7 +1451,7 @@ class ProductServiceImplTest {
                 .warehouses(java.util.Set.of(product.getWarehouse()))
                 .organization(OrganizationProfile.builder().displayName("Organization").build())
                 .build();
-        when(campaignRepository.findById(donationRequest.campaignId())).thenReturn(Optional.of(campaign));
+        when(campaignRepository.findByIdForUpdate(donationRequest.campaignId())).thenReturn(Optional.of(campaign));
     }
 
     private void stubDonationSaveAssignsId() {

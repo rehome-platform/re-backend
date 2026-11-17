@@ -21,7 +21,6 @@ public class PaymentStatusResponse {
 
     // Tổng tiền của cả giao dịch, cộng hết các đơn trong orderIds
     private BigDecimal amount;
-    private String momoTransactionId;
     private String vnpTransactionNo;
     private Instant paidAt;
 }

@@ -75,6 +75,24 @@ public class AdminReportQueryRepository {
         return new PageImpl<>(rows, pageable, total);
     }
 
+    // Toàn bộ món đã bán trong [from, to), mọi kỳ, dùng cho xuất Excel (F-159) - không phân trang vì
+    // Admin cần đủ danh sách trong file, không phải xem từng trang trên web.
+    public List<SoldItemRow> findAllSoldItems(Instant from, Instant to) {
+        return em.createQuery(
+                        "select oi.id, p.id, p.name, o.id, o.orderNo, oi.priceAtOrder, oi.commissionRateApplied, "
+                                + "oi.termApplied, o.completedAt "
+                                + "from OrderItem oi join oi.order o join oi.product p "
+                                + "where o.status = :status and o.completedAt >= :from and o.completedAt < :to "
+                                + "order by o.completedAt desc, oi.id desc", Object[].class)
+                .setParameter("status", OrderStatus.COMPLETED)
+                .setParameter("from", from)
+                .setParameter("to", to)
+                .getResultList().stream()
+                .map(r -> new SoldItemRow((UUID) r[0], (String) r[1], (String) r[2], (UUID) r[3], (String) r[4],
+                        (BigDecimal) r[5], (BigDecimal) r[6], (Short) r[7], (Instant) r[8]))
+                .toList();
+    }
+
     // ==================== Sổ quỹ nền tảng ====================
 
     // Dòng PLATFORM của sổ kép (mỗi dòng là đối ứng của một dòng ví Member), mới nhất trước.
@@ -142,7 +160,7 @@ public class AdminReportQueryRepository {
     private static final List<WalletTransactionType> REVENUE_RECOGNITION_TYPES = List.of(
             WalletTransactionType.COMMISSION_REVENUE,
             WalletTransactionType.WITHDRAWAL_FEE_REVENUE,
-            // Doanh thu bán gói khi tiền đến từ MoMo/VNPay: 1 dòng PLATFORM dương, không có dòng
+            // Doanh thu bán gói khi tiền đến từ VNPay: 1 dòng PLATFORM dương, không có dòng
             // Member đối ứng và không đổi số dư quỹ (xem MembershipServiceImpl.recordMembershipRevenue).
             // Mua gói bằng VÍ thì KHÔNG đi qua loại này - dòng đối ứng bên quỹ mang type
             // MEMBERSHIP_PURCHASE nên vẫn được tính vào đối soát, đúng vì tiền thật có chuyển trong hệ thống.

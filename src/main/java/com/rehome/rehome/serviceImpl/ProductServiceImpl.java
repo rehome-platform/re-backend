@@ -348,7 +348,7 @@ public class ProductServiceImpl implements ProductService {
                 campaign == null ? null : campaign.getId(),
                 campaign == null ? null : campaign.getTitle(),
                 campaign == null ? null : campaign.getOrganization().getDisplayName(),
-                donation.getStatus().name(), donation.getHandedOverAt());
+                donation.getStatus().name(), donation.getHandedOverAt(), donation.getReassignedFromCampaignTitle());
     }
 
     // price = giá có hiệu lực lúc kỳ đó bắt đầu. Mốc đầu các kỳ trước suy ra bằng cách

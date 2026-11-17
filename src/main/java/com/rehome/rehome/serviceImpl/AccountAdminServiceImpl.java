@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.time.Instant;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -182,7 +183,7 @@ public class AccountAdminServiceImpl implements AccountAdminService {
     @Override
     @Transactional
     public AccountStatusResponse unban(Account admin, UUID targetId) {
-        Account target = accountRepository.findById(targetId)
+        Account target = accountRepository.findByIdForUpdate(targetId)
                 .orElseThrow(() -> new AppException(ErrorCode.ACCOUNT_NOT_FOUND));
 
         if (target.getStatus() != AccountStatus.BANNED) {
@@ -196,6 +197,19 @@ public class AccountAdminServiceImpl implements AccountAdminService {
         target.setStatus(AccountStatus.ACTIVE);
         target.setBanReason(null);
         accountRepository.save(target);
+
+        if (target.getRole() == Role.ORGANIZATION) {
+            Instant now = Instant.now();
+            for (var campaign : campaignRepository.findByOrganization_AccountIdAndStatusBeforeOrganizationBanIsNotNull(targetId)) {
+                boolean reopen = campaign.getStatusBeforeOrganizationBan() == CampaignStatus.OPEN
+                        && campaign.getEndTime().isAfter(now);
+                campaign.setStatus(reopen ? CampaignStatus.OPEN : CampaignStatus.CLOSED);
+                campaign.setStatusBeforeOrganizationBan(null);
+                if (reopen) {
+                    donationService.restoreCampaignDonations(campaign.getId());
+                }
+            }
+        }
 
         detail.put("afterStatus", target.getStatus().name());
         writeAudit(admin, "UNBAN_ACCOUNT", target, detail);

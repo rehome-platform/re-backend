@@ -27,6 +27,13 @@ public interface DonationService {
     // F-165: bàn giao các lượt đang chờ lấy cho tổ chức đến nhận. Hoặc bàn giao hết, hoặc không lượt nào.
     void holdPendingDonations(UUID organizationId);
 
+    void holdCampaignDonations(UUID campaignId);
+
+    void restoreCampaignDonations(UUID campaignId);
+
+    List<DonationResponse> reassignDonations(Account moderator, UUID warehouseId, List<String> donationIds,
+                                             UUID campaignId);
+
     List<DonationResponse> transferHeldDonations(Account moderator, UUID warehouseId, TransferDonationsRequest request);
 
     DonationHandoverResponse handoverDonations(Account moderator, UUID warehouseId,

@@ -69,6 +69,7 @@ public class ViolationReportServiceImpl implements ViolationReportService {
     private final AccountRepository accountRepository;
     private final OrganizationProfileRepository organizationProfileRepository;
     private final QueueService queueService;
+    private final com.rehome.rehome.service.DonationService donationService;
     private final NotificationService notificationService;
     private final AuditLogger auditLogger;
     private final ObjectMapper objectMapper;
@@ -441,10 +442,12 @@ public class ViolationReportServiceImpl implements ViolationReportService {
             }
             case HIDE_CAMPAIGN -> {
                 requireTargetType(report, ViolationTargetType.CAMPAIGN, "HIDE_CAMPAIGN");
-                Campaign campaign = campaignRepository.findById(report.getTargetId())
+                Campaign campaign = campaignRepository.findByIdForUpdate(report.getTargetId())
                         .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy chiến dịch."));
                 campaign.setStatus(CampaignStatus.HIDDEN);
+                campaign.setStatusBeforeOrganizationBan(null);
                 campaignRepository.save(campaign);
+                donationService.holdCampaignDonations(campaign.getId());
                 yield campaign.getOrganization().getAccountId();
             }
             // WARN_ORG/PROPOSE_BAN không đổi trạng thái nội dung - chỉ cảnh báo/ghi nhận đề xuất
@@ -506,7 +509,7 @@ public class ViolationReportServiceImpl implements ViolationReportService {
             report.setStatus(ViolationReportStatus.RESOLVED);
             report.setResolvedBy(actor);
             report.setResolvedAt(now);
-            report.setResolutionReason("Tổ chức đã bị khóa");
+            report.setResolutionReason("Tổ chức đã bị khoá");
             queueService.dequeue(QueueType.VIOLATION_REPORT, report.getId().toString());
         }
         notifyReporters(reports);

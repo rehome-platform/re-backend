@@ -106,6 +106,16 @@ public class WarehouseController {
         return ResponseEntity.ok(ApiResponse.success(donationService.transferHeldDonations(account, id, request)));
     }
 
+    @PostMapping("/{id}/donations/reassign")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<List<DonationResponse>>> reassignDonations(
+            @PathVariable UUID id, @jakarta.validation.Valid @RequestBody
+            com.rehome.rehome.dto.request.ReassignDonationsRequest request,
+            @AuthenticationPrincipal Account account) {
+        return ResponseEntity.ok(ApiResponse.success(
+                donationService.reassignDonations(account, id, request.donationIds(), request.campaignId())));
+    }
+
     @PostMapping("/{id}/donations/handover")
     @PreAuthorize("hasRole('MODERATOR')")
     @Operation(summary = "Xác nhận bàn giao các lượt quyên góp chờ lấy cho tổ chức (F-165)")

@@ -53,6 +53,10 @@ public class DonationResponse {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private DonationProductResponse product;
 
+    private Instant heldAt;
+    private String holdReason;
+    private String reassignedFromCampaignTitle;
+    private Instant reassignedAt;
     private Instant handedOverAt;
     private Instant createdAt;
 }

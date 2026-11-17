@@ -85,7 +85,8 @@ public class CampaignServiceImpl implements CampaignService {
                 && campaign.getOrganization().getAccountId().equals(viewerAccountId);
         // HIDDEN (bị Moderator xử lý vi phạm): chỉ tổ chức sở hữu xem được, Member/Guest coi như
         // không tồn tại - giống hành vi với CommunityPost REMOVED (CommunityPostServiceImpl.getDetail)
-        if (campaign.getStatus() == CampaignStatus.HIDDEN && !isOwner) {
+        if (!isOwner && (campaign.getStatus() == CampaignStatus.HIDDEN
+                || isBanned(campaign.getOrganization()))) {
             throw new IllegalArgumentException(CAMPAIGN_NOT_FOUND);
         }
         return toPublicResponse(campaign, isOwner);
@@ -284,6 +285,11 @@ public class CampaignServiceImpl implements CampaignService {
         return PageResponse.from(result.map(this::toWarehouseCampaignResponse));
     }
 
+    private static boolean isBanned(OrganizationProfile organization) {
+        return organization.getAccount() != null
+                && organization.getAccount().getStatus() == com.rehome.rehome.entity.enums.AccountStatus.BANNED;
+    }
+
     private WarehouseCampaignResponse toWarehouseCampaignResponse(Campaign campaign) {
         OrganizationProfile organization = campaign.getOrganization();
         return WarehouseCampaignResponse.builder()
@@ -303,7 +309,7 @@ public class CampaignServiceImpl implements CampaignService {
     public PageResponse<CampaignPublicResponse> listOrganizationCampaigns(UUID organizationId, String status,
                                                                            int page, int size) {
         OrganizationProfile organization = organizationProfileRepository.findById(organizationId)
-                .filter(o -> o.getVerificationStatus() == VerificationStatus.VERIFIED)
+                .filter(o -> o.getVerificationStatus() == VerificationStatus.VERIFIED && !isBanned(o))
                 .orElseThrow(() -> new IllegalArgumentException(ORGANIZATION_NOT_FOUND));
 
         Pageable pageable = PageRequest.of(

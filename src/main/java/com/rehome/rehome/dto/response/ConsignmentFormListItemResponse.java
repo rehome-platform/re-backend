@@ -17,6 +17,8 @@ public class ConsignmentFormListItemResponse {
     private UUID id;
     private ConsignmentFormStatus status;
     private String productName;
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS)
+    private String productId;
     private BigDecimal desiredPrice;
     private String thumbnailUrl;
     private String warehouseName;

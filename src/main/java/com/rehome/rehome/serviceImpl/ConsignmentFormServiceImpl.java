@@ -48,6 +48,7 @@ import java.util.stream.Collectors;
 public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     private final AuditLogger auditLogger;
     private final ConsignmentFormRepository consignmentFormRepository;
+    private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final BrandRepository brandRepository;
     private final WarehouseRepository warehouseRepository;
@@ -127,8 +128,15 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         // (vẫn INSPECTING) hoặc đã xác nhận (ẩn khỏi "đang xử lý", trùng với sản phẩm trong kho)
         Map<UUID, ConsignmentReceipt> latestReceipts = loadLatestReceipts(result.getContent());
 
+        Map<UUID, String> productIds = result.isEmpty() ? Map.of()
+                : productRepository.findProductIdsByFormIds(result.getContent().stream()
+                        .map(ConsignmentForm::getId).toList()).stream()
+                        .collect(java.util.stream.Collectors.toMap(
+                                ProductRepository.FormProductId::getFormId, ProductRepository.FormProductId::getProductId));
+
         PageResponse<ConsignmentFormListItemResponse> p = PageResponse.of(result.map(
-                f -> consignmentFormMapper.toListItem(f, thumbnails.get(f.getId()), latestReceipts.get(f.getId()))));
+                f -> consignmentFormMapper.toListItem(f, thumbnails.get(f.getId()), latestReceipts.get(f.getId()),
+                        productIds.get(f.getId()))));
 
         // pendingCount + maxPending để mobile hiện "3/5 form chờ"
         return ConsignmentFormPageResponse.builder()

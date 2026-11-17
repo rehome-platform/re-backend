@@ -68,6 +68,8 @@ public class CampaignServiceImpl implements CampaignService {
     private final com.rehome.rehome.component.AuditLogger auditLogger;
     private final com.rehome.rehome.service.ContentModerationService moderation;
     private final CampaignRepository campaignRepository;
+    private final com.rehome.rehome.repository.AccountRepository accountRepository;
+    private final com.rehome.rehome.service.DonationService donationService;
     private final OrganizationProfileRepository organizationProfileRepository;
     private final WarehouseRepository warehouseRepository;
     private final DonationRepository donationRepository;
@@ -211,6 +213,40 @@ public class CampaignServiceImpl implements CampaignService {
         moderation.recordMatch(organizationAccountId, "CAMPAIGN", campaign.getId(), moderationAction);
         auditLogger.logCurrentOperation("UPDATE_CAMPAIGN", "CAMPAIGN", campaignId, campaign.getStatus().name());
         return toPublicResponse(campaign);
+    }
+
+    @Override
+    @Transactional
+    public CampaignStatusResponse unhideCampaign(com.rehome.rehome.entity.auth.Account moderator,
+                                                   UUID campaignId, String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new com.rehome.rehome.exception.BadRequestException("Vui lòng nhập lý do bỏ ẩn.");
+        }
+        UUID organizationId = campaignRepository.findOrganizationId(campaignId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy chiến dịch."));
+        var organization = accountRepository.findByIdForUpdate(organizationId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy tổ chức."));
+        if (organization.getStatus() == com.rehome.rehome.entity.enums.AccountStatus.BANNED) {
+            throw new ConflictException("Tổ chức đang bị khoá.", "CAMPAIGN_ORGANIZATION_BANNED");
+        }
+
+        Campaign campaign = campaignRepository.findByIdForUpdate(campaignId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy chiến dịch."));
+        if (campaign.getStatus() != CampaignStatus.HIDDEN) {
+            throw new ConflictException("Chiến dịch hiện không bị ẩn.", "CAMPAIGN_NOT_HIDDEN");
+        }
+        String unhideReason = reason.strip();
+        CampaignStatus status = campaign.getEndTime().isAfter(Instant.now()) ? CampaignStatus.OPEN : CampaignStatus.CLOSED;
+        campaign.setStatus(status);
+        campaign.setStatusBeforeOrganizationBan(null);
+        donationService.restoreCampaignDonations(campaignId);
+        notificationService.notify(organization, NotificationType.CONTENT_REVIEW,
+                "Chiến dịch đã được bỏ ẩn",
+                "Chiến dịch " + campaign.getTitle() + " đã được bỏ ẩn. Lý do: " + unhideReason,
+                com.rehome.rehome.entity.enums.NotificationTargetType.CAMPAIGN, campaignId, null);
+        auditLogger.logOperation(moderator, "UNHIDE_CAMPAIGN", "CAMPAIGN", campaignId,
+                status.name() + ": " + unhideReason);
+        return CampaignStatusResponse.builder().id(campaignId.toString()).status(toApiStatus(status)).build();
     }
 
     @Override

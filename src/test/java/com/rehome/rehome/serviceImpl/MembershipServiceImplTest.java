@@ -21,6 +21,7 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.BillingCycle;
 import com.rehome.rehome.entity.enums.MembershipTier;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
+import com.rehome.rehome.entity.enums.PaymentStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.SubscriptionStatus;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
@@ -436,8 +437,13 @@ class MembershipServiceImplTest {
             when(memberSubscriptionRepository.findByIdForUpdate(cancelled.getId()))
                     .thenReturn(Optional.of(cancelled));
 
-            service.applyGatewayPaymentSuccess(cancelled.getId(), OrderPaymentMethod.VNPAY,
-                    "Hoàn tiền VNPay về muộn");
+            String txnRef = "SUB-late";
+            MembershipPayment payment = MembershipPayment.builder()
+                    .subscription(cancelled).status(PaymentStatus.PENDING).build();
+            when(membershipPaymentRepository.findByVnpTxnRef(txnRef)).thenReturn(Optional.of(payment));
+
+            assertThat(service.applyVnPayResult(txnRef, "00", "123")).isTrue();
+            assertThat(service.applyVnPayResult(txnRef, "00", "123")).isTrue();
 
             assertThat(cancelled.getStatus()).isEqualTo(SubscriptionStatus.CANCELLED);
             assertThat(wallet.getBalance()).isEqualByComparingTo("559000");

@@ -16,21 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Đếm + trừ quota thử đồ AI real-time trong một bean riêng, TÁCH khỏi {@code LiveTryOnServiceImpl}:
- * method {@code @Transactional} chỉ có hiệu lực khi được gọi qua proxy Spring, tức là qua một bean
- * KHÁC - gọi {@code this.method()} trong cùng class (self-invocation) sẽ bỏ qua proxy và chạy không
- * transaction. Tách ra đây để {@link #reserve} thực sự atomic.
- *
- * <p><b>Hạn mức đọc theo gói thành viên</b> ({@link MembershipQuotaResolver}), không còn
- * {@code @Value("${tryon.live.daily-limit}")}: Admin sửa số lượt ở màn W-01 và người đã mua gói
- * giữ snapshot của mình. Hạn mức chính là <b>theo NGÀY</b> (reset 00:00 giờ VN); trần theo tháng là
- * tùy chọn, seed {@code null} nên mặc định không chặn.
- *
- * <p>Vẫn không chặn 100% race nếu cùng 1 account bắn 2 request start gần như đồng thời (đếm xong
- * ở 2 transaction song song trước khi transaction nào kịp insert) - chấp nhận cho MVP, lệch tối
- * đa 1 lượt, không cần thêm bảng counter riêng + khoá dòng.
- */
+/** Confirms live try-on usage when the member receives the first frame. */
 @Component
 @RequiredArgsConstructor
 public class LiveTryOnQuotaGuard {
@@ -38,6 +24,10 @@ public class LiveTryOnQuotaGuard {
     private final LiveTryOnSessionRepository liveTryOnSessionRepository;
     private final MembershipQuotaResolver quotaResolver;
     private final MemberProfileRepository memberProfileRepository;
+    private final com.rehome.rehome.repository.AccountRepository accountRepository;
+
+    @org.springframework.beans.factory.annotation.Value("${tryon.live.max-unconfirmed-per-day:5}")
+    private int maxUnconfirmedPerDay = 5;
 
     /** Ảnh chụp hạn mức + số đã dùng của một account, đủ để dựng response GET /tryon/live/quota. */
     public record Usage(
@@ -74,12 +64,12 @@ public class LiveTryOnQuotaGuard {
 
     public long countToday(UUID memberId) {
         VnTimeWindow.Window w = VnTimeWindow.today();
-        return liveTryOnSessionRepository.countByMember_IdAndCreatedAtBetween(memberId, w.from(), w.to());
+        return liveTryOnSessionRepository.countByMember_IdAndFirstFrameAtGreaterThanEqualAndFirstFrameAtLessThan(memberId, w.from(), w.to());
     }
 
     public long countThisMonth(UUID memberId) {
         VnTimeWindow.Window w = VnTimeWindow.thisMonth();
-        return liveTryOnSessionRepository.countByMember_IdAndCreatedAtBetween(memberId, w.from(), w.to());
+        return liveTryOnSessionRepository.countByMember_IdAndFirstFrameAtGreaterThanEqualAndFirstFrameAtLessThan(memberId, w.from(), w.to());
     }
 
     /** Hạng thấp nhất có hạn mức real-time cao hơn hạng hiện tại; null = đã cao nhất. */
@@ -88,18 +78,18 @@ public class LiveTryOnQuotaGuard {
                 MembershipPlan::getLiveTryonPerDay);
     }
 
-    // Đây là nơi quota THỰC SỰ bị trừ: tạo row STARTED ngay trước khi gọi Decart mint token,
-    // không đợi mobile xác nhận kết nối camera thành công (xem DecartVtonClient).
     @Transactional
     public LiveTryOnSession reserve(Account account, Product product, String modelId) {
-        Usage usage = usage(account.getId());
-        if (!usage.withinPlanQuota()) {
-            // Hết quota gói: trả bằng 1 lượt thưởng. UPDATE nguyên tử nên hai request đồng thời
-            // không cùng dùng lượt cuối; cùng transaction với việc tạo session nên lỗi ghi session
-            // thì lượt thưởng cũng được hoàn.
-            if (memberProfileRepository.consumeLiveTryonCredit(account.getId()) == 0) {
-                throw new AppException(ErrorCode.TRYON_LIVE_QUOTA_EXCEEDED);                         // 429
-            }
+        lockMember(account.getId());
+        if (!usage(account.getId()).canStart()) {
+            throw new AppException(ErrorCode.TRYON_LIVE_QUOTA_EXCEEDED);
+        }
+        VnTimeWindow.Window today = VnTimeWindow.today();
+        long unconfirmed = liveTryOnSessionRepository
+                .countByMember_IdAndFirstFrameAtIsNullAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                        account.getId(), today.from(), today.to());
+        if (unconfirmed >= maxUnconfirmedPerDay) {
+            throw new AppException(ErrorCode.TRYON_LIVE_UNCONFIRMED_LIMIT);
         }
         return liveTryOnSessionRepository.save(LiveTryOnSession.builder()
                 .member(account)
@@ -107,5 +97,28 @@ public class LiveTryOnQuotaGuard {
                 .modelId(modelId)
                 .status(LiveTryOnStatus.STARTED)
                 .build());
+    }
+
+    @Transactional
+    public void confirmFirstFrame(Account account, UUID sessionId) {
+        lockMember(account.getId());
+        LiveTryOnSession session = liveTryOnSessionRepository.findByIdAndMember_Id(sessionId, account.getId())
+                .orElseThrow(() -> new AppException(ErrorCode.TRYON_LIVE_SESSION_NOT_FOUND));
+        if (session.getFirstFrameAt() != null) {
+            return;
+        }
+        if (session.getStatus() == LiveTryOnStatus.FAILED) {
+            throw new AppException(ErrorCode.TRYON_LIVE_SESSION_ALREADY_FINISHED);
+        }
+        if (!usage(account.getId()).withinPlanQuota()
+                && memberProfileRepository.consumeLiveTryonCredit(account.getId()) == 0) {
+            throw new AppException(ErrorCode.TRYON_LIVE_QUOTA_EXCEEDED);
+        }
+        session.setFirstFrameAt(java.time.Instant.now());
+    }
+
+    private void lockMember(UUID memberId) {
+        accountRepository.findByIdForUpdate(memberId)
+                .orElseThrow(() -> new AppException(ErrorCode.UNAUTHORIZED));
     }
 }

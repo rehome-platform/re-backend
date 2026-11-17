@@ -63,6 +63,8 @@ import static org.mockito.Mockito.when;
 class VnPayServiceImplTest {
 
     @Mock VnPayApi vnPayApi;
+    @Mock com.rehome.rehome.repository.MembershipPaymentRepository membershipPaymentRepository;
+    @Mock com.rehome.rehome.service.MembershipService membershipService;
     @Mock OrderRepository orderRepository;
     @Mock PaymentRepository paymentRepository;
     @Mock OrderService orderService;
@@ -89,6 +91,35 @@ class VnPayServiceImplTest {
     UUID orderId2;
     Order order1;
     Order order2;
+
+    @Test
+    void membershipStatusReconcilesVerifiedVnPayResult() {
+        UUID paymentId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        var subscription = com.rehome.rehome.entity.membership.MemberSubscription.builder()
+                .id(UUID.randomUUID()).build();
+        var payment = com.rehome.rehome.entity.membership.MembershipPayment.builder()
+                .id(paymentId).subscription(subscription).status(PaymentStatus.PENDING)
+                .vnpTxnRef("SUB-1").vnpCreateDate("20261117090000").amount(new BigDecimal("59000")).build();
+        when(membershipPaymentRepository.findByIdAndMember_Id(paymentId, memberId)).thenReturn(Optional.of(payment));
+
+        String fields = String.join("|", "response-1", "querydr", "00", "OK", TMN_CODE, "SUB-1",
+                "5900000", "NCB", "20261117090100", "1234", "01", "00", "Membership", "", "");
+        QueryVnPayResponse response = QueryVnPayResponse.builder()
+                .responseId("response-1").command("querydr").responseCode("00").message("OK").tmnCode(TMN_CODE)
+                .txnRef("SUB-1").amount(5900000L).bankCode("NCB").payDate("20261117090100")
+                .transactionNo("1234").transactionType("01").transactionStatus("00").orderInfo("Membership")
+                .secureHash(com.rehome.rehome.util.GatewaySignature.hmacSHA512(HASH_SECRET, fields)).build();
+        when(vnPayApi.queryTransaction(any())).thenReturn(response);
+        when(membershipService.applyVnPayResult("SUB-1", "00", "1234")).thenAnswer(call -> {
+            payment.setStatus(PaymentStatus.SUCCESS);
+            return true;
+        });
+
+        assertThat(vnPayService.checkMembershipPayment(memberId, paymentId).paymentStatus())
+                .isEqualTo(PaymentStatus.SUCCESS);
+        verify(membershipService).applyVnPayResult("SUB-1", "00", "1234");
+    }
 
     @BeforeEach
     void setup() {

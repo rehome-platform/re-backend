@@ -92,6 +92,9 @@ public class MemberVoucher {
     @Column(name = "used_at", nullable = true)
     private Instant usedAt;
 
+    @Column(name = "reminded_at")
+    private Instant remindedAt;
+
     @PrePersist
     private void onCreate() {
         if (issuedAt == null) issuedAt = Instant.now();

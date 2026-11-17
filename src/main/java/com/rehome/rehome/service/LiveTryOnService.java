@@ -17,6 +17,8 @@ public interface LiveTryOnService {
 
     LiveTryOnSessionResponse startSession(Account account, StartLiveTryOnRequest request);
 
+    void confirmFirstFrame(Account account, UUID sessionId);
+
     void completeSession(Account account, UUID sessionId, CompleteLiveTryOnRequest request);
 
     LiveTryOnSessionVideoResponse uploadVideo(Account account, UUID sessionId, MultipartFile video);

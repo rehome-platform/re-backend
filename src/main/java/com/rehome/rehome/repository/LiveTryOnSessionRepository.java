@@ -17,7 +17,11 @@ public interface LiveTryOnSessionRepository extends JpaRepository<LiveTryOnSessi
     // Quota 2 lượt/ngày: đếm số phiên đã mint token trong khoảng [startOfDay, endOfDay) giờ VN.
     // Biết trước: đếm-rồi-lưu không atomic 100% nếu cùng 1 account bắn 2 request start gần như
     // đồng thời (race hiếm, lệch tối đa 1 lượt). Chấp nhận cho MVP thay vì thêm bảng counter riêng.
-    long countByMember_IdAndCreatedAtBetween(UUID memberId, Instant startOfDay, Instant endOfDay);
+    long countByMember_IdAndFirstFrameAtGreaterThanEqualAndFirstFrameAtLessThan(
+            UUID memberId, Instant from, Instant to);
+
+    long countByMember_IdAndFirstFrameAtIsNullAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+            UUID memberId, Instant from, Instant to);
 
     Optional<LiveTryOnSession> findByIdAndMember_Id(UUID id, UUID memberId);
 

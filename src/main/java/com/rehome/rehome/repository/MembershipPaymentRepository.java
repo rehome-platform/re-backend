@@ -13,7 +13,19 @@ public interface MembershipPaymentRepository extends JpaRepository<MembershipPay
     List<MembershipPayment> findAllBySubscription_IdOrderByCreatedAtAsc(UUID subscriptionId);
 
 
+    @org.springframework.data.jpa.repository.Query("""
+            select sum(p.amount) from MembershipPayment p
+            where p.subscription.id = :subscriptionId
+              and p.status = com.rehome.rehome.entity.enums.PaymentStatus.SUCCESS
+            """)
+    Optional<java.math.BigDecimal> sumSuccessfulPayments(
+            @org.springframework.data.repository.query.Param("subscriptionId") UUID subscriptionId);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     Optional<MembershipPayment> findByVnpTxnRef(String vnpTxnRef);
+
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "subscription")
+    Optional<MembershipPayment> findByIdAndMember_Id(UUID id, UUID memberId);
 
     // Lịch sử mua gói của Member: mỗi lần mua là một dòng, mới nhất trước
     @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"subscription", "subscription.plan"})

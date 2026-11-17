@@ -26,6 +26,7 @@ import lombok.NoArgsConstructor;
 public class SubscribeMembershipResponse {
 
     private String subscriptionId;
+    private java.util.UUID paymentId;
     private SubscriptionStatus status;
     private MembershipTier tier;
     private String tierName;

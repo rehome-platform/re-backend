@@ -33,8 +33,6 @@ public interface ItemWithdrawalRequestRepository extends JpaRepository<ItemWithd
     @Query("select r from ItemWithdrawalRequest r where r.id = :id")
     Optional<ItemWithdrawalRequest> findByIdForUpdate(@Param("id") UUID id);
 
-    // API 91 (F-033) - map IPN MoMo/VNPay về đúng yêu cầu rút hàng khi không khớp Payment nào
-    Optional<ItemWithdrawalRequest> findByMomoOrderId(String momoOrderId);
 
     Optional<ItemWithdrawalRequest> findByVnpTxnRef(String vnpTxnRef);
 

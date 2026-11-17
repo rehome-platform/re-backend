@@ -2,6 +2,7 @@ package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.component.DashboardExcelWriter;
 import com.rehome.rehome.dto.response.AdminDashboardResponse;
+import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.AdminDashboardQueryRepository;
@@ -17,6 +18,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -43,6 +45,30 @@ class AdminDashboardServiceImplTest {
         when(queryRepository.sumWithdrawalFeeRevenue(any(), any())).thenReturn(new BigDecimal(withdrawalFee));
         when(queryRepository.sumDegradedCompensation(any(), any())).thenReturn(new BigDecimal(compensation));
         when(queryRepository.sumPlatformFundBalance()).thenReturn(BigDecimal.ZERO);
+        when(queryRepository.sumHeldOrderAmount()).thenReturn(BigDecimal.ZERO);
+    }
+
+    @Test
+    @DisplayName("getDashboard: tiền đang giữ hộ (đơn đã trả chưa hoàn tất) và tồn kho theo trạng thái")
+    void getDashboard_heldOrdersAndStockByStatus() {
+        stubScalars("0", "0", "0");
+        when(queryRepository.sumHeldOrderAmount()).thenReturn(new BigDecimal("1250000.4"));
+        when(queryRepository.countHeldOrders()).thenReturn(5L);
+        when(queryRepository.sumCompletedSalesByTerm(any(), any())).thenReturn(List.of());
+        when(queryRepository.countStockedProductsByTerm()).thenReturn(Map.of());
+        Map<ProductStatus, Long> byStatus = new LinkedHashMap<>();
+        byStatus.put(ProductStatus.ON_SALE, 10L);
+        byStatus.put(ProductStatus.RESERVED, 2L);
+        byStatus.put(ProductStatus.WAREHOUSE, 0L);
+        when(queryRepository.countStockedProductsByStatus()).thenReturn(byStatus);
+
+        AdminDashboardResponse r = service.getDashboard(null, null);
+
+        assertThat(r.getHeldOrderAmount()).isEqualTo(1250000);
+        assertThat(r.getHeldOrderCount()).isEqualTo(5);
+        // Khóa là tên enum, giữ nguyên thứ tự và cả trạng thái đang bằng 0
+        assertThat(r.getStockByStatus()).containsExactly(
+                Map.entry("ON_SALE", 10L), Map.entry("RESERVED", 2L), Map.entry("WAREHOUSE", 0L));
     }
 
     @Test

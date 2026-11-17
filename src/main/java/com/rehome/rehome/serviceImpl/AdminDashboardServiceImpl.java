@@ -3,7 +3,12 @@ package com.rehome.rehome.serviceImpl;
 import com.rehome.rehome.component.DashboardExcelWriter;
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.response.AdminDashboardResponse;
+import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.Role;
+import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.AdminDashboardQueryRepository;
+import com.rehome.rehome.repository.AdminReportQueryRepository;
+import com.rehome.rehome.service.AccountGrowthService;
 import com.rehome.rehome.service.AdminDashboardService;
 import com.rehome.rehome.service.SystemConfigReader;
 import com.rehome.rehome.util.AdminDateRange;
@@ -16,6 +21,7 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -26,6 +32,9 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     private static final DateTimeFormatter MONTH_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM");
 
     private final AdminDashboardQueryRepository queryRepository;
+    private final AdminReportQueryRepository reportRepository;
+    private final AccountRepository accountRepository;
+    private final AccountGrowthService accountGrowthService;
     private final SystemConfigReader systemConfigReader;
     private final DashboardExcelWriter excelWriter;
 
@@ -38,11 +47,30 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
 
     @Override
     @Transactional(readOnly = true)
-    public DashboardExport export(String from, String to) {
+    public DashboardExport export(String from, String to, String sections) {
         AdminDateRange range = AdminDateRange.required(from, to);
+        ExportSections selected = ExportSections.parse(sections);
 
-        byte[] content = excelWriter.write(snapshot(range.from(), range.to()), range.fromDate(), range.toDate());
+        UsersExportData usersData = selected.users() ? usersExportData(range.fromDate(), range.toDate()) : null;
+        List<AdminReportQueryRepository.SoldItemRow> soldItems =
+                reportRepository.findAllSoldItems(range.from(), range.to());
+
+        byte[] content = excelWriter.write(snapshot(range.from(), range.to()), selected, usersData, soldItems,
+                range.fromDate(), range.toDate());
         return new DashboardExport("dashboard_report_" + range.fromDate().format(MONTH_FORMAT) + ".xlsx", content);
+    }
+
+    // Đếm tài khoản theo vai trò là giá trị hiện tại (giống 3 thẻ ở tab Người dùng); tài khoản mới đếm
+    // trong đúng khoảng xuất (giống "Tài khoản mới theo chu kỳ"); granularity không ảnh hưởng tới tổng.
+    private UsersExportData usersExportData(java.time.LocalDate fromDate, java.time.LocalDate toDate) {
+        long newAccounts = accountGrowthService
+                .growth(fromDate.toString(), toDate.toString(), "month", null)
+                .getTotal();
+        return new UsersExportData(
+                accountRepository.countByRole(Role.MEMBER),
+                accountRepository.countByRole(Role.ORGANIZATION),
+                accountRepository.countByRole(Role.MODERATOR),
+                newAccounts);
     }
 
     // Doanh thu, số đơn, điểm đánh giá, doanh thu nền tảng lọc theo [from, to);
@@ -82,6 +110,9 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .withdrawalFeeRevenue(withdrawalFeeRevenue)
                 .compensationExpense(compensationExpense)
                 .fundBalance(toLong(queryRepository.sumPlatformFundBalance()))
+                .heldOrderAmount(toLong(queryRepository.sumHeldOrderAmount()))
+                .heldOrderCount(queryRepository.countHeldOrders())
+                .stockByStatus(stockByStatusName(queryRepository.countStockedProductsByStatus()))
                 .overdueTaskCount(queryRepository.countQueueItemsCreatedBefore(overdueBefore))
                 .term1SalesRevenue(toLong(salesOfTerm(termSales, 1)))
                 .term1Commission(toLong(commissionOfTerm(termSales, 1)))
@@ -95,6 +126,13 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .totalSoldItemsCount(totalSoldItemsCount)
                 .netProfitMarginPercent(netProfitMarginPercent(BigDecimal.valueOf(platformRevenue), totalSalesRevenue))
                 .build();
+    }
+
+    // Khóa theo tên enum (ON_SALE, RESERVED, ...) để FE tự gắn nhãn; giữ nguyên thứ tự repository trả về
+    private static Map<String, Long> stockByStatusName(Map<ProductStatus, Long> byStatus) {
+        Map<String, Long> result = new LinkedHashMap<>();
+        byStatus.forEach((status, count) -> result.put(status.name(), count));
+        return result;
     }
 
     private static BigDecimal salesOfTerm(List<AdminDashboardQueryRepository.TermSales> rows, int term) {

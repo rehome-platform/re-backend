@@ -12,8 +12,6 @@ public interface MembershipPaymentRepository extends JpaRepository<MembershipPay
 
     List<MembershipPayment> findAllBySubscription_IdOrderByCreatedAtAsc(UUID subscriptionId);
 
-    // IPN MoMo route theo tiền tố SUB- rồi tra dòng này (xem MembershipGatewayRouter)
-    Optional<MembershipPayment> findByMomoOrderId(String momoOrderId);
 
     Optional<MembershipPayment> findByVnpTxnRef(String vnpTxnRef);
 

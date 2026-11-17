@@ -27,6 +27,7 @@ import com.rehome.rehome.repository.ModeratorProfileRepository;
 import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.service.AccountAdminService;
 import com.rehome.rehome.service.RefreshTokenService;
+import com.rehome.rehome.util.AdminDateRange;
 import com.rehome.rehome.util.PhoneNumbers;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -68,6 +69,7 @@ public class AccountAdminServiceImpl implements AccountAdminService {
     @Override
     @Transactional(readOnly = true)
     public PageResponse<AdminAccountResponse> search(String search, Role role, AccountStatus status,
+                                                     String from, String to,
                                                      String sortBy, String sortDir, int page, int size) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
@@ -76,8 +78,9 @@ public class AccountAdminServiceImpl implements AccountAdminService {
         String keyword = PhoneNumbers.toSearchKeyword(search == null ? "" : search.trim().toLowerCase(Locale.ROOT));
         // Không dùng param null cho chuỗi (Postgres không suy ra được kiểu): "%" = khớp tất cả
         String pattern = "%" + keyword + "%";
+        AdminDateRange range = AdminDateRange.optional(from, to);
 
-        Page<Account> result = accountRepository.searchForAdmin(role, status, pattern,
+        Page<Account> result = accountRepository.searchForAdmin(role, status, pattern, range.from(), range.to(),
                 PageRequest.of(safePage, safeSize, buildSort(sortBy, sortDir)));
 
         List<UUID> ids = result.getContent().stream().map(Account::getId).toList();

@@ -35,7 +35,7 @@ public class ItemWithdrawalDetailResponse {
     /** true khi không còn gì phải trả: phí bằng 0, hoặc đã thanh toán xong */
     private boolean feePaid;
 
-    /** WALLET / MOMO / VNPAY; null khi chưa trả hoặc không phải trả */
+    /** WALLET / VNPAY; null khi chưa trả hoặc không phải trả */
     private String paymentMethod;
 
     private Instant pickupDeadline;

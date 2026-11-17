@@ -103,7 +103,7 @@ public class Order {
     @Column(name = "total_amount", nullable = false, precision = 19, scale = 2)
     private BigDecimal totalAmount;
 
-    // WALLET / MOMO — chọn một, không trả nửa ví nửa MoMo
+    // WALLET / VNPAY — chọn một, không trả nửa ví nửa cổng
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_method", nullable = false)
     private OrderPaymentMethod paymentMethod;

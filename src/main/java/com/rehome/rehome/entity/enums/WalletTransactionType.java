@@ -14,7 +14,7 @@ public enum WalletTransactionType {
     MEMBERSHIP_PURCHASE,
 
     // Nền tảng thu tiền bán gói thành viên (dương, bên PLATFORM). Trả bằng ví thì đây là dòng
-    // đối ứng của MEMBERSHIP_PURCHASE; trả bằng MoMo/VNPay thì đây là dòng ghi nhận doanh thu
+    // đối ứng của MEMBERSHIP_PURCHASE; trả bằng VNPay thì đây là dòng ghi nhận doanh thu
     // duy nhất (tiền đi từ ngoài vào, bên MEMBER không có bút toán nào).
     MEMBERSHIP_REVENUE,
 

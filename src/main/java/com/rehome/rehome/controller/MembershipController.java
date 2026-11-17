@@ -55,7 +55,7 @@ public class MembershipController {
 
     @PostMapping("/subscribe")
     @PreAuthorize("hasRole('MEMBER')")
-    @Operation(summary = "Mua / gia hạn gói. Ví kích hoạt ngay; MoMo/VNPay trả payUrl và chờ IPN")
+    @Operation(summary = "Mua / gia hạn gói. Ví kích hoạt ngay; VNPay trả payUrl và chờ IPN")
     public ResponseEntity<ApiResponse<SubscribeMembershipResponse>> subscribe(
             @AuthenticationPrincipal Account account,
             @RequestBody SubscribeMembershipRequest request) {

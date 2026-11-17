@@ -18,9 +18,9 @@ public class SubscribeMembershipRequest {
     // MONTHLY / YEARLY. Chọn YEARLY mà gói không có pricePerYear -> 400 MEMBERSHIP_PLAN_YEARLY_NOT_AVAILABLE
     private BillingCycle billingCycle;
 
-    // WALLET / MOMO / VNPAY
+    // WALLET / VNPAY
     private OrderPaymentMethod paymentMethod;
 
-    // Chỉ bắt buộc khi paymentMethod là MOMO/VNPAY - nơi cổng redirect về sau khi trả tiền
+    // Chỉ bắt buộc khi paymentMethod là VNPAY - nơi cổng redirect về sau khi trả tiền
     private String redirectUrl;
 }

@@ -4,6 +4,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.util.Map;
+
 /** API 147 - F-158. Tiền tính bằng đồng (VND), làm tròn về số nguyên. */
 @Getter
 @Builder
@@ -31,6 +33,14 @@ public class AdminDashboardResponse {
     private final long compensationExpense;
     // Số dư quỹ nền tảng
     private final long fundBalance;
+    // Tiền các đơn đã thanh toán nhưng chưa hoàn tất (PAID, PACKING, SHIPPING, DELIVERED): nền tảng đang
+    // giữ, chưa trả người bán, chưa hoàn người mua. Luôn là giá trị hiện tại
+    private final long heldOrderAmount;
+    // Số đơn tạo nên heldOrderAmount
+    private final long heldOrderCount;
+    // Số món trong kho theo từng trạng thái tồn kho (trạng thái không có hàng = 0), tổng = inventoryCount.
+    // Luôn là giá trị hiện tại
+    private final Map<String, Long> stockByStatus;
     // Số việc trong hàng đợi Moderator đã quá hạn
     private final long overdueTaskCount;
 

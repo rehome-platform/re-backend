@@ -73,6 +73,15 @@ public class VnPayController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
+    @GetMapping("membership/status/{paymentId}")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<com.rehome.rehome.dto.response.MembershipPaymentStatusResponse>>
+    checkMembershipPayment(@PathVariable UUID paymentId,
+            @org.springframework.security.core.annotation.AuthenticationPrincipal
+            com.rehome.rehome.entity.auth.Account account) {
+        return ResponseEntity.ok(ApiResponse.success(vnPayService.checkMembershipPayment(account.getId(), paymentId)));
+    }
+
     private String clientIp(HttpServletRequest request) {
         String forwarded = request.getHeader("X-Forwarded-For");
         if (StringUtils.hasText(forwarded)) {

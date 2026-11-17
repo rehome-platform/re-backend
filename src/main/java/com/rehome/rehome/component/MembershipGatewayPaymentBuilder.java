@@ -43,7 +43,7 @@ public class MembershipGatewayPaymentBuilder {
 
     // Link thanh toán gói sống 15 phút: đủ để mở app cổng và trả tiền, và nếu bỏ giữa đường thì
     // subscription PENDING_PAYMENT không treo quá lâu chặn lần mua sau (MEMBERSHIP_PAYMENT_PENDING).
-    private static final int PAY_LINK_MINUTES = 15;
+    public static final int PAY_LINK_MINUTES = 15;
 
     @Value("${vnpay.tmn-code}")
     private String vnpTmnCode;

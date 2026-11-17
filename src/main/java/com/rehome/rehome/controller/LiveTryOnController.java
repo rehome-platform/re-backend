@@ -77,6 +77,15 @@ public class LiveTryOnController {
     }
 
     // Mobile tự báo khi không có video (vd. mất kết nối giữa chừng) - chỉ để audit, không hoàn quota
+    @PatchMapping("/sessions/{id}/started")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<Void>> confirmFirstFrame(
+            @PathVariable UUID id, @AuthenticationPrincipal Account account) {
+        requireAccount(account);
+        liveTryOnService.confirmFirstFrame(account, id);
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
     @PatchMapping("/sessions/{id}/complete")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<Void>> completeSession(

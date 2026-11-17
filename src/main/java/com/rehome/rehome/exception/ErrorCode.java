@@ -7,6 +7,9 @@ import org.springframework.http.HttpStatus;
 @Getter
 @RequiredArgsConstructor
 public enum ErrorCode {
+    RECEIPT_NOT_EDITABLE(HttpStatus.CONFLICT, "Biên nhận không thể sửa hoặc huỷ ở trạng thái hiện tại."),
+    RECEIPT_CHANGED(HttpStatus.CONFLICT, "Biên nhận đã thay đổi. Vui lòng tải lại."),
+    RECEIPT_HAS_PRODUCT(HttpStatus.CONFLICT, "Biên nhận đã nhập kho, không thể huỷ."),
     ACCOUNT_BANNED(HttpStatus.FORBIDDEN, "Tài khoản đã bị khoá!"),
     EMAIL_NOT_VERIFIED(HttpStatus.FORBIDDEN, "Tài khoản chưa xác thực email. Vui lòng kiểm tra hộp thư."),
     WRONG_PASSWORD(HttpStatus.BAD_REQUEST, "Mật khẩu cũ không đúng."),

@@ -198,6 +198,17 @@ class CounterServiceImplTest {
     }
 
     @Test
+    void lookup_byAppQr_decodesMemberCode() {
+        when(memberProfileRepository.findByMemberCode("MB-000123"))
+                .thenReturn(Optional.of(profile(memberId, "MB-000123")));
+
+        List<MemberLookupItemResponse> result = service.lookup(moderatorWithWarehouse, lookupRequest(null, null, "REHOME:MEMBER:v1:MB-000123"));
+
+        assertThat(result).hasSize(1);
+        verify(memberProfileRepository).findByMemberCode("MB-000123");
+    }
+
+    @Test
     @DisplayName("lookup: Moderator chưa gán kho -> MODERATOR_NO_WAREHOUSE, không truy vấn Member")
     void lookup_moderatorWithoutWarehouse_throws() {
         assertErrorCode(() -> service.lookup(moderator, lookupRequest("MB-000123", null, null)),

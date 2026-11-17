@@ -27,13 +27,21 @@ public interface CommunityPostRepository extends JpaRepository<CommunityPost, UU
     Page<CommunityPost> findByReviewStatus(com.rehome.rehome.entity.enums.ContentReviewStatus reviewStatus,
                                      Pageable pageable);
 
-    Page<CommunityPost> findByOrganization_AccountIdAndStatus(UUID organizationId, ContentStatus status, Pageable pageable);
+    @Query("select p from CommunityPost p where p.organization.accountId = :organizationId and p.status = :status "
+            + "and p.organization.account.status <> com.rehome.rehome.entity.enums.AccountStatus.BANNED")
+    Page<CommunityPost> findByOrganization_AccountIdAndStatus(@Param("organizationId") UUID organizationId,
+                                                           @Param("status") ContentStatus status, Pageable pageable);
 
-    Page<CommunityPost> findByOrganization_AccountIdInAndStatus(Collection<UUID> organizationIds, ContentStatus status, Pageable pageable);
+    @Query("select p from CommunityPost p where p.organization.accountId in :organizationIds and p.status = :status "
+            + "and p.organization.account.status <> com.rehome.rehome.entity.enums.AccountStatus.BANNED")
+    Page<CommunityPost> findByOrganization_AccountIdInAndStatus(@Param("organizationIds") Collection<UUID> organizationIds,
+                                                             @Param("status") ContentStatus status, Pageable pageable);
 
     // F-107: bài viết của chính tổ chức đang đăng nhập
     Page<CommunityPost> findByOrganization_AccountId(UUID organizationId, Pageable pageable);
 
     // scope=ALL (newsfeed xuyên tổ chức, Guest xem được)
-    Page<CommunityPost> findByStatus(ContentStatus status, Pageable pageable);
+    @Query("select p from CommunityPost p where p.status = :status "
+            + "and p.organization.account.status <> com.rehome.rehome.entity.enums.AccountStatus.BANNED")
+    Page<CommunityPost> findByStatus(@Param("status") ContentStatus status, Pageable pageable);
 }

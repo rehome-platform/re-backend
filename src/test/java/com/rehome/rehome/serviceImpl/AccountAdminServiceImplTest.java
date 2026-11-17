@@ -226,7 +226,7 @@ class AccountAdminServiceImplTest {
     void unban_success() {
         target.setStatus(AccountStatus.BANNED);
         target.setBanReason("Spam");
-        when(accountRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.of(target));
 
         AccountStatusResponse response = service.unban(admin, targetId);
 
@@ -244,7 +244,7 @@ class AccountAdminServiceImplTest {
     void unban_writesAuditLogWithPreviousReason() {
         target.setStatus(AccountStatus.BANNED);
         target.setBanReason("Spam");
-        when(accountRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.of(target));
 
         service.unban(admin, targetId);
 
@@ -265,7 +265,7 @@ class AccountAdminServiceImplTest {
     void unban_doesNotRevokeTokens() {
         target.setStatus(AccountStatus.BANNED);
         target.setBanReason("Spam");
-        when(accountRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.of(target));
 
         service.unban(admin, targetId);
 
@@ -275,7 +275,7 @@ class AccountAdminServiceImplTest {
     @Test
     @DisplayName("unban: tài khoản không tồn tại -> ACCOUNT_NOT_FOUND")
     void unban_targetNotFound_throws() {
-        when(accountRepository.findById(targetId)).thenReturn(Optional.empty());
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.empty());
 
         assertAppError(() -> service.unban(admin, targetId), ErrorCode.ACCOUNT_NOT_FOUND);
 
@@ -286,7 +286,7 @@ class AccountAdminServiceImplTest {
     @Test
     @DisplayName("unban: tài khoản đang ACTIVE (không bị khoá) -> ACCOUNT_NOT_BANNED")
     void unban_notBanned_throws() {
-        when(accountRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.of(target));
 
         assertAppError(() -> service.unban(admin, targetId), ErrorCode.ACCOUNT_NOT_BANNED);
 

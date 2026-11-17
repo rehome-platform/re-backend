@@ -4,7 +4,6 @@ import com.rehome.rehome.dto.request.CreateCampaignDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateDonationNoteRequest;
 import com.rehome.rehome.dto.request.CreateDonationRequest;
 import com.rehome.rehome.dto.request.HandoverDonationsRequest;
-import com.rehome.rehome.dto.request.TransferDonationsRequest;
 import com.rehome.rehome.entity.enums.AccountStatus;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.dto.response.DonationHandoverResponse;
@@ -141,7 +140,7 @@ class DonationServiceImplTest {
     }
 
     @Test
-    void transferHeldDonation_assignsNewCampaignAndReturnsToPickup() {
+    void reassignDonation_assignsNewCampaignAndReturnsToPickup() {
         UUID warehouseId = UUID.randomUUID();
         Warehouse warehouse = Warehouse.builder().id(warehouseId).name("Kho").build();
         Campaign original = campaignServingWarehouse(UUID.randomUUID(), warehouseId);
@@ -151,17 +150,22 @@ class DonationServiceImplTest {
         recipient.setVerificationStatus(VerificationStatus.VERIFIED);
         recipient.getAccount().setStatus(AccountStatus.ACTIVE);
         Donation donation = Donation.builder().id(UUID.randomUUID()).warehouse(warehouse).campaign(original)
-                .status(DonationStatus.HELD_FOR_TRANSFER).build();
+                .status(DonationStatus.ON_HOLD).build();
         when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
-        when(organizationProfileRepository.findById(recipient.getAccountId())).thenReturn(Optional.of(recipient));
         when(accountRepository.findByIdForUpdate(recipient.getAccountId())).thenReturn(Optional.of(recipient.getAccount()));
+        when(campaignRepository.findOrganizationId(destination.getId())).thenReturn(Optional.of(recipient.getAccountId()));
         when(campaignRepository.findByIdForUpdate(destination.getId())).thenReturn(Optional.of(destination));
         when(donationRepository.findByIdInAndWarehouse_Id(List.of(donation.getId()), warehouseId))
                 .thenReturn(List.of(donation));
 
-        List<DonationResponse> response = service.transferHeldDonations(moderator(warehouseId), warehouseId,
-                new TransferDonationsRequest(recipient.getAccountId(), destination.getId(),
-                        List.of(donation.getId().toString())));
+        Account actor = moderator(warehouseId);
+        List<DonationResponse> response = service.reassignDonations(actor, warehouseId,
+                List.of(donation.getId().toString()), destination.getId());
+
+        assertThat(donation.getReassignedFromCampaign()).isSameAs(original);
+        assertThat(donation.getReassignedBy()).isSameAs(actor);
+        assertThat(donation.getReassignedAt()).isNotNull();
+        verify(queueService).dequeue(QueueType.DONATION_REASSIGN, donation.getId().toString());
 
         assertThat(donation.getCampaign()).isSameAs(destination);
         assertThat(donation.getStatus()).isEqualTo(DonationStatus.PENDING_PICKUP);
@@ -169,6 +173,57 @@ class DonationServiceImplTest {
             assertThat(item.getOrganizationId()).isEqualTo(recipient.getAccountId().toString());
             assertThat(item.getPhotoUrls()).isEmpty();
         });
+    }
+
+    @Test
+    void reassignDonation_rejectsMixedBatchWithoutChangingAnyDonation() {
+        UUID warehouseId = UUID.randomUUID();
+        Warehouse warehouse = Warehouse.builder().id(warehouseId).build();
+        Campaign original = campaignServingWarehouse(UUID.randomUUID(), warehouseId);
+        Campaign destination = campaignServingWarehouse(UUID.randomUUID(), warehouseId);
+        destination.setEndTime(Instant.now().plusSeconds(3600));
+        OrganizationProfile recipient = destination.getOrganization();
+        recipient.setVerificationStatus(VerificationStatus.VERIFIED);
+        recipient.getAccount().setStatus(AccountStatus.ACTIVE);
+        Donation held = Donation.builder().id(UUID.randomUUID()).warehouse(warehouse).campaign(original)
+                .status(DonationStatus.ON_HOLD).build();
+        Donation pending = Donation.builder().id(UUID.randomUUID()).warehouse(warehouse).campaign(original).build();
+        when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
+        when(campaignRepository.findOrganizationId(destination.getId())).thenReturn(Optional.of(recipient.getAccountId()));
+        when(accountRepository.findByIdForUpdate(recipient.getAccountId())).thenReturn(Optional.of(recipient.getAccount()));
+        when(campaignRepository.findByIdForUpdate(destination.getId())).thenReturn(Optional.of(destination));
+        when(donationRepository.findByIdInAndWarehouse_Id(List.of(held.getId(), pending.getId()), warehouseId))
+                .thenReturn(List.of(held, pending));
+
+        assertThatThrownBy(() -> service.reassignDonations(moderator(warehouseId), warehouseId,
+                List.of(held.getId().toString(), pending.getId().toString()), destination.getId()))
+                .isInstanceOf(ConflictException.class);
+
+        assertThat(held.getStatus()).isEqualTo(DonationStatus.ON_HOLD);
+        assertThat(held.getCampaign()).isSameAs(original);
+        assertThat(pending.getCampaign()).isSameAs(original);
+        verifyNoInteractions(queueService, notificationService, auditLogger);
+    }
+
+    @Test
+    void holdCampaignDonations_createsReassignWorkAndNotifiesConsignedDonor() {
+        UUID warehouseId = UUID.randomUUID();
+        Campaign campaign = campaignServingWarehouse(UUID.randomUUID(), warehouseId);
+        Account donor = Account.builder().id(UUID.randomUUID()).build();
+        Donation donation = Donation.builder().id(UUID.randomUUID()).campaign(campaign)
+                .warehouse(Warehouse.builder().id(warehouseId).build())
+                .source(DonationSource.CONSIGNED_ITEM)
+                .product(Product.builder().id("SKU1").member(donor).build()).build();
+        when(donationRepository.findForCampaignByStatus(campaign.getId(), DonationStatus.PENDING_PICKUP))
+                .thenReturn(List.of(donation));
+
+        service.holdCampaignDonations(campaign.getId());
+
+        assertThat(donation.getStatus()).isEqualTo(DonationStatus.ON_HOLD);
+        assertThat(donation.getHeldAt()).isNotNull();
+        verify(queueService).enqueue(QueueType.DONATION_REASSIGN, donation.getId().toString(), donation.getWarehouse());
+        verify(notificationService).notifyProduct(eq(donor), eq(NotificationType.DONATION_ON_HOLD),
+                anyString(), anyString(), eq("SKU1"), eq(warehouseId));
     }
 
     @Test

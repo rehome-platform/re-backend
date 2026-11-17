@@ -151,6 +151,11 @@ public class DonationServiceImpl implements DonationService {
             donations = donationRepository.findByWarehouse_IdOrderByCreatedAtDesc(warehouseId);
         }
 
+        if (status == DonationStatus.ON_HOLD) {
+            donations = donations.stream().sorted(java.util.Comparator.comparing(
+                    Donation::getHeldAt, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                    .toList();
+        }
         Map<UUID, ModeratorProfile> moderatorProfiles = loadModeratorProfiles(donations);
         Map<String, String> photoByProductId = loadFirstPhotoUrls(donations);
         return donations.stream().map(d -> toResponse(d, moderatorProfiles, photoByProductId)).toList();
@@ -299,13 +304,54 @@ public class DonationServiceImpl implements DonationService {
     @Override
     @Transactional
     public void holdPendingDonations(UUID organizationId) {
-        List<Donation> donations = donationRepository.findPendingForOrganization(organizationId);
+        holdDonations(donationRepository.findPendingForOrganization(organizationId), "Tổ chức đã bị khoá");
+    }
+
+    @Override
+    @Transactional
+    public void holdCampaignDonations(UUID campaignId) {
+        holdDonations(donationRepository.findForCampaignByStatus(campaignId, DonationStatus.PENDING_PICKUP),
+                "Chiến dịch đã được tạm ẩn");
+    }
+
+    private void holdDonations(List<Donation> donations, String reason) {
+        Instant now = Instant.now();
         for (Donation donation : donations) {
-            donation.setStatus(DonationStatus.HELD_FOR_TRANSFER);
+            donation.setStatus(DonationStatus.ON_HOLD);
+            donation.setHeldAt(now);
+            donation.setHoldReason(reason);
+            String refId = donation.getId().toString();
             if (donation.getSource() == DonationSource.CONSIGNED_ITEM) {
-                queueService.dequeue(QueueType.DONATION_PREP, donation.getId().toString());
-                queueService.dequeue(QueueType.DONATION_PICKUP, donation.getId().toString());
+                queueService.dequeue(QueueType.DONATION_PREP, refId);
+                queueService.dequeue(QueueType.DONATION_PICKUP, refId);
+                notifyConsignedDonor(donation, NotificationType.DONATION_ON_HOLD,
+                        "Lượt quyên góp đang tạm giữ", "Món đồ của bạn đang được giữ tại điểm nhận.");
             }
+            queueService.enqueue(QueueType.DONATION_REASSIGN, refId, donation.getWarehouse());
+        }
+    }
+
+    @Override
+    @Transactional
+    public void restoreCampaignDonations(UUID campaignId) {
+        donationRepository.findForCampaignByStatus(campaignId, DonationStatus.ON_HOLD)
+                .forEach(this::returnToPickup);
+    }
+
+    private void returnToPickup(Donation donation) {
+        donation.setStatus(DonationStatus.PENDING_PICKUP);
+        String refId = donation.getId().toString();
+        queueService.dequeue(QueueType.DONATION_REASSIGN, refId);
+        if (donation.getSource() == DonationSource.CONSIGNED_ITEM) {
+            queueService.enqueue(QueueType.DONATION_PREP, refId, donation.getWarehouse());
+        }
+    }
+
+    private void notifyConsignedDonor(Donation donation, NotificationType type, String title, String message) {
+        Product product = donation.getProduct();
+        if (donation.getSource() == DonationSource.CONSIGNED_ITEM && product != null) {
+            notificationService.notifyProduct(product.getMember(), type, title, message,
+                    product.getId(), donation.getWarehouse().getId());
         }
     }
 
@@ -313,42 +359,75 @@ public class DonationServiceImpl implements DonationService {
     @Transactional
     public List<DonationResponse> transferHeldDonations(Account moderator, UUID warehouseId,
                                                          TransferDonationsRequest request) {
-        Warehouse warehouse = requireOwnWarehouse(moderator, warehouseId, ORGANIZATION_OR_WAREHOUSE_NOT_FOUND);
-        OrganizationProfile recipient = requireVerifiedOrganization(request.organizationId().toString());
-        accountRepository.findByIdForUpdate(recipient.getAccountId())
-                .filter(account -> account.getStatus() == AccountStatus.ACTIVE)
-                .orElseThrow(() -> new BadRequestException("Tổ chức nhận phải đang hoạt động."));
-        Campaign campaign = requireCampaignServingWarehouse(warehouse, request.campaignId().toString());
-        Instant now = Instant.now();
-        if (!campaign.getOrganization().getAccountId().equals(recipient.getAccountId())
-                || campaign.getStatus() != CampaignStatus.OPEN || !campaign.getEndTime().isAfter(now)) {
-            throw new BadRequestException("Chọn chiến dịch còn mở của tổ chức nhận tại kho này.");
-        }
+        return reassign(moderator, warehouseId, request.donationIds(), request.campaignId(), request.organizationId());
+    }
 
-        List<UUID> ids = parseDonationIds(request.donationIds());
+    @Override
+    @Transactional
+    public List<DonationResponse> reassignDonations(Account moderator, UUID warehouseId, List<String> donationIds,
+                                                     UUID campaignId) {
+        return reassign(moderator, warehouseId, donationIds, campaignId, null);
+    }
+
+    private List<DonationResponse> reassign(Account moderator, UUID warehouseId, List<String> rawIds,
+                                            UUID campaignId, UUID expectedOrganizationId) {
+        Warehouse warehouse;
+        List<UUID> ids;
+        try {
+            warehouse = requireOwnWarehouse(moderator, warehouseId, ORGANIZATION_OR_WAREHOUSE_NOT_FOUND);
+            ids = parseDonationIds(rawIds);
+        } catch (IllegalArgumentException | AppException | BadRequestException ex) {
+            throw new ConflictException("Lượt quyên góp hoặc điểm nhận không hợp lệ.", "DONATION_REASSIGN_INVALID");
+        }
+        if (campaignId == null) {
+            throw invalidDestination();
+        }
+        UUID organizationId = expectedOrganizationId;
+        if (organizationId == null) {
+            organizationId = campaignRepository.findOrganizationId(campaignId).orElseThrow(this::invalidDestination);
+        }
+        Account recipient = accountRepository.findByIdForUpdate(organizationId)
+                .filter(account -> account.getStatus() == AccountStatus.ACTIVE)
+                .orElseThrow(this::invalidDestination);
+        Campaign campaign = campaignRepository.findByIdForUpdate(campaignId).orElseThrow(this::invalidDestination);
+        Instant now = Instant.now();
+        if (!campaign.getOrganization().getAccountId().equals(organizationId)
+                || campaign.getOrganization().getVerificationStatus() != VerificationStatus.VERIFIED
+                || campaign.getStatus() != CampaignStatus.OPEN || !campaign.getEndTime().isAfter(now)
+                || campaign.getWarehouses().stream().noneMatch(w -> w.getId().equals(warehouseId))) {
+            throw invalidDestination();
+        }
         List<Donation> donations = donationRepository.findByIdInAndWarehouse_Id(ids, warehouseId);
         if (donations.size() != ids.size() || donations.stream().anyMatch(d ->
-                d.getStatus() != DonationStatus.HELD_FOR_TRANSFER
-                        || d.getCampaign().getOrganization().getAccountId().equals(recipient.getAccountId()))) {
-            throw new BadRequestException(INVALID_DONATION_LIST);
+                d.getStatus() != DonationStatus.ON_HOLD || d.getCampaign() == null
+                        || campaignId.equals(d.getCampaign().getId()))) {
+            throw new ConflictException("Chỉ được chuyển các lượt đang tạm giữ tại kho này.",
+                    "DONATION_REASSIGN_INVALID");
         }
         for (Donation donation : donations) {
-            UUID oldCampaignId = donation.getCampaign().getId();
+            Campaign original = donation.getCampaign();
+            donation.setReassignedFromCampaign(original);
+            donation.setReassignedAt(now);
+            donation.setReassignedBy(moderator);
             donation.setCampaign(campaign);
-            donation.setStatus(DonationStatus.PENDING_PICKUP);
-            if (donation.getSource() == DonationSource.CONSIGNED_ITEM) {
-                queueService.enqueue(QueueType.DONATION_PREP, donation.getId().toString(), warehouse);
-            }
-            auditLogger.logOperation(moderator, "TRANSFER_DONATION", "DONATION", donation.getId(),
-                    "campaign " + oldCampaignId + " -> " + campaign.getId());
+            returnToPickup(donation);
+            notifyConsignedDonor(donation, NotificationType.DONATION_REASSIGNED, "Lượt quyên góp đã được chuyển",
+                    "Món đồ của bạn đã được chuyển sang một chiến dịch nhận quyên góp khác.");
+            auditLogger.logOperation(moderator, "REASSIGN_DONATION", "DONATION", donation.getId(),
+                    "campaign " + original.getId() + " -> " + campaignId);
         }
-        notificationService.notify(recipient.getAccount(), NotificationType.DONATION_RECORDED,
+        notificationService.notify(recipient, NotificationType.DONATION_RECORDED,
                 "Có lượt quyên góp được chuyển đến",
-                "Kho " + warehouse.getName() + " đã chuyển " + donations.size() + " lượt quyên góp cho tổ chức của bạn.",
-                NotificationTargetType.CAMPAIGN, campaign.getId(), warehouseId);
+                "Kho " + warehouse.getName() + " đã chuyển " + donations.size() + " lượt quyên góp.",
+                NotificationTargetType.CAMPAIGN, campaignId, warehouseId);
         Map<UUID, ModeratorProfile> moderators = loadModeratorProfiles(donations);
         Map<String, String> photos = loadFirstPhotoUrls(donations);
         return donations.stream().map(d -> toResponse(d, moderators, photos)).toList();
+    }
+
+    private ConflictException invalidDestination() {
+        return new ConflictException("Chọn chiến dịch còn mở và nhận đồ tại kho này.",
+                "DONATION_REASSIGN_CAMPAIGN_INVALID");
     }
 
     private List<UUID> parseDonationIds(List<String> rawIds) {
@@ -590,6 +669,10 @@ public class DonationServiceImpl implements DonationService {
                 .campaignTitle(donation.getCampaign() == null ? null : donation.getCampaign().getTitle())
                 .donorName(donation.getDonorName())
                 .isAnonymous(Boolean.TRUE.equals(donation.getIsAnonymous()))
+                .heldAt(donation.getHeldAt())
+                .holdReason(donation.getHoldReason())
+                .reassignedFromCampaignTitle(donation.getReassignedFromCampaignTitle())
+                .reassignedAt(donation.getReassignedAt())
                 .note(donation.getNote())
                 .photoUrls(List.copyOf(donation.getPhotoUrls()))
                 .status(donation.getStatus().name())

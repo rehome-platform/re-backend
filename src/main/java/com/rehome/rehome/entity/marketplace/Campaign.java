@@ -96,6 +96,10 @@ public class Campaign {
     @Builder.Default
     private CampaignStatus status = CampaignStatus.OPEN;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status_before_organization_ban")
+    private CampaignStatus statusBeforeOrganizationBan;
+
     // Thời điểm tạo chiến dịch
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

@@ -94,6 +94,27 @@ public class Donation {
     @Column(name = "handed_over_at", nullable = true)
     private Instant handedOverAt;
 
+    @Column(name = "held_at")
+    private Instant heldAt;
+
+    @Column(name = "hold_reason", columnDefinition = "text")
+    private String holdReason;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reassigned_from_campaign_id")
+    private Campaign reassignedFromCampaign;
+
+    @Column(name = "reassigned_at")
+    private Instant reassignedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reassigned_by")
+    private Account reassignedBy;
+
+    public String getReassignedFromCampaignTitle() {
+        return reassignedFromCampaign == null ? null : reassignedFromCampaign.getTitle();
+    }
+
     // Thời điểm ghi nhận
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

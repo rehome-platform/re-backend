@@ -27,6 +27,10 @@ public interface DonationRepository extends JpaRepository<Donation, UUID> {
             """)
     List<Donation> findPendingForOrganization(@Param("organizationId") UUID organizationId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select d from Donation d where d.campaign.id = :campaignId and d.status = :status order by d.id")
+    List<Donation> findForCampaignByStatus(@Param("campaignId") UUID campaignId, @Param("status") DonationStatus status);
+
     List<Donation> findByWarehouse_IdOrderByCreatedAtDesc(UUID warehouseId);
 
     List<Donation> findByWarehouse_IdAndStatusOrderByCreatedAtDesc(UUID warehouseId, DonationStatus status);

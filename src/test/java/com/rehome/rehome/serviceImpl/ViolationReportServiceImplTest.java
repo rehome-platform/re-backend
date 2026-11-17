@@ -70,6 +70,7 @@ class ViolationReportServiceImplTest {
     @Mock private AccountRepository accountRepository;
     @Mock private OrganizationProfileRepository organizationProfileRepository;
     @Mock private QueueService queueService;
+    @Mock private com.rehome.rehome.service.DonationService donationService;
     @Mock private NotificationService notificationService;
     @Mock private AuditLogger auditLogger;
     @Mock private ObjectMapper objectMapper;
@@ -477,7 +478,7 @@ class ViolationReportServiceImplTest {
         OrganizationProfile org = OrganizationProfile.builder().accountId(orgId).displayName("Hội ABC").build();
         Campaign campaign = Campaign.builder().id(campaignId).organization(org)
                 .status(CampaignStatus.OPEN).build();
-        when(campaignRepository.findById(campaignId)).thenReturn(Optional.of(campaign));
+        when(campaignRepository.findByIdForUpdate(campaignId)).thenReturn(Optional.of(campaign));
         when(violationReportRepository.findByTargetTypeAndTargetIdAndStatusOrderByCreatedAtAsc(
                 ViolationTargetType.CAMPAIGN, campaignId, ViolationReportStatus.PENDING))
                 .thenReturn(List.of(primary));
@@ -552,7 +553,7 @@ class ViolationReportServiceImplTest {
             assertThat(report.getStatus()).isEqualTo(ViolationReportStatus.RESOLVED);
             assertThat(report.getResolvedBy()).isSameAs(actor);
             assertThat(report.getResolvedAt()).isNotNull();
-            assertThat(report.getResolutionReason()).isEqualTo("Tổ chức đã bị khóa");
+            assertThat(report.getResolutionReason()).isEqualTo("Tổ chức đã bị khoá");
             verify(queueService).dequeue(QueueType.VIOLATION_REPORT, report.getId().toString());
         }
         verify(notificationService).notify(eq(reporter), eq(NotificationType.VIOLATION_REPORT_HANDLED),

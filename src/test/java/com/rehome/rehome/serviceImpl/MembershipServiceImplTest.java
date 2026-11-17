@@ -354,18 +354,18 @@ class MembershipServiceImplTest {
     class Gateway {
 
         @Test
-        @DisplayName("Trả MoMo: subscription PENDING_PAYMENT, trả payUrl, CHƯA trừ ví và CHƯA phát voucher")
-        void momoPurchase_waitsForIpn() {
-            when(gatewayPaymentBuilder.createMomoPayment(any(), eq("rehome://result")))
-                    .thenReturn("https://momo.example/pay/abc");
+        @DisplayName("Trả VNPay: subscription PENDING_PAYMENT, trả payUrl, CHƯA trừ ví và CHƯA phát voucher")
+        void vnPayPurchase_waitsForIpn() {
+            when(gatewayPaymentBuilder.createVnPayPayment(any(), eq("rehome://result"), any()))
+                    .thenReturn("https://vnpay.example/pay/abc");
             SubscribeMembershipRequest request = request(
-                    goldPlan.getId(), BillingCycle.MONTHLY, OrderPaymentMethod.MOMO);
+                    goldPlan.getId(), BillingCycle.MONTHLY, OrderPaymentMethod.VNPAY);
             request.setRedirectUrl("rehome://result");
 
             SubscribeMembershipResponse response = service.subscribe(member, request);
 
             assertThat(response.getStatus()).isEqualTo(SubscriptionStatus.PENDING_PAYMENT);
-            assertThat(response.getPayUrl()).isEqualTo("https://momo.example/pay/abc");
+            assertThat(response.getPayUrl()).isEqualTo("https://vnpay.example/pay/abc");
             assertThat(response.getExpiresAt()).isNull();
             assertThat(response.getVouchersIssued()).isZero();
 
@@ -402,7 +402,7 @@ class MembershipServiceImplTest {
             when(membershipPaymentRepository.findAllBySubscription_IdOrderByCreatedAtAsc(pending.getId()))
                     .thenReturn(List.of());
 
-            service.applyGatewayPaymentSuccess(pending.getId(), OrderPaymentMethod.MOMO, "note");
+            service.applyGatewayPaymentSuccess(pending.getId(), OrderPaymentMethod.VNPAY, "note");
 
             ArgumentCaptor<MemberSubscription> saved = ArgumentCaptor.forClass(MemberSubscription.class);
             verify(memberSubscriptionRepository, times(1)).save(saved.capture());
@@ -436,8 +436,8 @@ class MembershipServiceImplTest {
             when(memberSubscriptionRepository.findById(cancelled.getId()))
                     .thenReturn(Optional.of(cancelled));
 
-            service.applyGatewayPaymentSuccess(cancelled.getId(), OrderPaymentMethod.MOMO,
-                    "Hoàn tiền MoMo về muộn");
+            service.applyGatewayPaymentSuccess(cancelled.getId(), OrderPaymentMethod.VNPAY,
+                    "Hoàn tiền VNPay về muộn");
 
             assertThat(cancelled.getStatus()).isEqualTo(SubscriptionStatus.CANCELLED);
             assertThat(wallet.getBalance()).isEqualByComparingTo("559000");
@@ -460,7 +460,7 @@ class MembershipServiceImplTest {
             when(memberSubscriptionRepository.findById(cancelled.getId()))
                     .thenReturn(Optional.of(cancelled));
 
-            service.applyGatewayPaymentSuccess(cancelled.getId(), OrderPaymentMethod.MOMO, "note");
+            service.applyGatewayPaymentSuccess(cancelled.getId(), OrderPaymentMethod.VNPAY, "note");
 
             assertThat(wallet.getBalance()).isEqualByComparingTo("500000");
             verify(walletTransactionRepository, never()).save(any());
@@ -468,9 +468,8 @@ class MembershipServiceImplTest {
 
         @Test
         @DisplayName("Mã giao dịch không mang tiền tố SUB- -> không phải giao dịch mua gói, trả false "
-                + "để MomoServiceImpl thử tiếp loại khác")
+                + "để VnPayServiceImpl thử tiếp loại khác")
         void nonMembershipRef_isNotHandled() {
-            assertThat(service.applyMomoResult("8f14e45f-1702312345678", 0, "123")).isFalse();
             assertThat(service.applyVnPayResult("8f14e45f-1702312345678", "00", "123")).isFalse();
         }
     }

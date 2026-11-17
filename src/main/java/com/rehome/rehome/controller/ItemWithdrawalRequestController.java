@@ -59,7 +59,7 @@ public class ItemWithdrawalRequestController {
         PayItemWithdrawalFeeResponse result = itemWithdrawalRequestService.payFee(
                 account, id, request, clientIp(httpRequest));
 
-        // Còn phải trả qua cổng MoMo/VNPay thì chỉ có payUrl, chưa có gì để báo "đã thanh toán"
+        // Còn phải trả qua cổng VNPay thì chỉ có payUrl, chưa có gì để báo "đã thanh toán"
         String message = StringUtils.hasText(result.getPayUrl()) ? "" : "Đã thanh toán phí rút hàng";
 
         return ResponseEntity.ok(ApiResponse.success(result, message));

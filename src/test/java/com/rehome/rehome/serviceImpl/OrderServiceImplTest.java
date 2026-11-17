@@ -777,7 +777,7 @@ class OrderServiceImplTest {
                 .warehouse(warehouse1)
                 .status(OrderStatus.DELIVERED)
                 .createdAt(createdAt)
-                .paymentMethod(OrderPaymentMethod.MOMO)
+                .paymentMethod(OrderPaymentMethod.VNPAY)
                 .subtotal(new BigDecimal("600000"))
                 .shippingFee(new BigDecimal("25000"))
                 .totalAmount(new BigDecimal("625000"))
@@ -816,7 +816,7 @@ class OrderServiceImplTest {
         assertThat(result.getOrderNo()).isEqualTo("OD-2026-000001");
         assertThat(result.getStatus()).isEqualTo("DELIVERED");
         assertThat(result.getCreatedAt()).isEqualTo(createdAt);
-        assertThat(result.getPaymentMethod()).isEqualTo("MOMO");
+        assertThat(result.getPaymentMethod()).isEqualTo("VNPAY");
         assertThat(result.getPaidAt()).isEqualTo(paidAt);
         assertThat(result.getSubtotal()).isEqualTo(new BigDecimal("600000"));
         assertThat(result.getShippingFee()).isEqualTo(new BigDecimal("25000"));
@@ -1965,7 +1965,7 @@ class OrderServiceImplTest {
 
     @Test
     void payOrders_rejectsMethodOtherThanWallet() {
-        PayOrdersRequest request = new PayOrdersRequest(List.of(UUID.randomUUID().toString()), "MOMO");
+        PayOrdersRequest request = new PayOrdersRequest(List.of(UUID.randomUUID().toString()), "VNPAY");
 
         assertThatThrownBy(() -> orderService.payOrders(email, request))
                 .isInstanceOf(BadRequestException.class)
@@ -2085,10 +2085,10 @@ class OrderServiceImplTest {
 
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
 
-        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.MOMO, "note");
+        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.VNPAY, "note");
 
         assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
-        assertThat(order.getPaymentMethod()).isEqualTo(OrderPaymentMethod.MOMO);
+        assertThat(order.getPaymentMethod()).isEqualTo(OrderPaymentMethod.VNPAY);
         verify(walletRepository, never()).save(any());
         verify(queueService).enqueue(eq(QueueType.PACKING), eq(orderId.toString()), any());
     }
@@ -2111,7 +2111,7 @@ class OrderServiceImplTest {
                 .thenReturn(Optional.of(PlatformFund.builder().id(UUID.randomUUID())
                         .balance(BigDecimal.ZERO).build()));
 
-        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.MOMO, "Hoàn tiền MoMo về muộn");
+        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.VNPAY, "Hoàn tiền VNPay về muộn");
 
         assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
         assertThat(order.getRefundAmount()).isEqualByComparingTo("150000");
@@ -2128,18 +2128,18 @@ class OrderServiceImplTest {
         UUID orderId = UUID.randomUUID();
         Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
         order.setStatus(OrderStatus.PAID);
-        order.setPaymentMethod(OrderPaymentMethod.MOMO);
+        order.setPaymentMethod(OrderPaymentMethod.VNPAY);
 
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
 
-        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.MOMO, "note");
+        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.VNPAY, "note");
 
         assertThat(order.getRefundAmount()).isNull();
         verify(walletRepository, never()).save(any());
         verify(walletTransactionRepository, never()).save(any());
     }
 
-    // Người mua bấm trả MoMo rồi đổi ý trả bằng ví trước khi IPN về: tiền MoMo vẫn về thật
+    // Người mua bấm trả VNPay rồi đổi ý trả bằng ví trước khi IPN về: tiền VNPay vẫn về thật
     @Test
     void applyGatewayPaymentSuccess_refundsToWallet_whenOrderAlreadyPaidByAnotherMethod() {
         UUID orderId = UUID.randomUUID();
@@ -2156,7 +2156,7 @@ class OrderServiceImplTest {
                 .thenReturn(Optional.of(PlatformFund.builder().id(UUID.randomUUID())
                         .balance(BigDecimal.ZERO).build()));
 
-        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.MOMO, "Hoàn tiền MoMo trùng");
+        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.VNPAY, "Hoàn tiền VNPay trùng");
 
         assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
         assertThat(wallet.getBalance()).isEqualByComparingTo("150000");
@@ -2178,7 +2178,7 @@ class OrderServiceImplTest {
                 .warehouse(warehouse1)
                 .status(OrderStatus.DELIVERED)
                 .createdAt(Instant.parse("2026-01-01T00:00:00Z"))
-                .paymentMethod(OrderPaymentMethod.MOMO)
+                .paymentMethod(OrderPaymentMethod.VNPAY)
                 .subtotal(new BigDecimal("600000"))
                 .shippingFee(new BigDecimal("25000"))
                 .totalAmount(new BigDecimal("625000"))
@@ -2216,7 +2216,7 @@ class OrderServiceImplTest {
                 .warehouse(warehouse1)
                 .status(OrderStatus.DELIVERED)
                 .createdAt(Instant.parse("2026-01-01T00:00:00Z"))
-                .paymentMethod(OrderPaymentMethod.MOMO)
+                .paymentMethod(OrderPaymentMethod.VNPAY)
                 .subtotal(new BigDecimal("600000"))
                 .shippingFee(new BigDecimal("25000"))
                 .totalAmount(new BigDecimal("625000"))
@@ -2250,7 +2250,7 @@ class OrderServiceImplTest {
                 .warehouse(warehouse1)
                 .status(OrderStatus.PENDING_PAYMENT)
                 .createdAt(Instant.parse("2026-01-01T00:00:00Z"))
-                .paymentMethod(OrderPaymentMethod.MOMO)
+                .paymentMethod(OrderPaymentMethod.VNPAY)
                 .subtotal(new BigDecimal("600000"))
                 .shippingFee(new BigDecimal("25000"))
                 .totalAmount(new BigDecimal("625000"))
@@ -2660,7 +2660,7 @@ class OrderServiceImplTest {
 
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
 
-        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.MOMO, "note");
+        orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.VNPAY, "note");
 
         verify(walletRepository, never()).save(any());
         verify(walletTransactionRepository, never()).save(any());

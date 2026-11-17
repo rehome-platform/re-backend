@@ -12,9 +12,9 @@ import javax.crypto.spec.SecretKeySpec;
 import org.springframework.util.StringUtils;
 
 /**
- * Chữ ký và query string của MoMo (HMAC-SHA256) và VNPay (HMAC-SHA512).
+ * Chữ ký và query string của VNPay (HMAC-SHA512).
  *
- * <p>Công thức này trước đây bị copy ở {@code MomoServiceImpl}, {@code VnPayServiceImpl} và
+ * <p>Công thức này trước đây bị copy ở {@code VnPayServiceImpl} và
  * {@code ItemWithdrawalRequestServiceImpl} (ba bản giống nhau, copy để tránh phụ thuộc vòng giữa
  * các service). Luồng mua gói thành viên là nơi thứ tư cần nó, nên tách ra đây thay vì copy tiếp.
  * Hai service cũ cố ý chưa đổi sang dùng util này - đổi chúng là refactor riêng, không gộp vào

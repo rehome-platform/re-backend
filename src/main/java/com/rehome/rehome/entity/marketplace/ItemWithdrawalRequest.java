@@ -40,12 +40,12 @@ public class ItemWithdrawalRequest {
     @Builder.Default
     private BigDecimal feeCharged = new BigDecimal("0");
 
-    // WALLET / MOMO / VNPAY — chỉ set khi đã thanh toán xong (thành công), không phải lúc chọn
+    // WALLET / VNPAY — chỉ set khi đã thanh toán xong (thành công), không phải lúc chọn
     @Enumerated(EnumType.STRING)
     @Column(name = "fee_payment_method", nullable = true)
     private WithdrawalFeePaymentMethod feePaymentMethod;
 
-    // Thời điểm phí rút hàng được thanh toán xong (ví trừ ngay, hoặc MoMo/VNPay xác nhận qua IPN)
+    // Thời điểm phí rút hàng được thanh toán xong (ví trừ ngay, hoặc VNPay xác nhận qua IPN)
     @Column(name = "fee_paid_at", nullable = true)
     private Instant feePaidAt;
 
@@ -54,14 +54,6 @@ public class ItemWithdrawalRequest {
     // ItemWithdrawalAutoExpireServiceImpl hủy sớm, không chờ hết pickupDeadline (7 ngày) mới đăng bán lại sản phẩm.
     @Column(name = "fee_payment_deadline", nullable = true)
     private Instant feePaymentDeadline;
-
-    // orderId gửi cho MoMo lúc tạo giao dịch trả phí rút hàng, dùng map IPN về đúng yêu cầu này
-    @Column(name = "momo_order_id", nullable = true, length = 255)
-    private String momoOrderId;
-
-    // requestId gửi cho MoMo lúc tạo giao dịch
-    @Column(name = "momo_request_id", nullable = true, length = 255)
-    private String momoRequestId;
 
     // vnp_TxnRef gửi cho VNPay lúc tạo giao dịch, dùng map IPN về đúng yêu cầu này
     @Column(name = "vnp_txn_ref", nullable = true, length = 255)

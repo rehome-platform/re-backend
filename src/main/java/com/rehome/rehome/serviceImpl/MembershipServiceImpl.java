@@ -285,7 +285,7 @@ public class MembershipServiceImpl implements MembershipService {
             throw new BadRequestException("paymentMethod là bắt buộc.");
         }
         if (method != OrderPaymentMethod.WALLET && !StringUtils.hasText(request.getRedirectUrl())) {
-            throw new BadRequestException("redirectUrl là bắt buộc khi thanh toán qua MoMo/VNPay.");
+            throw new BadRequestException("redirectUrl là bắt buộc khi thanh toán qua VNPay.");
         }
 
         MembershipPlan plan = membershipPlanRepository.findById(request.getPlanId())
@@ -409,9 +409,7 @@ public class MembershipServiceImpl implements MembershipService {
                 .status(PaymentStatus.PENDING)
                 .build();
 
-        String payUrl = method == OrderPaymentMethod.MOMO
-                ? gatewayPaymentBuilder.createMomoPayment(payment, redirectUrl)
-                : gatewayPaymentBuilder.createVnPayPayment(payment, redirectUrl, null);
+        String payUrl = gatewayPaymentBuilder.createVnPayPayment(payment, redirectUrl, null);
         membershipPaymentRepository.save(payment);
 
         return SubscribeMembershipResponse.builder()
@@ -581,39 +579,6 @@ public class MembershipServiceImpl implements MembershipService {
     }
 
     // ================================================================ §8.12 Kết quả từ cổng
-
-    @Override
-    @Transactional
-    public boolean applyMomoResult(String momoOrderId, int resultCode, String transactionId) {
-        if (!MembershipGatewayPaymentBuilder.isMembershipRef(momoOrderId)) {
-            return false;
-        }
-        MembershipPayment payment = membershipPaymentRepository.findByMomoOrderId(momoOrderId).orElse(null);
-        if (payment == null) {
-            log.warn(">>>> IPN mua goi cho momoOrderId={} khong khop dong membership_payments nao", momoOrderId);
-            return false;
-        }
-        if (payment.getStatus() != PaymentStatus.PENDING) {
-            log.info(">>>> IPN mua goi cho momoOrderId={} da xu ly truoc do, bo qua", momoOrderId);
-            return true;
-        }
-
-        if (resultCode != 0) {
-            payment.setStatus(PaymentStatus.FAILED);
-            membershipPaymentRepository.save(payment);
-            failPendingSubscription(payment, "MoMo báo thất bại, resultCode=" + resultCode);
-            return true;
-        }
-
-        payment.setStatus(PaymentStatus.SUCCESS);
-        payment.setMomoTransactionId(transactionId);
-        payment.setPaidAt(Instant.now());
-        membershipPaymentRepository.save(payment);
-
-        applyGatewayPaymentSuccess(payment.getSubscription().getId(), OrderPaymentMethod.MOMO,
-                "Hoàn tiền MoMo về sau khi giao dịch mua gói không còn chờ thanh toán");
-        return true;
-    }
 
     @Override
     @Transactional

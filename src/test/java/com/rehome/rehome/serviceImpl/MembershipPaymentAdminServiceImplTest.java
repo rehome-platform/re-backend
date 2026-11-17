@@ -80,7 +80,7 @@ class MembershipPaymentAdminServiceImplTest {
                 .tier(MembershipTier.GOLD).build();
         Instant created = Instant.parse("2026-11-10T03:00:00Z");
         MembershipPayment payment = MembershipPayment.builder().id(UUID.randomUUID()).member(member)
-                .subscription(subscription).amount(new BigDecimal("199000")).method(OrderPaymentMethod.MOMO)
+                .subscription(subscription).amount(new BigDecimal("199000")).method(OrderPaymentMethod.VNPAY)
                 .status(PaymentStatus.PENDING).createdAt(created).build();
         when(membershipPaymentRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(payment)));
@@ -88,14 +88,14 @@ class MembershipPaymentAdminServiceImplTest {
                 .thenReturn(List.of(MemberProfile.builder().accountId(member.getId()).fullName("Trần B").build()));
 
         PageResponse<AdminMembershipPaymentResponse> result =
-                service.search("2026-11-01", "2026-11-14", "GOLD", "momo", 1, 10);
+                service.search("2026-11-01", "2026-11-14", "GOLD", "vnpay", 1, 10);
 
         AdminMembershipPaymentResponse row = result.getContent().get(0);
         assertThat(row.getMemberName()).isEqualTo("Trần B");
         assertThat(row.getMemberEmail()).isEqualTo("member@example.com");
         assertThat(row.getSubscriptionId()).isEqualTo(subscription.getId().toString());
         assertThat(row.getTier()).isEqualTo("GOLD");
-        assertThat(row.getMethod()).isEqualTo("MOMO");
+        assertThat(row.getMethod()).isEqualTo("VNPAY");
         assertThat(row.getStatus()).isEqualTo("PENDING");
         assertThat(row.getAmount()).isEqualByComparingTo("199000");
         assertThat(row.getCreatedAt()).isEqualTo(created);

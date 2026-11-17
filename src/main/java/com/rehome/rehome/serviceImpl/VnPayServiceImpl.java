@@ -75,7 +75,7 @@ public class VnPayServiceImpl implements VnPayService {
     public CreateVnPayResponse createPaymentForOrders(String email, List<UUID> orderIds, String customReturnUrl,
                                                        String clientIp) {
 
-        // Quyền sở hữu và trạng thái đơn do OrderService kiểm, để trả ví / MoMo / VNPay
+        // Quyền sở hữu và trạng thái đơn do OrderService kiểm, để trả ví / VNPay
         // dùng chung đúng một bộ mã lỗi ORDER_ALREADY_PAID / ORDER_NOT_PENDING
         List<Order> orders = orderService.loadPayableOrders(email, orderIds);
 

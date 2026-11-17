@@ -1,13 +1,10 @@
 package com.rehome.rehome.serviceImpl;
 
-import com.rehome.rehome.client.MomoApi;
 import com.rehome.rehome.client.VnPayApi;
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.CreateItemWithdrawalRequest;
-import com.rehome.rehome.dto.request.CreateMomoRequest;
 import com.rehome.rehome.dto.request.PayItemWithdrawalFeeRequest;
 import com.rehome.rehome.dto.request.RejectItemWithdrawalRequest;
-import com.rehome.rehome.dto.response.CreateMomoResponse;
 import com.rehome.rehome.dto.response.ItemWithdrawalDetailResponse;
 import com.rehome.rehome.dto.response.ItemWithdrawalResponse;
 import com.rehome.rehome.dto.response.PayItemWithdrawalFeeResponse;
@@ -85,7 +82,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
     private final WalletRepository walletRepository;
     private final WalletTransactionRepository walletTransactionRepository;
     private final PlatformFundRepository platformFundRepository;
-    private final MomoApi momoApi;
     private final VnPayApi vnPayApi;
     private final QueueService queueService;
     private final com.rehome.rehome.service.NotificationService notificationService;
@@ -93,24 +89,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
 
     @Value("${app.item-withdrawal.fee-payment-deadline-minutes}")
     private long feePaymentDeadlineMinutes;
-
-    @Value("${momo.partner-code}")
-    private String momoPartnerCode;
-
-    @Value("${momo.access-key}")
-    private String momoAccessKey;
-
-    @Value("${momo.secret-key}")
-    private String momoSecretKey;
-
-    @Value("${momo.return-url}")
-    private String momoRedirectUrl;
-
-    @Value("${momo.ipn-url}")
-    private String momoIpnUrl;
-
-    @Value("${momo.request-type}")
-    private String momoRequestType;
 
     @Value("${vnpay.tmn-code}")
     private String vnpTmnCode;
@@ -290,9 +268,9 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         return receipt.getWithdrawalFee();
     }
 
-    // API 91 (F-033): trả phí rút hàng (nếu có) bằng đúng 1 phương thức - ví, MoMo hoặc VNPay,
-    // không chia nhỏ. Ví trừ và chốt ngay trong transaction này; MoMo/VNPay chỉ mở giao dịch,
-    // kết quả thật chờ IPN (applyMomoFeePaymentResult / applyVnPayFeePaymentResult).
+    // API 91 (F-033): trả phí rút hàng (nếu có) bằng đúng 1 phương thức - ví hoặc VNPay,
+    // không chia nhỏ. Ví trừ và chốt ngay trong transaction này; VNPay chỉ mở giao dịch,
+    // kết quả thật chờ IPN (applyVnPayFeePaymentResult).
     @Override
     @Transactional
     public PayItemWithdrawalFeeResponse payFee(
@@ -321,7 +299,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
 
         return switch (method) {
             case WALLET -> payByWallet(account, withdrawal);
-            case MOMO -> payByMomo(withdrawal);
             case VNPAY -> payByVnPay(withdrawal, clientIp);
         };
     }
@@ -333,7 +310,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         try {
             return WithdrawalFeePaymentMethod.valueOf(value.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ex) {
-            throw new BadRequestException("paymentMethod phải là WALLET, MOMO hoặc VNPAY.");
+            throw new BadRequestException("paymentMethod phải là WALLET hoặc VNPAY.");
         }
     }
 
@@ -375,55 +352,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         itemWithdrawalRequestRepository.save(withdrawal);
 
         return toPaidResponse(withdrawal);
-    }
-
-    private PayItemWithdrawalFeeResponse payByMomo(ItemWithdrawalRequest withdrawal) {
-
-        String momoOrderId = "IWR-" + withdrawal.getId() + "-" + System.currentTimeMillis();
-        String orderInfo = "Thanh toan phi rut hang: " + withdrawal.getProduct().getId();
-        String requestId = UUID.randomUUID().toString();
-        String extraData = withdrawal.getId().toString();
-        long amount = withdrawal.getFeeCharged().setScale(0, RoundingMode.HALF_UP).longValueExact();
-
-        String rawSignature = String.format(
-                "accessKey=%s&amount=%s&extraData=%s&ipnUrl=%s&orderId=%s&orderInfo=%s&partnerCode=%s&redirectUrl=%s&requestId=%s&requestType=%s",
-                momoAccessKey, amount, extraData, momoIpnUrl, momoOrderId, orderInfo, momoPartnerCode,
-                momoRedirectUrl, requestId, momoRequestType);
-
-        String signature;
-        try {
-            signature = signHmacSHA256(rawSignature, momoSecretKey);
-        } catch (Exception e) {
-            log.error(">>>> Co loi khi hash chu ky MoMo cho phi rut hang: " + e);
-            throw new BadRequestException("Không thể tạo chữ ký thanh toán");
-        }
-
-        CreateMomoRequest momoRequest = CreateMomoRequest.builder()
-                .partnerCode(momoPartnerCode)
-                .requestType(momoRequestType)
-                .ipnUrl(momoIpnUrl)
-                .redirectUrl(momoRedirectUrl)
-                .orderId(momoOrderId)
-                .orderInfo(orderInfo)
-                .requestId(requestId)
-                .extraData(extraData)
-                .amount(amount)
-                .signature(signature)
-                .lang("vi")
-                .build();
-
-        CreateMomoResponse response = momoApi.createMomoQR(momoRequest);
-
-        if (response == null || response.getResultCode() != 0) {
-            String message = response != null ? response.getMessage() : "Không nhận được phản hồi từ MoMo";
-            throw new BadRequestException("Tạo giao dịch MoMo thất bại: " + message);
-        }
-
-        withdrawal.setMomoOrderId(momoOrderId);
-        withdrawal.setMomoRequestId(requestId);
-        itemWithdrawalRequestRepository.save(withdrawal);
-
-        return PayItemWithdrawalFeeResponse.builder().payUrl(response.getPayUrl()).build();
     }
 
     private PayItemWithdrawalFeeResponse payByVnPay(ItemWithdrawalRequest withdrawal, String clientIp) {
@@ -476,42 +404,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 .feeCharged(withdrawal.getFeeCharged())
                 .status(withdrawal.getStatus().name())
                 .build();
-    }
-
-    // Webhook MoMo gọi khi có kết quả giao dịch trả phí rút hàng (dispatch từ MomoServiceImpl.handleIpn
-    // khi momoOrderId không khớp Payment nào, vì đây không phải thanh toán đơn hàng)
-    @Override
-    @Transactional
-    public boolean applyMomoFeePaymentResult(String momoOrderId, int resultCode, String transId) {
-
-        ItemWithdrawalRequest withdrawal = itemWithdrawalRequestRepository
-                .findByMomoOrderId(momoOrderId).orElse(null);
-
-        if (withdrawal == null) {
-            return false;
-        }
-
-        if (withdrawal.getFeePaidAt() != null) {
-            log.info(">>>> IPN MoMo cho phi rut hang momoOrderId={} da duoc xu ly truoc do, bo qua",
-                    momoOrderId);
-            return true;
-        }
-
-        if (resultCode != 0) {
-            log.warn(">>>> MoMo bao thanh toan phi rut hang khong thanh cong: momoOrderId={}, resultCode={}",
-                    momoOrderId, resultCode);
-            return true;
-        }
-
-        withdrawal.setFeePaymentMethod(WithdrawalFeePaymentMethod.MOMO);
-        withdrawal.setFeePaidAt(Instant.now());
-        itemWithdrawalRequestRepository.saveAndFlush(withdrawal);
-        refundDonationFee(withdrawal);
-        recordPlatformIncomeFromGateway(withdrawal, "MoMo", transId);
-
-        log.info(">>>> Da thanh toan phi rut hang qua MoMo: itemWithdrawalRequestId={}, transId={}",
-                withdrawal.getId(), transId);
-        return true;
     }
 
     // Webhook VNPay gọi khi có kết quả giao dịch trả phí rút hàng (dispatch từ VnPayServiceImpl.handleIpn
@@ -615,7 +507,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         walletTransactionRepository.save(platformTransaction);
     }
 
-    // Phí rút hàng trả qua MoMo/VNPay không đi qua ví Member và (giống thanh toán đơn qua cổng) không đổi số dư
+    // Phí rút hàng trả qua VNPay không đi qua ví Member và (giống thanh toán đơn qua cổng) không đổi số dư
     // quỹ nền tảng - quỹ chỉ phản ánh tiền trong hệ thống ví. Chỉ ghi dòng ghi nhận doanh thu.
     private void recordPlatformIncomeFromGateway(
             ItemWithdrawalRequest withdrawal, String gateway, String gatewayTransId) {
@@ -683,15 +575,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         hmac512.init(secretKeySpec);
 
         byte[] hash = hmac512.doFinal(data.getBytes(StandardCharsets.UTF_8));
-        return toHex(hash);
-    }
-
-    private String signHmacSHA256(String data, String key) throws Exception {
-        Mac hmacSHA256 = Mac.getInstance("HmacSHA256");
-        SecretKeySpec secretKeySpec = new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-        hmacSHA256.init(secretKeySpec);
-
-        byte[] hash = hmacSHA256.doFinal(data.getBytes(StandardCharsets.UTF_8));
         return toHex(hash);
     }
 

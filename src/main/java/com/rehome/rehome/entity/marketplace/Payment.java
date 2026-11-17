@@ -27,32 +27,19 @@ public class Payment {
     @JoinColumn(name = "order_id", nullable = false, unique = true)
     private Order order;
 
-    // Số tiền thực nhận qua MoMo
+    // Số tiền thực nhận qua VNPay
     @Column(name = "amount", nullable = false, precision = 19, scale = 2)
     private BigDecimal amount;
 
-    // MOMO hoặc VNPAY; trả bằng ví không tạo dòng ở bảng này
+    // VNPAY; trả bằng ví không tạo dòng ở bảng này
     @Column(name = "method", nullable = false, length = 255)
-    @ColumnDefault("'MOMO'")
+    @ColumnDefault("'VNPAY'")
     @Builder.Default
-    private String method = "MOMO";
+    private String method = "VNPAY";
 
-    // Mã giao dịch MoMo trả về qua webhook
-    @Column(name = "momo_transaction_id", nullable = true, length = 255)
-    private String momoTransactionId;
-
-    // orderId gửi cho MoMo lúc tạo giao dịch (khác order_id nội bộ, dùng để map IPN về đúng Payment).
-    // Không unique: một giao dịch MoMo có thể trả cho nhiều đơn cùng lúc (giỏ nhiều kho),
-    // khi đó mỗi đơn vẫn có một dòng payments riêng nhưng chung momo_order_id.
-    @Column(name = "momo_order_id", nullable = true, length = 255)
-    private String momoOrderId;
-
-    // requestId gửi cho MoMo lúc tạo giao dịch
-    @Column(name = "momo_request_id", nullable = true, length = 255)
-    private String momoRequestId;
-
-    // vnp_TxnRef gửi cho VNPay lúc tạo giao dịch (vai trò giống momoOrderId), dùng map IPN/return về đúng Payment.
-    // Không unique, vì lý do giống momo_order_id.
+    // vnp_TxnRef gửi cho VNPay lúc tạo giao dịch, dùng map IPN/return về đúng Payment.
+    // Không unique: một giao dịch VNPay có thể trả cho nhiều đơn cùng lúc (giỏ nhiều kho),
+    // khi đó mỗi đơn vẫn có một dòng payments riêng nhưng chung vnp_txn_ref.
     @Column(name = "vnp_txn_ref", nullable = true, length = 255)
     private String vnpTxnRef;
 
@@ -71,7 +58,7 @@ public class Payment {
     @Builder.Default
     private PaymentStatus status = PaymentStatus.PENDING;
 
-    // Thời điểm MoMo xác nhận đã nhận tiền
+    // Thời điểm VNPay xác nhận đã nhận tiền
     @Column(name = "paid_at", nullable = true)
     private Instant paidAt;
 }

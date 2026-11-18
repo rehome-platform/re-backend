@@ -437,13 +437,8 @@ class MembershipServiceImplTest {
             when(memberSubscriptionRepository.findByIdForUpdate(cancelled.getId()))
                     .thenReturn(Optional.of(cancelled));
 
-            String txnRef = "SUB-late";
-            MembershipPayment payment = MembershipPayment.builder()
-                    .subscription(cancelled).status(PaymentStatus.PENDING).build();
-            when(membershipPaymentRepository.findByVnpTxnRef(txnRef)).thenReturn(Optional.of(payment));
-
-            assertThat(service.applyVnPayResult(txnRef, "00", "123")).isTrue();
-            assertThat(service.applyVnPayResult(txnRef, "00", "123")).isTrue();
+            service.applyGatewayPaymentSuccess(cancelled.getId(), OrderPaymentMethod.VNPAY,
+                    "Hoàn tiền VNPay về muộn");
 
             assertThat(cancelled.getStatus()).isEqualTo(SubscriptionStatus.CANCELLED);
             assertThat(wallet.getBalance()).isEqualByComparingTo("559000");

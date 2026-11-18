@@ -93,10 +93,6 @@ public class ConsignmentInspectionServiceImpl implements ConsignmentInspectionSe
             receipt.replaceVoided(previous);
         }
 
-        if (previous != null) {
-            receipt.replaceVoided(previous);
-        }
-
         ConsignmentReceipt saved = consignmentReceiptRepository.save(receipt);
 
         // Việc kiểm định này đã xong, đóng trong hàng đợi

@@ -38,9 +38,13 @@ public class AdminDashboardQueryRepository {
     private static final List<OrderStatus> HELD_STATUSES = List.of(
             OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.SHIPPING, OrderStatus.DELIVERED);
 
-    // Hai loại bút toán cấu thành doanh thu nền tảng (khớp sumCompletedCommission + sumWithdrawalFeeRevenue)
+    // Các loại bút toán cấu thành doanh thu nền tảng (khớp sumCompletedCommission +
+    // sumWithdrawalFeeRevenue + sumMembershipRevenue). MEMBERSHIP_PURCHASE ở đây chỉ khớp dòng
+    // đối ứng phía PLATFORM (dương) nhờ walletType = PLATFORM lọc ở WHERE bên dưới - dòng Member
+    // âm (walletType = MEMBER) không lọt vào.
     private static final List<WalletTransactionType> PLATFORM_REVENUE_TYPES = List.of(
-            WalletTransactionType.COMMISSION_REVENUE, WalletTransactionType.WITHDRAWAL_FEE_REVENUE);
+            WalletTransactionType.COMMISSION_REVENUE, WalletTransactionType.WITHDRAWAL_FEE_REVENUE,
+            WalletTransactionType.MEMBERSHIP_REVENUE, WalletTransactionType.MEMBERSHIP_PURCHASE);
 
     @PersistenceContext
     private EntityManager em;
@@ -88,6 +92,17 @@ public class AdminDashboardQueryRepository {
     // Phí rút hàng nền tảng thu: dòng PLATFORM WITHDRAWAL_FEE_REVENUE, ghi lúc phí được thanh toán
     public BigDecimal sumWithdrawalFeeRevenue(Instant from, Instant to) {
         return sumTransactions(WalletType.PLATFORM, WalletTransactionType.WITHDRAWAL_FEE_REVENUE, from, to);
+    }
+
+    // Doanh thu bán gói thành viên, gộp cả 2 cách trả:
+    // - Trả qua cổng (VNPay...): dòng PLATFORM loại MEMBERSHIP_REVENUE (xem MembershipServiceImpl.
+    //   recordMembershipRevenue - không có dòng Member đối ứng, tiền đã về từ ngoài).
+    // - Trả bằng ví: dòng đối ứng PLATFORM cùng loại MEMBERSHIP_PURCHASE với dòng Member âm (xem
+    //   MembershipServiceImpl.recordPlatformCounterpart - counterpart giữ nguyên type của
+    //   memberTransaction thay vì MEMBERSHIP_REVENUE).
+    public BigDecimal sumMembershipRevenue(Instant from, Instant to) {
+        return sumTransactions(WalletType.PLATFORM, WalletTransactionType.MEMBERSHIP_REVENUE, from, to)
+                .add(sumTransactions(WalletType.PLATFORM, WalletTransactionType.MEMBERSHIP_PURCHASE, from, to));
     }
 
     // Tiền đền bù cộng vào ví người bán: dòng phía MEMBER của DEGRADED_COMPENSATION (dương)

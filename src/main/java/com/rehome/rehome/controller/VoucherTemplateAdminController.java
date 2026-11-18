@@ -70,4 +70,13 @@ public class VoucherTemplateAdminController {
         return ResponseEntity.ok(ApiResponse.success(
                 voucherTemplateAdminService.deactivate(admin, id), "Đã ngừng phát mẫu voucher"));
     }
+
+    @PostMapping("/{id}/activate")
+    @Operation(summary = "Phát mã trở lại cho mẫu đang ngừng phát")
+    public ResponseEntity<ApiResponse<VoucherTemplateResponse>> activate(
+            @AuthenticationPrincipal Account admin,
+            @PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(
+                voucherTemplateAdminService.activate(admin, id), "Đã phát mã trở lại"));
+    }
 }

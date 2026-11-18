@@ -4,6 +4,7 @@ import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import static com.rehome.rehome.constant.SystemConfigKeys.*;
 
+import com.rehome.rehome.component.ReceiptClauseRenderer;
 import com.rehome.rehome.component.ReceiptNoGenerator;
 import com.rehome.rehome.dto.request.CompleteInspectionRequest;
 import com.rehome.rehome.dto.response.CompleteInspectionResponse;
@@ -38,6 +39,7 @@ public class ConsignmentInspectionServiceImpl implements ConsignmentInspectionSe
     private final SystemConfigReader systemConfigReader;
     private final ReceiptNoGenerator receiptNoGenerator;
     private final QueueService queueService;
+    private final ReceiptClauseRenderer receiptClauseRenderer;
 
     @Override
     @Transactional
@@ -85,6 +87,7 @@ public class ConsignmentInspectionServiceImpl implements ConsignmentInspectionSe
                 .moderatorNote(trimToNull(req.getModeratorNote()))
                 .conditionNote(trimToNull(req.getConditionNote()))
                 .build();
+        receipt.setClausesSnapshot(receiptClauseRenderer.render(receipt));
 
         if (previous != null) {
             receipt.replaceVoided(previous);

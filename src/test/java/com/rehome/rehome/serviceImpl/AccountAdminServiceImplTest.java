@@ -38,6 +38,10 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class AccountAdminServiceImplTest {
 
+    @Mock private com.rehome.rehome.repository.CommunityPostRepository communityPostRepository;
+    @Mock private com.rehome.rehome.service.DonationService donationService;
+    @Mock private com.rehome.rehome.service.ViolationReportService violationReportService;
+
     @Mock
     AccountRepository accountRepository;
 
@@ -95,17 +99,20 @@ class AccountAdminServiceImplTest {
     @Test
     void ban_organizationHidesCampaigns() {
         target.setRole(Role.ORGANIZATION);
-        when(accountRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.of(target));
 
         service.ban(admin, targetId, "Spam");
 
         verify(campaignRepository).hideCampaignsByOrganization(targetId, CampaignStatus.HIDDEN);
+        verify(communityPostRepository).hidePostsOfBannedOrganization(targetId);
+        verify(donationService).holdPendingDonations(targetId);
+        verify(violationReportService).resolvePendingForBannedOrganization(admin, targetId);
     }
 
     @Test
     @DisplayName("ban: thành công -> BANNED, lưu lý do, thu hồi refresh token, ghi audit, trả response")
     void ban_success() {
-        when(accountRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.of(target));
 
         AccountStatusResponse response = service.ban(admin, targetId, "Spam nhiều lần");
 
@@ -122,7 +129,7 @@ class AccountAdminServiceImplTest {
     @Test
     @DisplayName("ban: lý do được trim khoảng trắng hai đầu")
     void ban_reasonIsTrimmed() {
-        when(accountRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.of(target));
 
         AccountStatusResponse response = service.ban(admin, targetId, "   Lừa đảo   ");
 
@@ -133,7 +140,7 @@ class AccountAdminServiceImplTest {
     @Test
     @DisplayName("ban: ghi audit log BAN_ACCOUNT đúng actor, target và lý do")
     void ban_writesAuditLog() {
-        when(accountRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.of(target));
 
         service.ban(admin, targetId, "Spam");
 
@@ -152,7 +159,7 @@ class AccountAdminServiceImplTest {
     @Test
     @DisplayName("ban: tài khoản không tồn tại -> ACCOUNT_NOT_FOUND, không ghi gì")
     void ban_targetNotFound_throws() {
-        when(accountRepository.findById(targetId)).thenReturn(Optional.empty());
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.empty());
 
         assertAppError(() -> service.ban(admin, targetId, "Spam"), ErrorCode.ACCOUNT_NOT_FOUND);
 
@@ -163,7 +170,7 @@ class AccountAdminServiceImplTest {
     @DisplayName("ban: không được khoá tài khoản ADMIN khác")
     void ban_targetIsAdmin_throws() {
         target.setRole(Role.ADMIN);
-        when(accountRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.of(target));
 
         assertAppError(() -> service.ban(admin, targetId, "Spam"), ErrorCode.CANNOT_BAN_ADMIN_OR_SELF);
 
@@ -174,7 +181,7 @@ class AccountAdminServiceImplTest {
     @Test
     @DisplayName("ban: không được tự khoá chính mình")
     void ban_targetIsSelf_throws() {
-        when(accountRepository.findById(admin.getId())).thenReturn(Optional.of(admin));
+        when(accountRepository.findByIdForUpdate(admin.getId())).thenReturn(Optional.of(admin));
 
         assertAppError(() -> service.ban(admin, admin.getId(), "Spam"), ErrorCode.CANNOT_BAN_ADMIN_OR_SELF);
 
@@ -191,7 +198,7 @@ class AccountAdminServiceImplTest {
                 .role(Role.MODERATOR)
                 .status(AccountStatus.ACTIVE)
                 .build();
-        when(accountRepository.findById(moderator.getId())).thenReturn(Optional.of(moderator));
+        when(accountRepository.findByIdForUpdate(moderator.getId())).thenReturn(Optional.of(moderator));
 
         assertAppError(() -> service.ban(moderator, moderator.getId(), "Spam"),
                 ErrorCode.CANNOT_BAN_ADMIN_OR_SELF);
@@ -204,7 +211,7 @@ class AccountAdminServiceImplTest {
     void ban_alreadyBanned_throws() {
         target.setStatus(AccountStatus.BANNED);
         target.setBanReason("Lý do cũ");
-        when(accountRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.of(target));
 
         assertAppError(() -> service.ban(admin, targetId, "Lý do mới"), ErrorCode.ACCOUNT_ALREADY_BANNED);
 
@@ -219,7 +226,7 @@ class AccountAdminServiceImplTest {
     void unban_success() {
         target.setStatus(AccountStatus.BANNED);
         target.setBanReason("Spam");
-        when(accountRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.of(target));
 
         AccountStatusResponse response = service.unban(admin, targetId);
 
@@ -237,7 +244,7 @@ class AccountAdminServiceImplTest {
     void unban_writesAuditLogWithPreviousReason() {
         target.setStatus(AccountStatus.BANNED);
         target.setBanReason("Spam");
-        when(accountRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.of(target));
 
         service.unban(admin, targetId);
 
@@ -258,7 +265,7 @@ class AccountAdminServiceImplTest {
     void unban_doesNotRevokeTokens() {
         target.setStatus(AccountStatus.BANNED);
         target.setBanReason("Spam");
-        when(accountRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.of(target));
 
         service.unban(admin, targetId);
 
@@ -268,7 +275,7 @@ class AccountAdminServiceImplTest {
     @Test
     @DisplayName("unban: tài khoản không tồn tại -> ACCOUNT_NOT_FOUND")
     void unban_targetNotFound_throws() {
-        when(accountRepository.findById(targetId)).thenReturn(Optional.empty());
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.empty());
 
         assertAppError(() -> service.unban(admin, targetId), ErrorCode.ACCOUNT_NOT_FOUND);
 
@@ -279,7 +286,7 @@ class AccountAdminServiceImplTest {
     @Test
     @DisplayName("unban: tài khoản đang ACTIVE (không bị khoá) -> ACCOUNT_NOT_BANNED")
     void unban_notBanned_throws() {
-        when(accountRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(accountRepository.findByIdForUpdate(targetId)).thenReturn(Optional.of(target));
 
         assertAppError(() -> service.unban(admin, targetId), ErrorCode.ACCOUNT_NOT_BANNED);
 

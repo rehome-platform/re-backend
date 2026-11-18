@@ -586,7 +586,7 @@ class ConsignmentReceiptServiceImplTest {
     /** Chạy happy path và trả về receipt đã được truyền vào save(). */
     private ConsignmentReceipt completeAndCapture(ConsignmentForm form, CompleteInspectionRequest req) {
         when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
-        when(consignmentReceiptRepository.existsByConsignmentFormId(form.getId())).thenReturn(false);
+        when(consignmentReceiptRepository.findFirstByConsignmentForm_IdOrderByCreatedAtDesc(form.getId())).thenReturn(Optional.empty());
         when(consignmentReceiptRepository.nextReceiptSequence()).thenReturn(7L);
         when(consignmentReceiptRepository.save(any(ConsignmentReceipt.class))).thenAnswer(inv -> {
             ConsignmentReceipt r = inv.getArgument(0);
@@ -684,7 +684,7 @@ class ConsignmentReceiptServiceImplTest {
     void completeInspection_receiptAlreadyExists_throws409() {
         ConsignmentForm form = formWithStatus(ConsignmentFormStatus.INSPECTING);
         when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
-        when(consignmentReceiptRepository.existsByConsignmentFormId(form.getId())).thenReturn(true);
+        when(consignmentReceiptRepository.findFirstByConsignmentForm_IdOrderByCreatedAtDesc(form.getId())).thenReturn(Optional.of(ConsignmentReceipt.builder().build()));
 
         assertAppError(() -> service.completeInspection(form.getId(), completeRequest(BigDecimal.TEN, 30)),
                 ErrorCode.CONSIGNMENT_RECEIPT_ALREADY_EXISTS);
@@ -696,7 +696,7 @@ class ConsignmentReceiptServiceImplTest {
     void completeInspection_unknownModerator_throwsUnauthorized() {
         ConsignmentForm form = formWithStatus(ConsignmentFormStatus.INSPECTING);
         when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
-        when(consignmentReceiptRepository.existsByConsignmentFormId(form.getId())).thenReturn(false);
+        when(consignmentReceiptRepository.findFirstByConsignmentForm_IdOrderByCreatedAtDesc(form.getId())).thenReturn(Optional.empty());
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken("ghost@rehome.com", null, List.of()));
         when(accountRepository.findByEmail("ghost@rehome.com")).thenReturn(Optional.empty());
@@ -713,7 +713,7 @@ class ConsignmentReceiptServiceImplTest {
         Account moderator = loginAsModerator();
         moderator.setWarehouse(Warehouse.builder().id(UUID.randomUUID()).build());
         when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
-        when(consignmentReceiptRepository.existsByConsignmentFormId(form.getId())).thenReturn(false);
+        when(consignmentReceiptRepository.findFirstByConsignmentForm_IdOrderByCreatedAtDesc(form.getId())).thenReturn(Optional.empty());
 
         assertAppError(() -> service.completeInspection(form.getId(), completeRequest(BigDecimal.TEN, 30)),
                 ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
@@ -727,11 +727,95 @@ class ConsignmentReceiptServiceImplTest {
         Account moderator = loginAsModerator();
         moderator.setWarehouse(null);
         when(consignmentFormRepository.findByIdForUpdate(form.getId())).thenReturn(Optional.of(form));
-        when(consignmentReceiptRepository.existsByConsignmentFormId(form.getId())).thenReturn(false);
+        when(consignmentReceiptRepository.findFirstByConsignmentForm_IdOrderByCreatedAtDesc(form.getId())).thenReturn(Optional.empty());
 
         assertAppError(() -> service.completeInspection(form.getId(), completeRequest(BigDecimal.TEN, 30)),
                 ErrorCode.MODERATOR_NO_WAREHOUSE);
 
         verify(consignmentReceiptRepository, never()).save(any());
+    }
+    @Test
+    void confirmRejectsStaleVersionBeforeGeneratingPdf() {
+        Account owner = member();
+        ConsignmentReceipt receipt = unconfirmedReceiptOf(owner);
+        receipt.setVersion(2);
+        when(consignmentReceiptRepository.findByIdForUpdate(receipt.getId())).thenReturn(Optional.of(receipt));
+
+        assertAppError(() -> service.confirmReceipt(owner, receipt.getId(), 1), ErrorCode.RECEIPT_CHANGED);
+        assertThat(receipt.getConfirmedAt()).isNull();
+        org.mockito.Mockito.verifyNoInteractions(receiptPdfService);
+    }
+
+    @Test
+    void editPendingReceiptUpdatesVersionAndRegeneratesPdf() {
+        Account owner = member();
+        ConsignmentReceipt receipt = unconfirmedReceiptOf(owner);
+        Account moderator = Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR)
+                .warehouse(receipt.getWarehouse()).build();
+        when(consignmentReceiptRepository.findByIdForUpdate(receipt.getId())).thenReturn(Optional.of(receipt));
+        when(consignmentReceiptRepository.findById(receipt.getId())).thenReturn(Optional.of(receipt));
+        when(receiptPdfService.generate(receipt)).thenReturn(new byte[]{1, 2, 3});
+
+        var response = service.editReceipt(moderator, receipt.getId(),
+                new com.rehome.rehome.dto.request.EditReceiptRequest(
+                        new BigDecimal("300000"), "Tình trạng mới", "Ghi chú", "Điều chỉnh giá"));
+
+        assertThat(response.getVersion()).isEqualTo(2);
+        assertThat(response.getAgreedPrice()).isEqualByComparingTo("300000");
+        assertThat(response.getEditReason()).isEqualTo("Điều chỉnh giá");
+        verify(receiptPdfService).generate(receipt);
+    }
+
+    @Test
+    void voidPreservesConfirmationAndPdf() {
+        ConsignmentReceipt receipt = unconfirmedReceiptOf(member());
+        Instant confirmed = Instant.now();
+        receipt.setConfirmedAt(confirmed);
+        Account moderator = Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR)
+                .warehouse(receipt.getWarehouse()).build();
+        when(consignmentReceiptRepository.findByIdForUpdate(receipt.getId())).thenReturn(Optional.of(receipt));
+        when(consignmentReceiptRepository.findById(receipt.getId())).thenReturn(Optional.of(receipt));
+
+        service.voidReceipt(moderator, receipt.getId(), "Lập lại biên nhận");
+
+        assertThat(receipt.effectiveStatus()).isEqualTo(com.rehome.rehome.entity.enums.ReceiptStatus.VOIDED);
+        assertThat(receipt.getConfirmedAt()).isEqualTo(confirmed);
+        assertThat(receipt.getVoidedBy()).isSameAs(moderator);
+        assertThat(receipt.getConsignmentForm().getStatus()).isEqualTo(ConsignmentFormStatus.INSPECTING);
+        org.mockito.Mockito.verifyNoInteractions(receiptPdfService, consignmentReceiptPdfRepository);
+    }
+
+    @Test
+    void voidRejectsStockedReceipt() {
+        ConsignmentReceipt receipt = unconfirmedReceiptOf(member());
+        receipt.setConfirmedAt(Instant.now());
+        Account moderator = Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR)
+                .warehouse(receipt.getWarehouse()).build();
+        when(consignmentReceiptRepository.findByIdForUpdate(receipt.getId())).thenReturn(Optional.of(receipt));
+        when(productRepository.findByConsignmentReceiptId(receipt.getId()))
+                .thenReturn(Optional.of(Product.builder().build()));
+
+        assertAppError(() -> service.voidReceipt(moderator, receipt.getId(), "Lập lại"),
+                ErrorCode.RECEIPT_HAS_PRODUCT);
+    }
+
+    @Test
+    void replacementKeepsOriginalTermsAndSequentialReceiptNumber() {
+        ConsignmentReceipt previous = unconfirmedReceiptOf(member());
+        previous.setReceiptNo("KG-2026-000123");
+        previous.setTermLengthDays(45);
+        previous.setCommissionRateTerm1(new BigDecimal("0.07"));
+        ConsignmentReceipt next = ConsignmentReceipt.builder().agreedPrice(new BigDecimal("400000")).build();
+
+        next.replaceVoided(previous);
+
+        assertThat(next.getReceiptNo()).isEqualTo("KG-2026-000123-02");
+        assertThat(next.getPreviousReceipt()).isSameAs(previous);
+        assertThat(next.getTermLengthDays()).isEqualTo(45);
+        assertThat(next.getCommissionRateTerm1()).isEqualByComparingTo("0.07");
+        assertThat(next.getAgreedPrice()).isEqualByComparingTo("400000");
+        ConsignmentReceipt third = ConsignmentReceipt.builder().build();
+        third.replaceVoided(next);
+        assertThat(third.getReceiptNo()).isEqualTo("KG-2026-000123-03");
     }
 }

@@ -23,6 +23,8 @@ public interface CampaignService {
                                           CreateCampaignRequest request);
 
     // F-101: tổ chức đóng chiến dịch trước hạn. Gọi lại khi đã đóng thì không báo lỗi.
+    CampaignStatusResponse unhideCampaign(com.rehome.rehome.entity.auth.Account moderator, UUID campaignId, String reason);
+
     CampaignStatusResponse closeCampaign(UUID organizationAccountId, UUID campaignId);
 
     // F-103: chiến dịch của chính tổ chức; status == null thì lấy mọi trạng thái.

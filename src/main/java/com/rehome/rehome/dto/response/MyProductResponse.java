@@ -24,7 +24,8 @@ public class MyProductResponse {
     private DonationInfo donation;
 
     public record DonationInfo(UUID id, UUID campaignId, String campaignTitle,
-                               String organizationName, String status, Instant handedOverAt) {}
+                               String organizationName, String status, Instant handedOverAt,
+                               String reassignedFromCampaignTitle) {}
 
     private String id;
     private String productName;

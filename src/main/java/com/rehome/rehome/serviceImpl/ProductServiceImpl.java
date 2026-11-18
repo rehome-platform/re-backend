@@ -106,20 +106,11 @@ public class ProductServiceImpl implements ProductService {
             throw new BadRequestException("priceMin không được lớn hơn priceMax.");
         }
 
-        // Ưu tiên hiển thị của gói VIP: món còn hiệu lực "Nổi bật" xếp lên đầu, trong mỗi nhóm thì
-        // mới nhất trước.
-        //
-        // ⚠️ BẮT BUỘC .nullsLast(): Postgres mặc định xếp NULL LÊN ĐẦU khi sort DESC, nên thiếu nó
-        // thì toàn bộ sản phẩm KHÔNG nổi bật (featuredUntil = null) sẽ nằm trên - ngược hẳn ý định.
-        //
-        // featured_until trong quá khứ (gói đã hết hạn mà job chưa kịp dọn) vẫn tự xếp xuống dưới
-        // các mốc tương lai, nên không cần job dọn cột này.
-        PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1),
-                Sort.by(Sort.Order.desc("featuredUntil").nullsLast(),
-                        Sort.Order.desc("createdAt")));
+        PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1));
 
         Page<Product> result = productRepository.findAll(
-                ProductSpecifications.filter(search, categoryId, brandId, priceMin, priceMax, warehouseId, tryonSlot),
+                ProductSpecifications.filter(search, categoryId, brandId, priceMin, priceMax, warehouseId, tryonSlot)
+                        .and(ProductSpecifications.featuredFirst(Instant.now())),
                 pageable
         );
 
@@ -167,6 +158,7 @@ public class ProductServiceImpl implements ProductService {
 
         product.setName(request.name().strip());
         productRepository.save(product);
+        auditLogger.logOperation(moderator, "UPDATE_PRODUCT", "PRODUCT", id, "SUCCESS");
         List<ProductPhoto> existing = productPhotoRepository.findByProduct_IdOrderByDisplayOrderAscIdAsc(id);
         Map<String, java.util.ArrayDeque<ProductPhoto>> byUrl = new java.util.HashMap<>();
         for (ProductPhoto photo : existing) {
@@ -356,7 +348,7 @@ public class ProductServiceImpl implements ProductService {
                 campaign == null ? null : campaign.getId(),
                 campaign == null ? null : campaign.getTitle(),
                 campaign == null ? null : campaign.getOrganization().getDisplayName(),
-                donation.getStatus().name(), donation.getHandedOverAt());
+                donation.getStatus().name(), donation.getHandedOverAt(), donation.getReassignedFromCampaignTitle());
     }
 
     // price = giá có hiệu lực lúc kỳ đó bắt đầu. Mốc đầu các kỳ trước suy ra bằng cách
@@ -514,7 +506,7 @@ public class ProductServiceImpl implements ProductService {
             throw new AppException(ErrorCode.PRODUCT_NOT_DONATABLE);
         }
 
-        Campaign campaign = campaignRepository.findById(request.campaignId())
+        Campaign campaign = campaignRepository.findByIdForUpdate(request.campaignId())
                 .orElseThrow(() -> new AppException(ErrorCode.CAMPAIGN_NOT_ACCEPTING));
         if (campaign.getStatus() == CampaignStatus.HIDDEN) {
             throw new AppException(ErrorCode.CAMPAIGN_HIDDEN);
@@ -617,7 +609,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional
     public ProductResponse create(CreateProductRequest request, Account account) {
-        ConsignmentReceipt receipt = receiptRepository.findById(request.getReceiptId())
+        ConsignmentReceipt receipt = receiptRepository.findByIdForUpdate(request.getReceiptId())
                 .orElseThrow(() -> new AppException(ErrorCode.RECEIPT_NOT_FOUND));          // 404
 
         // Moderator chỉ nhập kho biên nhận thuộc kho mình phụ trách
@@ -625,7 +617,7 @@ public class ProductServiceImpl implements ProductService {
                 || !account.getWarehouse().getId().equals(receipt.getWarehouse().getId())) {
             throw new AppException(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);                 // 403
         }
-        if (receipt.getConfirmedAt() == null) {
+        if (receipt.effectiveStatus() != com.rehome.rehome.entity.enums.ReceiptStatus.CONFIRMED) {
             throw new AppException(ErrorCode.RECEIPT_NOT_CONFIRMED);                         // 409
         }
         if (productRepository.existsByConsignmentReceiptId(receipt.getId())) {

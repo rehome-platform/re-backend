@@ -15,6 +15,7 @@ import com.rehome.rehome.entity.marketplace.Campaign;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
+import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.exception.ForbiddenException;
@@ -57,6 +58,8 @@ import static org.mockito.Mockito.when;
 class CampaignServiceImplTest {
 
     @Mock private CampaignRepository campaignRepository;
+    @Mock private com.rehome.rehome.repository.AccountRepository accountRepository;
+    @Mock private com.rehome.rehome.service.DonationService donationService;
     @Mock private OrganizationProfileRepository organizationProfileRepository;
     @Mock private WarehouseRepository warehouseRepository;
     @Mock private DonationRepository donationRepository;
@@ -66,6 +69,8 @@ class CampaignServiceImplTest {
     @Mock private NotificationService notificationService;
 
     @Mock private com.rehome.rehome.service.ContentModerationService moderation;
+
+    @org.mockito.Mock com.rehome.rehome.component.AuditLogger auditLogger;
 
     @InjectMocks private CampaignServiceImpl service;
 
@@ -1072,5 +1077,35 @@ class CampaignServiceImplTest {
         verify(campaignRepository).findByOrganization_AccountId(eq(orgId), captor.capture());
         assertThat(captor.getValue().getPageSize()).isEqualTo(50);
         assertThat(captor.getValue().getSort().getOrderFor("createdAt").isDescending()).isTrue();
+    }
+    @Test
+    void unhideCampaignRestoresDonationsAndClosesExpiredCampaign() {
+        UUID campaignId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        Account owner = Account.builder().id(ownerId).build();
+        Campaign campaign = Campaign.builder().id(campaignId).status(CampaignStatus.HIDDEN)
+                .endTime(Instant.now().minusSeconds(60)).title("Campaign").build();
+        when(campaignRepository.findOrganizationId(campaignId)).thenReturn(Optional.of(ownerId));
+        when(accountRepository.findByIdForUpdate(ownerId)).thenReturn(Optional.of(owner));
+        when(campaignRepository.findByIdForUpdate(campaignId)).thenReturn(Optional.of(campaign));
+
+        service.unhideCampaign(Account.builder().build(), campaignId, "Đã kiểm tra");
+
+        assertThat(campaign.getStatus()).isEqualTo(CampaignStatus.CLOSED);
+        verify(donationService).restoreCampaignDonations(campaignId);
+    }
+
+    @Test
+    void unhideCampaignRejectsBannedOrganization() {
+        UUID campaignId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        Account owner = Account.builder().id(ownerId)
+                .status(com.rehome.rehome.entity.enums.AccountStatus.BANNED).build();
+        when(campaignRepository.findOrganizationId(campaignId)).thenReturn(Optional.of(ownerId));
+        when(accountRepository.findByIdForUpdate(ownerId)).thenReturn(Optional.of(owner));
+
+        assertThatThrownBy(() -> service.unhideCampaign(Account.builder().build(), campaignId, "Đã kiểm tra"))
+                .isInstanceOf(ConflictException.class);
+        verify(donationService, org.mockito.Mockito.never()).restoreCampaignDonations(campaignId);
     }
 }

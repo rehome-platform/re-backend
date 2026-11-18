@@ -2,6 +2,8 @@ package com.rehome.rehome.entity.enums;
 
 public enum NotificationType {
     ORDER_UPDATE,
+    RECEIPT_UPDATED,
+    RECEIPT_VOIDED,
     CONTENT_REVIEW,
     WITHDRAWAL_APPROVED,
     WITHDRAWAL_REJECTED,
@@ -13,6 +15,8 @@ public enum NotificationType {
     // Moderator ghi nhận 1 lượt quyên góp cho chiến dịch của tổ chức (F-163) -> báo cho tổ chức
     // đó, kèm targetType/targetId/warehouseId để app mở đúng màn chờ lấy (OC-07)
     DONATION_RECORDED,
+    DONATION_ON_HOLD,
+    DONATION_REASSIGNED,
     DONATION_HANDED_OVER,
 
     // Tổ chức trả lời bình luận của Member trên bài viết -> báo cho Member đó (targetType=POST)

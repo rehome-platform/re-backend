@@ -76,6 +76,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
     private static final List<ItemWithdrawalStatus> ACTIVE_WITHDRAWAL_STATUSES =
             List.of(ItemWithdrawalStatus.PENDING_APPROVAL, ItemWithdrawalStatus.PENDING_PICKUP);
 
+    private final com.rehome.rehome.component.AuditLogger auditLogger;
     private final ProductRepository productRepository;
     private final ProductPhotoRepository productPhotoRepository;
     private final ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
@@ -159,6 +160,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         product.setStatus(ProductStatus.WITHDRAWN);
         productRepository.save(product);
 
+        auditLogger.logOperation(account, "CREATE_WITHDRAWAL", "WITHDRAWAL", withdrawal.getId(), withdrawal.getStatus().name());
         return toResponse(withdrawal);
     }
 
@@ -190,6 +192,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 "Yêu cầu rút hàng đã được duyệt", "Bạn có thể xem thời hạn nhận hàng và thông tin thanh toán trong yêu cầu.",
                 com.rehome.rehome.entity.enums.NotificationTargetType.WITHDRAWAL, id,
                 withdrawal.getProduct().getWarehouse().getId());
+        auditLogger.logOperation(moderator, "APPROVE_WITHDRAWAL", "WITHDRAWAL", id, withdrawal.getStatus().name());
         return toResponse(withdrawal);
     }
 
@@ -232,6 +235,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 "Yêu cầu rút hàng bị từ chối", withdrawal.getRejectReason(),
                 com.rehome.rehome.entity.enums.NotificationTargetType.WITHDRAWAL, id,
                 withdrawal.getProduct().getWarehouse().getId());
+        auditLogger.logOperation(moderator, "REJECT_WITHDRAWAL", "WITHDRAWAL", id, withdrawal.getStatus().name());
         return toResponse(withdrawal);
     }
 

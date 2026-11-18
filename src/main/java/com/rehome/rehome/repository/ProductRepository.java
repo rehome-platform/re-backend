@@ -81,6 +81,20 @@ public interface ProductRepository extends JpaRepository<Product, String>, JpaSp
     Optional<Product> findByConsignmentReceiptId(UUID consignmentReceiptId);
 
     // Moderator: lấy sản phẩm của nhiều biên nhận trong một query
+    interface FormProductId {
+        UUID getFormId();
+        String getProductId();
+    }
+
+    @Query("""
+            select p.consignmentReceipt.consignmentForm.id as formId, min(p.id) as productId
+            from Product p
+            where p.consignmentReceipt.consignmentForm.id in :formIds
+            group by p.consignmentReceipt.consignmentForm.id
+            having count(p) = 1
+            """)
+    List<FormProductId> findProductIdsByFormIds(@Param("formIds") Collection<UUID> formIds);
+
     List<Product> findByConsignmentReceipt_IdIn(Collection<UUID> receiptIds);
 
     List<Product> findAllByNameNormalizedIsNull();
@@ -135,7 +149,7 @@ WHERE p.warehouse.id = :warehouseId
     // Gói hết hạn/đổi hạng: xóa nhãn trên MỌI món của Member, kể cả món đã rời sàn, để không còn
     // dòng rác featured_until trong DB
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("update Product p set p.featuredUntil = null where p.member.id = :memberId "
+    @Query("update Product p set p.featuredUntil = null, p.featuredRank = null where p.member.id = :memberId "
             + "and p.featuredUntil is not null")
     int clearFeaturedByMemberId(@Param("memberId") UUID memberId);
 

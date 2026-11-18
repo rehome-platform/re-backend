@@ -7,6 +7,9 @@ import org.springframework.http.HttpStatus;
 @Getter
 @RequiredArgsConstructor
 public enum ErrorCode {
+    RECEIPT_NOT_EDITABLE(HttpStatus.CONFLICT, "Biên nhận không thể sửa hoặc huỷ ở trạng thái hiện tại."),
+    RECEIPT_CHANGED(HttpStatus.CONFLICT, "Biên nhận đã thay đổi. Vui lòng tải lại."),
+    RECEIPT_HAS_PRODUCT(HttpStatus.CONFLICT, "Biên nhận đã nhập kho, không thể huỷ."),
     ACCOUNT_BANNED(HttpStatus.FORBIDDEN, "Tài khoản đã bị khoá!"),
     EMAIL_NOT_VERIFIED(HttpStatus.FORBIDDEN, "Tài khoản chưa xác thực email. Vui lòng kiểm tra hộp thư."),
     WRONG_PASSWORD(HttpStatus.BAD_REQUEST, "Mật khẩu cũ không đúng."),
@@ -268,6 +271,7 @@ public enum ErrorCode {
     // viên của Member (MembershipQuotaResolver), không còn là con số cứng 2 lượt/10 giây
     TRYON_LIVE_QUOTA_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS,
             "Bạn đã dùng hết lượt thử đồ AI real-time hôm nay. Nâng cấp gói để thử thêm."),
+    TRYON_LIVE_UNCONFIRMED_LIMIT(HttpStatus.TOO_MANY_REQUESTS, "Đã đạt giới hạn phiên chưa có hình trong ngày."),
     TRYON_LIVE_TOKEN_FAILED(HttpStatus.BAD_GATEWAY,
             "Không thể kết nối tới dịch vụ thử đồ AI real-time lúc này, vui lòng thử lại sau."),
     TRYON_LIVE_SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy phiên thử đồ AI real-time."),
@@ -287,6 +291,7 @@ public enum ErrorCode {
     MEMBERSHIP_PLAN_YEARLY_NOT_AVAILABLE(HttpStatus.BAD_REQUEST, "Gói này không bán theo năm."),
     MEMBERSHIP_ALREADY_ACTIVE_SAME_TIER(HttpStatus.CONFLICT,
             "Bạn đang dùng gói này, hãy dùng chức năng gia hạn."),
+    MEMBERSHIP_PAYMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy giao dịch gói thành viên."),
     MEMBERSHIP_PAYMENT_PENDING(HttpStatus.CONFLICT, "Bạn đang có một giao dịch mua gói chờ thanh toán."),
     MEMBERSHIP_NOT_FOUND(HttpStatus.NOT_FOUND, "Bạn chưa có gói thành viên nào."),
     MEMBERSHIP_SUBSCRIPTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy gói đăng ký."),

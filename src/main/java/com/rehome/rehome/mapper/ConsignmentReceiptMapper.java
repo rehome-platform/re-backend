@@ -20,6 +20,14 @@ public final class ConsignmentReceiptMapper {
         }
         ConsignmentReceiptResponse dto = new ConsignmentReceiptResponse();
         dto.setId(r.getId());
+        dto.setStatus(r.effectiveStatus());
+        dto.setVersion(r.getVersion());
+        dto.setEditReason(r.getEditReason());
+        dto.setEditedAt(r.getEditedAt());
+        dto.setVoidReason(r.getVoidReason());
+        dto.setVoidedAt(r.getVoidedAt());
+        dto.setVoidedBy(r.getVoidedBy() == null ? null : r.getVoidedBy().getId());
+        dto.setPreviousReceiptId(r.getPreviousReceipt() == null ? null : r.getPreviousReceipt().getId());
         dto.setReceiptNo(r.getReceiptNo());
         dto.setCreatedAt(r.getCreatedAt());
         dto.setAgreedPrice(r.getAgreedPrice());

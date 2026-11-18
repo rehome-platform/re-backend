@@ -133,6 +133,10 @@ public class VoucherCalculator {
             return new Result(zero(), List.of());
         }
 
+        if (voucher.getType() == VoucherType.SHIPPING && voucher.getDiscountKind() == VoucherDiscountKind.FIXED) {
+            return allocateFixedShipping(voucher, lines, throwWhenZero);
+        }
+
         BigDecimal commissionCapRatio = systemConfigReader.getDecimal(
                 SystemConfigKeys.VOUCHER_MAX_RATIO_OF_COMMISSION,
                 SystemConfigKeys.DEFAULT_VOUCHER_MAX_RATIO_OF_COMMISSION);
@@ -189,6 +193,35 @@ public class VoucherCalculator {
     }
 
     /** B2 + B3 cho một đơn: mức giảm thô, đã áp trần riêng của đơn, CHƯA áp max_discount_amount. */
+    private Result allocateFixedShipping(MemberVoucher voucher, List<OrderLine> lines, boolean throwWhenZero) {
+        BigDecimal shipping = lines.stream()
+                .map(line -> line.shippingFee().max(BigDecimal.ZERO).setScale(MONEY_SCALE, RoundingMode.DOWN))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal total = min(shipping, voucher.getDiscountValue());
+        if (voucher.getMaxDiscountAmount() != null) {
+            total = min(total, voucher.getMaxDiscountAmount());
+        }
+        total = total.setScale(MONEY_SCALE, RoundingMode.DOWN);
+        if (total.signum() <= 0) {
+            if (throwWhenZero) {
+                throw new AppException(ErrorCode.VOUCHER_NOT_APPLICABLE);
+            }
+            return new Result(zero(), buildZeroAllocations(lines));
+        }
+
+        List<Allocation> allocations = new ArrayList<>(lines.size());
+        BigDecimal shippingSoFar = BigDecimal.ZERO;
+        BigDecimal allocated = zero();
+        for (OrderLine line : lines) {
+            shippingSoFar = shippingSoFar.add(line.shippingFee().max(BigDecimal.ZERO)
+                    .setScale(MONEY_SCALE, RoundingMode.DOWN));
+            BigDecimal cumulative = total.multiply(shippingSoFar).divide(shipping, MONEY_SCALE, RoundingMode.HALF_UP);
+            allocations.add(new Allocation(line.orderKey(), cumulative.subtract(allocated)));
+            allocated = cumulative;
+        }
+        return new Result(total, allocations);
+    }
+
     private BigDecimal rawDiscountForLine(MemberVoucher voucher, OrderLine line, BigDecimal commissionCapRatio) {
         BigDecimal base = voucher.getType() == VoucherType.SHIPPING
                 ? line.shippingFee()

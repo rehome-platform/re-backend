@@ -19,6 +19,7 @@ import java.util.List;
 @Slf4j
 public class CampaignAutoCloseServiceImpl implements CampaignAutoCloseService {
 
+    private final com.rehome.rehome.component.AuditLogger auditLogger;
     private final CampaignRepository campaignRepository;
 
     @Override
@@ -35,6 +36,7 @@ public class CampaignAutoCloseServiceImpl implements CampaignAutoCloseService {
         for (Campaign campaign : expired) {
             campaign.setStatus(CampaignStatus.CLOSED);
             campaignRepository.save(campaign);
+            auditLogger.logSystemOperation("AUTO_CLOSE_CAMPAIGN", "CAMPAIGN", campaign.getId(), "CLOSED", "SCHEDULER");
 
             log.info(">>>> Tu dong dong chien dich het han: campaignId={}, endTime={}",
                     campaign.getId(), campaign.getEndTime());

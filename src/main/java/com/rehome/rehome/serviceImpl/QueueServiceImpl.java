@@ -273,7 +273,8 @@ public class QueueServiceImpl implements QueueService {
 
         // Nhánh quyên góp: DONATION_PICKUP có refId là id Donation; product, chiến dịch, tổ chức fetch sẵn theo lô
         List<UUID> donationIds = items.stream()
-                .filter(i -> i.getType() == QueueType.DONATION_PREP || i.getType() == QueueType.DONATION_PICKUP)
+                .filter(i -> i.getType() == QueueType.DONATION_PREP || i.getType() == QueueType.DONATION_PICKUP
+                        || i.getType() == QueueType.DONATION_REASSIGN)
                 .map(i -> parseUuid(i.getRefId()))
                 .filter(Objects::nonNull)
                 .distinct()
@@ -348,7 +349,8 @@ public class QueueServiceImpl implements QueueService {
                 String productImageUrl = withdrawalImageByProductId.get(withdrawal.getProduct().getId());
                 return QueueItemResponse.fromWithdrawal(q, withdrawal, memberName, memberCode, productImageUrl);
             }
-            if (q.getType() == QueueType.DONATION_PREP || q.getType() == QueueType.DONATION_PICKUP) {
+            if (q.getType() == QueueType.DONATION_PREP || q.getType() == QueueType.DONATION_PICKUP
+                    || q.getType() == QueueType.DONATION_REASSIGN) {
                 UUID donationId = parseUuid(q.getRefId());
                 Donation donation = donationId == null ? null : donationsById.get(donationId);
                 if (donation == null) {

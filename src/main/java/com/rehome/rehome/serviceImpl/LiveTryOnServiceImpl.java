@@ -130,7 +130,7 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
         int sessionSeconds = Math.max(
                 quotaGuard.usage(account.getId()).quota().liveTryonMaxSeconds(), maxSessionSeconds);
 
-        // Quota thực sự bị trừ bên trong quotaGuard.reserve() (bean riêng để @Transactional có hiệu lực)
+        // Reserve a session before requesting a token. Usage is charged when the first frame is confirmed.
         LiveTryOnSession session = quotaGuard.reserve(account, product, modelId);
 
         DecartVtonClient.TokenResult token;
@@ -197,6 +197,11 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
     }
 
     // ================================================================ PATCH /tryon/live/sessions/{id}/complete
+
+    @Override
+    public void confirmFirstFrame(Account account, UUID sessionId) {
+        quotaGuard.confirmFirstFrame(account, sessionId);
+    }
 
     @Override
     @Transactional

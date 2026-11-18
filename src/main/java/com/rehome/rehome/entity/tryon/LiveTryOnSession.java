@@ -17,6 +17,7 @@ import lombok.*;
  * nhất backend kiểm soát được trước khi phát sinh chi phí stream thật.
  */
 @Entity
+@org.hibernate.annotations.DynamicUpdate
 @Table(name = "live_tryon_sessions")
 @Getter
 @Setter
@@ -58,6 +59,9 @@ public class LiveTryOnSession {
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
+
+    @Column(name = "first_frame_at")
+    private Instant firstFrameAt;
 
     @Column(name = "completed_at", nullable = true)
     private Instant completedAt;

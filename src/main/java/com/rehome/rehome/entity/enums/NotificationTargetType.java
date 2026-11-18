@@ -4,6 +4,7 @@ package com.rehome.rehome.entity.enums;
 // Null trên Notification nghĩa là thông báo không có deep-link (chỉ hiện nội dung).
 public enum NotificationTargetType {
     CAMPAIGN,
+    CONSIGNMENT_RECEIPT,
     POST,
 
     // Kết quả xác minh / từ chối hồ sơ tổ chức (F-138) -> mở màn hồ sơ tổ chức

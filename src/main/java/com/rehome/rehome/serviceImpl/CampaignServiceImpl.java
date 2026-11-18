@@ -65,8 +65,11 @@ public class CampaignServiceImpl implements CampaignService {
     private static final String RECEIVE_WAY_REQUIRED =
             "Phải chọn nhận tại địa chỉ riêng hoặc chọn ít nhất 1 kho.";
 
+    private final com.rehome.rehome.component.AuditLogger auditLogger;
     private final com.rehome.rehome.service.ContentModerationService moderation;
     private final CampaignRepository campaignRepository;
+    private final com.rehome.rehome.repository.AccountRepository accountRepository;
+    private final com.rehome.rehome.service.DonationService donationService;
     private final OrganizationProfileRepository organizationProfileRepository;
     private final WarehouseRepository warehouseRepository;
     private final DonationRepository donationRepository;
@@ -84,7 +87,8 @@ public class CampaignServiceImpl implements CampaignService {
                 && campaign.getOrganization().getAccountId().equals(viewerAccountId);
         // HIDDEN (bị Moderator xử lý vi phạm): chỉ tổ chức sở hữu xem được, Member/Guest coi như
         // không tồn tại - giống hành vi với CommunityPost REMOVED (CommunityPostServiceImpl.getDetail)
-        if (campaign.getStatus() == CampaignStatus.HIDDEN && !isOwner) {
+        if (!isOwner && (campaign.getStatus() == CampaignStatus.HIDDEN
+                || isBanned(campaign.getOrganization()))) {
             throw new IllegalArgumentException(CAMPAIGN_NOT_FOUND);
         }
         return toPublicResponse(campaign, isOwner);
@@ -141,6 +145,7 @@ public class CampaignServiceImpl implements CampaignService {
                 .createdAt(Instant.now())
                 .build();
         campaignRepository.save(campaign);
+        auditLogger.logCurrentOperation("CREATE_CAMPAIGN", "CAMPAIGN", campaign.getId(), campaign.getStatus().name());
         moderation.recordMatch(organizationAccountId, "CAMPAIGN", campaign.getId(), moderationAction);
 
         // UC-44: báo cho người theo dõi tổ chức khi có chiến dịch mới. Chỉ gửi lúc TẠO, không
@@ -206,7 +211,42 @@ public class CampaignServiceImpl implements CampaignService {
 
         campaignRepository.save(campaign);
         moderation.recordMatch(organizationAccountId, "CAMPAIGN", campaign.getId(), moderationAction);
+        auditLogger.logCurrentOperation("UPDATE_CAMPAIGN", "CAMPAIGN", campaignId, campaign.getStatus().name());
         return toPublicResponse(campaign);
+    }
+
+    @Override
+    @Transactional
+    public CampaignStatusResponse unhideCampaign(com.rehome.rehome.entity.auth.Account moderator,
+                                                   UUID campaignId, String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new com.rehome.rehome.exception.BadRequestException("Vui lòng nhập lý do bỏ ẩn.");
+        }
+        UUID organizationId = campaignRepository.findOrganizationId(campaignId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy chiến dịch."));
+        var organization = accountRepository.findByIdForUpdate(organizationId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy tổ chức."));
+        if (organization.getStatus() == com.rehome.rehome.entity.enums.AccountStatus.BANNED) {
+            throw new ConflictException("Tổ chức đang bị khoá.", "CAMPAIGN_ORGANIZATION_BANNED");
+        }
+
+        Campaign campaign = campaignRepository.findByIdForUpdate(campaignId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy chiến dịch."));
+        if (campaign.getStatus() != CampaignStatus.HIDDEN) {
+            throw new ConflictException("Chiến dịch hiện không bị ẩn.", "CAMPAIGN_NOT_HIDDEN");
+        }
+        String unhideReason = reason.strip();
+        CampaignStatus status = campaign.getEndTime().isAfter(Instant.now()) ? CampaignStatus.OPEN : CampaignStatus.CLOSED;
+        campaign.setStatus(status);
+        campaign.setStatusBeforeOrganizationBan(null);
+        donationService.restoreCampaignDonations(campaignId);
+        notificationService.notify(organization, NotificationType.CONTENT_REVIEW,
+                "Chiến dịch đã được bỏ ẩn",
+                "Chiến dịch " + campaign.getTitle() + " đã được bỏ ẩn. Lý do: " + unhideReason,
+                com.rehome.rehome.entity.enums.NotificationTargetType.CAMPAIGN, campaignId, null);
+        auditLogger.logOperation(moderator, "UNHIDE_CAMPAIGN", "CAMPAIGN", campaignId,
+                status.name() + ": " + unhideReason);
+        return CampaignStatusResponse.builder().id(campaignId.toString()).status(toApiStatus(status)).build();
     }
 
     @Override
@@ -225,6 +265,7 @@ public class CampaignServiceImpl implements CampaignService {
         if (campaign.getStatus() != CampaignStatus.CLOSED) {
             campaign.setStatus(CampaignStatus.CLOSED);
             campaignRepository.save(campaign);
+            auditLogger.logCurrentOperation("CLOSE_CAMPAIGN", "CAMPAIGN", campaignId, "CLOSED");
         }
 
         return CampaignStatusResponse.builder()
@@ -280,6 +321,11 @@ public class CampaignServiceImpl implements CampaignService {
         return PageResponse.from(result.map(this::toWarehouseCampaignResponse));
     }
 
+    private static boolean isBanned(OrganizationProfile organization) {
+        return organization.getAccount() != null
+                && organization.getAccount().getStatus() == com.rehome.rehome.entity.enums.AccountStatus.BANNED;
+    }
+
     private WarehouseCampaignResponse toWarehouseCampaignResponse(Campaign campaign) {
         OrganizationProfile organization = campaign.getOrganization();
         return WarehouseCampaignResponse.builder()
@@ -299,7 +345,7 @@ public class CampaignServiceImpl implements CampaignService {
     public PageResponse<CampaignPublicResponse> listOrganizationCampaigns(UUID organizationId, String status,
                                                                            int page, int size) {
         OrganizationProfile organization = organizationProfileRepository.findById(organizationId)
-                .filter(o -> o.getVerificationStatus() == VerificationStatus.VERIFIED)
+                .filter(o -> o.getVerificationStatus() == VerificationStatus.VERIFIED && !isBanned(o))
                 .orElseThrow(() -> new IllegalArgumentException(ORGANIZATION_NOT_FOUND));
 
         Pageable pageable = PageRequest.of(

@@ -27,7 +27,7 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID>, JpaSp
     List<String> findDistinctActionTypes();
 
     // API filter-options: chỉ lấy người thực hiện thực sự có trong log (id, chưa nạp Account)
-    @Query("select distinct l.actorAccount.id from AuditLog l")
+    @Query("select distinct l.actorAccount.id from AuditLog l where l.actorAccount is not null")
     List<UUID> findDistinctActorIds();
 
     // API 25: số lần và lần gần nhất một đối tượng bị tác động bởi actionType (vd BAN_ACCOUNT), gom theo targetId.

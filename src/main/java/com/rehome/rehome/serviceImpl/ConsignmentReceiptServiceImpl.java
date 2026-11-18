@@ -50,6 +50,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService {
     private final AuditLogger auditLogger;
+    private final com.rehome.rehome.service.NotificationService notificationService;
+    private final com.rehome.rehome.service.QueueService queueService;
 
     private final ConsignmentReceiptRepository consignmentReceiptRepository;
     private final ConsignmentReceiptPdfRepository consignmentReceiptPdfRepository;
@@ -82,18 +84,32 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
                 .findByNewReceipt_Id(receipt.getId())
                 .orElse(null);
 
-        return ConsignmentReceiptMapper.toResponse(receipt, sku, reConsign);
+        ConsignmentReceiptResponse response = ConsignmentReceiptMapper.toResponse(receipt, sku, reConsign);
+        consignmentReceiptRepository.findByPreviousReceipt_Id(id).ifPresent(next -> response.setReplacedByReceiptId(next.getId()));
+        return response;
     }
 
     @Override
     @Transactional
     public ConsignmentReceiptConfirmResponse confirmReceipt(Account account, UUID id) {
+        return confirmReceipt(account, id, null);
+    }
+
+    @Override
+    @Transactional
+    public ConsignmentReceiptConfirmResponse confirmReceipt(Account account, UUID id, Integer version) {
         // Khóa dòng để chống bấm xác nhận đồng thời
         ConsignmentReceipt receipt = consignmentReceiptRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_RECEIPT_NOT_FOUND));
 
         if (!receipt.getMember().getId().equals(account.getId())) {
             throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_FORBIDDEN);
+        }
+        if (version != null && version != receipt.getVersion()) {
+            throw new AppException(ErrorCode.RECEIPT_CHANGED);
+        }
+        if (receipt.effectiveStatus() == com.rehome.rehome.entity.enums.ReceiptStatus.VOIDED) {
+            throw new AppException(ErrorCode.RECEIPT_NOT_EDITABLE);
         }
         if (receipt.getConfirmedAt() != null) {
             throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_ALREADY_CONFIRMED);
@@ -103,6 +119,7 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
 
         // Set confirmedAt trước để PDF snapshot có đúng mốc xác nhận
         receipt.setConfirmedAt(now);
+        receipt.setStatus(com.rehome.rehome.entity.enums.ReceiptStatus.CONFIRMED);
 
         // F-022: render PDF trong cùng transaction. Thuần CPU, không gọi mạng, nên
         // hoặc commit được cả confirmedAt lẫn PDF, hoặc rollback cả hai - biên nhận
@@ -136,6 +153,93 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         }
 
         return ConsignmentReceiptMapper.toConfirmResponse(receipt);
+    }
+
+    private ConsignmentReceipt editableReceipt(Account actor, UUID id) {
+        ConsignmentReceipt receipt = consignmentReceiptRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_RECEIPT_NOT_FOUND));
+        if (actor.getRole() != Role.MODERATOR) {
+            throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_FORBIDDEN);
+        }
+        authorizeRead(actor, receipt);
+        return receipt;
+    }
+
+    @Override
+    @Transactional
+    public ConsignmentReceiptResponse editReceipt(Account actor, UUID id,
+            com.rehome.rehome.dto.request.EditReceiptRequest request) {
+        ConsignmentReceipt receipt = editableReceipt(actor, id);
+        if (receipt.effectiveStatus() != com.rehome.rehome.entity.enums.ReceiptStatus.PENDING) {
+            throw new AppException(ErrorCode.RECEIPT_NOT_EDITABLE);
+        }
+        if (request.reason() == null || request.reason().isBlank()
+                || request.agreedPrice() == null || request.agreedPrice().signum() <= 0
+                || request.conditionNote() == null || request.conditionNote().isBlank()) {
+            throw new com.rehome.rehome.exception.BadRequestException("Giá, tình trạng và lý do là bắt buộc.");
+        }
+        var detail = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        detail.put("oldAgreedPrice", receipt.getAgreedPrice());
+        detail.put("oldFloorPrice", receipt.getFloorPrice());
+        detail.put("oldConditionNote", receipt.getConditionNote());
+        detail.put("oldModeratorNote", receipt.getModeratorNote());
+        receipt.setAgreedPrice(request.agreedPrice().setScale(2, RoundingMode.HALF_UP));
+        BigDecimal ratio = systemConfigReader.getDecimal(SystemConfigKeys.FLOOR_PRICE_RATIO,
+                SystemConfigKeys.DEFAULT_FLOOR_PRICE_RATIO);
+        receipt.setFloorPrice(receipt.getAgreedPrice().multiply(ratio).setScale(2, RoundingMode.HALF_UP));
+        receipt.setConditionNote(request.conditionNote().strip());
+        receipt.setModeratorNote(request.moderatorNote() == null ? null : request.moderatorNote().strip());
+        receipt.setVersion(receipt.getVersion() + 1);
+        receipt.setEditReason(request.reason().strip());
+        receipt.setEditedAt(Instant.now());
+        detail.put("newAgreedPrice", receipt.getAgreedPrice());
+        detail.put("newFloorPrice", receipt.getFloorPrice());
+        detail.put("newConditionNote", receipt.getConditionNote());
+        detail.put("newModeratorNote", receipt.getModeratorNote());
+        detail.put("reason", receipt.getEditReason());
+        detail.put("version", receipt.getVersion());
+        byte[] pdf = receiptPdfService.generate(receipt);
+        consignmentReceiptPdfRepository.save(ConsignmentReceiptPdf.builder().receipt(receipt)
+                .content(pdf).sha256(sha256(pdf)).byteSize(pdf.length).generatedAt(receipt.getEditedAt()).build());
+        auditLogger.log(actor, "UPDATE_RECEIPT", "CONSIGNMENT_RECEIPT", id.toString(), detail);
+        receiptNotification(receipt, com.rehome.rehome.entity.enums.NotificationType.RECEIPT_UPDATED,
+                "Biên nhận " + receipt.getReceiptNo() + " đã được cập nhật: " + receipt.getEditReason());
+        return getMyReceipt(actor, id);
+    }
+
+    @Override
+    @Transactional
+    public ConsignmentReceiptResponse voidReceipt(Account actor, UUID id, String reason) {
+        ConsignmentReceipt receipt = editableReceipt(actor, id);
+        if (reason == null || reason.isBlank()) {
+            throw new com.rehome.rehome.exception.BadRequestException("Vui lòng nhập lý do huỷ.");
+        }
+        if (receipt.effectiveStatus() != com.rehome.rehome.entity.enums.ReceiptStatus.CONFIRMED) {
+            throw new AppException(ErrorCode.RECEIPT_NOT_EDITABLE);
+        }
+        if (productRepository.findByConsignmentReceiptId(id).isPresent()
+                || !productRepository.findProductIdsByFormIds(java.util.List.of(receipt.getConsignmentForm().getId())).isEmpty()
+                || endOfTermDecisionRepository.findByNewReceipt_Id(id).isPresent()) {
+            throw new AppException(ErrorCode.RECEIPT_HAS_PRODUCT);
+        }
+        receipt.setStatus(com.rehome.rehome.entity.enums.ReceiptStatus.VOIDED);
+        receipt.setVoidReason(reason.strip());
+        receipt.setVoidedAt(Instant.now());
+        receipt.setVoidedBy(actor);
+        receipt.getConsignmentForm().setStatus(ConsignmentFormStatus.INSPECTING);
+        queueService.enqueue(com.rehome.rehome.entity.enums.QueueType.INSPECTION,
+                receipt.getConsignmentForm().getId().toString(), receipt.getWarehouse());
+        auditLogger.logOperation(actor, "VOID_RECEIPT", "CONSIGNMENT_RECEIPT", id, receipt.getVoidReason());
+        receiptNotification(receipt, com.rehome.rehome.entity.enums.NotificationType.RECEIPT_VOIDED,
+                "Biên nhận " + receipt.getReceiptNo() + " đã bị huỷ: " + receipt.getVoidReason()
+                        + ". ReHome sẽ gửi biên nhận mới để bạn xác nhận lại.");
+        return getMyReceipt(actor, id);
+    }
+
+    private void receiptNotification(ConsignmentReceipt receipt,
+            com.rehome.rehome.entity.enums.NotificationType type, String message) {
+        notificationService.notify(receipt.getMember(), type, "Cập nhật biên nhận ký gửi", message,
+                com.rehome.rehome.entity.enums.NotificationTargetType.CONSIGNMENT_RECEIPT, receipt.getId(), null);
     }
 
     private void activateReConsignedProduct(Product product, ConsignmentReceipt newReceipt, Instant now) {
@@ -225,8 +329,10 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         if (form.getStatus() != ConsignmentFormStatus.INSPECTING) {
             throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_INSPECTING);                    // 409
         }
-        if (consignmentReceiptRepository.existsByConsignmentFormId(form.getId())) {
-            throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_ALREADY_EXISTS);                 // 409
+        ConsignmentReceipt previous = consignmentReceiptRepository
+                .findFirstByConsignmentForm_IdOrderByCreatedAtDesc(form.getId()).orElse(null);
+        if (previous != null && previous.effectiveStatus() != com.rehome.rehome.entity.enums.ReceiptStatus.VOIDED) {
+            throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_ALREADY_EXISTS);
         }
 
         // Moderator chỉ kiểm định form thuộc kho mình phụ trách
@@ -242,7 +348,7 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         BigDecimal agreedPrice = request.getAgreedPrice().setScale(2, RoundingMode.HALF_UP);
         int termDays = request.getTermLengthDays() != null
                 ? request.getTermLengthDays()
-                : systemConfigReader.getInt(SystemConfigKeys.TERM_LENGTH_DAYS, SystemConfigKeys.DEFAULT_TERM_LENGTH_DAYS);
+                : (previous != null ? previous.getTermLengthDays() : systemConfigReader.getInt(SystemConfigKeys.TERM_LENGTH_DAYS, SystemConfigKeys.DEFAULT_TERM_LENGTH_DAYS));
         BigDecimal floorPriceRatio = systemConfigReader.getDecimal(
                 SystemConfigKeys.FLOOR_PRICE_RATIO, SystemConfigKeys.DEFAULT_FLOOR_PRICE_RATIO);
 
@@ -258,22 +364,26 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
                 .agreedPrice(agreedPrice)
                 .floorPrice(agreedPrice.multiply(floorPriceRatio).setScale(2, RoundingMode.HALF_UP))
                 .termLengthDays(termDays)
-                .maxRenewals(systemConfigReader.getInt(SystemConfigKeys.MAX_RENEWALS, SystemConfigKeys.DEFAULT_MAX_RENEWALS))
-                .freeWithdrawalWindowDays(systemConfigReader.getInt(
-                        SystemConfigKeys.FREE_WITHDRAWAL_WINDOW_DAYS, SystemConfigKeys.DEFAULT_FREE_WITHDRAWAL_WINDOW_DAYS))
-                .commissionRateTerm1(systemConfigReader.getDecimal(
-                        SystemConfigKeys.COMMISSION_RATE_TERM1, SystemConfigKeys.DEFAULT_COMMISSION_RATE_TERM1))
-                .commissionRateTerm2(systemConfigReader.getDecimal(
-                        SystemConfigKeys.COMMISSION_RATE_TERM2, SystemConfigKeys.DEFAULT_COMMISSION_RATE_TERM2))
-                .commissionRateTerm3(systemConfigReader.getDecimal(
-                        SystemConfigKeys.COMMISSION_RATE_TERM3, SystemConfigKeys.DEFAULT_COMMISSION_RATE_TERM3))
-                .withdrawalFee(systemConfigReader.getDecimal(
-                        SystemConfigKeys.WITHDRAWAL_FEE, SystemConfigKeys.DEFAULT_WITHDRAWAL_FEE))
-                .degradedCompensationRate(systemConfigReader.getDecimal(
-                        SystemConfigKeys.DEGRADED_COMPENSATION_RATE, SystemConfigKeys.DEFAULT_DEGRADED_COMPENSATION_RATE))
+                .maxRenewals((previous != null ? previous.getMaxRenewals() : systemConfigReader.getInt(SystemConfigKeys.MAX_RENEWALS, SystemConfigKeys.DEFAULT_MAX_RENEWALS)))
+                .freeWithdrawalWindowDays((previous != null ? previous.getFreeWithdrawalWindowDays() : systemConfigReader.getInt(
+                        SystemConfigKeys.FREE_WITHDRAWAL_WINDOW_DAYS, SystemConfigKeys.DEFAULT_FREE_WITHDRAWAL_WINDOW_DAYS)))
+                .commissionRateTerm1((previous != null ? previous.getCommissionRateTerm1() : systemConfigReader.getDecimal(
+                        SystemConfigKeys.COMMISSION_RATE_TERM1, SystemConfigKeys.DEFAULT_COMMISSION_RATE_TERM1)))
+                .commissionRateTerm2((previous != null ? previous.getCommissionRateTerm2() : systemConfigReader.getDecimal(
+                        SystemConfigKeys.COMMISSION_RATE_TERM2, SystemConfigKeys.DEFAULT_COMMISSION_RATE_TERM2)))
+                .commissionRateTerm3((previous != null ? previous.getCommissionRateTerm3() : systemConfigReader.getDecimal(
+                        SystemConfigKeys.COMMISSION_RATE_TERM3, SystemConfigKeys.DEFAULT_COMMISSION_RATE_TERM3)))
+                .withdrawalFee((previous != null ? previous.getWithdrawalFee() : systemConfigReader.getDecimal(
+                        SystemConfigKeys.WITHDRAWAL_FEE, SystemConfigKeys.DEFAULT_WITHDRAWAL_FEE)))
+                .degradedCompensationRate((previous != null ? previous.getDegradedCompensationRate() : systemConfigReader.getDecimal(
+                        SystemConfigKeys.DEGRADED_COMPENSATION_RATE, SystemConfigKeys.DEFAULT_DEGRADED_COMPENSATION_RATE)))
                 .confirmedAt(null)   // Member xác nhận ở API 20, PDF sinh lúc đó
                 .build();
         receipt.setClausesSnapshot(receiptClauseRenderer.render(receipt));
+
+        if (previous != null) {
+            receipt.replaceVoided(previous);
+        }
 
         consignmentReceiptRepository.save(receipt);
 

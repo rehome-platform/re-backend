@@ -34,6 +34,8 @@ class BrandServiceImplTest {
     @Mock private BrandRepository brandRepository;
     @Mock private ProductRepository productRepository;
     @Mock private ConsignmentFormRepository consignmentFormRepository;
+    @org.mockito.Mock com.rehome.rehome.component.AuditLogger auditLogger;
+
     @InjectMocks private BrandServiceImpl brandService;
 
     private CreateBrandRequest createReq(String name) {

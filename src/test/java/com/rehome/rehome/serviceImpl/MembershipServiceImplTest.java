@@ -21,6 +21,7 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.BillingCycle;
 import com.rehome.rehome.entity.enums.MembershipTier;
 import com.rehome.rehome.entity.enums.OrderPaymentMethod;
+import com.rehome.rehome.entity.enums.PaymentStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.SubscriptionStatus;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
@@ -398,7 +399,7 @@ class MembershipServiceImplTest {
                     .featuredListing(true)
                     .status(SubscriptionStatus.PENDING_PAYMENT)
                     .build();
-            when(memberSubscriptionRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+            when(memberSubscriptionRepository.findByIdForUpdate(pending.getId())).thenReturn(Optional.of(pending));
             when(membershipPaymentRepository.findAllBySubscription_IdOrderByCreatedAtAsc(pending.getId()))
                     .thenReturn(List.of());
 
@@ -433,7 +434,7 @@ class MembershipServiceImplTest {
                     .featuredListing(true)
                     .status(SubscriptionStatus.CANCELLED)
                     .build();
-            when(memberSubscriptionRepository.findById(cancelled.getId()))
+            when(memberSubscriptionRepository.findByIdForUpdate(cancelled.getId()))
                     .thenReturn(Optional.of(cancelled));
 
             service.applyGatewayPaymentSuccess(cancelled.getId(), OrderPaymentMethod.VNPAY,
@@ -457,7 +458,7 @@ class MembershipServiceImplTest {
                     .status(SubscriptionStatus.CANCELLED)
                     .cancelReason("[ĐÃ HOÀN] lần trước")
                     .build();
-            when(memberSubscriptionRepository.findById(cancelled.getId()))
+            when(memberSubscriptionRepository.findByIdForUpdate(cancelled.getId()))
                     .thenReturn(Optional.of(cancelled));
 
             service.applyGatewayPaymentSuccess(cancelled.getId(), OrderPaymentMethod.VNPAY, "note");

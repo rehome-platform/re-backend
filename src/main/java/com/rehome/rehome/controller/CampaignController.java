@@ -113,4 +113,15 @@ public class CampaignController {
                 donationService.listCampaignDonationNotes(account.getId(), id, page, size);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
+    @org.springframework.web.bind.annotation.PatchMapping("/{id}/unhide")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<CampaignStatusResponse>> unhideCampaign(
+            @AuthenticationPrincipal Account moderator, @PathVariable UUID id,
+            @Valid @RequestBody CampaignUnhideRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(campaignService.unhideCampaign(moderator, id, request.reason())));
+    }
+
+    public record CampaignUnhideRequest(
+            @jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max = 1000) String reason) {
+    }
 }

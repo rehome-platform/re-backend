@@ -68,6 +68,8 @@ class AuthServiceImplTest {
     @Mock WalletRepository walletRepository;
     @Mock QueueService queueService;
 
+    @org.mockito.Mock com.rehome.rehome.component.AuditLogger auditLogger;
+
     @InjectMocks AuthServiceImpl service;
 
 

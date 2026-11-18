@@ -38,11 +38,44 @@ public class DashboardExcelWriter {
             writeDashboardSheet(wb, d, sections, users, from, to, styles);
             writeSoldItemsSheet(wb, soldItems, from, to, styles);
 
-            wb.write(out);
-            return out.toByteArray();
-        } catch (IOException e) {
-            throw new AppException(ErrorCode.DASHBOARD_EXPORT_FAILED);
+    private void writeSoldItemsSheet(Workbook wb, List<SoldItemRow> soldItems, LocalDate from, LocalDate to,
+                                     CellStyle title, CellStyle header, CellStyle money) {
+        Sheet sheet = wb.createSheet("Món đã bán");
+
+        Row titleRow = sheet.createRow(0);
+        Cell titleCell = titleRow.createCell(0);
+        titleCell.setCellValue("Món đã bán (đơn hoàn thành) từ " + from + " đến " + to);
+        titleCell.setCellStyle(title);
+
+        Row head = sheet.createRow(2);
+        String[] columns = {"Sản phẩm", "Mã đơn hàng", "Giá bán (đ)", "Kỳ áp dụng", "Tỷ lệ hoa hồng (%)",
+                "Hoa hồng (đ)", "Ngày hoàn thành"};
+        for (int i = 0; i < columns.length; i++) {
+            cell(head, i, columns[i], header);
         }
+
+        int r = 3;
+        for (SoldItemRow item : soldItems) {
+            Row row = sheet.createRow(r++);
+            row.createCell(0).setCellValue(item.productName());
+            row.createCell(1).setCellValue(item.orderNo());
+            moneyCell(row, 2, item.priceAtOrder().setScale(0, RoundingMode.HALF_UP).doubleValue(), money);
+            row.createCell(3).setCellValue(item.termApplied() == null ? "—" : "Kỳ " + item.termApplied());
+            row.createCell(4).setCellValue(
+                    item.commissionRateApplied().multiply(java.math.BigDecimal.valueOf(100)).doubleValue());
+            moneyCell(row, 5, item.priceAtOrder().multiply(item.commissionRateApplied())
+                    .setScale(0, RoundingMode.HALF_UP).doubleValue(), money);
+            row.createCell(6).setCellValue(
+                    item.completedAt().atZone(ZoneId.of("Asia/Ho_Chi_Minh")).format(COMPLETED_AT_FORMAT));
+        }
+
+        sheet.setColumnWidth(0, 40 * 256);
+        sheet.setColumnWidth(1, 18 * 256);
+        sheet.setColumnWidth(2, 16 * 256);
+        sheet.setColumnWidth(3, 12 * 256);
+        sheet.setColumnWidth(4, 16 * 256);
+        sheet.setColumnWidth(5, 16 * 256);
+        sheet.setColumnWidth(6, 18 * 256);
     }
 
     /** Tập CellStyle dùng chung cho cả 2 sheet, tạo 1 lần để tránh lỗi "quá nhiều style" của Excel. */

@@ -11,6 +11,11 @@ import java.util.UUID;
 
 public interface ConsignmentReceiptService {
     ConsignmentReceiptResponse getMyReceipt(Account account, UUID id);
+    ConsignmentReceiptResponse editReceipt(Account account, UUID id,
+            com.rehome.rehome.dto.request.EditReceiptRequest request);
+    ConsignmentReceiptResponse voidReceipt(Account account, UUID id, String reason);
+    ConsignmentReceiptConfirmResponse confirmReceipt(Account account, UUID id, Integer version);
+
     ConsignmentReceiptConfirmResponse confirmReceipt(Account account, UUID id);
     CompleteInspectionResponse completeInspection(UUID formId, CompleteInspectionRequest request);
 

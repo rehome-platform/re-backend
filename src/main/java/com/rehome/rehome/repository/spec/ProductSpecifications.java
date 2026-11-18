@@ -8,6 +8,7 @@ import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -15,6 +16,19 @@ import java.util.UUID;
 public class ProductSpecifications {
 
     private ProductSpecifications() {
+    }
+
+    public static Specification<Product> featuredFirst(Instant now) {
+        return (root, query, cb) -> {
+            if (query != null && !Long.class.equals(query.getResultType())) {
+                var rank = cb.<Integer>selectCase()
+                        .when(cb.greaterThan(root.<Instant>get("featuredUntil"), now),
+                                cb.coalesce(root.<Integer>get("featuredRank"), 0))
+                        .otherwise(0);
+                query.orderBy(cb.desc(rank), cb.desc(root.get("createdAt")), cb.desc(root.get("id")));
+            }
+            return null;
+        };
     }
 
     public static Specification<Product> filter(String search, UUID categoryId, UUID brandId,

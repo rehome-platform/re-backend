@@ -14,6 +14,20 @@ import java.util.UUID;
 
 @Repository
 public interface ViolationReportRepository extends JpaRepository<ViolationReport, UUID> {
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("""
+            select r from ViolationReport r
+            where r.status = com.rehome.rehome.entity.enums.ViolationReportStatus.PENDING and (
+                (r.targetType = com.rehome.rehome.entity.enums.ViolationTargetType.ORGANIZATION_ACCOUNT
+                    and r.targetId = :organizationId)
+                or (r.targetType = com.rehome.rehome.entity.enums.ViolationTargetType.POST and r.targetId in
+                    (select p.id from CommunityPost p where p.organization.accountId = :organizationId))
+                or (r.targetType = com.rehome.rehome.entity.enums.ViolationTargetType.CAMPAIGN and r.targetId in
+                    (select c.id from Campaign c where c.organization.accountId = :organizationId))
+            ) order by r.id
+            """)
+    List<ViolationReport> findPendingForOrganization(@org.springframework.data.repository.query.Param("organizationId") UUID organizationId);
+
 
     // OB-01: số báo cáo PENDING của từng bài, gom 1 query để tránh N+1
     @Query("select v.targetId, count(v) from ViolationReport v "

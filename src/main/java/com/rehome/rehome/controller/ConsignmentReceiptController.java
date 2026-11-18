@@ -37,9 +37,10 @@ public class ConsignmentReceiptController {
     @PostMapping("/{id}/confirm")
     public ApiResponse<ConsignmentReceiptConfirmResponse> confirm(
             @AuthenticationPrincipal Account account,
-            @PathVariable UUID id) {
+            @PathVariable UUID id,
+            @RequestBody(required = false) ConfirmVersion request) {
         return ApiResponse.success(
-                consignmentReceiptService.confirmReceipt(account, id),
+                consignmentReceiptService.confirmReceipt(account, id, request == null ? null : request.version()),
                 "Xác nhận ký gửi thành công, sản phẩm đã lên sàn");
     }
 
@@ -73,4 +74,20 @@ public class ConsignmentReceiptController {
     }
 
 
+    public record ConfirmVersion(Integer version) {}
+    public record ReceiptReason(@jakarta.validation.constraints.NotBlank String reason) {}
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ApiResponse<ConsignmentReceiptResponse> edit(@AuthenticationPrincipal Account account,
+            @PathVariable UUID id, @Valid @RequestBody com.rehome.rehome.dto.request.EditReceiptRequest request) {
+        return ApiResponse.success(consignmentReceiptService.editReceipt(account, id, request));
+    }
+
+    @PostMapping("/{id}/void")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ApiResponse<ConsignmentReceiptResponse> voidReceipt(@AuthenticationPrincipal Account account,
+            @PathVariable UUID id, @Valid @RequestBody ReceiptReason request) {
+        return ApiResponse.success(consignmentReceiptService.voidReceipt(account, id, request.reason()));
+    }
 }

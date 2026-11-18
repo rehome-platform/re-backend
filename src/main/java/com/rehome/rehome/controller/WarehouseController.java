@@ -1,5 +1,7 @@
 package com.rehome.rehome.controller;
 
+import com.rehome.rehome.dto.request.TransferDonationsRequest;
+
 import com.rehome.rehome.dto.request.CreateDonationRequest;
 import com.rehome.rehome.dto.request.HandoverDonationsRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
@@ -77,7 +79,7 @@ public class WarehouseController {
     @Operation(summary = "Ghi nhận 1 lượt quyên góp Member mang đến điểm ký gửi (F-163)")
     public ResponseEntity<ApiResponse<DonationResponse>> recordDonation(
             @PathVariable UUID id,
-            @RequestBody CreateDonationRequest request,
+            @jakarta.validation.Valid @RequestBody CreateDonationRequest request,
             @AuthenticationPrincipal Account account) {
         DonationResponse result = donationService.recordDonation(account, id, request);
         return ResponseEntity.status(201)
@@ -94,6 +96,24 @@ public class WarehouseController {
             @AuthenticationPrincipal Account account) {
         List<DonationResponse> result = donationService.listDonations(account, id, campaignId, status);
         return ResponseEntity.ok(ApiResponse.success(result, "OK"));
+    }
+
+    @PostMapping("/{id}/donations/transfer")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<List<DonationResponse>>> transferHeldDonations(
+            @PathVariable UUID id, @jakarta.validation.Valid @RequestBody TransferDonationsRequest request,
+            @AuthenticationPrincipal Account account) {
+        return ResponseEntity.ok(ApiResponse.success(donationService.transferHeldDonations(account, id, request)));
+    }
+
+    @PostMapping("/{id}/donations/reassign")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<List<DonationResponse>>> reassignDonations(
+            @PathVariable UUID id, @jakarta.validation.Valid @RequestBody
+            com.rehome.rehome.dto.request.ReassignDonationsRequest request,
+            @AuthenticationPrincipal Account account) {
+        return ResponseEntity.ok(ApiResponse.success(
+                donationService.reassignDonations(account, id, request.donationIds(), request.campaignId())));
     }
 
     @PostMapping("/{id}/donations/handover")

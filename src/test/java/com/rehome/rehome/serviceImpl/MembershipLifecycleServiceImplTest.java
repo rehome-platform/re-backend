@@ -67,6 +67,18 @@ class MembershipLifecycleServiceImplTest {
     }
 
     @Test
+    void remindsVoucherAndRecordsReminderTime() {
+        MemberVoucher voucher = MemberVoucher.builder().member(member).code("SHIP-1").build();
+        when(memberVoucherRepository.findDueForReminder(any(), any())).thenReturn(List.of(voucher));
+
+        service.remindExpiringVouchers();
+
+        assertThat(voucher.getRemindedAt()).isNotNull();
+        verify(notificationService).notify(eq(member), eq(NotificationType.VOUCHER_ISSUED),
+                anyString(), org.mockito.ArgumentMatchers.contains("SHIP-1"), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("Job 00:05 - gói quá hạn chuyển EXPIRED, TẮT nhãn Nổi bật trên mọi món, gửi thông báo")
     void expireSubscriptions_clearsFeaturedAndNotifies() {
         MemberSubscription expired = subscription(Instant.now().minus(1, ChronoUnit.HOURS));

@@ -83,6 +83,8 @@ class ItemWithdrawalRequestServiceImplTest {
 
     @Mock private com.rehome.rehome.service.NotificationService notificationService;
 
+    @org.mockito.Mock com.rehome.rehome.component.AuditLogger auditLogger;
+
     @InjectMocks
     ItemWithdrawalRequestServiceImpl service;
 

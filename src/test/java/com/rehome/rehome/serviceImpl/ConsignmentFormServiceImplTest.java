@@ -83,6 +83,9 @@ class ConsignmentFormServiceImplTest {
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final AtomicLong SEQ = new AtomicLong(1000);
 
+    @Mock
+    private com.rehome.rehome.repository.ProductRepository productRepository;
+
     @Mock private ConsignmentFormRepository consignmentFormRepository;
     @Mock private CategoryRepository categoryRepository;
     @Mock private BrandRepository brandRepository;
@@ -135,8 +138,8 @@ class ConsignmentFormServiceImplTest {
                         2, null, 10, 5, null, false, maxPending, null, null));
 
         service = new ConsignmentFormServiceImpl(
-                mock(com.rehome.rehome.component.AuditLogger.class),
-                consignmentFormRepository, categoryRepository, brandRepository, warehouseRepository,
+                mock(AuditLogger.class),
+                consignmentFormRepository, productRepository, categoryRepository, brandRepository, warehouseRepository,
                 photoRepository, consignmentFormMapper, consignmentReceiptRepository,
                 systemConfigReader, membershipQuotaResolver, accountRepository, queueService,
                 mock(com.rehome.rehome.service.ContentModerationService.class));
@@ -487,7 +490,7 @@ class ConsignmentFormServiceImplTest {
             ConsignmentFormPhoto p1 = photo(f, "http://a/1.jpg");
             when(photoRepository.findByForm_IdInOrderByDisplayOrderAscIdAsc(anyList()))
                     .thenReturn(List.of(p1));
-            when(consignmentFormMapper.toListItem(f, "http://a/1.jpg", null)).thenReturn(item);
+            when(consignmentFormMapper.toListItem(f, "http://a/1.jpg", null, null)).thenReturn(item);
 
             ConsignmentFormPageResponse res = service.getMyForms(member, null, 0, 10);
 
@@ -556,11 +559,11 @@ class ConsignmentFormServiceImplTest {
             ConsignmentFormPhoto second = photo(f, "second.jpg");
             when(photoRepository.findByForm_IdInOrderByDisplayOrderAscIdAsc(anyList()))
                     .thenReturn(List.of(first, second));
-            when(consignmentFormMapper.toListItem(any(), any(), any())).thenReturn(item);
+            when(consignmentFormMapper.toListItem(any(), any(), any(), any())).thenReturn(item);
 
             service.getMyForms(member, null, 0, 10);
 
-            verify(consignmentFormMapper).toListItem(f, "first.jpg", null);
+            verify(consignmentFormMapper).toListItem(f, "first.jpg", null, null);
         }
 
         @Test
@@ -569,15 +572,15 @@ class ConsignmentFormServiceImplTest {
             when(consignmentFormRepository.findByMemberIdAndStatusNot(any(), any(), any(Pageable.class)))
                     .thenReturn(new PageImpl<>(List.of(f)));
             when(photoRepository.findByForm_IdInOrderByDisplayOrderAscIdAsc(anyList())).thenReturn(List.of());
-            when(consignmentFormMapper.toListItem(any(), any(), any())).thenReturn(item);
+            when(consignmentFormMapper.toListItem(any(), any(), any(), any())).thenReturn(item);
 
             service.getMyForms(member, null, 0, 10);
 
-            verify(consignmentFormMapper).toListItem(f, null, null);
+            verify(consignmentFormMapper).toListItem(f, null, null, null);
         }
 
         @Test
-        void passesLatestReceiptOfEachFormToMapper() {
+        void passesProductIdIndependentlyOfLatestReceipt() {
             ConsignmentForm f = newForm(ConsignmentFormStatus.INSPECTING, member);
             when(consignmentFormRepository.findByMemberIdAndStatusNot(any(), any(), any(Pageable.class)))
                     .thenReturn(new PageImpl<>(List.of(f)));
@@ -585,11 +588,15 @@ class ConsignmentFormServiceImplTest {
             when(receipt.getConsignmentForm()).thenReturn(f);
             when(consignmentReceiptRepository.findLatestByFormIds(List.of(f.getId())))
                     .thenReturn(List.of(receipt));
-            when(consignmentFormMapper.toListItem(any(), any(), any())).thenReturn(item);
+            var link = mock(com.rehome.rehome.repository.ProductRepository.FormProductId.class);
+            when(link.getFormId()).thenReturn(f.getId());
+            when(link.getProductId()).thenReturn("SKU-001");
+            when(productRepository.findProductIdsByFormIds(List.of(f.getId()))).thenReturn(List.of(link));
+            when(consignmentFormMapper.toListItem(any(), any(), any(), any())).thenReturn(item);
 
             service.getMyForms(member, null, 0, 10);
 
-            verify(consignmentFormMapper).toListItem(f, null, receipt);
+            verify(consignmentFormMapper).toListItem(f, null, receipt, "SKU-001");
         }
 
         @Test
@@ -597,11 +604,11 @@ class ConsignmentFormServiceImplTest {
             ConsignmentForm f = newForm(ConsignmentFormStatus.PENDING, member);
             when(consignmentFormRepository.findByMemberIdAndStatusNot(any(), any(), any(Pageable.class)))
                     .thenReturn(new PageImpl<>(List.of(f)));
-            when(consignmentFormMapper.toListItem(any(), any(), any())).thenReturn(item);
+            when(consignmentFormMapper.toListItem(any(), any(), any(), any())).thenReturn(item);
 
             service.getMyForms(member, null, 0, 10);
 
-            verify(consignmentFormMapper).toListItem(f, null, null);
+            verify(consignmentFormMapper).toListItem(f, null, null, null);
         }
     }
 

@@ -312,6 +312,7 @@ public class OrderServiceImpl implements OrderService {
                     .buyerNote(request.getBuyerNote())
                     .build();
             orderRepository.save(order);
+            auditLogger.logOperation(buyer, "CREATE_ORDER", "ORDER", order.getId(), order.getStatus().name());
 
             OrderItem item = OrderItem.builder()
                     .order(order)
@@ -861,6 +862,7 @@ public class OrderServiceImpl implements OrderService {
             refundBuyerAndCancel(order, CancelReason.BUYER_CANCELLED, "Hoàn tiền hủy đơn " + order.getOrderNo());
         }
 
+        auditLogger.logOperation(buyer, "CANCEL_ORDER", "ORDER", orderId, "CANCELLED");
         return OrderCancelResponse.builder()
                 .id(order.getId().toString())
                 .status(order.getStatus().name())
@@ -1049,6 +1051,7 @@ public class OrderServiceImpl implements OrderService {
             orderRepository.save(order);
             queueService.enqueue(QueueType.PACKING, order.getId().toString(), order.getWarehouse());
 
+            auditLogger.logOperation(buyer, "PAY_ORDER_WALLET", "ORDER", order.getId(), "PAID");
             paidOrders.add(PaidOrderResponse.builder()
                     .id(order.getId().toString())
                     .orderNo(order.getOrderNo())
@@ -1120,6 +1123,7 @@ public class OrderServiceImpl implements OrderService {
             order.setStatus(OrderStatus.PAID);
             orderRepository.save(order);
             queueService.enqueue(QueueType.PACKING, order.getId().toString(), order.getWarehouse());
+            auditLogger.logSystemOperation("CONFIRM_ORDER_PAYMENT", "ORDER", orderId, "PAID", method.name());
             return;
         }
 
@@ -1142,6 +1146,7 @@ public class OrderServiceImpl implements OrderService {
         order.setRefundAmount(order.getTotalAmount());
         orderRepository.save(order);
 
+        auditLogger.logSystemOperation("REFUND_LATE_ORDER_PAYMENT", "ORDER", orderId, "REFUNDED", method.name());
         log.warn(">>>> Tien {} ve muon cho don {} dang o trang thai {} - da hoan {} vao vi nguoi mua",
                 method, order.getOrderNo(), order.getStatus(), order.getTotalAmount());
     }
@@ -1686,6 +1691,7 @@ public class OrderServiceImpl implements OrderService {
         String note = "Hoàn tiền do vận chuyển GHN lỗi - đơn " + order.getOrderNo()
                 + (StringUtils.hasText(reason) ? " (" + reason + ")" : "");
         refundBuyerAndCancel(order, CancelReason.CARRIER_FAILED, note);
+        auditLogger.logSystemOperation("CANCEL_ORDER_CARRIER_FAILURE", "ORDER", orderId, "CANCELLED", "GHN");
         // Hệ thống hủy, người mua không có lỗi -> trả mã về ví nếu mã còn hạn (§12.4)
         releaseVoucherIfAllOrdersCancelled(order);
 
@@ -1801,6 +1807,7 @@ public class OrderServiceImpl implements OrderService {
 
         refundBuyerWallet(order, note);
 
+        auditLogger.logActorOrSystemOperation("REFUND_RETURN_ORDER", "ORDER", orderId, "REFUNDED", "RETURN_WORKFLOW");
         order.setStatus(OrderStatus.RETURNED);
         order.setRefundAmount(order.getTotalAmount());
         orderRepository.save(order);

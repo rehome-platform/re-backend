@@ -150,7 +150,7 @@ class ConsignmentInspectionServiceImplTest {
         void success_createsReceipt() {
             UUID receiptId = UUID.randomUUID();
             stubFormFound();
-            when(consignmentReceiptRepository.existsByConsignmentForm_Id(formId)).thenReturn(false);
+            when(consignmentReceiptRepository.findFirstByConsignmentForm_IdOrderByCreatedAtDesc(formId)).thenReturn(Optional.empty());
             when(receiptNoGenerator.next()).thenReturn("KG-2026-000001");
             stubConfigDefaults();
             stubReceiptSave(receiptId);
@@ -187,7 +187,7 @@ class ConsignmentInspectionServiceImplTest {
         @DisplayName("Không truyền termLengthDays: lấy từ system_configs")
         void termLengthDays_null_usesConfig() {
             stubFormFound();
-            when(consignmentReceiptRepository.existsByConsignmentForm_Id(formId)).thenReturn(false);
+            when(consignmentReceiptRepository.findFirstByConsignmentForm_IdOrderByCreatedAtDesc(formId)).thenReturn(Optional.empty());
             when(receiptNoGenerator.next()).thenReturn("KG-2026-000002");
             stubConfigDefaults();
             when(systemConfigReader.getInt(eq(TERM_LENGTH_DAYS), anyInt())).thenReturn(45);
@@ -207,7 +207,7 @@ class ConsignmentInspectionServiceImplTest {
         @DisplayName("Có truyền termLengthDays: dùng giá trị truyền vào, không đọc config")
         void termLengthDays_provided_overridesConfig() {
             stubFormFound();
-            when(consignmentReceiptRepository.existsByConsignmentForm_Id(formId)).thenReturn(false);
+            when(consignmentReceiptRepository.findFirstByConsignmentForm_IdOrderByCreatedAtDesc(formId)).thenReturn(Optional.empty());
             when(receiptNoGenerator.next()).thenReturn("KG-2026-000003");
             stubConfigDefaults();
             stubReceiptSave(UUID.randomUUID());
@@ -227,7 +227,7 @@ class ConsignmentInspectionServiceImplTest {
         @DisplayName("Giá sàn và phí rút lấy theo config: ratio 0.60, phí 30000")
         void floorPriceAndWithdrawalFee_followConfig() {
             stubFormFound();
-            when(consignmentReceiptRepository.existsByConsignmentForm_Id(formId)).thenReturn(false);
+            when(consignmentReceiptRepository.findFirstByConsignmentForm_IdOrderByCreatedAtDesc(formId)).thenReturn(Optional.empty());
             when(receiptNoGenerator.next()).thenReturn("KG-2026-000004");
             stubConfigDefaults();
             when(systemConfigReader.getDecimal(eq(FLOOR_PRICE_RATIO), any(BigDecimal.class)))
@@ -248,7 +248,7 @@ class ConsignmentInspectionServiceImplTest {
         @DisplayName("conditionNote chỉ có khoảng trắng: lưu null")
         void blankConditionNote_savedAsNull() {
             stubFormFound();
-            when(consignmentReceiptRepository.existsByConsignmentForm_Id(formId)).thenReturn(false);
+            when(consignmentReceiptRepository.findFirstByConsignmentForm_IdOrderByCreatedAtDesc(formId)).thenReturn(Optional.empty());
             when(receiptNoGenerator.next()).thenReturn("KG-2026-000005");
             stubConfigDefaults();
             stubReceiptSave(UUID.randomUUID());
@@ -369,7 +369,7 @@ class ConsignmentInspectionServiceImplTest {
         @DisplayName("Form đã có phiếu: 409 CONSIGNMENT_RECEIPT_ALREADY_EXISTS")
         void receiptAlreadyExists_throws() {
             stubFormFound();
-            when(consignmentReceiptRepository.existsByConsignmentForm_Id(formId)).thenReturn(true);
+            when(consignmentReceiptRepository.findFirstByConsignmentForm_IdOrderByCreatedAtDesc(formId)).thenReturn(Optional.of(ConsignmentReceipt.builder().build()));
 
             assertAppError(
                     () -> service.completeInspection(formId, validComplete(), moderator),

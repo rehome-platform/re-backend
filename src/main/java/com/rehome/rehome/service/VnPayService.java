@@ -17,5 +17,8 @@ public interface VnPayService {
 
     PaymentStatusResponse checkPaymentStatus(String email, UUID orderId);
 
+    com.rehome.rehome.dto.response.MembershipPaymentStatusResponse checkMembershipPayment(
+            UUID memberId, UUID paymentId);
+
     PaymentStatusResponse getReturnInfo(Map<String, String> params);
 }

@@ -85,9 +85,10 @@ public class ConsignmentFormMapper {
     }
 
     public ConsignmentFormListItemResponse toListItem(ConsignmentForm form, String thumbnailUrl,
-                                                       ConsignmentReceipt latestReceipt) {
+                                                       ConsignmentReceipt latestReceipt, String productId) {
         if (form == null) return null;
         return ConsignmentFormListItemResponse.builder()
+                .productId(productId)
                 .id(form.getId())
                 .status(form.getStatus())
                 .productName(form.getProductName())

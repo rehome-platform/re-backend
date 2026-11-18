@@ -21,5 +21,5 @@ public interface VoucherTemplateRepository extends JpaRepository<VoucherTemplate
     @EntityGraph(attributePaths = {"tierRules"})
     List<VoucherTemplate> findAllByActiveTrue();
 
-    boolean existsByName(String name);
+    boolean existsByType(com.rehome.rehome.entity.enums.VoucherType type);
 }

@@ -5,6 +5,8 @@ import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.DonationSource;
 import com.rehome.rehome.entity.enums.DonationStatus;
 import jakarta.persistence.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.*;
@@ -69,6 +71,13 @@ public class Donation {
     @Column(name = "note", nullable = true, columnDefinition = "text")
     private String note;
 
+    @ElementCollection
+    @CollectionTable(name = "donation_photos", joinColumns = @JoinColumn(name = "donation_id"))
+    @OrderColumn(name = "display_order")
+    @Column(name = "url", nullable = false, length = 2048)
+    @Builder.Default
+    private List<String> photoUrls = new ArrayList<>();
+
     // PENDING_PICKUP — chờ tổ chức đến lấy; HANDED_OVER — đã bàn giao
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
@@ -84,6 +93,27 @@ public class Donation {
     // Thời điểm bàn giao; null khi còn chờ lấy
     @Column(name = "handed_over_at", nullable = true)
     private Instant handedOverAt;
+
+    @Column(name = "held_at")
+    private Instant heldAt;
+
+    @Column(name = "hold_reason", columnDefinition = "text")
+    private String holdReason;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reassigned_from_campaign_id")
+    private Campaign reassignedFromCampaign;
+
+    @Column(name = "reassigned_at")
+    private Instant reassignedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reassigned_by")
+    private Account reassignedBy;
+
+    public String getReassignedFromCampaignTitle() {
+        return reassignedFromCampaign == null ? null : reassignedFromCampaign.getTitle();
+    }
 
     // Thời điểm ghi nhận
     @Column(name = "created_at", nullable = false, updatable = false)

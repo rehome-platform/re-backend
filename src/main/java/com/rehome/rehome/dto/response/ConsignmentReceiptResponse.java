@@ -29,6 +29,16 @@ public class ConsignmentReceiptResponse {
 
     private List<ClauseItem> clauses;
     private UUID id;
+    private com.rehome.rehome.entity.enums.ReceiptStatus status;
+    private Integer version;
+    private String editReason;
+    private Instant editedAt;
+    private String voidReason;
+    private Instant voidedAt;
+    private UUID voidedBy;
+    private UUID previousReceiptId;
+    // Biên nhận mới đã thay thế biên nhận này sau khi bị huỷ, null nếu chưa bị thay thế
+    private UUID replacedByReceiptId;
     private String receiptNo;
     private Instant createdAt;
     private String productName;

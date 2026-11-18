@@ -104,6 +104,48 @@
         @Column(name = "confirmed_at")
         private Instant confirmedAt;
 
+        @Enumerated(EnumType.STRING)
+        @Column(name = "status", nullable = false)
+        @Builder.Default
+        private com.rehome.rehome.entity.enums.ReceiptStatus status = com.rehome.rehome.entity.enums.ReceiptStatus.PENDING;
+
+        @Column(name = "version", nullable = false)
+        @Builder.Default
+        private int version = 1;
+
+        private String editReason;
+        private Instant editedAt;
+        private String voidReason;
+        private Instant voidedAt;
+        @ManyToOne(fetch = FetchType.LAZY)
+        @JoinColumn(name = "voided_by")
+        private Account voidedBy;
+        @ManyToOne(fetch = FetchType.LAZY)
+        @JoinColumn(name = "previous_receipt_id", unique = true)
+        private ConsignmentReceipt previousReceipt;
+
+        public com.rehome.rehome.entity.enums.ReceiptStatus effectiveStatus() {
+            if (status == com.rehome.rehome.entity.enums.ReceiptStatus.VOIDED) return status;
+            return confirmedAt == null ? com.rehome.rehome.entity.enums.ReceiptStatus.PENDING
+                    : com.rehome.rehome.entity.enums.ReceiptStatus.CONFIRMED;
+        }
+
+        public void replaceVoided(ConsignmentReceipt previous) {
+            previousReceipt = previous;
+            String oldNumber = previous.getReceiptNo();
+            String[] parts = oldNumber.split("-");
+            int sequence = parts.length == 4 ? Integer.parseInt(parts[3]) + 1 : 2;
+            receiptNo = String.join("-", java.util.Arrays.copyOf(parts, 3)) + "-%02d".formatted(sequence);
+            termLengthDays = previous.getTermLengthDays();
+            maxRenewals = previous.getMaxRenewals();
+            freeWithdrawalWindowDays = previous.getFreeWithdrawalWindowDays();
+            commissionRateTerm1 = previous.getCommissionRateTerm1();
+            commissionRateTerm2 = previous.getCommissionRateTerm2();
+            commissionRateTerm3 = previous.getCommissionRateTerm3();
+            withdrawalFee = previous.getWithdrawalFee();
+            degradedCompensationRate = previous.getDegradedCompensationRate();
+        }
+
         // PDF F-022 nằm ở bảng riêng consignment_receipt_pdfs (xem ConsignmentReceiptPdf),
         // tải qua GET /consignment-receipts/{id}/pdf chứ không có URL công khai.
 

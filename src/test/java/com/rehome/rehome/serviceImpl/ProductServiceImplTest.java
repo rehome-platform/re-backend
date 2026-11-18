@@ -912,7 +912,7 @@ class ProductServiceImplTest {
 
     /** Stub happy path; save() trả đúng đối tượng được truyền vào. */
     private void givenConfirmedReceipt(ConsignmentReceipt receipt) {
-        when(receiptRepository.findById(receiptId)).thenReturn(Optional.of(receipt));
+        when(receiptRepository.findByIdForUpdate(receiptId)).thenReturn(Optional.of(receipt));
         when(productRepository.existsByConsignmentReceiptId(receiptId)).thenReturn(false);
         when(productRepository.nextSkuSequence()).thenReturn(845L);
         when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -1016,7 +1016,7 @@ class ProductServiceImplTest {
 
     @Test
     void create_skuPadsSequenceToSixDigits() {
-        when(receiptRepository.findById(receiptId)).thenReturn(Optional.of(receiptOf(Instant.now())));
+        when(receiptRepository.findByIdForUpdate(receiptId)).thenReturn(Optional.of(receiptOf(Instant.now())));
         when(productRepository.existsByConsignmentReceiptId(receiptId)).thenReturn(false);
         when(productRepository.nextSkuSequence()).thenReturn(1L);
         when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -1026,7 +1026,7 @@ class ProductServiceImplTest {
 
     @Test
     void create_receiptNotFound_throws404() {
-        when(receiptRepository.findById(receiptId)).thenReturn(Optional.empty());
+        when(receiptRepository.findByIdForUpdate(receiptId)).thenReturn(Optional.empty());
 
         assertCreateError(() -> service.create(createRequest(null), moderator), ErrorCode.RECEIPT_NOT_FOUND);
 
@@ -1035,7 +1035,7 @@ class ProductServiceImplTest {
 
     @Test
     void create_receiptNotConfirmed_throws409() {
-        when(receiptRepository.findById(receiptId)).thenReturn(Optional.of(receiptOf(null)));
+        when(receiptRepository.findByIdForUpdate(receiptId)).thenReturn(Optional.of(receiptOf(null)));
 
         assertCreateError(() -> service.create(createRequest(null), moderator), ErrorCode.RECEIPT_NOT_CONFIRMED);
 
@@ -1044,7 +1044,7 @@ class ProductServiceImplTest {
 
     @Test
     void create_receiptAlreadyHasProduct_throws409() {
-        when(receiptRepository.findById(receiptId)).thenReturn(Optional.of(receiptOf(Instant.now())));
+        when(receiptRepository.findByIdForUpdate(receiptId)).thenReturn(Optional.of(receiptOf(Instant.now())));
         when(productRepository.existsByConsignmentReceiptId(receiptId)).thenReturn(true);
 
         assertCreateError(() -> service.create(createRequest(null), moderator), ErrorCode.RECEIPT_ALREADY_HAS_PRODUCT);

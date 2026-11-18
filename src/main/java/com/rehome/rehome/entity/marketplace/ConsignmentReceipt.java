@@ -147,6 +147,7 @@
         // Trạng thái biên nhận: PENDING (chưa Member xác nhận) / CONFIRMED / VOIDED (Moderator huỷ,
         // dữ liệu sai trước khi nhập kho). Cột cũ có thể còn NULL ở các hàng tạo trước khi thêm cột
         // này - dùng effectiveStatus() để suy ra chứ không đọc trực tiếp status ở nơi khác.
+        @Enumerated(EnumType.STRING)
         @Column(name = "status")
         @ColumnDefault("'PENDING'")
         private ReceiptStatus status;

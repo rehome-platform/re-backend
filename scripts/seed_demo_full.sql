@@ -82,8 +82,9 @@ TRUNCATE TABLE
     order_tracking_events, orders, organization_documents,
     organization_legal_change_requests, organization_profiles, payments, payout_requests,
     platform_funds, post_comments, post_likes, price_change_logs, product_photos,
-    product_price_changes, products, queue_items, refresh_tokens, return_request_photos,
-    return_requests, shipping_addresss, system_configs, try_on_images, violation_reports,
+    product_price_changes, products, queue_items, receipt_clause_templates, refresh_tokens,
+    return_request_photos, return_requests, shipping_addresss, system_configs, try_on_images,
+    violation_reports,
     violation_words, voucher_template_tier_rules, voucher_templates, wallet_transactions,
     wallets, warehouses
 RESTART IDENTITY CASCADE;
@@ -477,6 +478,39 @@ INSERT INTO violation_words (id, word, category, severity, action, is_active, no
  NULL, now() - interval '399 days', now() - interval '399 days'),
 ('72000000-0000-4000-8000-000000000006', 'đồ cấm',        'INAPPROPRIATE', 'BLOCKED', 'AUTO_REJECT',  true,
  NULL, now() - interval '399 days', now() - interval '399 days');
+
+-- 6.7 ĐIỀU KHOẢN BIÊN NHẬN DẠNG ĐOẠN VĂN (trùng khớp ReceiptClauseTemplateInitializer).
+-- Điều 1, 2, 3 và "Vô thừa nhận" vẫn cố định trong code (ReceiptScreen.js mobile) vì gắn bảng
+-- giá/bảng kỳ, không nằm trong bảng này -> 6 điều Admin quản lý tiếp tục từ Điều 5.
+-- body_template giữ {{floorPrice}}/{{withdrawalFee}}/{{freeWithdrawalWindowDays}}/
+-- {{degradedCompensationRate}} làm placeholder, thay bằng số liệu thật của từng biên nhận lúc tạo
+-- (ReceiptClauseRenderer) - không gõ số cứng ở đây.
+INSERT INTO receipt_clause_templates (id, display_order, title, body_template, active,
+                                      created_at, updated_at) VALUES
+('73000000-0000-4000-8000-000000000001', 1, 'ĐIỀU 5 — GIẢM GIÁ',
+ 'Sau khi xác nhận, bạn chỉ được giảm giá bán, mỗi ngày tối đa 1 lần và không thấp hơn giá sàn ' ||
+ '{{floorPrice}}. Muốn tăng giá phải lập lại biên nhận với ReHome.',
+ true, now() - interval '400 days', now() - interval '400 days'),
+('73000000-0000-4000-8000-000000000002', 2, 'ĐIỀU 6 — RÚT HÀNG',
+ 'Trong {{freeWithdrawalWindowDays}} ngày đầu của mỗi kỳ, bạn được rút hàng không mất phí. ' ||
+ 'Ngoài khoảng này, phí rút hàng là {{withdrawalFee}}.',
+ true, now() - interval '400 days', now() - interval '400 days'),
+('73000000-0000-4000-8000-000000000003', 3, 'ĐIỀU 7 — HOA HỒNG VÀ THANH TOÁN',
+ 'Hoa hồng tính theo kỳ đang chạy tại thời điểm đơn hàng được đặt. Tiền bán hàng sau khi trừ ' ||
+ 'hoa hồng được cộng vào ví ReHome khi đơn hoàn thành.',
+ true, now() - interval '400 days', now() - interval '400 days'),
+('73000000-0000-4000-8000-000000000004', 4, 'ĐIỀU 8 — HÀNG XUỐNG CẤP',
+ 'Nếu hàng bị hư hỏng trong thời gian ReHome giữ hàng, bạn được bồi thường ' ||
+ '{{degradedCompensationRate}} giá bán hiện tại.',
+ true, now() - interval '400 days', now() - interval '400 days'),
+('73000000-0000-4000-8000-000000000005', 5, 'ĐIỀU 9 — HIỆU LỰC',
+ 'Các mức phí, tỷ lệ và thời hạn trong biên nhận được giữ nguyên đến khi kết thúc. ReHome thay ' ||
+ 'đổi cấu hình sau này không ảnh hưởng biên nhận này.',
+ true, now() - interval '400 days', now() - interval '400 days'),
+('73000000-0000-4000-8000-000000000006', 6, 'ĐIỀU 10 — XÁC NHẬN ĐIỆN TỬ',
+ 'Biên nhận không có chữ ký tay. Giá trị xác nhận dựa trên thao tác bấm xác nhận trên tài khoản ' ||
+ 'đã đăng nhập, cùng thời điểm được hệ thống ghi nhận và lưu trong nhật ký.',
+ true, now() - interval '400 days', now() - interval '400 days');
 
 
 -- =============================================================================

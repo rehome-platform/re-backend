@@ -1,10 +1,13 @@
 package com.rehome.rehome.mapper;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.rehome.rehome.dto.response.ConsignmentReceiptConfirmResponse;
 import com.rehome.rehome.dto.response.ConsignmentReceiptResponse;
+import com.rehome.rehome.dto.response.ConsignmentReceiptResponse.ClauseItem;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
+import java.util.List;
 
 public final class ConsignmentReceiptMapper {
 
@@ -32,7 +35,23 @@ public final class ConsignmentReceiptMapper {
         dto.setConfirmedAt(r.getConfirmedAt());
         dto.setCreatedAt(r.getCreatedAt());
         dto.setPdfAvailable(r.getConfirmedAt() != null);
+        dto.setClauses(toClauseItems(r.getClausesSnapshot()));
         return dto;
+    }
+
+    private static List<ClauseItem> toClauseItems(JsonNode snapshot) {
+        if (snapshot == null || !snapshot.isArray()) {
+            return List.of();
+        }
+        List<ClauseItem> items = new java.util.ArrayList<>();
+        for (JsonNode node : snapshot) {
+            items.add(ClauseItem.builder()
+                    .displayOrder(node.path("displayOrder").asInt())
+                    .title(node.path("title").asText())
+                    .body(node.path("body").asText())
+                    .build());
+        }
+        return items;
     }
 
     // Bản đầy đủ cho màn xác nhận biên nhận; phải gọi trong transaction vì đọc quan hệ lazy

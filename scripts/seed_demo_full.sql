@@ -1397,12 +1397,12 @@ INSERT INTO end_of_term_decisions (id, product_id, decision, new_receipt_id, dec
 -- transaction_no và balance_after KHÔNG gõ tay: bước 14 tính lại theo thứ tự thời gian
 -- (WT-2026-000001, 000002, ...) và cộng dồn số dư, nên sổ luôn khớp với ví.
 --
--- /!\ Số dư quỹ nền tảng sẽ ra số ÂM, và đó là ĐÚNG với mô hình hiện tại: tiền người
--- mua trả qua VNPay KHÔNG sinh bút toán quỹ nào (applyGatewayPaymentSuccess chỉ
--- đổi trạng thái đơn), trong khi tiền trả cho người ký gửi lại trừ quỹ. Nói cách khác
--- platform_funds chỉ phản ánh phần tiền CHẠY QUA VÍ nội bộ, không phải tổng tiền mặt
--- của nền tảng. Muốn số này là tổng thu chi thật thì phải ghi thêm bút toán quỹ lúc
--- cổng báo thanh toán thành công (ngoài phạm vi file seed).
+-- applyGatewayPaymentSuccess (OrderServiceImpl) nay ghi thêm 1 dòng PLATFORM dương
+-- (recordGatewayPaymentReceived) ngay khi cổng VNPay báo thanh toán thành công, coi như
+-- quỹ GIỮ HỘ tiền đó cho tới khi payoutOrder tách trả người ký gửi + hoa hồng. Khối [15]
+-- dưới đây bù đúng dòng này cho từng đơn VNPAY đã SUCCESS trong payments ở trên - thiếu
+-- nó thì quỹ chỉ có tiền RA (trả người ký gửi/hoàn tiền) mà không có tiền VÀO tương ứng,
+-- và số dư quỹ sẽ sai lệch âm so với tiền mặt thật nền tảng đang giữ.
 INSERT INTO wallet_transactions (id, transaction_no, wallet_type, wallet_id, type, amount,
                                  balance_after, status, note, counterpart_transaction_id,
                                  related_order_id, related_order_item_id, related_payout_request_id,
@@ -1563,7 +1563,50 @@ INSERT INTO wallet_transactions (id, transaction_no, wallet_type, wallet_id, typ
 ('e0000000-0000-4000-8000-000000000036', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
  'ORDER_PAYMENT', 145000, NULL, 'SUCCESS', 'Thanh toán bằng ví cho đơn OD-2026-000012',
  'e0000000-0000-4000-8000-000000000035',
- 'aa000000-0000-4000-8000-000000000012', NULL, NULL, NULL, NULL, now() - interval '5 hours');
+ 'aa000000-0000-4000-8000-000000000012', NULL, NULL, NULL, NULL, now() - interval '5 hours'),
+-- [15] recordGatewayPaymentReceived: tiền VNPay báo về quỹ cho từng đơn (chỉ 1 dòng PLATFORM
+-- dương, KHÔNG có dòng MEMBER đối ứng - tiền chưa từng nằm trong ví Member nào để trừ).
+-- Mỗi dòng khớp với đúng 1 dòng SUCCESS trong bảng payments ở bước 12, cùng paid_at.
+('e0000000-0000-4000-8000-000000000037', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'ORDER_PAYMENT', 545000, NULL, 'SUCCESS', 'Tiền VNPay về cho đơn OD-2026-000001', NULL,
+ 'aa000000-0000-4000-8000-000000000001', NULL, NULL, NULL, NULL,
+ now() - interval '45 days' + interval '4 minutes'),
+('e0000000-0000-4000-8000-000000000038', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'ORDER_PAYMENT', 325000, NULL, 'SUCCESS', 'Tiền VNPay về cho đơn OD-2026-000002', NULL,
+ 'aa000000-0000-4000-8000-000000000002', NULL, NULL, NULL, NULL,
+ now() - interval '38 days' + interval '3 minutes'),
+('e0000000-0000-4000-8000-000000000039', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'ORDER_PAYMENT', 345000, NULL, 'SUCCESS', 'Tiền VNPay về cho đơn OD-2026-000004', NULL,
+ 'aa000000-0000-4000-8000-000000000004', NULL, NULL, NULL, NULL,
+ now() - interval '12 days' + interval '2 minutes'),
+('e0000000-0000-4000-8000-000000000040', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'ORDER_PAYMENT', 390000, NULL, 'SUCCESS', 'Tiền VNPay về cho đơn OD-2026-000005', NULL,
+ 'aa000000-0000-4000-8000-000000000005', NULL, NULL, NULL, NULL,
+ now() - interval '7 days' + interval '5 minutes'),
+('e0000000-0000-4000-8000-000000000041', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'ORDER_PAYMENT', 335000, NULL, 'SUCCESS', 'Tiền VNPay về cho đơn OD-2026-000006', NULL,
+ 'aa000000-0000-4000-8000-000000000006', NULL, NULL, NULL, NULL,
+ now() - interval '18 days' + interval '3 minutes'),
+('e0000000-0000-4000-8000-000000000042', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'ORDER_PAYMENT', 285000, NULL, 'SUCCESS', 'Tiền VNPay về cho đơn OD-2026-000007', NULL,
+ 'aa000000-0000-4000-8000-000000000007', NULL, NULL, NULL, NULL,
+ now() - interval '15 days' + interval '2 minutes'),
+('e0000000-0000-4000-8000-000000000043', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'ORDER_PAYMENT', 585000, NULL, 'SUCCESS', 'Tiền VNPay về cho đơn OD-2026-000008', NULL,
+ 'aa000000-0000-4000-8000-000000000008', NULL, NULL, NULL, NULL,
+ now() - interval '2 hours' + interval '3 minutes'),
+('e0000000-0000-4000-8000-000000000044', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'ORDER_PAYMENT', 395000, NULL, 'SUCCESS', 'Tiền VNPay về cho đơn OD-2026-000009', NULL,
+ 'aa000000-0000-4000-8000-000000000009', NULL, NULL, NULL, NULL,
+ now() - interval '3 days' + interval '2 minutes'),
+('e0000000-0000-4000-8000-000000000045', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'ORDER_PAYMENT', 265000, NULL, 'SUCCESS', 'Tiền VNPay về cho đơn OD-2026-000011', NULL,
+ 'aa000000-0000-4000-8000-000000000011', NULL, NULL, NULL, NULL,
+ now() - interval '5 days' + interval '4 minutes'),
+('e0000000-0000-4000-8000-000000000046', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'ORDER_PAYMENT', 115000, NULL, 'SUCCESS', 'Tiền VNPay về cho đơn OD-2026-000014', NULL,
+ 'aa000000-0000-4000-8000-000000000014', NULL, NULL, NULL, NULL,
+ now() - interval '20 days' + interval '3 minutes');
 
 
 -- =============================================================================

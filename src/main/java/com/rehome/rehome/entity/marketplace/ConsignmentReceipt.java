@@ -1,5 +1,6 @@
     package com.rehome.rehome.entity.marketplace;
 
+    import com.fasterxml.jackson.databind.JsonNode;
     import com.rehome.rehome.entity.auth.Account;
     import jakarta.persistence.*;
     import java.math.BigDecimal;
@@ -7,6 +8,8 @@
     import java.util.UUID;
     import lombok.*;
     import org.hibernate.annotations.ColumnDefault;
+    import org.hibernate.annotations.JdbcTypeCode;
+    import org.hibernate.type.SqlTypes;
 
     @Entity
     @Table(name = "consignment_receipts")
@@ -103,6 +106,18 @@
         // Lúc Member bấm xác nhận — biên nhận có hiệu lực từ mốc này
         @Column(name = "confirmed_at")
         private Instant confirmedAt;
+
+        // Bản đã render của các Điều khoản dạng đoạn văn (Điều 4,5,6,7,9,10), chụp lúc TẠO biên
+        // nhận từ ReceiptClauseTemplate đang bật (xem ReceiptClauseRenderer). Admin sửa/xoá
+        // template sau đó không ảnh hưởng gì ở đây — chỉ áp dụng cho biên nhận tạo mới.
+        //
+        // KHÔNG ép columnDefinition = "jsonb": để Hibernate tự chọn kiểu cột theo đúng dialect -
+        // Postgres (thật) ra "jsonb", H2 (test) ra "json" (H2 không nhận diện "jsonb" trong DDL,
+        // ép cứng chuỗi đó làm CREATE TABLE lỗi "Unknown data type: JSONB" trên mọi test có insert
+        // ConsignmentReceipt thật, ví dụ SoldOrderQueryTest).
+        @JdbcTypeCode(SqlTypes.JSON)
+        @Column(name = "clauses_snapshot", nullable = true)
+        private JsonNode clausesSnapshot;
 
         // PDF F-022 nằm ở bảng riêng consignment_receipt_pdfs (xem ConsignmentReceiptPdf),
         // tải qua GET /consignment-receipts/{id}/pdf chứ không có URL công khai.

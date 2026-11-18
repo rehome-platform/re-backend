@@ -94,6 +94,7 @@ class ConsignmentReceiptServiceImplTest {
     private com.rehome.rehome.component.FeaturedListingManager featuredListingManager;
 
     @Mock private com.rehome.rehome.component.AuditLogger auditLogger;
+    @Mock private com.rehome.rehome.component.ReceiptClauseRenderer receiptClauseRenderer;
     @InjectMocks
     private ConsignmentReceiptServiceImpl service;
 

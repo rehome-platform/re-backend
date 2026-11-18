@@ -18,8 +18,10 @@ import com.rehome.rehome.service.VoucherTemplateAdminService;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -104,6 +106,18 @@ public class VoucherTemplateAdminServiceImpl implements VoucherTemplateAdminServ
         return toResponse(template);
     }
 
+    @Override
+    @Transactional
+    public VoucherTemplateResponse activate(Account admin, UUID id) {
+        VoucherTemplate template = voucherTemplateRepository.findWithTierRulesById(id)
+                .orElseThrow(() -> new AppException(ErrorCode.VOUCHER_TEMPLATE_NOT_FOUND));
+        template.setActive(true);
+        voucherTemplateRepository.save(template);
+
+        audit(admin, template, "ACTIVATE");
+        return toResponse(template);
+    }
+
     // ================================================================ Validate
 
     private void validate(VoucherTemplateRequest r) {
@@ -174,15 +188,32 @@ public class VoucherTemplateAdminServiceImpl implements VoucherTemplateAdminServ
         template.setActive(r.getActive() == null || r.getActive());
 
         // PUT thay thế toàn bộ rule: hạng không có trong danh sách là hạng không còn nhận mẫu này.
-        // Xoá-rồi-thêm trên cùng collection (orphanRemoval = true) để Hibernate dọn các dòng cũ.
-        template.getTierRules().clear();
-        for (VoucherTemplateRequest.TierRule rule : safeRules(r)) {
-            template.getTierRules().add(VoucherTemplateTierRule.builder()
-                    .voucherTemplate(template)
-                    .tier(rule.getTier())
-                    .quantityPerMonth(rule.getQuantityPerMonth())
-                    .build());
+        //
+        // Cố ý KHÔNG xoá-hết-rồi-thêm-lại (clear() + add() trên cùng collection): với hạng vẫn còn
+        // trong danh sách mới, Hibernate có thể insert dòng mới (cùng unique (voucher_template_id,
+        // tier)) TRƯỚC KHI delete dòng cũ được flush trong cùng transaction, vỡ unique constraint
+        // "uk_voucher_template_tier" dù trạng thái cuối cùng là hợp lệ. Thay vào đó: hạng đã có thì
+        // sửa tại chỗ (không đụng DB), hạng mới thì thêm, hạng không còn trong danh sách mới thì xoá.
+        Map<MembershipTier, VoucherTemplateTierRule> existing = new EnumMap<>(MembershipTier.class);
+        for (VoucherTemplateTierRule rule : template.getTierRules()) {
+            existing.put(rule.getTier(), rule);
         }
+
+        Set<MembershipTier> nextTiers = EnumSet.noneOf(MembershipTier.class);
+        for (VoucherTemplateRequest.TierRule rule : safeRules(r)) {
+            nextTiers.add(rule.getTier());
+            VoucherTemplateTierRule current = existing.get(rule.getTier());
+            if (current != null) {
+                current.setQuantityPerMonth(rule.getQuantityPerMonth());
+            } else {
+                template.getTierRules().add(VoucherTemplateTierRule.builder()
+                        .voucherTemplate(template)
+                        .tier(rule.getTier())
+                        .quantityPerMonth(rule.getQuantityPerMonth())
+                        .build());
+            }
+        }
+        template.getTierRules().removeIf(rule -> !nextTiers.contains(rule.getTier()));
     }
 
     private VoucherTemplateResponse toResponse(VoucherTemplate t) {

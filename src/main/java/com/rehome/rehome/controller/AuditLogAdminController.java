@@ -4,6 +4,7 @@ import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.AuditLogFilterOptionsResponse;
 import com.rehome.rehome.dto.response.AuditLogResponse;
 import com.rehome.rehome.dto.response.PageResponse;
+import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.service.AuditLogAdminService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,6 +31,8 @@ public class AuditLogAdminController {
     @Operation(summary = "API 149 - Tra cứu audit log (F-160), tìm theo từ khoá, lọc theo actor / actionType(s) / targetType / targetId / khoảng thời gian [from, to)")
     public ResponseEntity<ApiResponse<PageResponse<AuditLogResponse>>> search(
             @RequestParam(required = false) UUID actorAccountId,
+            // Vai trò người thực hiện: MEMBER / MODERATOR / ADMIN / ORGANIZATION
+            @RequestParam(required = false) Role actorRole,
             // Từ khoá tự do: actionType, targetId (id Member/tổ chức), reason, id/email/tên người thực hiện hoặc người bị tác động
             @RequestParam(required = false) String search,
             // actionType: một giá trị (giữ cho client cũ); actionTypes: nhiều giá trị, dạng A,B hoặc lặp tham số
@@ -43,8 +46,8 @@ public class AuditLogAdminController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(ApiResponse.success(
-                auditLogAdminService.search(actorAccountId, search, actionType, actionTypes, targetType, targetId,
-                        from, to, page, size), "OK"));
+                auditLogAdminService.search(actorAccountId, actorRole, search, actionType, actionTypes, targetType,
+                        targetId, from, to, page, size), "OK"));
     }
 
     @GetMapping("/filter-options")

@@ -217,6 +217,21 @@ public class AdminReportQueryRepository {
         return query.getResultList();
     }
 
+    // Tổng tài khoản mới trong [from, to); role = null thì lấy mọi vai trò. Dùng khi chỉ cần một con
+    // số tổng (ví dụ xuất Excel) - không qua AccountGrowthService vì hàm đó còn chia theo kỳ để vẽ
+    // chart và có trần 366 điểm, không hợp cho khoảng thời gian dài (ví dụ "Toàn thời gian").
+    public long countAccountsCreated(Instant from, Instant to, Role role) {
+        TypedQuery<Long> query = em.createQuery("select count(a) from Account a "
+                + "where a.createdAt >= :from and a.createdAt < :to"
+                + (role != null ? " and a.role = :role" : ""), Long.class);
+        query.setParameter("from", from);
+        query.setParameter("to", to);
+        if (role != null) {
+            query.setParameter("role", role);
+        }
+        return query.getSingleResult();
+    }
+
     private static BigDecimal orZero(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
     }

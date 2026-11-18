@@ -2084,6 +2084,9 @@ class OrderServiceImplTest {
         Order order = pendingOrder(orderId, "OD-2026-000001", "150000");
 
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(platformFundRepository.findTopByOrderByIdAsc())
+                .thenReturn(Optional.of(PlatformFund.builder().id(UUID.randomUUID())
+                        .balance(BigDecimal.ZERO).build()));
 
         orderService.applyGatewayPaymentSuccess(orderId, OrderPaymentMethod.VNPAY, "note");
 
@@ -2091,6 +2094,15 @@ class OrderServiceImplTest {
         assertThat(order.getPaymentMethod()).isEqualTo(OrderPaymentMethod.VNPAY);
         verify(walletRepository, never()).save(any());
         verify(queueService).enqueue(eq(QueueType.PACKING), eq(orderId.toString()), any());
+
+        // Tiền cổng về phải vào thẳng quỹ nền tảng (PLATFORM, dương) ngay khi đơn chuyển PAID -
+        // không có dòng này thì quỹ chỉ có tiền ra (payoutOrder) mà không có tiền vào cho đơn trả
+        // qua cổng, quỹ sẽ âm dần theo thời gian dù mỗi cặp ghi sổ vẫn cân riêng lẻ.
+        ArgumentCaptor<WalletTransaction> captor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository).save(captor.capture());
+        assertThat(captor.getValue().getType()).isEqualTo(WalletTransactionType.ORDER_PAYMENT);
+        assertThat(captor.getValue().getWalletType()).isEqualTo(WalletType.PLATFORM);
+        assertThat(captor.getValue().getAmount()).isEqualByComparingTo("150000");
     }
 
     // Đây là bug P3.2: IPN về muộn sau khi đơn tự hủy vì quá hạn thanh toán. Hàng đã nhả về sàn
@@ -2118,8 +2130,13 @@ class OrderServiceImplTest {
         assertThat(wallet.getBalance()).isEqualByComparingTo("150000");
 
         ArgumentCaptor<WalletTransaction> captor = ArgumentCaptor.forClass(WalletTransaction.class);
-        verify(walletTransactionRepository, times(2)).save(captor.capture());
-        assertThat(captor.getAllValues().get(0).getType()).isEqualTo(WalletTransactionType.REFUND);
+        verify(walletTransactionRepository, times(3)).save(captor.capture());
+        // [0] tiền cổng về trước (PLATFORM, dương) - quỹ phải nhận tiền trước khi chuyển tiếp cho
+        // người mua ở dưới, nếu không quỹ bị trừ mà chưa từng được cộng
+        assertThat(captor.getAllValues().get(0).getType()).isEqualTo(WalletTransactionType.ORDER_PAYMENT);
+        assertThat(captor.getAllValues().get(0).getWalletType()).isEqualTo(WalletType.PLATFORM);
+        assertThat(captor.getAllValues().get(0).getAmount()).isEqualByComparingTo("150000");
+        assertThat(captor.getAllValues().get(1).getType()).isEqualTo(WalletTransactionType.REFUND);
         verify(queueService, never()).enqueue(any(), any(), any());
     }
 

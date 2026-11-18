@@ -156,6 +156,25 @@ public class WarehouseAdminServiceImpl implements WarehouseAdminService {
         return toResponse(saved, loadStats());
     }
 
+    @Override
+    @Transactional
+    public WarehouseAdminResponse unhide(Account admin, UUID warehouseId) {
+        Warehouse warehouse = warehouseRepository.findById(warehouseId)
+                .orElseThrow(() -> new AppException(ErrorCode.WAREHOUSE_NOT_FOUND));
+        if (warehouse.getStatus() == CatalogStatus.ACTIVE) {
+            throw new AppException(ErrorCode.WAREHOUSE_ALREADY_ACTIVE);
+        }
+
+        warehouse.setStatus(CatalogStatus.ACTIVE);
+        Warehouse saved = warehouseRepository.save(warehouse);
+
+        ObjectNode detail = objectMapper.createObjectNode();
+        detail.put("name", saved.getName());
+        auditLogger.log(admin, "UNHIDE_WAREHOUSE", "WAREHOUSE", saved.getId().toString(), detail);
+
+        return toResponse(saved, loadStats());
+    }
+
     // Số liệu của mọi kho trong 3 query gom nhóm; STOCK_STATUSES / OPEN_ORDER_STATUSES là định nghĩa
     // chung với API 144 (ẩn kho) nên số hiển thị khớp với điều kiện chặn ẩn kho
     private Stats loadStats() {

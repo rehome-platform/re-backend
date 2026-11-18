@@ -1111,6 +1111,11 @@ public class OrderServiceImpl implements OrderService {
         }
 
         if (order.getStatus() == OrderStatus.PENDING_PAYMENT) {
+            // Tiền cổng báo về đi thẳng vào quỹ nền tảng, coi như quỹ đang GIỮ HỘ cho tới khi đơn
+            // hoàn tất (payoutOrder) mới tách ra trả người ký gửi + ghi nhận hoa hồng. Thiếu dòng
+            // này thì quỹ chỉ có tiền RA (trả người ký gửi) mà không có tiền VÀO cho các đơn trả
+            // qua cổng, quỹ tất yếu âm dần dù sổ sách vẫn "cân" theo từng cặp ghi riêng lẻ.
+            recordGatewayPaymentReceived(order, "Thanh toán đơn hàng " + order.getOrderNo() + " qua " + method);
             order.setPaymentMethod(method);
             order.setStatus(OrderStatus.PAID);
             orderRepository.save(order);
@@ -1130,6 +1135,9 @@ public class OrderServiceImpl implements OrderService {
             return;
         }
 
+        // Tiền cổng về muộn vẫn phải vào quỹ trước, rồi mới chuyển tiếp qua ví người mua ở dưới -
+        // nếu không quỹ bị trừ ở refundBuyerWallet mà chưa từng được cộng, lại tạo thêm một chỗ âm.
+        recordGatewayPaymentReceived(order, "Tiền " + method + " về muộn cho đơn " + order.getOrderNo());
         refundBuyerWallet(order, note);
         order.setRefundAmount(order.getTotalAmount());
         orderRepository.save(order);
@@ -2098,6 +2106,36 @@ public class OrderServiceImpl implements OrderService {
                 .walletId(fund.getId())
                 .type(WalletTransactionType.VOUCHER_DISCOUNT)
                 .amount(amount.negate())
+                .balanceAfter(fund.getBalance())
+                .relatedOrder(order)
+                .status(TransactionStatus.SUCCESS)
+                .note(note)
+                .build());
+    }
+
+    // Tiền cổng thanh toán (VNPay...) báo về cho MỘT đơn: khác đường với trả bằng ví (payOrders),
+    // tiền này chưa bao giờ nằm trong ví Member nào để debit - nó đến thẳng từ ngoài vào quỹ nền
+    // tảng nên chỉ có 1 dòng PLATFORM dương, KHÔNG có dòng Member đối ứng. Đây CÓ đổi số dư quỹ
+    // (khác COMMISSION_REVENUE/VOUCHER_DISCOUNT) vì tiền thật sự đã về, quỹ đang giữ hộ phần sẽ
+    // trả cho người ký gửi tới khi payoutOrder chạy.
+    private void recordGatewayPaymentReceived(Order order, String note) {
+        BigDecimal amount = order.getTotalAmount();
+        if (amount == null || amount.signum() <= 0) {
+            return;
+        }
+        PlatformFund fund = getOrCreatePlatformFund();
+        if (fund.getId() == null) {
+            platformFundRepository.save(fund);
+        }
+        fund.setBalance(fund.getBalance().add(amount));
+        platformFundRepository.save(fund);
+
+        walletTransactionRepository.save(WalletTransaction.builder()
+                .transactionNo(generateTransactionNo())
+                .walletType(WalletType.PLATFORM)
+                .walletId(fund.getId())
+                .type(WalletTransactionType.ORDER_PAYMENT)
+                .amount(amount)
                 .balanceAfter(fund.getBalance())
                 .relatedOrder(order)
                 .status(TransactionStatus.SUCCESS)

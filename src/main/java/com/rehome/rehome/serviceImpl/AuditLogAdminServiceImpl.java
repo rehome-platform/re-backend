@@ -53,7 +53,8 @@ public class AuditLogAdminServiceImpl implements AuditLogAdminService {
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<AuditLogResponse> search(UUID actorAccountId, String search, String actionType,
+    public PageResponse<AuditLogResponse> search(UUID actorAccountId, com.rehome.rehome.entity.enums.Role actorRole,
+                                                 String search, String actionType,
                                                  List<String> actionTypes, String targetType, String targetId,
                                                  Instant from, Instant to, int page, int size) {
         if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
@@ -73,7 +74,7 @@ public class AuditLogAdminServiceImpl implements AuditLogAdminService {
 
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<AuditLog> logs = auditLogRepository.findAll(
-                AuditLogSpecifications.filter(actorAccountId, keyword, matchedAccountIds,
+                AuditLogSpecifications.filter(actorAccountId, actorRole, keyword, matchedAccountIds,
                         mergeActionTypes(actionType, actionTypes), targetType, targetId, from, to),
                 pageable);
 

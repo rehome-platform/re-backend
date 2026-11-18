@@ -17,4 +17,7 @@ public interface VoucherTemplateAdminService {
 
     // Không có DELETE: member_vouchers trỏ FK vào template để thống kê. Chỉ "Ngừng phát".
     VoucherTemplateResponse deactivate(Account admin, UUID id);
+
+    // Phát mã trở lại cho mẫu đang ngừng phát.
+    VoucherTemplateResponse activate(Account admin, UUID id);
 }

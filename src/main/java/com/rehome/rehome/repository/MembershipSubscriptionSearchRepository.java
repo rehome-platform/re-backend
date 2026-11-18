@@ -29,6 +29,12 @@ import org.springframework.stereotype.Repository;
  * <p>Tên/mã Member nằm ở {@code MemberProfile} (không có quan hệ khai báo từ {@code Account}), nên
  * phải dùng entity join có {@code on} - và chỉ join khi thật sự lọc theo {@code q}, để truy vấn
  * không lọc không phải cõng thêm một bảng.
+ *
+ * <p><b>1 Member chỉ hiện 1 dòng</b> (dòng {@code createdAt} mới nhất của họ): mỗi lần đổi/gia hạn
+ * gói, dòng cũ được giữ lại làm lịch sử (đánh dấu REPLACED/EXPIRED/CANCELLED) thay vì xoá - xem
+ * {@link com.rehome.rehome.entity.enums.SubscriptionStatus}. Màn "Danh sách thành viên" là danh
+ * sách THÀNH VIÊN hiện tại, không phải danh sách lịch sử, nên luôn lọc về đúng 1 dòng/Member trước
+ * khi áp các bộ lọc tier/status/keyword. Xem lịch sử đầy đủ ở trang chi tiết từng thành viên.
  */
 @Repository
 public class MembershipSubscriptionSearchRepository {
@@ -52,6 +58,10 @@ public class MembershipSubscriptionSearchRepository {
 
         List<String> conditions = new ArrayList<>();
         Map<String, Object> params = new HashMap<>();
+
+        // Chỉ lấy dòng mới nhất của mỗi Member - xem javadoc lớp này
+        conditions.add("s.createdAt = (select max(s2.createdAt) from MemberSubscription s2"
+                + " where s2.member = s.member)");
 
         if (tier != null) {
             conditions.add("s.tier = :tier");

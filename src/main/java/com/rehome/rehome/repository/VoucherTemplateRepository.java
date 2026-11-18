@@ -22,4 +22,6 @@ public interface VoucherTemplateRepository extends JpaRepository<VoucherTemplate
     List<VoucherTemplate> findAllByActiveTrue();
 
     boolean existsByType(com.rehome.rehome.entity.enums.VoucherType type);
+
+    boolean existsByName(String name);
 }

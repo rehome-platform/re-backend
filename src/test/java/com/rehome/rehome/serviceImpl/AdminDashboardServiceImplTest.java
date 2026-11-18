@@ -43,6 +43,7 @@ class AdminDashboardServiceImplTest {
         when(queryRepository.sumMemberWalletBalance()).thenReturn(BigDecimal.ZERO);
         when(queryRepository.sumCompletedCommission(any(), any())).thenReturn(new BigDecimal(commission));
         when(queryRepository.sumWithdrawalFeeRevenue(any(), any())).thenReturn(new BigDecimal(withdrawalFee));
+        when(queryRepository.sumMembershipRevenue(any(), any())).thenReturn(BigDecimal.ZERO);
         when(queryRepository.sumDegradedCompensation(any(), any())).thenReturn(new BigDecimal(compensation));
         when(queryRepository.sumPlatformFundBalance()).thenReturn(BigDecimal.ZERO);
         when(queryRepository.sumHeldOrderAmount()).thenReturn(BigDecimal.ZERO);

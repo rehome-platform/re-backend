@@ -65,4 +65,13 @@ public class WarehouseAdminController {
         return ResponseEntity.ok(ApiResponse.success(
                 warehouseAdminService.hide(admin, warehouseId), "Đã ẩn kho"));
     }
+
+    @PostMapping("/api/admin/warehouses/{warehouseId}/unhide")
+    @Operation(summary = "Mở hoạt động lại kho đang ẩn")
+    public ResponseEntity<ApiResponse<WarehouseAdminResponse>> unhide(
+            @AuthenticationPrincipal Account admin,
+            @PathVariable UUID warehouseId) {
+        return ResponseEntity.ok(ApiResponse.success(
+                warehouseAdminService.unhide(admin, warehouseId), "Đã mở hoạt động lại kho"));
+    }
 }

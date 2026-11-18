@@ -145,6 +145,7 @@ public enum ErrorCode {
     MODERATOR_SAME_WAREHOUSE(HttpStatus.CONFLICT, "Moderator đã thuộc kho này."),
     WAREHOUSE_HIDDEN(HttpStatus.CONFLICT, "WAREHOUSE_HIDDEN: kho đang bị ẩn, không thể gán Moderator."),
     WAREHOUSE_ALREADY_HIDDEN(HttpStatus.CONFLICT, "Kho này đã được ẩn."),
+    WAREHOUSE_ALREADY_ACTIVE(HttpStatus.CONFLICT, "Kho này đang hoạt động, không cần mở lại."),
     WAREHOUSE_HAS_STOCK(HttpStatus.CONFLICT, "WAREHOUSE_HAS_STOCK: kho còn hàng hoặc phiếu ký gửi đang xử lý, không thể ẩn."),
     WAREHOUSE_NAME_ALREADY_EXISTS(HttpStatus.CONFLICT, "Tên kho đã tồn tại."),
 
@@ -306,6 +307,11 @@ public enum ErrorCode {
     VOUCHER_NOT_APPLICABLE(HttpStatus.BAD_REQUEST, "Mã giảm giá không áp dụng được cho đơn này."),
     VOUCHER_TEMPLATE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy mẫu voucher."),
     VOUCHER_TEMPLATE_INVALID(HttpStatus.BAD_REQUEST, "Cấu hình mẫu voucher không hợp lệ."),
+
+    // Admin - điều khoản biên nhận ký gửi
+    RECEIPT_CLAUSE_TEMPLATE_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy điều khoản."),
+    RECEIPT_CLAUSE_TEMPLATE_INVALID(HttpStatus.BAD_REQUEST,
+            "Nội dung điều khoản không hợp lệ (placeholder không được hỗ trợ)."),
 
     // Phối đồ AI (ảnh tĩnh) - hạn mức theo ngày của gói, reset 00:00 giờ VN
     TRYON_IMAGE_QUOTA_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS,

@@ -2,6 +2,7 @@ package com.rehome.rehome.repository.spec;
 
 import com.rehome.rehome.entity.audit.AuditLog;
 import com.rehome.rehome.entity.auth.Account;
+import com.rehome.rehome.entity.enums.Role;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
@@ -26,6 +27,7 @@ public class AuditLogSpecifications {
     //   - matchedAccountIds: id các tài khoản có họ tên/tên tổ chức khớp từ khoá (service tra sẵn);
     //     dùng để khớp cả actor lẫn targetId, giúp tìm theo tên thay vì chỉ theo id
     public static Specification<AuditLog> filter(UUID actorAccountId,
+                                                 Role actorRole,
                                                  String search,
                                                  Collection<UUID> matchedAccountIds,
                                                  Collection<String> actionTypes,
@@ -37,6 +39,9 @@ public class AuditLogSpecifications {
             List<Predicate> predicates = new ArrayList<>();
             if (actorAccountId != null) {
                 predicates.add(cb.equal(root.get("actorAccount").get("id"), actorAccountId));
+            }
+            if (actorRole != null) {
+                predicates.add(cb.equal(root.get("actorAccount").get("role"), actorRole));
             }
             if (search != null && !search.isBlank()) {
                 String pattern = "%" + search.trim().toLowerCase(Locale.ROOT) + "%";

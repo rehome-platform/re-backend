@@ -8,7 +8,6 @@ import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.AdminDashboardQueryRepository;
 import com.rehome.rehome.repository.AdminReportQueryRepository;
-import com.rehome.rehome.service.AccountGrowthService;
 import com.rehome.rehome.service.AdminDashboardService;
 import com.rehome.rehome.service.SystemConfigReader;
 import com.rehome.rehome.util.AdminDateRange;
@@ -34,7 +33,6 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     private final AdminDashboardQueryRepository queryRepository;
     private final AdminReportQueryRepository reportRepository;
     private final AccountRepository accountRepository;
-    private final AccountGrowthService accountGrowthService;
     private final SystemConfigReader systemConfigReader;
     private final DashboardExcelWriter excelWriter;
 
@@ -51,7 +49,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
         AdminDateRange range = AdminDateRange.required(from, to);
         ExportSections selected = ExportSections.parse(sections);
 
-        UsersExportData usersData = selected.users() ? usersExportData(range.fromDate(), range.toDate()) : null;
+        UsersExportData usersData = selected.users() ? usersExportData(range.from(), range.to()) : null;
         List<AdminReportQueryRepository.SoldItemRow> soldItems =
                 reportRepository.findAllSoldItems(range.from(), range.to());
 
@@ -61,11 +59,11 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     }
 
     // Đếm tài khoản theo vai trò là giá trị hiện tại (giống 3 thẻ ở tab Người dùng); tài khoản mới đếm
-    // trong đúng khoảng xuất (giống "Tài khoản mới theo chu kỳ"); granularity không ảnh hưởng tới tổng.
-    private UsersExportData usersExportData(java.time.LocalDate fromDate, java.time.LocalDate toDate) {
-        long newAccounts = accountGrowthService
-                .growth(fromDate.toString(), toDate.toString(), "month", null)
-                .getTotal();
+    // trong đúng khoảng xuất bằng 1 query count trực tiếp, không qua AccountGrowthService.growth() vì
+    // hàm đó có trần 366 điểm theo kỳ (phục vụ vẽ chart) và sẽ báo lỗi 400 với khoảng quá dài, ví dụ
+    // "Toàn thời gian".
+    private UsersExportData usersExportData(Instant from, Instant to) {
+        long newAccounts = reportRepository.countAccountsCreated(from, to, null);
         return new UsersExportData(
                 accountRepository.countByRole(Role.MEMBER),
                 accountRepository.countByRole(Role.ORGANIZATION),
@@ -93,11 +91,13 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .mapToLong(AdminDashboardQueryRepository.TermSales::itemCount)
                 .sum();
 
-        // Cơ cấu nguồn thu: hoa hồng + phí rút hàng là doanh thu nền tảng; đền bù là khoản chi riêng
+        // Cơ cấu nguồn thu: hoa hồng + phí rút hàng + gói thành viên là doanh thu nền tảng;
+        // đền bù là khoản chi riêng, không trừ vào đây
         long commissionRevenue = toLong(queryRepository.sumCompletedCommission(from, to));
         long withdrawalFeeRevenue = toLong(queryRepository.sumWithdrawalFeeRevenue(from, to));
+        long membershipRevenue = toLong(queryRepository.sumMembershipRevenue(from, to));
         long compensationExpense = toLong(queryRepository.sumDegradedCompensation(from, to));
-        long platformRevenue = commissionRevenue + withdrawalFeeRevenue;
+        long platformRevenue = commissionRevenue + withdrawalFeeRevenue + membershipRevenue;
 
         return AdminDashboardResponse.builder()
                 .revenue(toLong(queryRepository.sumCompletedOrderAmount(from, to)))
@@ -108,6 +108,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .platformRevenue(platformRevenue)
                 .commissionRevenue(commissionRevenue)
                 .withdrawalFeeRevenue(withdrawalFeeRevenue)
+                .membershipRevenue(membershipRevenue)
                 .compensationExpense(compensationExpense)
                 .fundBalance(toLong(queryRepository.sumPlatformFundBalance()))
                 .heldOrderAmount(toLong(queryRepository.sumHeldOrderAmount()))

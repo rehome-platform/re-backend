@@ -3,6 +3,7 @@ package com.rehome.rehome.service;
 import com.rehome.rehome.dto.response.AuditLogFilterOptionsResponse;
 import com.rehome.rehome.dto.response.AuditLogResponse;
 import com.rehome.rehome.dto.response.PageResponse;
+import com.rehome.rehome.entity.enums.Role;
 
 import java.time.Instant;
 import java.util.List;
@@ -13,11 +14,12 @@ public interface AuditLogAdminService {
     /**
      * API 149 - F-160: tra cứu audit log, mới nhất trước. Mọi bộ lọc đều không bắt buộc và kết hợp được với nhau.
      * actionType (một giá trị, giữ cho client cũ) và actionTypes (nhiều giá trị) được gộp lại.
+     * actorRole: vai trò của người thực hiện (MEMBER/MODERATOR/ADMIN/ORGANIZATION).
      * Khoảng thời gian là [from, to); 400 INVALID_DATE_RANGE nếu from sau to.
      * search: từ khoá tự do (không phân biệt hoa thường) khớp actionType, targetId, reason, id/email/tên của
      * người thực hiện và tên Member/tổ chức bị tác động. targetType lọc không phân biệt hoa thường.
      */
-    PageResponse<AuditLogResponse> search(UUID actorAccountId, String search, String actionType,
+    PageResponse<AuditLogResponse> search(UUID actorAccountId, Role actorRole, String search, String actionType,
                                           List<String> actionTypes, String targetType, String targetId,
                                           Instant from, Instant to, int page, int size);
 

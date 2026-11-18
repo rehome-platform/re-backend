@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.component.AuditLogger;
+import com.rehome.rehome.component.ReceiptClauseRenderer;
 import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import com.rehome.rehome.config.ConsignmentProperties;
 import com.rehome.rehome.constant.SystemConfigKeys;
@@ -45,6 +46,7 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
     private final ProductRepository productRepository;
     private final ConsignmentReceiptRepository consignmentReceiptRepository;
     private final ConsignmentProperties consignmentProperties;
+    private final ReceiptClauseRenderer receiptClauseRenderer;
     private final SystemConfigReader systemConfigReader;
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
@@ -178,7 +180,7 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
         }
 
         // Giá và điều khoản lấy từ Moderator, không sao chép từ biên nhận cũ; chưa xác nhận, chưa có PDF
-        ConsignmentReceipt newReceipt = consignmentReceiptRepository.save(ConsignmentReceipt.builder()
+        ConsignmentReceipt newReceiptDraft = ConsignmentReceipt.builder()
                 .receiptNo(generateReceiptNo())
                 .consignmentForm(old.getConsignmentForm())
                 .member(old.getMember())
@@ -201,7 +203,9 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
                 .withdrawalFee(cfg.getWithdrawalFee())
                 .degradedCompensationRate(cfg.getDegradedCompensationRate())
                 .confirmedAt(null)
-                .build());
+                .build();
+        newReceiptDraft.setClausesSnapshot(receiptClauseRenderer.render(newReceiptDraft));
+        ConsignmentReceipt newReceipt = consignmentReceiptRepository.save(newReceiptDraft);
 
         decision.setNewReceipt(newReceipt);
         decisionRepository.save(decision);

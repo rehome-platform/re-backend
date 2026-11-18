@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.component.AuditLogger;
+import com.rehome.rehome.component.ReceiptClauseRenderer;
 import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import com.rehome.rehome.component.FeaturedListingManager;
 import com.rehome.rehome.constant.SystemConfigKeys;
@@ -62,6 +63,7 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
     private final FeaturedListingManager featuredListingManager;
 
     private final SystemConfigReader systemConfigReader;
+    private final ReceiptClauseRenderer receiptClauseRenderer;
 
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     @Override
@@ -377,6 +379,11 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
                         SystemConfigKeys.DEGRADED_COMPENSATION_RATE, SystemConfigKeys.DEFAULT_DEGRADED_COMPENSATION_RATE)))
                 .confirmedAt(null)   // Member xác nhận ở API 20, PDF sinh lúc đó
                 .build();
+        receipt.setClausesSnapshot(receiptClauseRenderer.render(receipt));
+
+        if (previous != null) {
+            receipt.replaceVoided(previous);
+        }
 
         if (previous != null) {
             receipt.replaceVoided(previous);

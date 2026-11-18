@@ -385,6 +385,10 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
             receipt.replaceVoided(previous);
         }
 
+        if (previous != null) {
+            receipt.replaceVoided(previous);
+        }
+
         consignmentReceiptRepository.save(receipt);
 
         // Endpoint cũ /consignment-receipts/{id}/inspection/complete: cũng phải vào lịch sử kho

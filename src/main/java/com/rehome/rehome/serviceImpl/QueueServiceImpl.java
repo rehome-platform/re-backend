@@ -6,6 +6,11 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.OrganizationLegalChangeRequest;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.QueueType;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.entity.enums.Role;
+import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.component.BusinessNotifications;
 import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.marketplace.ConsignmentForm;
 import com.rehome.rehome.entity.marketplace.Donation;
@@ -67,6 +72,8 @@ public class QueueServiceImpl implements QueueService {
     private final DonationRepository donationRepository;
     private final AuditLogger auditLogger;
     private final ObjectMapper objectMapper;
+    private final AccountRepository accountRepository;
+    private final BusinessNotifications businessNotifications;
 
     // Không đặt readOnly: tab RETURN có thể phải bù dòng hàng đợi còn thiếu (syncPendingReturnRequests)
     @Override
@@ -431,8 +438,47 @@ public class QueueServiceImpl implements QueueService {
     @Transactional
     public QueueItem enqueue(QueueType type, String refId, Warehouse warehouse) {
         return queueItemRepository.findByTypeAndRefId(type, refId)
-                .orElseGet(() -> queueItemRepository.save(
-                        QueueItem.builder().type(type).refId(refId).warehouse(warehouse).build()));
+                .orElseGet(() -> {
+                    QueueItem created = queueItemRepository.save(
+                            QueueItem.builder().type(type).refId(refId).warehouse(warehouse).build());
+                    notifyModerators(type, refId, warehouse);
+                    return created;
+                });
+    }
+
+    private void notifyModerators(QueueType type, String refId, Warehouse warehouse) {
+        UUID targetId = parseUuid(refId);
+        if (targetId == null) return;
+        NotificationTargetType target = switch (type) {
+            case FORM_REVIEW, INSPECTION -> NotificationTargetType.CONSIGNMENT_FORM;
+            case PACKING -> NotificationTargetType.ORDER;
+            case RETURN -> NotificationTargetType.RETURN_REQUEST;
+            case WITHDRAWAL -> NotificationTargetType.WITHDRAWAL;
+            case ORG_VERIFICATION -> NotificationTargetType.ORGANIZATION;
+            case LEGAL_CHANGE -> NotificationTargetType.LEGAL_CHANGE;
+            case VIOLATION_REPORT -> NotificationTargetType.VIOLATION_REPORT;
+            case DONATION_PICKUP, DONATION_REASSIGN, DONATION_PREP -> NotificationTargetType.DONATION;
+        };
+        String task = switch (type) {
+            case FORM_REVIEW -> "Duyệt yêu cầu ký gửi";
+            case INSPECTION -> "Kiểm định món ký gửi";
+            case PACKING -> "Đóng gói đơn hàng";
+            case RETURN -> "Xử lý yêu cầu trả hàng";
+            case WITHDRAWAL -> "Xử lý yêu cầu rút hàng";
+            case ORG_VERIFICATION -> "Xác minh tổ chức";
+            case LEGAL_CHANGE -> "Duyệt thay đổi thông tin pháp lý";
+            case VIOLATION_REPORT -> "Xử lý báo cáo";
+            case DONATION_PICKUP -> "Bàn giao lượt quyên góp";
+            case DONATION_REASSIGN -> "Chuyển lượt quyên góp tạm giữ";
+            case DONATION_PREP -> "Chuẩn bị món quyên góp";
+        };
+        List<Account> moderators = warehouse == null
+                ? accountRepository.findByRole(Role.MODERATOR)
+                : accountRepository.findByRoleAndWarehouse_Id(Role.MODERATOR, warehouse.getId());
+        for (Account moderator : moderators) {
+            businessNotifications.send(moderator, NotificationType.QUEUE_TASK, "Có việc mới cần xử lý",
+                    task + " · " + refId, target, targetId, warehouse == null ? null : warehouse.getId());
+        }
     }
 
     @Override

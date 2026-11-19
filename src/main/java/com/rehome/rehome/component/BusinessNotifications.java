@@ -30,6 +30,11 @@ public class BusinessNotifications {
         schedule(recipient.getId(), type, title, body, target, targetId.toString());
     }
 
+    public void send(Account recipient, NotificationType type, String title, String body,
+                     NotificationTargetType target, UUID targetId, UUID warehouseId) {
+        schedule(recipient.getId(), type, title, body, target, targetId.toString(), warehouseId);
+    }
+
     public void order(Order order, String title, String message) {
         send(order.getBuyer(), NotificationType.ORDER_UPDATE, title,
                 "Đơn " + order.getOrderNo() + ": " + message, NotificationTargetType.ORDER, order.getId());
@@ -61,6 +66,11 @@ public class BusinessNotifications {
 
     private void schedule(UUID recipientId, NotificationType type, String title, String body,
                           NotificationTargetType target, String targetId) {
+        schedule(recipientId, type, title, body, target, targetId, null);
+    }
+
+    private void schedule(UUID recipientId, NotificationType type, String title, String body,
+                          NotificationTargetType target, String targetId, UUID warehouseId) {
         Runnable deliver = () -> {
             try {
                 TransactionTemplate transaction = new TransactionTemplate(transactionManager);
@@ -70,7 +80,7 @@ public class BusinessNotifications {
                     if (target == NotificationTargetType.PRODUCT) {
                         notificationService.notifyProduct(recipient, type, title, body, targetId, null);
                     } else {
-                        notificationService.notify(recipient, type, title, body, target, UUID.fromString(targetId), null);
+                        notificationService.notify(recipient, type, title, body, target, UUID.fromString(targetId), warehouseId);
                     }
                 });
             } catch (Exception ex) {

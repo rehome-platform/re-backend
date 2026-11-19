@@ -77,6 +77,48 @@ import org.springframework.data.domain.PageRequest;
 @MockitoSettings(strictness = Strictness.LENIENT)
 @SuppressWarnings({"unchecked", "rawtypes"})
 class ProductServiceImplTest {
+    @Mock ReturnRequestRepository returnRequestRepository;
+
+    @Test void skuLookupIncludesPendingReturnAndHidesItOnceDegradedOrHandled() {
+        Product p = inventoryProduct("RETURNED-1", "Returned", ProductStatus.RETURNED, "100000", 30);
+        Account actor = inventoryModerator();
+        p.setWarehouse(actor.getWarehouse());
+        p.setBrand(com.rehome.rehome.entity.marketplace.Brand.builder().name("Brand").build());
+        p.setCategory(com.rehome.rehome.entity.marketplace.Category.builder().name("Category").build());
+        when(productRepository.findById(p.getId())).thenReturn(Optional.of(p));
+        var reference = mock(ReturnRequestRepository.ProductReturnReference.class);
+        UUID returnId = UUID.randomUUID();
+        when(reference.getProductId()).thenReturn(p.getId());
+        when(reference.getReturnRequestId()).thenReturn(returnId);
+        when(reference.getStatus()).thenReturn(com.rehome.rehome.entity.enums.ReturnRequestStatus.VALID);
+        when(returnRequestRepository.findLatestReturnsByProductIds(List.of(p.getId()))).thenReturn(List.of(reference));
+        assertThat(service.getBySku(actor, p.getId()).getPendingReturnRequestId()).isEqualTo(returnId);
+        when(reference.getDegraded()).thenReturn(true);
+        assertThat(service.getBySku(actor, p.getId()).getPendingReturnRequestId()).isNull();
+        when(reference.getDegraded()).thenReturn(false);
+        when(reference.getItemAction()).thenReturn(com.rehome.rehome.entity.enums.ReturnedItemAction.RELIST);
+        assertThat(service.getBySku(actor, p.getId()).getPendingReturnRequestId()).isNull();
+        when(reference.getItemAction()).thenReturn(null);
+        when(reference.getStatus()).thenReturn(com.rehome.rehome.entity.enums.ReturnRequestStatus.INVALID);
+        assertThat(service.getBySku(actor, p.getId()).getPendingReturnRequestId()).isNull();
+    }
+
+    @Test void inventoryIncludesPendingValidReturnIdOnlyForReturnedProducts() {
+        Product returned = inventoryProduct("RETURNED-1", "Returned", ProductStatus.RETURNED, "100000", 30);
+        Product sold = inventoryProduct("SOLD-1", "Sold", ProductStatus.SOLD, "100000", 30);
+        var reference = mock(ReturnRequestRepository.ProductReturnReference.class);
+        UUID returnId = UUID.randomUUID();
+        when(reference.getProductId()).thenReturn(returned.getId());
+        when(reference.getReturnRequestId()).thenReturn(returnId);
+        when(reference.getStatus()).thenReturn(com.rehome.rehome.entity.enums.ReturnRequestStatus.VALID);
+        when(returnRequestRepository.findLatestReturnsByProductIds(List.of(returned.getId())))
+                .thenReturn(List.of(reference));
+        stubInventory(new PageImpl<>(List.of(returned, sold)));
+        var response = service.getInventory(inventoryModerator(), null, false, 0, 20);
+        assertThat(response.getContent().get(0).getPendingReturnRequestId()).isEqualTo(returnId);
+        assertThat(response.getContent().get(1).getPendingReturnRequestId()).isNull();
+        verify(returnRequestRepository, times(1)).findLatestReturnsByProductIds(List.of(returned.getId()));
+    }
     @org.mockito.Mock private com.rehome.rehome.component.BusinessNotifications businessNotifications;
 
 

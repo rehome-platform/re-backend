@@ -54,6 +54,39 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class DegradedItemCaseServiceImplTest {
+    @Mock com.rehome.rehome.repository.ReturnRequestRepository returnRequestRepository;
+
+    @Test void openReturnedProductLinksPendingValidReturnAndPreventsRelisting() {
+        Account moderator = moderatorWithWarehouse();
+        receipt.setCommissionRateTerm1(new BigDecimal("0.10"));
+        product.setWarehouse(moderator.getWarehouse());
+        product.setMember(seller);
+        product.setCurrentPrice(new BigDecimal("300000"));
+        product.setCurrentTerm((short) 1);
+        var reference = org.mockito.Mockito.mock(com.rehome.rehome.repository.ReturnRequestRepository.ProductReturnReference.class);
+        UUID returnId = UUID.randomUUID();
+        when(reference.getReturnRequestId()).thenReturn(returnId);
+        when(returnRequestRepository.findLatestReturnsByProductIds(List.of(PRODUCT_ID))).thenReturn(List.of(reference));
+        ReturnRequest returned = ReturnRequest.builder().id(returnId)
+                .status(com.rehome.rehome.entity.enums.ReturnRequestStatus.VALID).build();
+        when(returnRequestRepository.findByIdForUpdate(returnId)).thenReturn(Optional.of(returned));
+        when(degradedItemCaseRepository.save(any())).thenAnswer(inv -> {
+            DegradedItemCase c = inv.getArgument(0);
+            c.setId(UUID.randomUUID());
+            return c;
+        });
+        service.open(moderator, openRequest(PRODUCT_ID, "Damaged", List.of()));
+        ArgumentCaptor<DegradedItemCase> saved = ArgumentCaptor.forClass(DegradedItemCase.class);
+        verify(degradedItemCaseRepository).save(saved.capture());
+        assertThat(saved.getValue().getReturnRequest()).isSameAs(returned);
+        assertThat(returned.getDegraded()).isTrue();
+        assertThat(product.getStatus()).isEqualTo(ProductStatus.WAREHOUSE);
+        verify(returnRequestRepository).save(returned);
+        var locks = org.mockito.Mockito.inOrder(returnRequestRepository, productRepository);
+        locks.verify(returnRequestRepository).findLatestReturnsByProductIds(List.of(PRODUCT_ID));
+        locks.verify(returnRequestRepository).findByIdForUpdate(returnId);
+        locks.verify(productRepository).findByIdForUpdate(PRODUCT_ID);
+    }
     @org.mockito.Mock private com.rehome.rehome.component.BusinessNotifications businessNotifications;
 
 
@@ -144,7 +177,7 @@ class DegradedItemCaseServiceImplTest {
     @DisplayName("open: không tìm thấy sản phẩm -> PRODUCT_NOT_FOUND")
     void open_productNotFound_throws() {
         Account moderator = moderatorWithWarehouse();
-        when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.empty());
+        when(productRepository.findByIdForUpdate(PRODUCT_ID)).thenReturn(Optional.empty());
 
         AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
                 () -> service.open(moderator, openRequest(PRODUCT_ID, null, null)));
@@ -158,7 +191,7 @@ class DegradedItemCaseServiceImplTest {
         Account moderator = moderatorWithWarehouse();
         Product otherWarehouseProduct = Product.builder().id(PRODUCT_ID)
                 .warehouse(Warehouse.builder().id(UUID.randomUUID()).build()).build();
-        when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.of(otherWarehouseProduct));
+        when(productRepository.findByIdForUpdate(PRODUCT_ID)).thenReturn(Optional.of(otherWarehouseProduct));
 
         AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
                 () -> service.open(moderator, openRequest(PRODUCT_ID, null, null)));
@@ -172,7 +205,7 @@ class DegradedItemCaseServiceImplTest {
     void open_alreadyOpenCase_throws() {
         Account moderator = moderatorWithWarehouse();
         Product p = Product.builder().id(PRODUCT_ID).warehouse(moderator.getWarehouse()).build();
-        when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.of(p));
+        when(productRepository.findByIdForUpdate(PRODUCT_ID)).thenReturn(Optional.of(p));
         when(degradedItemCaseRepository.existsByProduct_IdAndChoiceIsNull(PRODUCT_ID)).thenReturn(true);
 
         assertThatThrownBy(() -> service.open(moderator, openRequest(PRODUCT_ID, null, null)))
@@ -187,7 +220,7 @@ class DegradedItemCaseServiceImplTest {
         Account moderator = moderatorWithWarehouse();
         Product p = Product.builder().id(PRODUCT_ID).warehouse(moderator.getWarehouse())
                 .status(ProductStatus.WITHDRAWN).build();
-        when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.of(p));
+        when(productRepository.findByIdForUpdate(PRODUCT_ID)).thenReturn(Optional.of(p));
 
         AppException ex = org.junit.jupiter.api.Assertions.assertThrows(AppException.class,
                 () -> service.open(moderator, openRequest(PRODUCT_ID, null, null)));
@@ -197,10 +230,11 @@ class DegradedItemCaseServiceImplTest {
         verify(productRepository, never()).save(any());
     }
 
-    @Test
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = ProductStatus.class, names = {"ON_SALE", "RETURNED"})
     @DisplayName("open: thành công -> snapshot giá đang bán - hoa hồng kỳ hiện tại, lưu notes/photos, "
             + "ẩn sản phẩm khỏi sàn (ON_SALE -> WAREHOUSE)")
-    void open_success_computesCompensationFromCurrentPriceAndTerm() {
+    void open_success_computesCompensationFromCurrentPriceAndTerm(ProductStatus initialStatus) {
         Account moderator = moderatorWithWarehouse();
         ConsignmentReceipt r = ConsignmentReceipt.builder()
                 .commissionRateTerm1(new BigDecimal("0.10"))
@@ -208,9 +242,9 @@ class DegradedItemCaseServiceImplTest {
                 .commissionRateTerm3(new BigDecimal("0.20"))
                 .build();
         Product p = Product.builder().id(PRODUCT_ID).warehouse(moderator.getWarehouse())
-                .status(ProductStatus.ON_SALE)
+                .status(initialStatus)
                 .consignmentReceipt(r).currentPrice(new BigDecimal("300000")).currentTerm((short) 2).build();
-        when(productRepository.findById(PRODUCT_ID)).thenReturn(Optional.of(p));
+        when(productRepository.findByIdForUpdate(PRODUCT_ID)).thenReturn(Optional.of(p));
         when(degradedItemCaseRepository.existsByProduct_IdAndChoiceIsNull(PRODUCT_ID)).thenReturn(false);
         when(systemConfigReader.getInt(
                 com.rehome.rehome.constant.SystemConfigKeys.DEGRADED_ITEM_DECISION_DAYS, 30)).thenReturn(30);

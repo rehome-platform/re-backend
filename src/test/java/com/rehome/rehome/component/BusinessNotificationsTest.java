@@ -21,6 +21,16 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class BusinessNotificationsTest {
+    @Test void queueNotificationPreservesWarehouseAndOnlyDeliversAfterCommit() {
+        UUID warehouseId = UUID.randomUUID();
+        UUID donationId = UUID.randomUUID();
+        notifications.send(member, NotificationType.QUEUE_TASK, "Queue", "Donation", NotificationTargetType.DONATION,
+                donationId, warehouseId);
+        verifyNoInteractions(notificationService);
+        commitCallbacks();
+        verify(notificationService).notify(member, NotificationType.QUEUE_TASK, "Queue", "Donation",
+                NotificationTargetType.DONATION, donationId, warehouseId);
+    }
     @Mock NotificationService notificationService;
     @Mock AccountRepository accountRepository;
     @Mock PlatformTransactionManager transactionManager;

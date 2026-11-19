@@ -114,6 +114,7 @@ class ReturnRequestServiceImplTest {
         when(systemConfigReader.getInt(eq(SystemConfigKeys.RETURN_REQUEST_WINDOW_DAYS), anyInt())).thenReturn(3);
         when(systemConfigReader.getInt(eq(SystemConfigKeys.RETURN_HANDOVER_CARRIER_DAYS), anyInt())).thenReturn(3);
         when(systemConfigReader.getInt(eq(SystemConfigKeys.COUNTER_PICKUP_DAYS), anyInt())).thenReturn(7);
+        ReflectionTestUtils.setField(service, "ghnFallbackOnError", false);
         ReflectionTestUtils.setField(service, "ghnToken", TOKEN);
         ReflectionTestUtils.setField(service, "ghnShopId", SHOP_ID);
         ReflectionTestUtils.setField(service, "defaultPackageWeightGrams", 500);
@@ -141,6 +142,7 @@ class ReturnRequestServiceImplTest {
         ReturnRequest rr = ReturnRequest.builder().order(order).status(status).build();
         ReflectionTestUtils.setField(rr, "id", RR_ID);
         when(returnRequestRepository.findById(RR_ID)).thenReturn(Optional.of(rr));
+        when(returnRequestRepository.findByIdForUpdate(RR_ID)).thenReturn(Optional.of(rr));
         return rr;
     }
 
@@ -644,6 +646,56 @@ class ReturnRequestServiceImplTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void approveFallback_handlesExceptionOrMissingCode_andPersistsForRetry(boolean throwsError) {
+        ReflectionTestUtils.setField(service, "ghnFallbackOnError", true);
+        ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.PENDING);
+        givenOrderItem();
+        if (throwsError) {
+            when(ghnApi.createOrder(anyString(), anyString(), any())).thenThrow(new RuntimeException("sandbox"));
+        }
+        var response = service.approve(RR_ID);
+        assertThat(response.getStatus()).isEqualTo("APPROVED");
+        assertThat(response.isGhnFallbackUsed()).isTrue();
+        assertThat(response.getGhnReturnTrackingCode()).startsWith("LOCAL-RT-").hasSize(17);
+        assertThat(rr.getHandoverDeadline()).isAfter(Instant.now());
+        service.approve(RR_ID);
+        verify(ghnApi).createOrder(anyString(), anyString(), any());
+    }
+
+    @Test
+    void applyItemAction_onlyAfterValid_andOnlyOnce_withoutRefundingAgain() {
+        ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.VALID);
+        UUID warehouseId = UUID.randomUUID();
+        Account actor = Account.builder().id(UUID.randomUUID()).role(com.rehome.rehome.entity.enums.Role.MODERATOR)
+                .warehouse(Warehouse.builder().id(warehouseId).build()).build();
+        when(order.getWarehouse()).thenReturn(actor.getWarehouse());
+        var request = new com.rehome.rehome.dto.request.ApplyReturnItemActionRequest("RELIST");
+        assertThat(service.applyItemAction(actor, RR_ID, request).getItemAction()).isEqualTo("RELIST");
+        verify(orderService).applyReturnedItemAction(ORDER_ID, ReturnedItemAction.RELIST);
+        verify(orderService, never()).refundOrderForReturn(any(), any());
+        assertThatThrownBy(() -> service.applyItemAction(actor, RR_ID, request)).isInstanceOf(ConflictException.class);
+        rr.setItemAction(null);
+        rr.setDegraded(true);
+        assertThatThrownBy(() -> service.applyItemAction(actor, RR_ID, request)).isInstanceOf(ConflictException.class);
+        rr.setDegraded(false);
+        rr.setStatus(ReturnRequestStatus.INSPECTING);
+        assertThatThrownBy(() -> service.applyItemAction(actor, RR_ID, request)).isInstanceOf(ConflictException.class);
+    }
+
+    @Test
+    void returnMutation_rejectsModeratorFromAnotherWarehouse() {
+        givenReturnRequest(ReturnRequestStatus.VALID);
+        Account actor = Account.builder().role(com.rehome.rehome.entity.enums.Role.MODERATOR)
+                .warehouse(Warehouse.builder().id(UUID.randomUUID()).build()).build();
+        when(order.getWarehouse()).thenReturn(Warehouse.builder().id(UUID.randomUUID()).build());
+        assertThatThrownBy(() -> service.applyItemAction(actor, RR_ID,
+                new com.rehome.rehome.dto.request.ApplyReturnItemActionRequest("DISCARD"))).isInstanceOf(ForbiddenException.class);
+        assertThatThrownBy(() -> service.approve(actor, RR_ID)).isInstanceOf(ForbiddenException.class);
+        verifyNoInteractions(ghnApi, orderService);
+    }
+
     // ------------------------------------------------------------------ reject
 
     @Nested
@@ -900,14 +952,15 @@ class ReturnRequestServiceImplTest {
         }
 
         @Test
-        void valid_notDegraded_missingAction_throwsBadRequest() {
+        void valid_notDegraded_withoutAction_refundsBeforeItemDecision() {
             ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INSPECTING);
             rr.setDegraded(false);
-
-            assertThatThrownBy(() -> service.resolve(moderator, RR_ID, resolveReq("VALID", null, "n")))
-                    .isInstanceOf(BadRequestException.class)
-                    .hasMessageContaining("action");
-            verifyNoInteractions(orderService);
+            var response = service.resolve(moderator, RR_ID, resolveReq("VALID", null, "ok"));
+            assertThat(response.getStatus()).isEqualTo("VALID");
+            assertThat(rr.getResolvedAt()).isNotNull();
+            assertThat(rr.getItemAction()).isNull();
+            verify(orderService).refundOrderForReturn(eq(ORDER_ID), anyString());
+            verify(orderService, never()).applyReturnedItemAction(any(), any());
         }
 
         @Test

@@ -250,6 +250,12 @@ public class OrderController {
     }
 
     // In phiếu vận đơn GHN để dán lên kiện hàng (F-127)
+    @PostMapping("/{id}/handover")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ApiResponse<OrderResponse> handoverToCarrier(Authentication authentication, @PathVariable UUID id) {
+        return ApiResponse.success(orderService.handoverToCarrier(authentication.getName(), id));
+    }
+
     @GetMapping("/{id}/shipment/label")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<ShipmentLabelResponse>> getShipmentLabel(

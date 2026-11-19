@@ -75,6 +75,13 @@ public class GhnWebhookServiceImpl implements GhnWebhookService {
 
         String status = payload.getStatus() == null ? "" : payload.getStatus().toLowerCase(Locale.ROOT);
 
+        if (order.getStatus() == OrderStatus.PACKED
+                && java.util.Set.of("picked", "storing", "transporting", "sorting", "delivering", "delivered").contains(status)) {
+            order.setStatus(OrderStatus.SHIPPING);
+            if (order.getHandedOverAt() == null) order.setHandedOverAt(occurredAt);
+            orderRepository.save(order);
+        }
+
         if ("delivered".equals(status)) {
             if (order.getStatus() == OrderStatus.SHIPPING) {
                 order.setStatus(OrderStatus.DELIVERED);

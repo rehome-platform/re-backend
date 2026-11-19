@@ -1700,7 +1700,7 @@ class OrderServiceImplTest {
     // Webhook GHN có thể bắn trùng hoặc đến muộn: chỉ đơn đang PACKING/SHIPPING mới được hủy + hoàn tiền,
     // nếu không đơn đã giao/đã hoàn tất/đã hủy sẽ bị hoàn tiền lần hai.
     @ParameterizedTest
-    @EnumSource(value = OrderStatus.class, names = {"PACKING", "SHIPPING"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = OrderStatus.class, names = {"PACKING", "PACKED", "SHIPPING"}, mode = EnumSource.Mode.EXCLUDE)
     void cancelOrderForCarrierFailure_doesNothing_whenOrderIsNotInTransit(OrderStatus status) {
         UUID orderId = UUID.randomUUID();
         Order order = carrierFailureOrder(orderId, status);
@@ -2442,7 +2442,7 @@ class OrderServiceImplTest {
                 eq(member.getId()), statuses.capture(), any(Pageable.class));
 
         assertThat(statuses.getValue())
-                .containsExactly(OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.SHIPPING,
+                .containsExactly(OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.PACKED, OrderStatus.SHIPPING,
                         OrderStatus.DELIVERED, OrderStatus.COMPLETED, OrderStatus.RETURNED)
                 .doesNotContain(OrderStatus.PENDING_PAYMENT, OrderStatus.CANCELLED);
     }
@@ -2572,7 +2572,7 @@ class OrderServiceImplTest {
                 eq(warehouse1.getId()), statuses.capture(), any(Pageable.class));
 
         assertThat(statuses.getValue())
-                .containsExactly(OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.SHIPPING,
+                .containsExactly(OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.PACKED, OrderStatus.SHIPPING,
                         OrderStatus.DELIVERED, OrderStatus.COMPLETED, OrderStatus.RETURNED)
                 .doesNotContain(OrderStatus.PENDING_PAYMENT, OrderStatus.CANCELLED);
     }
@@ -3078,6 +3078,25 @@ class OrderServiceImplTest {
         verify(auditLogger, never()).logWarehouse(any(), any(Warehouse.class), any(), any(), any(), any(), any(), any());
     }
 
+    @Test
+    void handoverToCarrier_transitionsOnlyPacked_andIsIdempotent() {
+        UUID id = UUID.randomUUID();
+        Account actor = moderatorWithWarehouse(warehouse1);
+        Order order = Order.builder().id(id).warehouse(warehouse1).status(OrderStatus.PACKED).build();
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(actor));
+        when(orderRepository.findByIdForUpdate(id)).thenReturn(Optional.of(order));
+        assertThat(orderService.handoverToCarrier("mod@example.com", id).getStatus()).isEqualTo("SHIPPING");
+        Instant first = order.getHandedOverAt();
+        assertThat(first).isNotNull();
+        orderService.handoverToCarrier("mod@example.com", id);
+        assertThat(order.getHandedOverAt()).isEqualTo(first);
+        verify(orderRepository).save(order);
+        order.setStatus(OrderStatus.PACKING);
+        assertThatThrownBy(() -> orderService.handoverToCarrier("mod@example.com", id)).isInstanceOf(ConflictException.class);
+        actor.setWarehouse(Warehouse.builder().id(UUID.randomUUID()).build());
+        assertThatThrownBy(() -> orderService.handoverToCarrier("mod@example.com", id)).isInstanceOf(ForbiddenException.class);
+    }
+
     // ---- createShipment ----
 
     @Test
@@ -3179,7 +3198,7 @@ class OrderServiceImplTest {
         CreateShipmentResponse result = orderService.createShipment("mod@example.com", orderId);
 
         assertThat(result.getGhnTrackingCode()).isEqualTo("GHN999");
-        assertThat(order.getStatus()).isEqualTo(OrderStatus.SHIPPING);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PACKED);
         assertThat(order.getExpectedDeliveryDate()).isNotNull();
         assertThat(order.getShipmentCreatedAt()).isAfterOrEqualTo(before);
         verify(queueService).dequeue(QueueType.PACKING, orderId.toString());

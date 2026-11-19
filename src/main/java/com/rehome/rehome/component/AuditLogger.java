@@ -102,6 +102,7 @@ public class AuditLogger {
                 .detail(detail)
                 .warehouseId(warehouseId)
                 .auditGroup(group.name())
+                .activityType(group.name())
                 .result(result)
                 .build());
     }

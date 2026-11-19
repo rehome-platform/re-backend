@@ -45,6 +45,10 @@ public class ReturnRequest {
     @Column(name = "ghn_return_tracking_code", nullable = true, length = 255)
     private String ghnReturnTrackingCode;
 
+    @Column(name = "ghn_fallback_used")
+    @Builder.Default
+    private Boolean ghnFallbackUsed = false;
+
     // Hạn bàn giao cho GHN, mặc định 3 ngày; không bàn giao thì hủy yêu cầu
     @Column(name = "handover_deadline", nullable = false)
     private Instant handoverDeadline;

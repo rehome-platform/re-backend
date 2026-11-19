@@ -78,7 +78,7 @@ public class ConversationServiceImpl implements ConversationService {
 
     // Đơn đang trong luồng giao hàng, dùng cho shippingCount ở hộp thư Moderator
     private static final List<OrderStatus> SHIPPING_ORDER_STATUSES = List.of(
-            OrderStatus.PACKING, OrderStatus.SHIPPING);
+            OrderStatus.PACKING, OrderStatus.PACKED, OrderStatus.SHIPPING);
 
     // Yêu cầu trả hàng còn đang xử lý, dùng cho returnCount ở hộp thư Moderator - cùng tập
     // trạng thái "mở" với ReturnRequestServiceImpl.OPEN_STATUSES

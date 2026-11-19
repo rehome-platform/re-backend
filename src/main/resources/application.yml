@@ -80,6 +80,8 @@ springdoc:
 
 # ==================== APPLICATION CONFIG ====================
 app:
+  ghn:
+    fallback-on-error: ${GHN_FALLBACK_ON_ERROR:true}
   # Các initializer TỰ SEED dữ liệu mẫu (tài khoản, kho, danh mục, thương hiệu, gói thành viên,
   # mẫu voucher, tham số hệ thống, sản phẩm demo). Mặc định TẮT: toàn bộ dữ liệu demo giờ nằm
   # trong scripts/seed_demo_full.sql, chạy file đó là có đủ. Bật lại bằng APP_INITIALIZER_SEED=true

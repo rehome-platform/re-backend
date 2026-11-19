@@ -31,12 +31,12 @@ public class AdminDashboardQueryRepository {
 
     // Đơn đã thanh toán: bỏ chờ thanh toán và đã hủy
     private static final List<OrderStatus> PAID_STATUSES = List.of(
-            OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.SHIPPING, OrderStatus.DELIVERED,
+            OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.PACKED, OrderStatus.SHIPPING, OrderStatus.DELIVERED,
             OrderStatus.COMPLETED, OrderStatus.RETURNED);
 
     // Đơn đã thanh toán nhưng chưa hoàn tất: tiền người mua đã trả, nền tảng đang giữ
     private static final List<OrderStatus> HELD_STATUSES = List.of(
-            OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.SHIPPING, OrderStatus.DELIVERED);
+            OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.PACKED, OrderStatus.SHIPPING, OrderStatus.DELIVERED);
 
     // Các loại bút toán cấu thành doanh thu nền tảng (khớp sumCompletedCommission +
     // sumWithdrawalFeeRevenue + sumMembershipRevenue). MEMBERSHIP_PURCHASE ở đây chỉ khớp dòng

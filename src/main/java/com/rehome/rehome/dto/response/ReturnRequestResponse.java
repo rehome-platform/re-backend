@@ -23,6 +23,7 @@ public class ReturnRequestResponse {
     private List<String> packingPhotoUrls;
 
     private String ghnReturnTrackingCode;
+    private boolean ghnFallbackUsed;
     private Instant handoverDeadline;
 
     private String invalidReturnChoice;

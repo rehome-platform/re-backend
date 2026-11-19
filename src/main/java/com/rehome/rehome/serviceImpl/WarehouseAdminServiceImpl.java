@@ -38,7 +38,7 @@ public class WarehouseAdminServiceImpl implements WarehouseAdminService {
             ProductStatus.ON_SALE, ProductStatus.RESERVED, ProductStatus.UNCLAIMED,
             ProductStatus.PLATFORM_OWNED, ProductStatus.RETURNED, ProductStatus.WAREHOUSE);
     // Hàng SOLD nhưng đơn chưa giao đi: vẫn ở kho chờ đóng gói
-    static final List<OrderStatus> OPEN_ORDER_STATUSES = List.of(OrderStatus.PAID, OrderStatus.PACKING);
+    static final List<OrderStatus> OPEN_ORDER_STATUSES = List.of(OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.PACKED);
     // Phiếu ký gửi chưa xong tại kho
     static final List<ConsignmentFormStatus> OPEN_FORM_STATUSES = List.of(
             ConsignmentFormStatus.PENDING, ConsignmentFormStatus.APPROVED, ConsignmentFormStatus.INSPECTING);

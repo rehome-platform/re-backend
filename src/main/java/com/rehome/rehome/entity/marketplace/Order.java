@@ -129,6 +129,9 @@ public class Order {
     @Column(name = "shipment_created_at", nullable = true)
     private Instant shipmentCreatedAt;
 
+    @Column(name = "handed_over_at")
+    private Instant handedOverAt;
+
     // Hạn thanh toán, mặc định 15 phút; quá hạn hủy đơn và nhả hàng về sàn
     @Column(name = "payment_deadline", nullable = false)
     private Instant paymentDeadline;

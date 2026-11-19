@@ -29,6 +29,9 @@ public interface ReturnRequestService {
 
     // F-131 - Moderator duyệt và tạo vận đơn GHN chiều trả về kho
     ReturnRequestResponse approve(UUID id);
+    ReturnRequestResponse approve(Account moderator, UUID id);
+    ReturnRequestResponse applyItemAction(Account moderator, UUID id,
+            com.rehome.rehome.dto.request.ApplyReturnItemActionRequest request);
 
     // F-131 - Moderator từ chối yêu cầu
     ReturnRequestResponse reject(UUID id, RejectReturnRequestRequest request);

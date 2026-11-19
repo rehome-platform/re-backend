@@ -86,6 +86,16 @@ class GhnWebhookServiceImplTest {
         return p;
     }
 
+    @Test
+    void deliveredWebhook_advancesPackedOrderEvenWhenManualHandoverWasMissed() {
+        Order packed = Order.builder().id(orderId).status(OrderStatus.PACKED).build();
+        when(orderRepository.findByGhnTrackingCode(ORDER_CODE)).thenReturn(Optional.of(packed));
+        service.handleWebhook(payload(ORDER_CODE, "delivered", null, TIME));
+        assertThat(packed.getStatus()).isEqualTo(OrderStatus.DELIVERED);
+        assertThat(packed.getHandedOverAt()).isNotNull();
+        assertThat(packed.getDeliveredAt()).isNotNull();
+    }
+
     private Order order(OrderStatus status) {
         Order o = mock(Order.class);
         when(o.getId()).thenReturn(orderId);

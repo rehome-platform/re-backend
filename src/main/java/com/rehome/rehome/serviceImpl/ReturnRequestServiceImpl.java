@@ -75,6 +75,9 @@ import java.util.UUID;
 public class ReturnRequestServiceImpl implements ReturnRequestService {
     private final AuditLogger auditLogger;
 
+    @Value("${app.ghn.fallback-on-error:true}")
+    private boolean ghnFallbackOnError = true;
+
     private static final List<ReturnRequestStatus> OPEN_STATUSES = List.of(
             ReturnRequestStatus.PENDING,
             ReturnRequestStatus.APPROVED,
@@ -263,7 +266,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     @Transactional
     public ReturnRequestResponse approve(UUID id) {
 
-        ReturnRequest returnRequest = findOrThrow(id);
+        ReturnRequest returnRequest = returnRequestRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new IllegalArgumentException("Return request not found"));
 
         // Đã tạo vận đơn trả trước đó thì trả lại kết quả cũ, không gọi GHN lần nữa
         if (StringUtils.hasText(returnRequest.getGhnReturnTrackingCode())) {
@@ -277,22 +281,25 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         Order order = returnRequest.getOrder();
         List<OrderItem> items = orderItemRepository.findAllByOrder_IdWithProductOrderByIdAsc(order.getId());
 
-        GhnCreateOrderResponse ghnResponse;
+        GhnCreateOrderRequest shipment = buildReturnShipmentRequest(returnRequest, items);
+        GhnCreateOrderResponse ghnResponse = null;
         try {
-            ghnResponse = ghnApi.createOrder(ghnToken, ghnShopId, buildReturnShipmentRequest(returnRequest, items));
+            ghnResponse = ghnApi.createOrder(ghnToken, ghnShopId, shipment);
         } catch (Exception ex) {
-            log.error(">>>> Loi goi GHN tao van don tra cho returnRequestId={}: {}", id, ex.getMessage());
-            throw new GhnException("GHN_ERROR: không thể tạo vận đơn trả, vui lòng thử lại.");
+            if (!ghnFallbackOnError) {
+                throw new GhnException("GHN_ERROR: cannot create return shipment.");
+            }
+            log.warn("GHN return shipment failed for {}, using local fallback: {}", id, ex.getMessage());
         }
-
-        if (ghnResponse == null || ghnResponse.getData() == null
-                || !StringUtils.hasText(ghnResponse.getData().getOrderCode())) {
-            String ghnMessage = ghnResponse != null ? ghnResponse.getMessage() : null;
-            log.error(">>>> GHN khong tra ve order_code cho van don tra returnRequestId={}: {}", id, ghnMessage);
-            throw new GhnException("GHN_ERROR: không thể tạo vận đơn trả, vui lòng thử lại.");
+        boolean fallback = ghnResponse == null || ghnResponse.getData() == null
+                || !StringUtils.hasText(ghnResponse.getData().getOrderCode());
+        if (fallback && !ghnFallbackOnError) {
+            throw new GhnException("GHN_ERROR: missing return order code.");
         }
-
-        returnRequest.setGhnReturnTrackingCode(ghnResponse.getData().getOrderCode());
+        returnRequest.setGhnFallbackUsed(fallback);
+        returnRequest.setGhnReturnTrackingCode(fallback
+                ? "LOCAL-RT-" + id.toString().replace("-", "").substring(0, 8).toUpperCase(Locale.ROOT)
+                : ghnResponse.getData().getOrderCode());
         returnRequest.setStatus(ReturnRequestStatus.APPROVED);
         returnRequest.setHandoverDeadline(Instant.now().plus(handoverDeadlineDays(), ChronoUnit.DAYS));
         returnRequestRepository.save(returnRequest);
@@ -437,7 +444,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         ReturnRequestStatus resolution = parseResolution(request.getResolution());
 
-        ReturnRequest returnRequest = findOrThrow(id);
+        ReturnRequest returnRequest = returnRequestRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new IllegalArgumentException("Return request not found"));
 
         if (returnRequest.getStatus() != ReturnRequestStatus.INSPECTING) {
             throw new ConflictException("Chưa kiểm tra hàng trả về.", "RETURN_NOT_INSPECTING");
@@ -447,10 +455,9 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         ReturnedItemAction action = null;
         if (resolution == ReturnRequestStatus.VALID && !degraded) {
-            if (!StringUtils.hasText(request.getAction())) {
-                throw new BadRequestException("resolution và action là bắt buộc.");
+            if (StringUtils.hasText(request.getAction())) {
+                action = parseItemAction(request.getAction());
             }
-            action = parseItemAction(request.getAction());
         }
 
         Instant now = Instant.now();
@@ -469,7 +476,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
             if (degraded) {
                 openDegradedItemCase(moderator, returnRequest);
-            } else {
+            } else if (action != null) {
                 orderService.applyReturnedItemAction(returnRequest.getOrder().getId(), action);
             }
         } else {
@@ -490,6 +497,48 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         auditLogger.logOperation(moderator, "RESOLVE_RETURN", "RETURN_REQUEST", id, returnRequest.getStatus().name());
         return toResponseWithPhotos(returnRequest);
+    }
+
+    @Override
+    @Transactional
+    public ReturnRequestResponse approve(Account moderator, UUID id) {
+        ReturnRequest request = returnRequestRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new IllegalArgumentException("Return request not found"));
+        requireReturnWarehouse(moderator, request);
+        return approve(id);
+    }
+
+    private void requireReturnWarehouse(Account moderator, ReturnRequest request) {
+        if (moderator == null || moderator.getRole() != com.rehome.rehome.entity.enums.Role.MODERATOR
+                || moderator.getWarehouse() == null
+                || !moderator.getWarehouse().getId().equals(request.getOrder().getWarehouse().getId())) {
+            throw new ForbiddenException("Only the assigned warehouse moderator can handle this return.");
+        }
+    }
+
+    @Override
+    @Transactional
+    public ReturnRequestResponse applyItemAction(Account moderator, UUID id,
+            com.rehome.rehome.dto.request.ApplyReturnItemActionRequest request) {
+        if (request == null || !StringUtils.hasText(request.action())) {
+            throw new BadRequestException("action is required.");
+        }
+        ReturnedItemAction action = parseItemAction(request.action());
+        ReturnRequest item = returnRequestRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new IllegalArgumentException("Return request not found"));
+        requireReturnWarehouse(moderator, item);
+        if (item.getStatus() != ReturnRequestStatus.VALID || item.getItemAction() != null) {
+            throw new ConflictException("Return must be VALID and have no item action.", "RETURN_ITEM_ACTION_NOT_ALLOWED");
+        }
+        if (Boolean.TRUE.equals(item.getDegraded())) {
+            throw new ConflictException("Degraded items use the compensation workflow.", "RETURN_ITEM_DEGRADED");
+        }
+        orderService.applyReturnedItemAction(item.getOrder().getId(), action);
+        item.setItemAction(action);
+        returnRequestRepository.save(item);
+        auditLogger.logWarehouseOp(moderator, item.getOrder().getWarehouse(), WarehouseAuditGroup.INVENTORY,
+                "APPLY_RETURN_ITEM_ACTION", "RETURN_REQUEST", id.toString(), action.name(), item.getOrder().getOrderNo());
+        return toResponseWithPhotos(item);
     }
 
     private ReturnRequestStatus parseResolution(String resolution) {
@@ -795,6 +844,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .status(returnRequest.getStatus().name())
                 .reason(returnRequest.getReason())
                 .photoUrls(photoUrls)
+                .packingPhotoUrls(order.getPackingPhotoUrls() == null ? List.of() : List.copyOf(order.getPackingPhotoUrls()))
+                .ghnFallbackUsed(Boolean.TRUE.equals(returnRequest.getGhnFallbackUsed()))
                 .ghnReturnTrackingCode(returnRequest.getGhnReturnTrackingCode())
                 .handoverDeadline(returnRequest.getHandoverDeadline())
                 .invalidReturnChoice(returnRequest.getInvalidReturnChoice() != null

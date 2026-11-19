@@ -125,9 +125,10 @@ public class ReturnRequestController {
     // F-131 - duyệt và tạo vận đơn GHN chiều trả
     @PostMapping("/{id}/approve")
     @PreAuthorize("hasRole('MODERATOR')")
-    public ResponseEntity<ApiResponse<ReturnRequestResponse>> approve(@PathVariable UUID id) {
+    public ResponseEntity<ApiResponse<ReturnRequestResponse>> approve(@AuthenticationPrincipal Account moderator,
+            @PathVariable UUID id) {
 
-        ReturnRequestResponse result = returnRequestService.approve(id);
+        ReturnRequestResponse result = returnRequestService.approve(moderator, id);
 
         return ResponseEntity.ok(ApiResponse.success(result, "Đã duyệt và tạo vận đơn trả"));
     }
@@ -169,6 +170,14 @@ public class ReturnRequestController {
     }
 
     // API 89 (F-136) - Moderator tự tay đánh dấu hàng trả thất lạc, hoàn tiền người mua
+    @PostMapping("/{id}/item-action")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ApiResponse<ReturnRequestResponse> applyItemAction(@AuthenticationPrincipal Account moderator,
+            @PathVariable UUID id,
+            @jakarta.validation.Valid @RequestBody com.rehome.rehome.dto.request.ApplyReturnItemActionRequest request) {
+        return ApiResponse.success(returnRequestService.applyItemAction(moderator, id, request));
+    }
+
     @PostMapping("/{id}/mark-lost")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> markLost(

@@ -34,6 +34,12 @@ public class MemberTasksResponse {
         private BigDecimal desiredPrice;
         private ConsignmentFormStatus status;
         private Instant createdAt;
+        private UUID receiptId;
+        private Instant confirmedAt;
+        private com.rehome.rehome.entity.enums.ModeratorResumeStep resumeStep;
+        private String productSku;
+        private com.rehome.rehome.entity.enums.ProductStatus productStatus;
+        private String displayStatus;
     }
 
     @Getter

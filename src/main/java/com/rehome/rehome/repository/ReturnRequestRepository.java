@@ -16,6 +16,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UUID> {
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from ReturnRequest r where r.id = :id")
+    Optional<ReturnRequest> findByIdForUpdate(@Param("id") UUID id);
 
     Optional<ReturnRequest> findByGhnReturnTrackingCode(String ghnReturnTrackingCode);
 

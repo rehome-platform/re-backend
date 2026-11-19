@@ -55,6 +55,9 @@ public class AuditLog {
     @Column(name = "audit_group", nullable = true, length = 32)
     private String auditGroup;
 
+    @Column(name = "activity_type", length = 32)
+    private String activityType;
+
     // Kết quả ngắn của thao tác (APPROVED, REJECTED, SUCCESS...), hiển thị thẳng ở lịch sử kho
     @Column(name = "result", nullable = true, length = 255)
     private String result;

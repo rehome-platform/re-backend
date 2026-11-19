@@ -129,6 +129,9 @@ public class Order {
     @Column(name = "shipment_created_at", nullable = true)
     private Instant shipmentCreatedAt;
 
+    @Column(name = "handed_over_at")
+    private Instant handedOverAt;
+
     // Hạn thanh toán, mặc định 15 phút; quá hạn hủy đơn và nhả hàng về sàn
     @Column(name = "payment_deadline", nullable = false)
     private Instant paymentDeadline;
@@ -197,6 +200,13 @@ public class Order {
     // Ghi chú của người mua lúc đặt hàng, hiển thị cho Moderator khi đóng gói - DG-01
     @Column(name = "buyer_note", nullable = true, columnDefinition = "text")
     private String buyerNote;
+
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "order_packing_photo_urls", joinColumns = @JoinColumn(name = "order_id"))
+    @Column(name = "image_url", nullable = false, length = 2048)
+    @OrderColumn(name = "position")
+    @Builder.Default
+    private List<String> packingPhotoUrls = new ArrayList<>();
 
     // Thời điểm đặt đơn — mốc chốt tỷ lệ hoa hồng theo kỳ
     @Column(name = "created_at", nullable = false, updatable = false)

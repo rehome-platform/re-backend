@@ -1,5 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.util.NotificationFormatting;
+
 import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 
@@ -111,7 +113,7 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
         degradedItemCaseRepository.save(degradedCase);
         businessNotifications.send(product.getMember(), NotificationType.TERM_EXPIRY, "Cần chọn phương án cho món xuống cấp",
                 "Món " + product.getName() + ": vui lòng chọn phương án trước hạn "
-                        + degradedCase.getDecisionDeadline() + ".", NotificationTargetType.DEGRADED_ITEM_CASE, degradedCase.getId());
+                        + NotificationFormatting.deadline(degradedCase.getDecisionDeadline()) + ".", NotificationTargetType.DEGRADED_ITEM_CASE, degradedCase.getId());
 
         // Tạm ẩn khỏi sàn chờ Member quyết định (F-036) - hàng vẫn nằm trong kho, không phải WITHDRAWN
         product.setStatus(ProductStatus.WAREHOUSE);

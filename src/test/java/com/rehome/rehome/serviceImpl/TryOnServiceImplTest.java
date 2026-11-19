@@ -81,6 +81,44 @@ class TryOnServiceImplTest {
     private TryOnServiceImpl tryOnService;
 
     private Account member;
+    @Test
+    void createImage_concurrentRequestIsRejectedAndLockReleasedAfterFailure() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        when(aiTryOnQuotaGuard.assertCanGenerate(member.getId())).thenAnswer(inv -> {
+            entered.countDown();
+            if (!release.await(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                throw new AssertionError("Timed out waiting for concurrent request");
+            }
+            throw new AppException(ErrorCode.TRYON_IMAGE_QUOTA_EXCEEDED);
+        });
+        var request = request(TryOnModelType.FEMALE, TOP_ID, BOTTOM_ID, null);
+        try {
+            var first = executor.submit(() -> assertThrows(AppException.class,
+                    () -> tryOnService.createImage(member, request)));
+            assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            Account sameMember = Account.builder().id(member.getId()).role(Role.MEMBER).build();
+            assertEquals(ErrorCode.TRYON_IN_PROGRESS, assertThrows(AppException.class,
+                    () -> tryOnService.createImage(sameMember, request)).getErrorCode());
+            Account otherMember = Account.builder().id(UUID.randomUUID()).role(Role.MEMBER).build();
+            assertEquals(ErrorCode.INCOMPLETE_OUTFIT, assertThrows(AppException.class,
+                    () -> tryOnService.createImage(otherMember,
+                            request(TryOnModelType.FEMALE, null, null, null))).getErrorCode());
+            verify(aiTryOnQuotaGuard, times(1)).assertCanGenerate(member.getId());
+            verifyNoInteractions(tryOnImageGenerator, tryOnImageRepository);
+            release.countDown();
+            assertEquals(ErrorCode.TRYON_IMAGE_QUOTA_EXCEEDED,
+                    first.get(5, java.util.concurrent.TimeUnit.SECONDS).getErrorCode());
+            assertEquals(ErrorCode.TRYON_IMAGE_QUOTA_EXCEEDED, assertThrows(AppException.class,
+                    () -> tryOnService.createImage(member, request)).getErrorCode());
+            verify(aiTryOnQuotaGuard, times(2)).assertCanGenerate(member.getId());
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
     private Product top;
     private Product bottom;
     private Product dress;
@@ -198,6 +236,11 @@ class TryOnServiceImplTest {
         assertEquals(IMAGE_URL, saved.getValue().getImageUrl());
 
         verify(tryOnImageGenerator, never()).generateDress(any(), any());
+        // A completed generation must allow the same member to start the next one.
+        assertNotNull(tryOnService.createImage(member,
+                request(TryOnModelType.FEMALE, TOP_ID, BOTTOM_ID, null)));
+        verify(tryOnImageGenerator, times(2))
+                .generateOutfit(TryOnModelType.FEMALE, TOP_BYTES, BOTTOM_BYTES);
     }
 
     @Test

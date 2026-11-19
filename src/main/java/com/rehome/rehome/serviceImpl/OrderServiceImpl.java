@@ -1,5 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.util.NotificationFormatting;
+
 import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 
@@ -1305,7 +1307,7 @@ public class OrderServiceImpl implements OrderService {
             walletTransactionRepository.save(payoutTransaction);
             recordPlatformCounterpart(payoutTransaction);
             businessNotifications.product(item.getProduct(), NotificationType.WALLET_EVENT, "Tiền bán hàng đã vào ví",
-                    "tiền bán hàng " + payoutAmount.toPlainString() + "đ của đơn " + order.getOrderNo() + " đã vào ví.");
+                    "tiền bán hàng " + NotificationFormatting.vnd(payoutAmount) + " của đơn " + order.getOrderNo() + " đã vào ví.");
 
             // Phần hoa hồng nền tảng giữ lại của món này (giá chốt - tiền trả người bán)
             recordPlatformRevenue(WalletTransactionType.COMMISSION_REVENUE,

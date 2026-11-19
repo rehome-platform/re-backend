@@ -1,5 +1,8 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+
 import com.rehome.rehome.entity.enums.CancelReason;
 import com.rehome.rehome.entity.enums.MemberVoucherStatus;
 import com.rehome.rehome.entity.enums.OrderStatus;
@@ -28,6 +31,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Slf4j
 public class OrderCancelExecutor {
+    private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     private final com.rehome.rehome.component.AuditLogger auditLogger;
     private final OrderRepository orderRepository;
@@ -56,6 +61,7 @@ public class OrderCancelExecutor {
 
         order.setStatus(OrderStatus.CANCELLED);
         order.setCancelReason(CancelReason.PAYMENT_EXPIRED);
+        businessNotifications.order(order, "Đơn hàng đã huỷ", "đã tự huỷ do quá hạn thanh toán " + order.getPaymentDeadline() + ".");
         order.setCancelledAt(Instant.now());
         orderRepository.save(order);
         auditLogger.logSystemOperation("AUTO_CANCEL_ORDER", "ORDER", orderId, "CANCELLED", "SCHEDULER");

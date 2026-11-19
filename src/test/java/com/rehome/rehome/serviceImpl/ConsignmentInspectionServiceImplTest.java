@@ -46,6 +46,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class ConsignmentInspectionServiceImplTest {
+    @org.mockito.Mock private com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     @Mock private ConsignmentFormRepository consignmentFormRepository;
     @Mock private ConsignmentReceiptRepository consignmentReceiptRepository;

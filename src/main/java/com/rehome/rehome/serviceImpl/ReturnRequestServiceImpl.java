@@ -1,5 +1,8 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+
 import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import com.rehome.rehome.client.GhnApi;
@@ -73,6 +76,8 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 @Slf4j
 public class ReturnRequestServiceImpl implements ReturnRequestService {
+    private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
     private final AuditLogger auditLogger;
 
     @Value("${app.ghn.fallback-on-error:true}")
@@ -304,6 +309,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         returnRequest.setHandoverDeadline(Instant.now().plus(handoverDeadlineDays(), ChronoUnit.DAYS));
         returnRequestRepository.save(returnRequest);
 
+        businessNotifications.returned(returnRequest, NotificationType.ORDER_UPDATE, "Yêu cầu trả hàng đã được duyệt",
+                "mã thu hồi " + returnRequest.getGhnReturnTrackingCode() + ". Hạn bàn giao: " + returnRequest.getHandoverDeadline() + ".");
         auditLogger.logCurrentOperation("APPROVE_RETURN", "RETURN_REQUEST", id, returnRequest.getStatus().name());
         return toResponseWithPhotos(returnRequest);
     }
@@ -331,6 +338,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         payoutIfReturnWindowPassed(returnRequest.getOrder(),
                 "Yêu cầu trả hàng bị từ chối sau hạn trả hàng - đơn " + returnRequest.getOrder().getOrderNo());
 
+        businessNotifications.returned(returnRequest, NotificationType.ORDER_UPDATE, "Yêu cầu trả hàng bị từ chối",
+                "lý do: " + returnRequest.getResolutionNote());
         auditLogger.logCurrentOperation("REJECT_RETURN", "RETURN_REQUEST", id, returnRequest.getStatus().name());
         return toResponseWithPhotos(returnRequest);
     }
@@ -474,6 +483,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                     returnRequest.getOrder().getId(),
                     "Hoàn tiền trả hàng hợp lệ - đơn " + returnRequest.getOrder().getOrderNo());
 
+            businessNotifications.returned(returnRequest, NotificationType.WALLET_EVENT, "Đã hoàn tiền vào ví",
+                    "đã hoàn " + returnRequest.getOrder().getTotalAmount() + "đ vào ví của bạn.");
             if (degraded) {
                 openDegradedItemCase(moderator, returnRequest);
             } else if (action != null) {
@@ -495,6 +506,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                             + returnRequest.getOrder().getOrderNo());
         }
 
+        if (resolution == ReturnRequestStatus.INVALID) {
+            businessNotifications.returned(returnRequest, NotificationType.ORDER_UPDATE, "Kết luận trả hàng không hợp lệ",
+                    "lý do: " + returnRequest.getResolutionNote() + ". Vui lòng chọn cách nhận lại trước hạn " + returnRequest.getPickupDeadline() + ".");
+        }
         auditLogger.logOperation(moderator, "RESOLVE_RETURN", "RETURN_REQUEST", id, returnRequest.getStatus().name());
         return toResponseWithPhotos(returnRequest);
     }
@@ -586,6 +601,9 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .build();
 
         degradedItemCaseRepository.save(degradedCase);
+        businessNotifications.send(item.getProduct().getMember(), NotificationType.TERM_EXPIRY, "Cần chọn phương án cho món xuống cấp",
+                "Món " + item.getProduct().getName() + ": vui lòng chọn phương án trước hạn "
+                        + degradedCase.getDecisionDeadline() + ".", NotificationTargetType.DEGRADED_ITEM_CASE, degradedCase.getId());
 
         auditLogger.logWarehouseOp(moderator, item.getProduct().getWarehouse(), WarehouseAuditGroup.INVENTORY,
                 "OPEN_DEGRADED_CASE", "DEGRADED_ITEM_CASE", degradedCase.getId().toString(), "OPENED",
@@ -700,6 +718,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         orderService.refundOrderForReturn(
                 returnRequest.getOrder().getId(),
                 "Hoàn tiền do hàng trả thất lạc - đơn " + returnRequest.getOrder().getOrderNo());
+        businessNotifications.returned(returnRequest, NotificationType.WALLET_EVENT, "Đã hoàn tiền vào ví",
+                "đã hoàn " + returnRequest.getOrder().getTotalAmount() + "đ do hàng trả thất lạc.");
     }
 
     // Vận đơn chiều ngược: lấy hàng tại địa chỉ người mua, giao về kho đã bán món hàng

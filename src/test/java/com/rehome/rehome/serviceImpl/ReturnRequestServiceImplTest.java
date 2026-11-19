@@ -78,6 +78,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class ReturnRequestServiceImplTest {
+    @org.mockito.Mock private com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     private static final String EMAIL = "buyer@rehome.com";
     private static final String TOKEN = "ghn-token";
@@ -961,6 +963,7 @@ class ReturnRequestServiceImplTest {
             assertThat(rr.getItemAction()).isNull();
             verify(orderService).refundOrderForReturn(eq(ORDER_ID), anyString());
             verify(orderService, never()).applyReturnedItemAction(any(), any());
+            verify(businessNotifications).returned(eq(rr), eq(com.rehome.rehome.entity.enums.NotificationType.WALLET_EVENT), anyString(), anyString());
         }
 
         @Test

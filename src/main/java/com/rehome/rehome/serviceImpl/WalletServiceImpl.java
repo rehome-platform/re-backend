@@ -1,5 +1,8 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+
 import com.rehome.rehome.dto.request.CreatePayoutRequestRequest;
 import com.rehome.rehome.dto.response.OrderRevenueResponse;
 import com.rehome.rehome.dto.response.PageResponse;
@@ -53,6 +56,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class WalletServiceImpl implements WalletService {
+    private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     private static final String CONFIG_MIN_PAYOUT_AMOUNT = SystemConfigKeys.MIN_PAYOUT_AMOUNT;
     private static final String CONFIG_MAX_PAYOUT_PER_DAY = SystemConfigKeys.MAX_PAYOUT_REQUESTS_PER_DAY;
@@ -231,6 +236,11 @@ public class WalletServiceImpl implements WalletService {
         simulatePayout(payoutRequest, wallet);
         payoutRequestRepository.save(payoutRequest);
 
+        businessNotifications.send(member, NotificationType.WALLET_EVENT,
+                payoutRequest.getStatus() == TransactionStatus.SUCCESS ? "Rút tiền thành công" : "Rút tiền thất bại",
+                "Yêu cầu " + payoutRequest.getPayoutNo() + " · " + payoutRequest.getAmount().toPlainString() + "đ: "
+                        + (payoutRequest.getStatus() == TransactionStatus.SUCCESS ? "đã chuyển tiền về ngân hàng." : payoutRequest.getFailureReason()),
+                NotificationTargetType.PAYOUT, payoutRequest.getId());
         return toPayoutResponse(payoutRequest);
     }
 

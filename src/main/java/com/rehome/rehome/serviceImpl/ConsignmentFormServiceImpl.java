@@ -1,5 +1,8 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+
 import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import com.rehome.rehome.constant.SystemConfigKeys;
@@ -46,6 +49,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ConsignmentFormServiceImpl implements ConsignmentFormService {
+    private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
     private final AuditLogger auditLogger;
     private final ConsignmentFormRepository consignmentFormRepository;
     private final ProductRepository productRepository;
@@ -372,6 +377,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
         ConsignmentForm saved = consignmentFormRepository.save(form);
         logForm(moderator, form, "APPROVE_FORM", "APPROVED");
+        businessNotifications.form(form, "Yêu cầu ký gửi đã được duyệt", "vui lòng mang món đến kho trước hạn " + form.getBringInDeadline() + ".");
         return consignmentFormMapper.toResponse(saved);
     }
 
@@ -410,6 +416,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
         consignmentFormRepository.save(form);
         logForm(moderator, form, "REJECT_FORM", "REJECTED");
+        businessNotifications.form(form, "Yêu cầu ký gửi bị từ chối", "lý do: " + form.getRejectReason());
         return new ConsignmentFormStatusResponse(form.getId(), form.getStatus());
     }
 
@@ -431,6 +438,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
         consignmentFormRepository.save(form);
         logForm(moderator, form, "RETURN_ONSITE", "RETURNED");
+        businessNotifications.form(form, "Yêu cầu ký gửi bị từ chối", "lý do: " + form.getRejectReason());
         return new ConsignmentFormStatusResponse(form.getId(), form.getStatus());
     }
 

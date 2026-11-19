@@ -1,5 +1,8 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+
 import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import static com.rehome.rehome.constant.SystemConfigKeys.*;
@@ -32,6 +35,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class ConsignmentInspectionServiceImpl implements ConsignmentInspectionService {
+    private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
     private final AuditLogger auditLogger;
 
     private final ConsignmentFormRepository consignmentFormRepository;
@@ -94,6 +99,7 @@ public class ConsignmentInspectionServiceImpl implements ConsignmentInspectionSe
         }
 
         ConsignmentReceipt saved = consignmentReceiptRepository.save(receipt);
+        businessNotifications.receipt(saved);
 
         // Việc kiểm định này đã xong, đóng trong hàng đợi
         queueService.dequeue(QueueType.INSPECTION, formId.toString());

@@ -16,6 +16,23 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UUID> {
+    interface ProductReturnReference {
+        String getProductId();
+        UUID getReturnRequestId();
+        ReturnRequestStatus getStatus();
+        com.rehome.rehome.entity.enums.ReturnedItemAction getItemAction();
+        Boolean getDegraded();
+    }
+
+    @Query("select i.product.id as productId, r.id as returnRequestId, r.status as status, "
+            + "r.itemAction as itemAction, r.degraded as degraded "
+            + "from ReturnRequest r join OrderItem i on i.order = r.order "
+            + "where i.product.id in :productIds and not exists ("
+            + "select newer.id from ReturnRequest newer join OrderItem ni on ni.order = newer.order "
+            + "where ni.product.id = i.product.id and newer.createdAt > r.createdAt) "
+            + "order by r.createdAt desc, r.id desc")
+    List<ProductReturnReference> findLatestReturnsByProductIds(@Param("productIds") Collection<String> productIds);
+
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from ReturnRequest r where r.id = :id")
     Optional<ReturnRequest> findByIdForUpdate(@Param("id") UUID id);

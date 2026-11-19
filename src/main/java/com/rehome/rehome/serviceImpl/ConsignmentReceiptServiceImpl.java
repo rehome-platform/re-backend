@@ -127,13 +127,7 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         byte[] pdf = receiptPdfService.generate(receipt);
 
         consignmentReceiptRepository.save(receipt);
-        consignmentReceiptPdfRepository.save(ConsignmentReceiptPdf.builder()
-                .receipt(receipt)
-                .content(pdf)
-                .sha256(sha256(pdf))
-                .byteSize(pdf.length)
-                .generatedAt(now)
-                .build());
+        saveReceiptPdf(receipt, pdf, now);
 
         // F-030: biên nhận này là biên nhận ký gửi lại (được tạo ở setReConsignTerms) - sản phẩm
         // đã có SKU từ lần ký gửi đầu, chỉ cần đổi biên nhận/điều khoản và bán lại ngay, không phải
@@ -199,8 +193,7 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         detail.put("reason", receipt.getEditReason());
         detail.put("version", receipt.getVersion());
         byte[] pdf = receiptPdfService.generate(receipt);
-        consignmentReceiptPdfRepository.save(ConsignmentReceiptPdf.builder().receipt(receipt)
-                .content(pdf).sha256(sha256(pdf)).byteSize(pdf.length).generatedAt(receipt.getEditedAt()).build());
+        saveReceiptPdf(receipt, pdf, receipt.getEditedAt());
         auditLogger.log(actor, "UPDATE_RECEIPT", "CONSIGNMENT_RECEIPT", id.toString(), detail);
         receiptNotification(receipt, com.rehome.rehome.entity.enums.NotificationType.RECEIPT_UPDATED,
                 "Biên nhận " + receipt.getReceiptNo() + " đã được cập nhật: " + receipt.getEditReason());
@@ -234,6 +227,16 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
                 "Biên nhận " + receipt.getReceiptNo() + " đã bị huỷ: " + receipt.getVoidReason()
                         + ". ReHome sẽ gửi biên nhận mới để bạn xác nhận lại.");
         return getMyReceipt(actor, id);
+    }
+
+    private void saveReceiptPdf(ConsignmentReceipt receipt, byte[] content, Instant generatedAt) {
+        ConsignmentReceiptPdf pdf = consignmentReceiptPdfRepository.findById(receipt.getId())
+                .orElseGet(() -> ConsignmentReceiptPdf.builder().receipt(receipt).build());
+        pdf.setContent(content);
+        pdf.setSha256(sha256(content));
+        pdf.setByteSize(content.length);
+        pdf.setGeneratedAt(generatedAt);
+        consignmentReceiptPdfRepository.save(pdf);
     }
 
     private void receiptNotification(ConsignmentReceipt receipt,

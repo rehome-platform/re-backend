@@ -567,7 +567,7 @@ public class ProductServiceImpl implements ProductService {
 
     private boolean blocksDonation(Order order, Instant now) {
         return switch (order.getStatus()) {
-            case PENDING_PAYMENT, PAID, PACKING, SHIPPING -> true;
+            case PENDING_PAYMENT, PAID, PACKING, PACKED, SHIPPING -> true;
             case DELIVERED, COMPLETED -> {
                 Instant deadline = order.getReturnDeadline();
                 if (deadline == null && order.getDeliveredAt() != null) {

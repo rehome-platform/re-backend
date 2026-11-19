@@ -229,6 +229,14 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
+    @org.springframework.web.bind.annotation.PutMapping("/{id}/pack/photos")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ApiResponse<java.util.List<String>> updatePackingPhotos(
+            Authentication authentication, @PathVariable UUID id,
+            @Valid @RequestBody com.rehome.rehome.dto.request.UpdatePackingPhotosRequest request) {
+        return ApiResponse.success(orderService.updatePackingPhotos(authentication.getName(), id, request));
+    }
+
     // API 70 (F-127)
     @PostMapping("/{id}/shipment")
     @PreAuthorize("hasRole('MODERATOR')")
@@ -242,6 +250,12 @@ public class OrderController {
     }
 
     // In phiếu vận đơn GHN để dán lên kiện hàng (F-127)
+    @PostMapping("/{id}/handover")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ApiResponse<OrderResponse> handoverToCarrier(Authentication authentication, @PathVariable UUID id) {
+        return ApiResponse.success(orderService.handoverToCarrier(authentication.getName(), id));
+    }
+
     @GetMapping("/{id}/shipment/label")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<ShipmentLabelResponse>> getShipmentLabel(

@@ -13,6 +13,7 @@ import java.time.Instant;
 @AllArgsConstructor
 @Builder
 public class OrderResponse {
+    private java.time.Instant handedOverAt;
     private String id;
     private String orderNo;
     private String warehouseId;

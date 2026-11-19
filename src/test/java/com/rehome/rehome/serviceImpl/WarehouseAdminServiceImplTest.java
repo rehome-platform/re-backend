@@ -153,7 +153,7 @@ class WarehouseAdminServiceImplTest {
         assertThat(result.get(1).getActiveOrders()).isZero();
         // Cùng định nghĩa với API 144: đơn đang xử lý là PAID/PACKING
         verify(warehouseStatsRepository).countActiveOrdersByWarehouse(
-                List.of(OrderStatus.PAID, OrderStatus.PACKING));
+                List.of(OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.PACKED));
     }
 
     // ==================== create (API 142) ====================

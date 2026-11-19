@@ -41,6 +41,8 @@ public class CounterServiceImpl implements CounterService {
     private static final Duration IDENTITY_CONFIRMATION_TTL = Duration.ofMinutes(15);
     private final MemberProfileRepository memberProfileRepository;
     private final ConsignmentFormRepository consignmentFormRepository;
+    private final ConsignmentReceiptRepository consignmentReceiptRepository;
+    private final ProductRepository productRepository;
     private final ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
     private final EndOfTermDecisionRepository endOfTermDecisionRepository;
     private final AccountRepository accountRepository;
@@ -53,7 +55,7 @@ public class CounterServiceImpl implements CounterService {
     private final QueueService queueService;
 
     private static final List<ConsignmentFormStatus> OPEN_FORM_STATUSES =
-            List.of(ConsignmentFormStatus.PENDING, ConsignmentFormStatus.APPROVED);
+            List.of(ConsignmentFormStatus.PENDING, ConsignmentFormStatus.APPROVED, ConsignmentFormStatus.INSPECTING);
 
     // Form ký gửi còn hiệu lực với kho: chưa bị từ chối/hết hạn/hủy và chưa nhập kho xong
     private static final List<ConsignmentFormStatus> ACTIVE_CONSIGNMENT_STATUSES = List.of(
@@ -270,16 +272,42 @@ public class CounterServiceImpl implements CounterService {
             throw new AppException(ErrorCode.MEMBER_NOT_FOUND);
         }
 
-        List<MemberTasksResponse.PendingFormItem> forms = consignmentFormRepository
-                .findByMember_IdAndStatusInOrderByCreatedAtAsc(accountId, OPEN_FORM_STATUSES)
-                .stream()
-                .map(f -> MemberTasksResponse.PendingFormItem.builder()
+        var pendingForms = consignmentFormRepository
+                .findByMember_IdAndStatusInOrderByCreatedAtAsc(accountId, OPEN_FORM_STATUSES);
+        var formIds = pendingForms.stream().map(f -> f.getId()).toList();
+        Map<UUID, com.rehome.rehome.entity.marketplace.ConsignmentReceipt> receipts = new HashMap<>();
+        Map<UUID, String> productIds = new HashMap<>();
+        Map<String, com.rehome.rehome.entity.marketplace.Product> products = new HashMap<>();
+        if (!formIds.isEmpty()) {
+            for (var receipt : consignmentReceiptRepository.findLatestByFormIds(formIds)) {
+                receipts.merge(receipt.getConsignmentForm().getId(), receipt,
+                        (a, b) -> a.getCreatedAt().isAfter(b.getCreatedAt()) ? a : b);
+            }
+            productRepository.findProductIdsByFormIds(formIds)
+                    .forEach(p -> productIds.put(p.getFormId(), p.getProductId()));
+            if (!productIds.isEmpty()) {
+                productRepository.findAllById(productIds.values()).forEach(p -> products.put(p.getId(), p));
+            }
+        }
+        List<MemberTasksResponse.PendingFormItem> forms = pendingForms.stream()
+                .map(f -> {
+                    var receipt = receipts.get(f.getId());
+                    var product = products.get(productIds.get(f.getId()));
+                    var step = ModeratorConsignmentFormServiceImpl.resolveResumeStep(f, receipt, product != null);
+                    return MemberTasksResponse.PendingFormItem.builder()
                         .id(f.getId())
                         .productName(f.getProductName())
                         .desiredPrice(f.getDesiredPrice())
                         .status(f.getStatus())
                         .createdAt(f.getCreatedAt())
-                        .build())
+                        .receiptId(receipt == null ? null : receipt.getId())
+                        .confirmedAt(receipt == null ? null : receipt.getConfirmedAt())
+                        .resumeStep(step)
+                        .productSku(product == null ? null : product.getId())
+                        .productStatus(product == null ? null : product.getStatus())
+                        .displayStatus(product == null ? step.name() : product.getStatus().name())
+                        .build();
+                })
                 .toList();
 
         List<MemberTasksResponse.PendingWithdrawalItem> withdrawals = itemWithdrawalRequestRepository

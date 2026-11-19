@@ -560,7 +560,7 @@ public class OrderServiceImpl implements OrderService {
     // chưa phải "đã bán") và CANCELLED. Muốn xem đơn hủy thì gọi ?status=CANCELLED.
     private List<OrderStatus> parseSoldStatuses(String status) {
         if (!StringUtils.hasText(status)) {
-            return List.of(OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.SHIPPING,
+            return List.of(OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.PACKED, OrderStatus.SHIPPING,
                     OrderStatus.DELIVERED, OrderStatus.COMPLETED, OrderStatus.RETURNED);
         }
         return parseStatuses(status);
@@ -720,6 +720,8 @@ public class OrderServiceImpl implements OrderService {
         List<String> allowedActions = packingAllowedActions(order, scannedCount, totalCount);
 
         return OrderDetailResponse.builder()
+                .handedOverAt(order.getHandedOverAt())
+                .packingPhotoUrls(order.getPackingPhotoUrls() == null ? List.of() : List.copyOf(order.getPackingPhotoUrls()))
                 .id(order.getId().toString())
                 .orderNo(order.getOrderNo())
                 .status(order.getStatus().name())
@@ -793,6 +795,9 @@ public class OrderServiceImpl implements OrderService {
     // CREATE_SHIPMENT khi đã quét đủ và chưa có mã vận đơn - DG-01
     private List<String> packingAllowedActions(Order order, int scannedCount, int totalCount) {
         List<String> allowedActions = new ArrayList<>();
+        if (order.getStatus() == OrderStatus.PACKED) {
+            return List.of("HANDOVER");
+        }
         boolean packableStatus = order.getStatus() == OrderStatus.PAID || order.getStatus() == OrderStatus.PACKING;
         if (!packableStatus || totalCount == 0) {
             return allowedActions;
@@ -1492,6 +1497,40 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional
+    public java.util.List<String> updatePackingPhotos(String email, UUID orderId,
+            com.rehome.rehome.dto.request.UpdatePackingPhotosRequest request) {
+        Account moderator = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account not found"));
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Order not found"));
+        if (moderator.getRole() != com.rehome.rehome.entity.enums.Role.MODERATOR
+                || moderator.getWarehouse() == null
+                || !moderator.getWarehouse().getId().equals(order.getWarehouse().getId())) {
+            throw new ForbiddenException("Only the assigned warehouse moderator can update packing photos.");
+        }
+        requireActiveClaim(moderator, orderId);
+        requirePackable(order);
+        if (request == null || request.photoUrls() == null || request.photoUrls().size() > 5
+                || request.photoUrls().stream().anyMatch(url -> url == null || url.isBlank()
+                        || url.length() > 2048 || !url.matches("https://[^\\s/]+(?:/[^\\s]*)?"))) {
+            throw new BadRequestException("photoUrls must contain at most 5 HTTPS image URLs.");
+        }
+        if (order.getPackingPhotoUrls() == null) {
+            order.setPackingPhotoUrls(new java.util.ArrayList<>());
+        }
+        var detail = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        detail.putPOJO("oldPhotoUrls", List.copyOf(order.getPackingPhotoUrls()));
+        order.getPackingPhotoUrls().clear();
+        order.getPackingPhotoUrls().addAll(request.photoUrls());
+        detail.putPOJO("newPhotoUrls", List.copyOf(order.getPackingPhotoUrls()));
+        orderRepository.save(order);
+        auditLogger.logWarehouse(moderator, order.getWarehouse(), WarehouseAuditGroup.PACKING,
+                "UPDATE_PACKING_PHOTOS", "ORDER", orderId.toString(), "SUCCESS", detail);
+        return List.copyOf(order.getPackingPhotoUrls());
+    }
+
+    @Override
+    @Transactional
     public CreateShipmentResponse createShipment(String email, UUID orderId) {
 
         Account moderator = accountRepository.findByEmail(email)
@@ -1555,7 +1594,7 @@ public class OrderServiceImpl implements OrderService {
         order.setGhnTrackingCode(ghnResponse.getData().getOrderCode());
         order.setExpectedDeliveryDate(parseGhnTime(ghnResponse.getData().getExpectedDeliveryTime()));
         order.setShipmentCreatedAt(Instant.now());
-        order.setStatus(OrderStatus.SHIPPING);
+        order.setStatus(OrderStatus.PACKED);
         orderRepository.save(order);
         queueService.dequeue(QueueType.PACKING, order.getId().toString());
 
@@ -1570,6 +1609,38 @@ public class OrderServiceImpl implements OrderService {
                 .status(order.getStatus().name())
                 .ghnTrackingCode(order.getGhnTrackingCode())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse handoverToCarrier(String email, UUID orderId) {
+        Account moderator = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account not found"));
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Order not found"));
+        if (moderator.getRole() != com.rehome.rehome.entity.enums.Role.MODERATOR
+                || moderator.getWarehouse() == null
+                || !moderator.getWarehouse().getId().equals(order.getWarehouse().getId())) {
+            throw new ForbiddenException("Only the assigned warehouse moderator can hand over this order.");
+        }
+        if (order.getStatus() != OrderStatus.SHIPPING) {
+            if (order.getStatus() != OrderStatus.PACKED) {
+                throw new ConflictException("Order must be PACKED before handover.", "ORDER_NOT_PACKED");
+            }
+            order.setStatus(OrderStatus.SHIPPING);
+            order.setHandedOverAt(Instant.now());
+            orderRepository.save(order);
+            auditLogger.logWarehouseOp(moderator, order.getWarehouse(), WarehouseAuditGroup.PACKING,
+                    "HANDOVER_ORDER", "ORDER", orderId.toString(), "SHIPPING", order.getOrderNo());
+        }
+        return OrderResponse.builder().id(orderId.toString()).orderNo(order.getOrderNo())
+                .warehouseId(order.getWarehouse().getId().toString())
+                .shippingRecipientName(order.getShippingRecipientName()).shippingPhone(order.getShippingPhone())
+                .shippingAddressDetail(order.getShippingAddressDetail()).shippingWardName(order.getShippingWardName())
+                .shippingProvinceName(order.getShippingProvinceName()).subtotal(order.getSubtotal())
+                .shippingFee(order.getShippingFee()).discountAmount(order.getDiscountAmount())
+                .totalAmount(order.getTotalAmount()).status(order.getStatus().name())
+                .handedOverAt(order.getHandedOverAt()).build();
     }
 
     @Override
@@ -1682,7 +1753,7 @@ public class OrderServiceImpl implements OrderService {
 
         Order order = orderRepository.findById(orderId).orElse(null);
         if (order == null
-                || (order.getStatus() != OrderStatus.PACKING && order.getStatus() != OrderStatus.SHIPPING)) {
+                || (order.getStatus() != OrderStatus.PACKING && order.getStatus() != OrderStatus.PACKED && order.getStatus() != OrderStatus.SHIPPING)) {
             return;
         }
 

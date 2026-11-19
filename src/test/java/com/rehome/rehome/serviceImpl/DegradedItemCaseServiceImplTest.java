@@ -54,6 +54,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class DegradedItemCaseServiceImplTest {
+    @org.mockito.Mock private com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     @Mock DegradedItemCaseRepository degradedItemCaseRepository;
     @Mock ReturnRequestPhotoRepository returnRequestPhotoRepository;

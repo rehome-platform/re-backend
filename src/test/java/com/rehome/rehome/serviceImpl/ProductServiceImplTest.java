@@ -77,6 +77,8 @@ import org.springframework.data.domain.PageRequest;
 @MockitoSettings(strictness = Strictness.LENIENT)
 @SuppressWarnings({"unchecked", "rawtypes"})
 class ProductServiceImplTest {
+    @org.mockito.Mock private com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     @Mock ProductRepository productRepository;
     @Mock ProductPhotoRepository productPhotoRepository;

@@ -1,5 +1,8 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+
 import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import com.rehome.rehome.constant.SystemConfigKeys;
@@ -54,6 +57,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
+    private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
     private final AuditLogger auditLogger;
 
     private final DegradedItemCaseRepository degradedItemCaseRepository;
@@ -104,6 +109,9 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
                 .build();
 
         degradedItemCaseRepository.save(degradedCase);
+        businessNotifications.send(product.getMember(), NotificationType.TERM_EXPIRY, "Cần chọn phương án cho món xuống cấp",
+                "Món " + product.getName() + ": vui lòng chọn phương án trước hạn "
+                        + degradedCase.getDecisionDeadline() + ".", NotificationTargetType.DEGRADED_ITEM_CASE, degradedCase.getId());
 
         // Tạm ẩn khỏi sàn chờ Member quyết định (F-036) - hàng vẫn nằm trong kho, không phải WITHDRAWN
         product.setStatus(ProductStatus.WAREHOUSE);

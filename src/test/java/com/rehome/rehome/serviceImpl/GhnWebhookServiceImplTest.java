@@ -46,6 +46,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class GhnWebhookServiceImplTest {
+    @org.mockito.Mock private com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     private static final String ORDER_CODE = "GHN123";
     private static final String TIME = "2026-10-20T10:00:00+07:00";

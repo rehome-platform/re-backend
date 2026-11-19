@@ -30,6 +30,8 @@ import static org.mockito.Mockito.when;
 // Class này chỉ còn trách nhiệm: tìm đơn quá hạn và gọi executor cho từng đơn.
 @ExtendWith(MockitoExtension.class)
 class OrderAutoCancelServiceImplTest {
+    @org.mockito.Mock private com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     @Mock
     OrderRepository orderRepository;

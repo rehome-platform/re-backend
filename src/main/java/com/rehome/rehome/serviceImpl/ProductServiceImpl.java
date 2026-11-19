@@ -64,6 +64,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class ProductServiceImpl implements ProductService {
+    private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     // Yêu cầu rút hàng còn sống (chờ duyệt hoặc đã duyệt, chờ lấy) - sản phẩm đang WITHDRAWN cả hai trường hợp
     private static final List<ItemWithdrawalStatus> ACTIVE_WITHDRAWAL_STATUSES =
@@ -658,6 +660,7 @@ public class ProductServiceImpl implements ProductService {
         auditLogger.logWarehouseOp(account, product.getWarehouse(), WarehouseAuditGroup.INSPECTION, "STOCK_IN",
                 "PRODUCT", product.getId(), "ON_SALE", product.getId());
 
+        businessNotifications.product(product, NotificationType.QUEUE_TASK, "Món ký gửi đã lên sàn", "đã nhập kho và được đăng bán.");
         return new ProductResponse(product.getId(), product.getName(), product.getStatus());
     }
 

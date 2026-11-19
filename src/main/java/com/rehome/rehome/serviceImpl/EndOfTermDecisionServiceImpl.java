@@ -1,5 +1,8 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+
 import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.component.ReceiptClauseRenderer;
 import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
@@ -41,6 +44,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
+    private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
     private final AuditLogger auditLogger;
     private final EndOfTermDecisionRepository decisionRepository;
     private final ProductRepository productRepository;
@@ -63,6 +68,8 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
                     product.setUnclaimedDecisionDeadline(deadline);
                     productRepository.save(product);
 
+                    businessNotifications.product(product, NotificationType.TERM_EXPIRY, "Món ký gửi đã hết kỳ",
+                            "vui lòng chọn nhận lại hoặc ký gửi lại trước hạn " + deadline + ".");
                     return decisionRepository.save(EndOfTermDecision.builder()
                             .product(product)
                             .deadline(deadline)
@@ -206,6 +213,7 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
                 .build();
         newReceiptDraft.setClausesSnapshot(receiptClauseRenderer.render(newReceiptDraft));
         ConsignmentReceipt newReceipt = consignmentReceiptRepository.save(newReceiptDraft);
+        businessNotifications.receipt(newReceipt);
 
         decision.setNewReceipt(newReceipt);
         decisionRepository.save(decision);

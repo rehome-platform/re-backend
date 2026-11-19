@@ -1,5 +1,8 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+
 import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.component.ReceiptClauseRenderer;
 import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
@@ -49,6 +52,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService {
+    private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
     private final AuditLogger auditLogger;
     private final com.rehome.rehome.service.NotificationService notificationService;
     private final com.rehome.rehome.service.QueueService queueService;
@@ -241,8 +246,8 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
 
     private void receiptNotification(ConsignmentReceipt receipt,
             com.rehome.rehome.entity.enums.NotificationType type, String message) {
-        notificationService.notify(receipt.getMember(), type, "Cập nhật biên nhận ký gửi", message,
-                com.rehome.rehome.entity.enums.NotificationTargetType.CONSIGNMENT_RECEIPT, receipt.getId(), null);
+        businessNotifications.send(receipt.getMember(), type, "Cập nhật biên nhận ký gửi", message,
+                com.rehome.rehome.entity.enums.NotificationTargetType.CONSIGNMENT_RECEIPT, receipt.getId());
     }
 
     private void activateReConsignedProduct(Product product, ConsignmentReceipt newReceipt, Instant now) {
@@ -261,6 +266,7 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         // Member thấy mất quyền lợi dù gói còn hạn.
         featuredListingManager.applyForNewProduct(product);
         productRepository.save(product);
+        businessNotifications.product(product, NotificationType.QUEUE_TASK, "Món ký gửi đã lên sàn", "đã được ký gửi lại và đăng bán.");
     }
 
     @Override
@@ -389,6 +395,7 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         }
 
         consignmentReceiptRepository.save(receipt);
+        businessNotifications.receipt(receipt);
 
         // Endpoint cũ /consignment-receipts/{id}/inspection/complete: cũng phải vào lịch sử kho
         auditLogger.logWarehouseOp(moderator, form.getWarehouse(), WarehouseAuditGroup.INSPECTION,

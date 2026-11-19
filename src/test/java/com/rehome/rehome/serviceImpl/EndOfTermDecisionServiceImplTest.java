@@ -43,6 +43,8 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class EndOfTermDecisionServiceImplTest {
+    @org.mockito.Mock private com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     @Mock private EndOfTermDecisionRepository decisionRepository;
     @Mock private ProductRepository productRepository;

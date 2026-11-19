@@ -61,6 +61,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 @ExtendWith(MockitoExtension.class)
 class ConsignmentReceiptServiceImplTest {
+    @org.mockito.Mock private com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     @Mock
     private ConsignmentReceiptRepository consignmentReceiptRepository;

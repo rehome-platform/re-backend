@@ -66,6 +66,9 @@ public interface OrderService {
     // API 69 (F-127) - Moderator quét SKU đối chiếu trước khi tạo vận đơn, chỉ cho đơn thuộc kho mình
     PackScanResponse packScan(String email, UUID orderId, PackScanRequest request);
 
+    List<String> updatePackingPhotos(String email, UUID orderId,
+            com.rehome.rehome.dto.request.UpdatePackingPhotosRequest request);
+
     // API 70 (F-127) - Moderator tạo vận đơn GHN sau khi đã quét đủ món
     CreateShipmentResponse createShipment(String email, UUID orderId);
 

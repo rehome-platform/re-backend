@@ -720,6 +720,7 @@ public class OrderServiceImpl implements OrderService {
         List<String> allowedActions = packingAllowedActions(order, scannedCount, totalCount);
 
         return OrderDetailResponse.builder()
+                .packingPhotoUrls(order.getPackingPhotoUrls() == null ? List.of() : List.copyOf(order.getPackingPhotoUrls()))
                 .id(order.getId().toString())
                 .orderNo(order.getOrderNo())
                 .status(order.getStatus().name())
@@ -1488,6 +1489,40 @@ public class OrderServiceImpl implements OrderService {
                 .totalCount(totalCount)
                 .wrongItem(wrongItem)
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public java.util.List<String> updatePackingPhotos(String email, UUID orderId,
+            com.rehome.rehome.dto.request.UpdatePackingPhotosRequest request) {
+        Account moderator = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account not found"));
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Order not found"));
+        if (moderator.getRole() != com.rehome.rehome.entity.enums.Role.MODERATOR
+                || moderator.getWarehouse() == null
+                || !moderator.getWarehouse().getId().equals(order.getWarehouse().getId())) {
+            throw new ForbiddenException("Only the assigned warehouse moderator can update packing photos.");
+        }
+        requireActiveClaim(moderator, orderId);
+        requirePackable(order);
+        if (request == null || request.photoUrls() == null || request.photoUrls().size() > 5
+                || request.photoUrls().stream().anyMatch(url -> url == null || url.isBlank()
+                        || url.length() > 2048 || !url.matches("https://[^\\s/]+(?:/[^\\s]*)?"))) {
+            throw new BadRequestException("photoUrls must contain at most 5 HTTPS image URLs.");
+        }
+        if (order.getPackingPhotoUrls() == null) {
+            order.setPackingPhotoUrls(new java.util.ArrayList<>());
+        }
+        var detail = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        detail.putPOJO("oldPhotoUrls", List.copyOf(order.getPackingPhotoUrls()));
+        order.getPackingPhotoUrls().clear();
+        order.getPackingPhotoUrls().addAll(request.photoUrls());
+        detail.putPOJO("newPhotoUrls", List.copyOf(order.getPackingPhotoUrls()));
+        orderRepository.save(order);
+        auditLogger.logWarehouse(moderator, order.getWarehouse(), WarehouseAuditGroup.PACKING,
+                "UPDATE_PACKING_PHOTOS", "ORDER", orderId.toString(), "SUCCESS", detail);
+        return List.copyOf(order.getPackingPhotoUrls());
     }
 
     @Override

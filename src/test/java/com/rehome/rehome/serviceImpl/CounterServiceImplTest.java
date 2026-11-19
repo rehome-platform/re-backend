@@ -69,6 +69,8 @@ class CounterServiceImplTest {
 
     @Mock private MemberProfileRepository memberProfileRepository;
     @Mock private ConsignmentFormRepository consignmentFormRepository;
+    @Mock private com.rehome.rehome.repository.ConsignmentReceiptRepository consignmentReceiptRepository;
+    @Mock private com.rehome.rehome.repository.ProductRepository productRepository;
     @Mock private AccountRepository accountRepository;
     @Mock private CounterIdentityConfirmationRepository identityConfirmationRepository;
     @Mock private ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
@@ -379,7 +381,7 @@ class CounterServiceImplTest {
     @DisplayName("getTasks: chưa có việc nào -> 5 mảng rỗng, form được lấy với PENDING và APPROVED")
     void getTasks_noTasks_returnsEmptyLists() {
         List<ConsignmentFormStatus> openStatuses =
-                List.of(ConsignmentFormStatus.PENDING, ConsignmentFormStatus.APPROVED);
+                List.of(ConsignmentFormStatus.PENDING, ConsignmentFormStatus.APPROVED, ConsignmentFormStatus.INSPECTING);
         when(memberProfileRepository.existsById(memberId)).thenReturn(true);
         when(consignmentFormRepository.findByMember_IdAndStatusInOrderByCreatedAtAsc(eq(memberId), eq(openStatuses)))
                 .thenReturn(List.of());
@@ -397,6 +399,47 @@ class CounterServiceImplTest {
         assertThat(result.getPendingDegradedItems()).isEmpty();
         assertThat(result.getPendingInvalidReturns()).isEmpty();
         verifyNoInteractions(orderItemRepository);
+    }
+
+    @Test
+    void getTasks_returnsConfirmedReceiptAndOriginalProductForInspectingForm() {
+        UUID memberId = UUID.randomUUID();
+        ConsignmentForm form = ConsignmentForm.builder().id(UUID.randomUUID())
+                .status(ConsignmentFormStatus.INSPECTING).build();
+        var receipt = com.rehome.rehome.entity.marketplace.ConsignmentReceipt.builder()
+                .id(UUID.randomUUID()).consignmentForm(form).confirmedAt(Instant.now()).build();
+        Product product = Product.builder().id("SKU-ORIGINAL").status(ProductStatus.ON_SALE).build();
+        var link = org.mockito.Mockito.mock(com.rehome.rehome.repository.ProductRepository.FormProductId.class);
+        when(link.getFormId()).thenReturn(form.getId());
+        when(link.getProductId()).thenReturn(product.getId());
+        when(memberProfileRepository.existsById(memberId)).thenReturn(true);
+        when(consignmentFormRepository.findByMember_IdAndStatusInOrderByCreatedAtAsc(eq(memberId), any()))
+                .thenReturn(List.of(form));
+        when(consignmentReceiptRepository.findLatestByFormIds(List.of(form.getId()))).thenReturn(List.of(receipt));
+        when(productRepository.findProductIdsByFormIds(List.of(form.getId()))).thenReturn(List.of(link));
+        when(productRepository.findAllById(any())).thenReturn(List.of(product));
+
+        var task = service.getTasks(memberId).getPendingForms().get(0);
+        assertThat(task.getReceiptId()).isEqualTo(receipt.getId());
+        assertThat(task.getConfirmedAt()).isEqualTo(receipt.getConfirmedAt());
+        assertThat(task.getProductSku()).isEqualTo("SKU-ORIGINAL");
+        assertThat(task.getProductStatus()).isEqualTo(ProductStatus.ON_SALE);
+        assertThat(task.getDisplayStatus()).isEqualTo("ON_SALE");
+        assertThat(task.getResumeStep()).isEqualTo(com.rehome.rehome.entity.enums.ModeratorResumeStep.COMPLETED);
+        verify(consignmentFormRepository).findByMember_IdAndStatusInOrderByCreatedAtAsc(memberId,
+                List.of(ConsignmentFormStatus.PENDING, ConsignmentFormStatus.APPROVED, ConsignmentFormStatus.INSPECTING));
+
+        when(productRepository.findProductIdsByFormIds(List.of(form.getId()))).thenReturn(List.of());
+        task = service.getTasks(memberId).getPendingForms().get(0);
+        assertThat(task.getProductSku()).isNull();
+        assertThat(task.getResumeStep()).isEqualTo(com.rehome.rehome.entity.enums.ModeratorResumeStep.STOCK_IN);
+        receipt.setConfirmedAt(null);
+        task = service.getTasks(memberId).getPendingForms().get(0);
+        assertThat(task.getResumeStep()).isEqualTo(com.rehome.rehome.entity.enums.ModeratorResumeStep.AWAIT_MEMBER_CONFIRM);
+        when(consignmentReceiptRepository.findLatestByFormIds(List.of(form.getId()))).thenReturn(List.of());
+        task = service.getTasks(memberId).getPendingForms().get(0);
+        assertThat(task.getReceiptId()).isNull();
+        assertThat(task.getResumeStep()).isEqualTo(com.rehome.rehome.entity.enums.ModeratorResumeStep.INSPECTION);
     }
 
     @Test

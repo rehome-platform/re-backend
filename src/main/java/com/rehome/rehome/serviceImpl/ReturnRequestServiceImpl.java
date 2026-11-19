@@ -795,6 +795,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .status(returnRequest.getStatus().name())
                 .reason(returnRequest.getReason())
                 .photoUrls(photoUrls)
+                .packingPhotoUrls(order.getPackingPhotoUrls() == null ? List.of() : List.copyOf(order.getPackingPhotoUrls()))
                 .ghnReturnTrackingCode(returnRequest.getGhnReturnTrackingCode())
                 .handoverDeadline(returnRequest.getHandoverDeadline())
                 .invalidReturnChoice(returnRequest.getInvalidReturnChoice() != null

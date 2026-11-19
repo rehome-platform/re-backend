@@ -20,6 +20,7 @@ public class ReturnRequestResponse {
     private String status;
     private String reason;
     private List<String> photoUrls;
+    private List<String> packingPhotoUrls;
 
     private String ghnReturnTrackingCode;
     private Instant handoverDeadline;

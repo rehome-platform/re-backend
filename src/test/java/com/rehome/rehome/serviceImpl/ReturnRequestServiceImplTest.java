@@ -521,11 +521,16 @@ class ReturnRequestServiceImplTest {
         @Test
         void getDetailForModerator_success() {
             givenReturnRequest(ReturnRequestStatus.PENDING);
+            when(order.getPackingPhotoUrls()).thenReturn(List.of("https://cdn.example.com/packed.jpg"));
+            when(returnRequestPhotoRepository.findAllByReturnRequest_IdOrderByIdAsc(RR_ID))
+                    .thenReturn(List.of(ReturnRequestPhoto.builder().imageUrl("https://cdn.example.com/returned.jpg").build()));
 
             ReturnRequestResponse res = service.getDetailForModerator(RR_ID);
 
             assertThat(res.getId()).isEqualTo(RR_ID.toString());
             assertThat(res.getStatus()).isEqualTo("PENDING");
+            assertThat(res.getPackingPhotoUrls()).containsExactly("https://cdn.example.com/packed.jpg");
+            assertThat(res.getPhotoUrls()).containsExactly("https://cdn.example.com/returned.jpg");
         }
 
         @Test

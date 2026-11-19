@@ -198,6 +198,13 @@ public class Order {
     @Column(name = "buyer_note", nullable = true, columnDefinition = "text")
     private String buyerNote;
 
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "order_packing_photo_urls", joinColumns = @JoinColumn(name = "order_id"))
+    @Column(name = "image_url", nullable = false, length = 2048)
+    @OrderColumn(name = "position")
+    @Builder.Default
+    private List<String> packingPhotoUrls = new ArrayList<>();
+
     // Thời điểm đặt đơn — mốc chốt tỷ lệ hoa hồng theo kỳ
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

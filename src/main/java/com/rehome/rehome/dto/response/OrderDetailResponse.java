@@ -14,6 +14,7 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class OrderDetailResponse {
+    private List<String> packingPhotoUrls;
     private String id;
     private String orderNo;
     private String status;

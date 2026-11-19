@@ -757,6 +757,9 @@ class ConsignmentReceiptServiceImplTest {
         when(consignmentReceiptRepository.findByIdForUpdate(receipt.getId())).thenReturn(Optional.of(receipt));
         when(consignmentReceiptRepository.findById(receipt.getId())).thenReturn(Optional.of(receipt));
         when(receiptPdfService.generate(receipt)).thenReturn(new byte[]{1, 2, 3});
+        ConsignmentReceiptPdf existingPdf = ConsignmentReceiptPdf.builder()
+                .receiptId(receipt.getId()).receipt(receipt).content(new byte[]{9}).build();
+        when(consignmentReceiptPdfRepository.findById(receipt.getId())).thenReturn(Optional.of(existingPdf));
 
         var response = service.editReceipt(moderator, receipt.getId(),
                 new com.rehome.rehome.dto.request.EditReceiptRequest(
@@ -766,6 +769,8 @@ class ConsignmentReceiptServiceImplTest {
         assertThat(response.getAgreedPrice()).isEqualByComparingTo("300000");
         assertThat(response.getEditReason()).isEqualTo("Điều chỉnh giá");
         verify(receiptPdfService).generate(receipt);
+        verify(consignmentReceiptPdfRepository).save(existingPdf);
+        assertThat(existingPdf.getContent()).containsExactly((byte) 1, (byte) 2, (byte) 3);
     }
 
     @Test

@@ -2747,6 +2747,57 @@ class OrderServiceImplTest {
 
     // ---- packScan (API 69, F-127) ----
 
+    @Test
+    void packingPhotos_replaceEvidenceAndFreezeAfterShipment() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.PACKING).build();
+        Account moderator = claimingModerator(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderator));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+        var request = new com.rehome.rehome.dto.request.UpdatePackingPhotosRequest(List.of("https://cdn.example.com/packed.jpg"));
+        assertThat(orderService.updatePackingPhotos("mod@example.com", orderId, request))
+                .containsExactly("https://cdn.example.com/packed.jpg");
+        assertThat(order.getPackingPhotoUrls()).containsExactly("https://cdn.example.com/packed.jpg");
+        order.setGhnTrackingCode("GHN123");
+        assertThatThrownBy(() -> orderService.updatePackingPhotos("mod@example.com", orderId,
+                new com.rehome.rehome.dto.request.UpdatePackingPhotosRequest(List.of())))
+                .isInstanceOf(ConflictException.class);
+        assertThat(order.getPackingPhotoUrls()).containsExactly("https://cdn.example.com/packed.jpg");
+    }
+
+    @Test
+    void packingPhotos_rejectsWrongWarehouseAndTooManyImages() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.PAID).build();
+        Account moderator = claimingModerator(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderator));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+        var request = new com.rehome.rehome.dto.request.UpdatePackingPhotosRequest(
+                java.util.Collections.nCopies(6, "https://cdn.example.com/packed.jpg"));
+        assertThatThrownBy(() -> orderService.updatePackingPhotos("mod@example.com", orderId, request))
+                .isInstanceOf(BadRequestException.class);
+        moderator.setWarehouse(Warehouse.builder().id(UUID.randomUUID()).build());
+        assertThatThrownBy(() -> orderService.updatePackingPhotos("mod@example.com", orderId, request))
+                .isInstanceOf(ForbiddenException.class);
+        assertThat(order.getPackingPhotoUrls()).isEmpty();
+        verify(orderRepository, never()).save(order);
+    }
+
+    @Test
+    void packingPhotos_requiresOwnershipOfPackingTask() {
+        UUID orderId = UUID.randomUUID();
+        Order order = Order.builder().id(orderId).warehouse(warehouse1).status(OrderStatus.PAID).build();
+        Account moderator = moderatorWhoDoesNotHoldTask(orderId, warehouse1);
+        when(accountRepository.findByEmail("mod@example.com")).thenReturn(Optional.of(moderator));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
+        assertThatThrownBy(() -> orderService.updatePackingPhotos("mod@example.com", orderId,
+                new com.rehome.rehome.dto.request.UpdatePackingPhotosRequest(List.of("https://cdn.example.com/p.jpg"))))
+                .isInstanceOf(AppException.class)
+                .extracting(e -> ((AppException) e).getErrorCode())
+                .isEqualTo(ErrorCode.QUEUE_ITEM_NOT_CLAIMED_BY_YOU);
+        verify(orderRepository, never()).save(order);
+    }
+
     private Account moderatorWithWarehouse(Warehouse warehouse) {
         return Account.builder().id(UUID.randomUUID()).role(Role.MODERATOR).warehouse(warehouse).build();
     }

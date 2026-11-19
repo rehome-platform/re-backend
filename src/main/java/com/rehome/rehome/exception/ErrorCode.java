@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 @Getter
 @RequiredArgsConstructor
 public enum ErrorCode {
+    TRYON_IN_PROGRESS(HttpStatus.CONFLICT, "Bạn đang có một ảnh thử đồ đang tạo, vui lòng chờ"),
     RECEIPT_NOT_EDITABLE(HttpStatus.CONFLICT, "Biên nhận không thể sửa hoặc huỷ ở trạng thái hiện tại."),
     RECEIPT_CHANGED(HttpStatus.CONFLICT, "Biên nhận đã thay đổi. Vui lòng tải lại."),
     RECEIPT_HAS_PRODUCT(HttpStatus.CONFLICT, "Biên nhận đã nhập kho, không thể huỷ."),

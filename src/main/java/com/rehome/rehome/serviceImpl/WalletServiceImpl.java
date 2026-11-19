@@ -1,5 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.util.NotificationFormatting;
+
 import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 
@@ -238,7 +240,7 @@ public class WalletServiceImpl implements WalletService {
 
         businessNotifications.send(member, NotificationType.WALLET_EVENT,
                 payoutRequest.getStatus() == TransactionStatus.SUCCESS ? "Rút tiền thành công" : "Rút tiền thất bại",
-                "Yêu cầu " + payoutRequest.getPayoutNo() + " · " + payoutRequest.getAmount().toPlainString() + "đ: "
+                "Yêu cầu " + payoutRequest.getPayoutNo() + " · " + NotificationFormatting.vnd(payoutRequest.getAmount()) + ": "
                         + (payoutRequest.getStatus() == TransactionStatus.SUCCESS ? "đã chuyển tiền về ngân hàng." : payoutRequest.getFailureReason()),
                 NotificationTargetType.PAYOUT, payoutRequest.getId());
         return toPayoutResponse(payoutRequest);

@@ -21,11 +21,15 @@ public class ProductSpecifications {
     public static Specification<Product> featuredFirst(Instant now) {
         return (root, query, cb) -> {
             if (query != null && !Long.class.equals(query.getResultType())) {
+                var active = cb.greaterThan(root.<Instant>get("featuredUntil"), now);
+                var featured = cb.<Integer>selectCase().when(active, 1).otherwise(0);
                 var rank = cb.<Integer>selectCase()
-                        .when(cb.greaterThan(root.<Instant>get("featuredUntil"), now),
+                        .when(active,
                                 cb.coalesce(root.<Integer>get("featuredRank"), 0))
                         .otherwise(0);
-                query.orderBy(cb.desc(rank), cb.desc(root.get("createdAt")), cb.desc(root.get("id")));
+                // Legacy/seeded products may have an active badge without a rank yet.
+                // They must still precede every non-featured product, across all pages.
+                query.orderBy(cb.desc(featured), cb.desc(rank), cb.desc(root.get("createdAt")), cb.desc(root.get("id")));
             }
             return null;
         };

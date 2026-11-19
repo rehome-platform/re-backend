@@ -1,5 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.util.NotificationFormatting;
+
 import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 
@@ -61,7 +63,7 @@ public class OrderCancelExecutor {
 
         order.setStatus(OrderStatus.CANCELLED);
         order.setCancelReason(CancelReason.PAYMENT_EXPIRED);
-        businessNotifications.order(order, "Đơn hàng đã huỷ", "đã tự huỷ do quá hạn thanh toán " + order.getPaymentDeadline() + ".");
+        businessNotifications.order(order, "Đơn hàng đã huỷ", "đã tự huỷ do quá hạn thanh toán " + NotificationFormatting.deadline(order.getPaymentDeadline()) + ".");
         order.setCancelledAt(Instant.now());
         orderRepository.save(order);
         auditLogger.logSystemOperation("AUTO_CANCEL_ORDER", "ORDER", orderId, "CANCELLED", "SCHEDULER");

@@ -1,5 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.util.NotificationFormatting;
+
 import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 
@@ -310,7 +312,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         returnRequestRepository.save(returnRequest);
 
         businessNotifications.returned(returnRequest, NotificationType.ORDER_UPDATE, "Yêu cầu trả hàng đã được duyệt",
-                "mã thu hồi " + returnRequest.getGhnReturnTrackingCode() + ". Hạn bàn giao: " + returnRequest.getHandoverDeadline() + ".");
+                "mã thu hồi " + returnRequest.getGhnReturnTrackingCode() + ". Hạn bàn giao: " + NotificationFormatting.deadline(returnRequest.getHandoverDeadline()) + ".");
         auditLogger.logCurrentOperation("APPROVE_RETURN", "RETURN_REQUEST", id, returnRequest.getStatus().name());
         return toResponseWithPhotos(returnRequest);
     }
@@ -508,7 +510,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         if (resolution == ReturnRequestStatus.INVALID) {
             businessNotifications.returned(returnRequest, NotificationType.ORDER_UPDATE, "Kết luận trả hàng không hợp lệ",
-                    "lý do: " + returnRequest.getResolutionNote() + ". Vui lòng chọn cách nhận lại trước hạn " + returnRequest.getPickupDeadline() + ".");
+                    "lý do: " + returnRequest.getResolutionNote() + ". Vui lòng chọn cách nhận lại trước hạn " + NotificationFormatting.deadline(returnRequest.getPickupDeadline()) + ".");
         }
         auditLogger.logOperation(moderator, "RESOLVE_RETURN", "RETURN_REQUEST", id, returnRequest.getStatus().name());
         return toResponseWithPhotos(returnRequest);
@@ -603,7 +605,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         degradedItemCaseRepository.save(degradedCase);
         businessNotifications.send(item.getProduct().getMember(), NotificationType.TERM_EXPIRY, "Cần chọn phương án cho món xuống cấp",
                 "Món " + item.getProduct().getName() + ": vui lòng chọn phương án trước hạn "
-                        + degradedCase.getDecisionDeadline() + ".", NotificationTargetType.DEGRADED_ITEM_CASE, degradedCase.getId());
+                        + NotificationFormatting.deadline(degradedCase.getDecisionDeadline()) + ".", NotificationTargetType.DEGRADED_ITEM_CASE, degradedCase.getId());
 
         auditLogger.logWarehouseOp(moderator, item.getProduct().getWarehouse(), WarehouseAuditGroup.INVENTORY,
                 "OPEN_DEGRADED_CASE", "DEGRADED_ITEM_CASE", degradedCase.getId().toString(), "OPENED",

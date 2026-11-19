@@ -1,5 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.util.NotificationFormatting;
+
 import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 
@@ -377,7 +379,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
         ConsignmentForm saved = consignmentFormRepository.save(form);
         logForm(moderator, form, "APPROVE_FORM", "APPROVED");
-        businessNotifications.form(form, "Yêu cầu ký gửi đã được duyệt", "vui lòng mang món đến kho trước hạn " + form.getBringInDeadline() + ".");
+        businessNotifications.form(form, "Yêu cầu ký gửi đã được duyệt", "vui lòng mang món đến địa điểm ký gửi trước hạn " + NotificationFormatting.deadline(form.getBringInDeadline()) + ".");
         return consignmentFormMapper.toResponse(saved);
     }
 
@@ -438,7 +440,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
         consignmentFormRepository.save(form);
         logForm(moderator, form, "RETURN_ONSITE", "RETURNED");
-        businessNotifications.form(form, "Yêu cầu ký gửi bị từ chối", "lý do: " + form.getRejectReason());
+        businessNotifications.form(form, "Đã trả lại món tại quầy", "lý do: " + form.getRejectReason());
         return new ConsignmentFormStatusResponse(form.getId(), form.getStatus());
     }
 

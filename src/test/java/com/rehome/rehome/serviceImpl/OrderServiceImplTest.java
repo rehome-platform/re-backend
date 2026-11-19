@@ -1,4 +1,7 @@
 package com.rehome.rehome.serviceImpl;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.rehome.rehome.client.GhnApi;
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
@@ -108,6 +111,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.lenient;
 @ExtendWith(MockitoExtension.class)
 class OrderServiceImplTest {
+    @org.mockito.Mock private com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     @Mock com.rehome.rehome.service.PointsService pointsService;
     @Mock AccountRepository accountRepository;
@@ -1461,6 +1466,7 @@ class OrderServiceImplTest {
         verify(walletTransactionRepository, never()).save(any());
         verify(orderRepository, never()).save(any());
         verify(pointsService, never()).awardForOrder(any());
+        verifyNoInteractions(businessNotifications);
     }
 
     @Test
@@ -1490,6 +1496,10 @@ class OrderServiceImplTest {
         assertThat(product1.getStatus()).isEqualTo(ProductStatus.SOLD);
         assertThat(order.getStatus()).isEqualTo(OrderStatus.COMPLETED);
         assertThat(order.getCompletedAt()).isNotNull();
+        verify(businessNotifications).product(eq(product1), eq(com.rehome.rehome.entity.enums.NotificationType.ORDER_UPDATE), anyString(), contains(order.getOrderNo()));
+        verify(businessNotifications).order(eq(order), anyString(), anyString());
+        orderService.autoCompleteOrder(orderId);
+        verify(businessNotifications, times(1)).order(eq(order), anyString(), anyString());
     }
 
     @Test
@@ -2031,6 +2041,8 @@ class OrderServiceImplTest {
 
         assertThat(firstOrder.getStatus()).isEqualTo(OrderStatus.PAID);
         assertThat(secondOrder.getStatus()).isEqualTo(OrderStatus.PAID);
+        verify(businessNotifications).order(eq(firstOrder), anyString(), anyString());
+        verify(businessNotifications).order(eq(secondOrder), anyString(), anyString());
         assertThat(firstOrder.getPaymentMethod()).isEqualTo(OrderPaymentMethod.WALLET);
         assertThat(wallet.getBalance()).isEqualByComparingTo("300000");
 

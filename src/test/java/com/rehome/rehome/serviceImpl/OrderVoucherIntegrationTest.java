@@ -87,6 +87,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class OrderVoucherIntegrationTest {
+    @org.mockito.Mock private com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     @Mock com.rehome.rehome.service.PointsService pointsService;
     @Mock AccountRepository accountRepository;

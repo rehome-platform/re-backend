@@ -1,5 +1,8 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+
 import com.rehome.rehome.client.GhnApi;
 import com.rehome.rehome.component.VoucherCalculator;
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
@@ -126,6 +129,8 @@ import com.rehome.rehome.service.SystemConfigReader;
 @Transactional(readOnly = true)
 @Slf4j
 public class OrderServiceImpl implements OrderService {
+    private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     // Trạng thái GHN mà người mua cần biết là đơn đang có trục trặc, không chỉ là chậm.
     // Xem bảng trạng thái trong docs/ghnapi.md mục "Mã trạng thái đơn hàng".
@@ -857,6 +862,7 @@ public class OrderServiceImpl implements OrderService {
         if (order.getStatus() == OrderStatus.PENDING_PAYMENT) {
             order.setStatus(OrderStatus.CANCELLED);
             order.setCancelReason(CancelReason.BUYER_CANCELLED);
+            businessNotifications.order(order, "Đơn hàng đã huỷ", "đã huỷ theo yêu cầu của bạn.");
             order.setCancelledAt(Instant.now());
             orderRepository.save(order);
             // Chưa thu tiền -> trả mã về ví (§12.4)
@@ -1053,6 +1059,7 @@ public class OrderServiceImpl implements OrderService {
 
             order.setPaymentMethod(OrderPaymentMethod.WALLET);
             order.setStatus(OrderStatus.PAID);
+            businessNotifications.order(order, "Thanh toán thành công", "đã thanh toán thành công, đang chờ đóng gói.");
             orderRepository.save(order);
             queueService.enqueue(QueueType.PACKING, order.getId().toString(), order.getWarehouse());
 
@@ -1126,6 +1133,7 @@ public class OrderServiceImpl implements OrderService {
             recordGatewayPaymentReceived(order, "Thanh toán đơn hàng " + order.getOrderNo() + " qua " + method);
             order.setPaymentMethod(method);
             order.setStatus(OrderStatus.PAID);
+            businessNotifications.order(order, "Thanh toán thành công", "đã thanh toán thành công, đang chờ đóng gói.");
             orderRepository.save(order);
             queueService.enqueue(QueueType.PACKING, order.getId().toString(), order.getWarehouse());
             auditLogger.logSystemOperation("CONFIRM_ORDER_PAYMENT", "ORDER", orderId, "PAID", method.name());
@@ -1230,12 +1238,15 @@ public class OrderServiceImpl implements OrderService {
             Product product = productRepository.findByIdForUpdate(item.getProduct().getId()).orElse(null);
             if (product != null && product.getStatus() == ProductStatus.RESERVED) {
                 product.setStatus(ProductStatus.SOLD);
+                businessNotifications.product(product, NotificationType.ORDER_UPDATE, "Món ký gửi đã được bán",
+                        "đã được bán trong đơn " + order.getOrderNo() + ". Tiền sẽ vào ví sau thời hạn trả hàng.");
                 productRepository.save(product);
             }
         }
 
         order.setStatus(OrderStatus.COMPLETED);
         order.setCompletedAt(Instant.now());
+        businessNotifications.order(order, "Đơn hàng đã hoàn thành", "đã hoàn thành. Cảm ơn bạn đã sử dụng ReHome.");
         orderRepository.save(order);
     }
 
@@ -1293,6 +1304,8 @@ public class OrderServiceImpl implements OrderService {
                     .build();
             walletTransactionRepository.save(payoutTransaction);
             recordPlatformCounterpart(payoutTransaction);
+            businessNotifications.product(item.getProduct(), NotificationType.WALLET_EVENT, "Tiền bán hàng đã vào ví",
+                    "tiền bán hàng " + payoutAmount.toPlainString() + "đ của đơn " + order.getOrderNo() + " đã vào ví.");
 
             // Phần hoa hồng nền tảng giữ lại của món này (giá chốt - tiền trả người bán)
             recordPlatformRevenue(WalletTransactionType.COMMISSION_REVENUE,
@@ -1411,6 +1424,7 @@ public class OrderServiceImpl implements OrderService {
         order.setScannedCount(newScannedCount);
         if (order.getStatus() == OrderStatus.PAID) {
             order.setStatus(OrderStatus.PACKING);
+            businessNotifications.order(order, "Đơn hàng đang đóng gói", "kho đang đóng gói kiện hàng.");
         }
         orderRepository.save(order);
 
@@ -1595,6 +1609,7 @@ public class OrderServiceImpl implements OrderService {
         order.setExpectedDeliveryDate(parseGhnTime(ghnResponse.getData().getExpectedDeliveryTime()));
         order.setShipmentCreatedAt(Instant.now());
         order.setStatus(OrderStatus.PACKED);
+        businessNotifications.order(order, "Đơn hàng đã đóng gói", "đã đóng gói · Mã GHN " + order.getGhnTrackingCode() + ".");
         orderRepository.save(order);
         queueService.dequeue(QueueType.PACKING, order.getId().toString());
 
@@ -1629,6 +1644,7 @@ public class OrderServiceImpl implements OrderService {
             }
             order.setStatus(OrderStatus.SHIPPING);
             order.setHandedOverAt(Instant.now());
+            businessNotifications.order(order, "Đơn hàng đang được giao", "đang được giao · Mã GHN " + order.getGhnTrackingCode() + ".");
             orderRepository.save(order);
             auditLogger.logWarehouseOp(moderator, order.getWarehouse(), WarehouseAuditGroup.PACKING,
                     "HANDOVER_ORDER", "ORDER", orderId.toString(), "SHIPPING", order.getOrderNo());
@@ -1925,6 +1941,7 @@ public class OrderServiceImpl implements OrderService {
 
         order.setStatus(OrderStatus.CANCELLED);
         order.setCancelReason(reason);
+        businessNotifications.order(order, "Đơn hàng đã huỷ", note + ". Tiền đã được hoàn vào ví.");
         order.setCancelledAt(Instant.now());
         order.setRefundAmount(order.getTotalAmount());
         orderRepository.save(order);

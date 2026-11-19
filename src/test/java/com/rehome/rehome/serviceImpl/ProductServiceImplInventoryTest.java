@@ -45,6 +45,8 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class ProductServiceImplInventoryTest {
+    @org.mockito.Mock private com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     private static final String SKU = "Q7-AK-000845";
 

@@ -49,6 +49,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class ConsignmentReceiptReadAccessTest {
+    @org.mockito.Mock private com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     @Mock ConsignmentReceiptRepository consignmentReceiptRepository;
     @Mock ConsignmentReceiptPdfRepository consignmentReceiptPdfRepository;

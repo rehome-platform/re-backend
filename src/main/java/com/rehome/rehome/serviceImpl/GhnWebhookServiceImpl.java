@@ -1,5 +1,8 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.entity.enums.NotificationTargetType;
+
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.GhnWebhookPayload;
 import com.rehome.rehome.entity.enums.OrderStatus;
@@ -31,6 +34,8 @@ import java.util.Set;
 @RequiredArgsConstructor
 @Slf4j
 public class GhnWebhookServiceImpl implements GhnWebhookService {
+    private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
 
     // Các trạng thái "kết thúc" của GHN mà không phải giao thành công -> coi là vận chuyển lỗi, tự hủy đơn + hoàn tiền
     private static final Set<String> TERMINAL_FAILURE_STATUSES = Set.of(
@@ -78,6 +83,7 @@ public class GhnWebhookServiceImpl implements GhnWebhookService {
         if (order.getStatus() == OrderStatus.PACKED
                 && java.util.Set.of("picked", "storing", "transporting", "sorting", "delivering", "delivered").contains(status)) {
             order.setStatus(OrderStatus.SHIPPING);
+            businessNotifications.order(order, "Đơn hàng đang được giao", "đang được giao · Mã GHN " + payload.getOrderCode() + ".");
             if (order.getHandedOverAt() == null) order.setHandedOverAt(occurredAt);
             orderRepository.save(order);
         }
@@ -96,6 +102,8 @@ public class GhnWebhookServiceImpl implements GhnWebhookService {
                 order.setDeliveredAt(occurredAt);
                 order.setAutoCompleteDeadline(occurredAt.plus(autoCompleteDays, ChronoUnit.DAYS));
                 order.setReturnDeadline(occurredAt.plus(returnWindowDays, ChronoUnit.DAYS));
+                businessNotifications.order(order, "Đơn hàng đã giao", "đã giao thành công · Mã GHN " + payload.getOrderCode()
+                        + ". Hạn yêu cầu trả hàng: " + order.getReturnDeadline() + ".");
                 orderRepository.save(order);
             }
         } else if (TERMINAL_FAILURE_STATUSES.contains(status)) {

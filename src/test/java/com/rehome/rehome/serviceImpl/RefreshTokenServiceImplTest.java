@@ -2,7 +2,8 @@ package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.RefreshToken;
-import com.rehome.rehome.exception.TokenRefreshException;
+import com.rehome.rehome.exception.AppException;
+import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.RefreshTokenRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -62,20 +63,53 @@ class RefreshTokenServiceImplTest {
                 .token("t").revoked(true).expiryDate(Instant.now().plusSeconds(3600)).build();
 
         assertThatThrownBy(() -> service.verifyExpiration(token))
-                .isInstanceOf(TokenRefreshException.class);
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.REFRESH_TOKEN_REVOKED);
 
         verify(refreshTokenRepository, never()).delete(any());
     }
 
     @Test
-    void verifyExpiration_expired_deletesAndThrows() {
+    void verifyExpiration_expired_throwsStandardAuthErrorWithoutChangingData() {
         RefreshToken token = RefreshToken.builder()
                 .token("t").revoked(false).expiryDate(Instant.now().minusSeconds(10)).build();
 
         assertThatThrownBy(() -> service.verifyExpiration(token))
-                .isInstanceOf(TokenRefreshException.class);
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.REFRESH_TOKEN_EXPIRED);
 
-        verify(refreshTokenRepository).delete(token);
+        verify(refreshTokenRepository, never()).delete(any());
+    }
+
+    @Test void rotateRefreshTokenUpdatesOnlyTheLockedRow() {
+        RefreshToken token = RefreshToken.builder().id(5L).account(account).token("old")
+                .expiryDate(Instant.now().plusSeconds(3600)).build();
+        when(refreshTokenRepository.save(token)).thenAnswer(inv -> inv.getArgument(0));
+        Instant before = Instant.now();
+        RefreshToken rotated = service.rotateRefreshToken(token);
+        assertThat(rotated.getId()).isEqualTo(5L);
+        assertThat(rotated.getAccount()).isSameAs(account);
+        assertThat(rotated.getToken()).isNotEqualTo("old");
+        assertThat(UUID.fromString(rotated.getToken())).isNotNull();
+        assertThat(rotated.getExpiryDate()).isAfterOrEqualTo(before.plusSeconds(60));
+        verify(refreshTokenRepository).save(token);
+        verify(refreshTokenRepository, never()).deleteByAccount(any());
+        verify(refreshTokenRepository, never()).delete(any());
+    }
+
+    @Test void revokedTokenCannotBeRotatedBackIntoAValidSession() {
+        RefreshToken token = RefreshToken.builder().token("old").revoked(true)
+                .expiryDate(Instant.now().plusSeconds(3600)).build();
+        assertThatThrownBy(() -> service.rotateRefreshToken(token))
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.REFRESH_TOKEN_REVOKED);
+        verifyNoInteractions(refreshTokenRepository);
+        assertThat(token.getToken()).isEqualTo("old");
+    }
+
+    @Test void lockedLookupDelegatesToLockingRepositoryQuery() {
+        RefreshToken token = RefreshToken.builder().token("locked").build();
+        when(refreshTokenRepository.findByTokenForUpdate("locked")).thenReturn(Optional.of(token));
+        assertThat(service.findByTokenForUpdate("locked")).containsSame(token);
     }
 
     @Test

@@ -30,7 +30,8 @@ public class ContentModerationService {
     private Instant expiresAt = Instant.EPOCH;
 
     public record WordsChanged() {}
-    private record Rule(Pattern pattern, ViolationWordAction action) {}
+    private record Rule(Pattern pattern, Pattern maskPattern, ViolationWordAction action) {}
+    public record MaskResult(String text, ViolationWordAction action) {}
 
     @TransactionalEventListener
     public synchronized void invalidate(WordsChanged event) {
@@ -47,14 +48,20 @@ public class ContentModerationService {
     }
 
     private static Rule compile(String term, ViolationWordAction action) {
+        Pattern pattern = compilePattern(term, false);
+        return pattern == null ? null : new Rule(pattern, compilePattern(term, true), action);
+    }
+
+    private static Pattern compilePattern(String term, boolean preserveMarks) {
         String phrase = Arrays.stream(normalize(term).strip().split("(?U)\\s+"))
                 .map(part -> WORD.matcher(part).results().map(match -> match.group()).collect(Collectors.joining()))
                 .filter(part -> !part.isEmpty())
-                .map(part -> part.codePoints().mapToObj(cp -> Pattern.quote(Character.toString(cp)))
+                .map(part -> part.codePoints().mapToObj(cp -> Pattern.quote(Character.toString(cp))
+                                + (preserveMarks ? "\\p{M}*" : ""))
                         .collect(Collectors.joining("[.*_-]*")))
                 .collect(Collectors.joining("(?U)\\s+"));
-        return phrase.isEmpty() ? null : new Rule(
-                Pattern.compile("(?<![\\p{L}\\p{N}])" + phrase + "(?![\\p{L}\\p{N}])"), action);
+        return phrase.isEmpty() ? null :
+                Pattern.compile("(?<![\\p{L}\\p{N}])" + phrase + "(?![\\p{L}\\p{N}])");
     }
 
     private static String normalize(String text) {
@@ -83,12 +90,55 @@ public class ContentModerationService {
         return matches.isEmpty() ? null : ViolationWordAction.NOTIFY_ADMIN;
     }
 
+    /** Chat-only moderation. Matching offsets retain the original UTF-16 positions. */
+    public MaskResult mask(String text) {
+        if (text == null || text.isBlank()) return new MaskResult(text, null);
+        StringBuilder normalized = new StringBuilder(text.length());
+        text.codePoints().forEach(cp -> {
+            String original = Character.toString(cp);
+            String folded = normalize(original);
+            normalized.append(folded.length() == original.length() ? folded : original);
+        });
+        char[] masked = text.toCharArray();
+        ViolationWordAction strongest = null;
+        for (Rule rule : activeRules()) {
+            var matcher = rule.maskPattern().matcher(normalized);
+            int from = 0;
+            while (from < normalized.length() && matcher.find(from)) {
+                for (int i = matcher.start(); i < matcher.end();) {
+                    int cp = text.codePointAt(i);
+                    int width = Character.charCount(cp);
+                    int type = Character.getType(cp);
+                    if (Character.isLetterOrDigit(cp) || type == Character.NON_SPACING_MARK
+                            || type == Character.COMBINING_SPACING_MARK || type == Character.ENCLOSING_MARK) {
+                        Arrays.fill(masked, i, i + width, '*');
+                    }
+                    i += width;
+                }
+                if (severity(rule.action()) > severity(strongest)) strongest = rule.action();
+                // Include overlapping phrases as well as separate matches.
+                from = matcher.start() + Character.charCount(normalized.codePointAt(matcher.start()));
+            }
+        }
+        return new MaskResult(new String(masked), strongest);
+    }
+
+    private static int severity(ViolationWordAction action) {
+        if (action == null) return 0;
+        return switch (action) {
+            case AUTO_REJECT -> 3;
+            case AUTO_FLAG -> 2;
+            case NOTIFY_ADMIN -> 1;
+        };
+    }
+
     public void recordMatch(UUID actorId, String context, UUID contentId, ViolationWordAction action) {
         if (action == null) {
             return;
         }
         boolean flagged = action == ViolationWordAction.AUTO_FLAG;
-        var detail = JsonNodeFactory.instance.objectNode().put("context", context);
+        var detail = JsonNodeFactory.instance.objectNode().put("context", context)
+                .put("moderationAction", action.name());
         if (contentId != null) {
             detail.put("contentId", contentId.toString());
         }

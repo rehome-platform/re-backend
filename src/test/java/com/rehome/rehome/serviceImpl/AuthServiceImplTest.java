@@ -447,7 +447,7 @@ class AuthServiceImplTest {
 
     @Test
     void refreshToken_notFound_throws() {
-        when(refreshTokenService.findByToken("t")).thenReturn(Optional.empty());
+        when(refreshTokenService.findByTokenForUpdate("t")).thenReturn(Optional.empty());
 
         assertAppError(() -> service.refreshToken("t"), ErrorCode.REFRESH_TOKEN_NOT_FOUND);
     }
@@ -457,7 +457,7 @@ class AuthServiceImplTest {
         Account account = mock(Account.class);
         when(account.getStatus()).thenReturn(AccountStatus.BANNED);
         RefreshToken rt = RefreshToken.builder().token("t").account(account).build();
-        when(refreshTokenService.findByToken("t")).thenReturn(Optional.of(rt));
+        when(refreshTokenService.findByTokenForUpdate("t")).thenReturn(Optional.of(rt));
 
         assertAppError(() -> service.refreshToken("t"), ErrorCode.ACCOUNT_BANNED);
 
@@ -469,20 +469,38 @@ class AuthServiceImplTest {
     void refreshToken_success_rotatesToken() {
         Account account = mock(Account.class);
         when(account.getStatus()).thenReturn(AccountStatus.ACTIVE);
+        UUID accountId = UUID.randomUUID();
+        when(account.getId()).thenReturn(accountId);
+        when(account.getRole()).thenReturn(Role.MEMBER);
+        when(account.isEmailVerified()).thenReturn(true);
         RefreshToken old = RefreshToken.builder().token("old").account(account).build();
-        when(refreshTokenService.findByToken("old")).thenReturn(Optional.of(old));
+        when(refreshTokenService.findByTokenForUpdate("old")).thenReturn(Optional.of(old));
         when(jwtService.generateAccessToken(account)).thenReturn("newAccess");
-        when(refreshTokenService.createRefreshToken(account))
+        when(refreshTokenService.rotateRefreshToken(old))
                 .thenReturn(RefreshToken.builder().token("newRefresh").build());
 
         AuthResponse res = service.refreshToken("old");
 
         InOrder order = inOrder(refreshTokenService);
         order.verify(refreshTokenService).verifyExpiration(old);
-        order.verify(refreshTokenService).deleteByAccount(account);
-        order.verify(refreshTokenService).createRefreshToken(account);
+        order.verify(refreshTokenService).rotateRefreshToken(old);
+        verify(refreshTokenService, never()).deleteByAccount(any());
+        verify(refreshTokenService, never()).createRefreshToken(any());
         assertThat(res).extracting("accessToken", "refreshToken")
                 .containsExactly("newAccess", "newRefresh");
+        assertThat(res.getId()).isEqualTo(accountId);
+        assertThat(res.getRole()).isEqualTo(Role.MEMBER);
+        assertThat(res.is_verified()).isTrue();
+    }
+
+    @Test void refreshToken_expiredDoesNotGenerateOrRotateTokens() {
+        RefreshToken token = RefreshToken.builder().token("expired").build();
+        when(refreshTokenService.findByTokenForUpdate("expired")).thenReturn(Optional.of(token));
+        doThrow(new AppException(ErrorCode.REFRESH_TOKEN_EXPIRED)).when(refreshTokenService).verifyExpiration(token);
+        assertAppError(() -> service.refreshToken("expired"), ErrorCode.REFRESH_TOKEN_EXPIRED);
+        verifyNoInteractions(jwtService);
+        verify(refreshTokenService, never()).rotateRefreshToken(any());
+        verify(refreshTokenService, never()).deleteByAccount(any());
     }
 
     // ==================== logout ====================

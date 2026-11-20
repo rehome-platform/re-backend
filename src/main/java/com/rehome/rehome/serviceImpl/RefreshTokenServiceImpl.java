@@ -4,7 +4,8 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.RefreshToken;
 import com.rehome.rehome.service.RefreshTokenService;
 
-import com.rehome.rehome.exception.TokenRefreshException;
+import com.rehome.rehome.exception.AppException;
+import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.RefreshTokenRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,13 +49,28 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
     }
 
     @Override
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public Optional<RefreshToken> findByTokenForUpdate(String token) {
+        return refreshTokenRepository.findByTokenForUpdate(token);
+    }
+
+    @Override
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public RefreshToken rotateRefreshToken(RefreshToken token) {
+        verifyExpiration(token);
+        // Update only this session's locked row. Other devices' tokens remain valid.
+        token.setToken(UUID.randomUUID().toString());
+        token.setExpiryDate(Instant.now().plusMillis(refreshTokenExpirationMs));
+        return refreshTokenRepository.save(token);
+    }
+
+    @Override
     public RefreshToken verifyExpiration(RefreshToken token) {
         if (token.isRevoked()) {
-            throw new TokenRefreshException(token.getToken(), "Token đã bị thu hồi, vui lòng đăng nhập lại");
+            throw new AppException(ErrorCode.REFRESH_TOKEN_REVOKED);
         }
-        if (token.getExpiryDate().isBefore(Instant.now())) {
-            refreshTokenRepository.delete(token);
-            throw new TokenRefreshException(token.getToken(), "Token đã hết hạn, vui lòng đăng nhập lại");
+        if (token.getExpiryDate() == null || !token.getExpiryDate().isAfter(Instant.now())) {
+            throw new AppException(ErrorCode.REFRESH_TOKEN_EXPIRED);
         }
         return token;
     }

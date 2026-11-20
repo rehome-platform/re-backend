@@ -11,6 +11,10 @@ public interface RefreshTokenService {
 
     Optional<RefreshToken> findByToken(String token);
 
+    Optional<RefreshToken> findByTokenForUpdate(String token);
+
+    RefreshToken rotateRefreshToken(RefreshToken token);
+
     RefreshToken verifyExpiration(RefreshToken token);
 
     void revokeAllAccountTokens(Account account);

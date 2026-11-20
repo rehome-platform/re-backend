@@ -42,6 +42,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -66,6 +68,7 @@ public class TryOnServiceImpl implements TryOnService {
     private final TryOnImageGenerator tryOnImageGenerator;
     private final AiTryOnQuotaGuard aiTryOnQuotaGuard;
     private final com.rehome.rehome.client.GeminiOutfitClient geminiOutfitClient;
+    private final Set<UUID> generatingMembers = ConcurrentHashMap.newKeySet();
 
     // ================================================================ API 97: F-077, F-078, F-079
 
@@ -73,6 +76,18 @@ public class TryOnServiceImpl implements TryOnService {
     // Các repository tự mở transaction ngắn cho từng lệnh; category đã được nạp sẵn bằng EntityGraph.
     @Override
     public TryOnImageResponse createImage(Account account, CreateTryOnImageRequest request) {
+        UUID memberId = account.getId();
+        if (!generatingMembers.add(memberId)) {
+            throw new AppException(ErrorCode.TRYON_IN_PROGRESS);
+        }
+        try {
+            return generateImage(account, request);
+        } finally {
+            generatingMembers.remove(memberId);
+        }
+    }
+
+    private TryOnImageResponse generateImage(Account account, CreateTryOnImageRequest request) {
         // Hạn mức phối đồ AI theo gói, tính theo NGÀY (reset 00:00 giờ VN). Kiểm TRƯỚC khi gửi
         // request sang AI server để chặn chi phí thật trước khi phát sinh.
         // Lượt được tính bằng chính row try_on_images lưu sau khi sinh thành công, nên sinh ảnh lỗi

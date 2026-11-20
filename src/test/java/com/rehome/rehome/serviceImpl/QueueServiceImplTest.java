@@ -57,6 +57,9 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -75,6 +78,46 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class QueueServiceImplTest {
+    @Mock private com.rehome.rehome.repository.AccountRepository accountRepository;
+    @Mock private com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(QueueType.class)
+    void enqueueNewNotifiesOnlyWarehouseModeratorsWithCorrectTarget(QueueType type) {
+        UUID ref = UUID.randomUUID();
+        when(queueItemRepository.save(any(QueueItem.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(accountRepository.findByRoleAndWarehouse_Id(com.rehome.rehome.entity.enums.Role.MODERATOR, warehouseId))
+                .thenReturn(List.of(moderator));
+        service.enqueue(type, ref.toString(), warehouse);
+        var expected = switch (type) {
+            case FORM_REVIEW, INSPECTION -> com.rehome.rehome.entity.enums.NotificationTargetType.CONSIGNMENT_FORM;
+            case PACKING -> com.rehome.rehome.entity.enums.NotificationTargetType.ORDER;
+            case RETURN -> com.rehome.rehome.entity.enums.NotificationTargetType.RETURN_REQUEST;
+            case WITHDRAWAL -> com.rehome.rehome.entity.enums.NotificationTargetType.WITHDRAWAL;
+            case ORG_VERIFICATION -> com.rehome.rehome.entity.enums.NotificationTargetType.ORGANIZATION;
+            case LEGAL_CHANGE -> com.rehome.rehome.entity.enums.NotificationTargetType.LEGAL_CHANGE;
+            case VIOLATION_REPORT -> com.rehome.rehome.entity.enums.NotificationTargetType.VIOLATION_REPORT;
+            case DONATION_PICKUP, DONATION_REASSIGN, DONATION_PREP -> com.rehome.rehome.entity.enums.NotificationTargetType.DONATION;
+        };
+        verify(businessNotifications).send(eq(moderator), eq(com.rehome.rehome.entity.enums.NotificationType.QUEUE_TASK),
+                anyString(), contains(ref.toString()), eq(expected), eq(ref), eq(warehouseId));
+        verify(accountRepository, never()).findByRole(any());
+    }
+
+    @Test void enqueueGlobalNotifiesAllModeratorsButExistingItemDoesNotNotifyAgain() {
+        UUID ref = UUID.randomUUID();
+        var item = QueueItem.builder().type(QueueType.ORG_VERIFICATION).refId(ref.toString()).build();
+        when(queueItemRepository.findByTypeAndRefId(QueueType.ORG_VERIFICATION, ref.toString()))
+                .thenReturn(Optional.empty(), Optional.of(item));
+        when(queueItemRepository.save(any(QueueItem.class))).thenReturn(item);
+        when(accountRepository.findByRole(com.rehome.rehome.entity.enums.Role.MODERATOR)).thenReturn(List.of(moderator));
+        service.enqueue(QueueType.ORG_VERIFICATION, ref.toString(), null);
+        service.enqueue(QueueType.ORG_VERIFICATION, ref.toString(), null);
+        verify(businessNotifications, times(1)).send(eq(moderator), any(), anyString(), anyString(),
+                eq(com.rehome.rehome.entity.enums.NotificationTargetType.ORGANIZATION), eq(ref), isNull());
+        verify(queueItemRepository, times(1)).save(any());
+        verify(accountRepository, never()).findByRoleAndWarehouse_Id(any(), any());
+    }
 
     @Mock private QueueItemRepository queueItemRepository;
     @Mock private OrderRepository orderRepository;

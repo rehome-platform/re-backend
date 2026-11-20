@@ -18,6 +18,7 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 public class ProductSkuLookupResponse {
+    private UUID pendingReturnRequestId;
     private String id;
     private String name;
     private ProductStatus status;

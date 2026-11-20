@@ -15,6 +15,7 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 @Builder
 public class InventoryItemResponse {
+    private java.util.UUID pendingReturnRequestId;
     private String id;
     private String name;
     private ProductStatus status;

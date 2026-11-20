@@ -1,5 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.util.NotificationFormatting;
+
 import com.rehome.rehome.entity.enums.DegradedItemChoice;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 import com.rehome.rehome.entity.enums.NotificationType;
@@ -56,7 +58,7 @@ public class DegradedItemCaseLifecycleServiceImpl implements DegradedItemCaseLif
                     NotificationType.TERM_EXPIRY,
                     "Nhắc chốt phương án đền bù hàng xuống cấp",
                     "Sản phẩm \"" + product.getName() + "\" đang chờ bạn chọn phương án đền bù, "
-                            + "hạn đến " + degradedCase.getDecisionDeadline() + ".",
+                            + "hạn đến " + NotificationFormatting.deadline(degradedCase.getDecisionDeadline()) + ".",
                     NotificationTargetType.DEGRADED_ITEM_CASE,
                     degradedCase.getId(),
                     null);

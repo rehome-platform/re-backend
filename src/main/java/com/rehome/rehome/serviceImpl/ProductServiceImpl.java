@@ -91,6 +91,7 @@ public class ProductServiceImpl implements ProductService {
     private final NotificationService notificationService;
     private final FeaturedListingManager featuredListingManager;
     private final AuditLogger auditLogger;
+    private final ReturnRequestRepository returnRequestRepository;
 
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
@@ -742,6 +743,7 @@ public class ProductServiceImpl implements ProductService {
                 .photos(photos)
                 .decisionId(decisionId)
                 .degradedCaseId(degradedCaseId)
+                .pendingReturnRequestId(pendingReturnRequests(List.of(product)).get(product.getId()))
                 .build();
     }
 
@@ -770,6 +772,8 @@ public class ProductServiceImpl implements ProductService {
         Page<Product> result = productRepository.findInventory(
                 account.getWarehouse().getId(), status, degradedOnly, pageable);
 
+        Map<String, UUID> pendingReturns = pendingReturnRequests(result.getContent());
+
         return PageResponse.from(result.map(p -> InventoryItemResponse.builder()
                 .id(p.getId())
                 .name(p.getName())
@@ -779,7 +783,24 @@ public class ProductServiceImpl implements ProductService {
                 .currentTerm(p.getCurrentTerm())
                 .daysIntoTerm(daysIntoCurrentTerm(p))
                 .currentPrice(p.getCurrentPrice())
+                .pendingReturnRequestId(pendingReturns.get(p.getId()))
                 .build()));
+    }
+
+    private Map<String, UUID> pendingReturnRequests(List<Product> products) {
+        List<String> ids = products.stream().filter(p -> p.getStatus() == ProductStatus.RETURNED)
+                .map(Product::getId).toList();
+        if (ids.isEmpty()) return Map.of();
+        Map<String, UUID> pending = new java.util.HashMap<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (var reference : returnRequestRepository.findLatestReturnsByProductIds(ids)) {
+            if (seen.add(reference.getProductId())
+                    && reference.getStatus() == com.rehome.rehome.entity.enums.ReturnRequestStatus.VALID
+                    && reference.getItemAction() == null && !Boolean.TRUE.equals(reference.getDegraded())) {
+                pending.put(reference.getProductId(), reference.getReturnRequestId());
+            }
+        }
+        return pending;
     }
 
     // Số ngày đã trôi qua trong kỳ ký gửi hiện tại (tối thiểu 1); dùng chung cho API 40 và API 41.

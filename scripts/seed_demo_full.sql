@@ -2150,12 +2150,14 @@ SET balance = COALESCE((SELECT SUM(t.amount) FROM wallet_transactions t
 -- phải trả là mỗi lần gói thay đổi đều phải set/clear lại cột này.
 -- Chỉ Member đang có gói ACTIVE với featured_listing = true, và chỉ món còn trong kho.
 UPDATE products p
-SET featured_until = s.expires_at
+SET featured_until = s.expires_at,
+    featured_rank = CASE s.tier WHEN 'DIAMOND' THEN 3 WHEN 'GOLD' THEN 2 WHEN 'SILVER' THEN 1 END
 FROM member_subscriptions s
 WHERE s.member_id = p.member_id
   AND s.status = 'ACTIVE'
   AND s.featured_listing = true
   AND s.expires_at > now()
+  AND s.tier IN ('DIAMOND', 'GOLD', 'SILVER')
   AND p.status IN ('ON_SALE', 'RESERVED', 'WAREHOUSE');
 
 -- 18.8 ĐIỂM TÍCH LŨY (member_profiles.points_balance) tính từ chính các đơn đã payout, đúng công thức

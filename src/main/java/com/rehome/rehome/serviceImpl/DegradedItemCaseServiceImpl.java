@@ -1,5 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.util.NotificationFormatting;
+
 import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 
@@ -68,6 +70,7 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
     private final PlatformFundRepository platformFundRepository;
     private final ReturnRequestPhotoRepository returnRequestPhotoRepository;
     private final SystemConfigReader systemConfigReader;
+    private final com.rehome.rehome.repository.ReturnRequestRepository returnRequestRepository;
 
     // Moderator mở ca trực tiếp lúc kiểm kho (không qua yêu cầu trả hàng): compensationAmount
     // snapshot từ giá đang bán - hoa hồng kỳ hiện tại, cùng công thức áp dụng lúc bán (F-036).
@@ -81,18 +84,23 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
             throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);
         }
 
-        Product product = productRepository.findById(request.getProductId())
+        // Lock the return first, matching item-action's return -> product lock order.
+        ReturnRequest pendingReturn = returnRequestRepository
+                .findLatestReturnsByProductIds(List.of(request.getProductId())).stream().findFirst()
+                .flatMap(reference -> returnRequestRepository.findByIdForUpdate(reference.getReturnRequestId()))
+                .orElse(null);
+        Product product = productRepository.findByIdForUpdate(request.getProductId())
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
         if (!product.getWarehouse().getId().equals(moderator.getWarehouse().getId())) {
             throw new AppException(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);
         }
-        if (product.getStatus() != ProductStatus.ON_SALE) {
-            throw new AppException(ErrorCode.DEGRADED_ITEM_CASE_PRODUCT_NOT_ON_SALE);
-        }
         if (degradedItemCaseRepository.existsByProduct_IdAndChoiceIsNull(product.getId())) {
             throw new ConflictException(
                     "Sản phẩm đã có ca xử lý hàng xuống cấp đang chờ quyết định.", "DEGRADED_ITEM_CASE_ALREADY_OPEN");
+        }
+        if (product.getStatus() != ProductStatus.ON_SALE && product.getStatus() != ProductStatus.RETURNED) {
+            throw new AppException(ErrorCode.DEGRADED_ITEM_CASE_PRODUCT_NOT_ON_SALE);
         }
 
         BigDecimal compensationAmount = product.getCurrentPrice()
@@ -108,10 +116,18 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
                 .decisionDeadline(Instant.now().plus(Duration.ofDays(decisionDeadlineDays())))
                 .build();
 
+        if (product.getStatus() == ProductStatus.RETURNED && pendingReturn != null
+                && pendingReturn.getStatus() == com.rehome.rehome.entity.enums.ReturnRequestStatus.VALID
+                && pendingReturn.getItemAction() == null) {
+            degradedCase.setReturnRequest(pendingReturn);
+            pendingReturn.setDegraded(true);
+            returnRequestRepository.save(pendingReturn);
+        }
+
         degradedItemCaseRepository.save(degradedCase);
         businessNotifications.send(product.getMember(), NotificationType.TERM_EXPIRY, "Cần chọn phương án cho món xuống cấp",
                 "Món " + product.getName() + ": vui lòng chọn phương án trước hạn "
-                        + degradedCase.getDecisionDeadline() + ".", NotificationTargetType.DEGRADED_ITEM_CASE, degradedCase.getId());
+                        + NotificationFormatting.deadline(degradedCase.getDecisionDeadline()) + ".", NotificationTargetType.DEGRADED_ITEM_CASE, degradedCase.getId());
 
         // Tạm ẩn khỏi sàn chờ Member quyết định (F-036) - hàng vẫn nằm trong kho, không phải WITHDRAWN
         product.setStatus(ProductStatus.WAREHOUSE);
@@ -360,7 +376,7 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
 
         // Ảnh và lý do nằm ở yêu cầu trả hàng dẫn đến ca này; ca mở trực tiếp lúc kiểm kho
         // (không qua trả hàng) thì lấy ảnh/ghi chú Moderator nhập thẳng lúc mở ca
-        List<String> photos = returnRequest == null ? c.getPhotos()
+        List<String> photos = returnRequest == null || !c.getPhotos().isEmpty() ? c.getPhotos()
                 : returnRequestPhotoRepository
                         .findAllByReturnRequest_IdOrderByIdAsc(returnRequest.getId()).stream()
                         .map(ReturnRequestPhoto::getImageUrl)
@@ -372,7 +388,7 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
                 .productName(c.getProduct().getName())
                 .photos(photos)
                 .reason(returnRequest == null ? null : returnRequest.getReason())
-                .moderatorNote(returnRequest == null ? c.getNotes() : returnRequest.getConditionNote())
+                .moderatorNote(c.getNotes() != null || returnRequest == null ? c.getNotes() : returnRequest.getConditionNote())
                 .compensationAmount(c.getCompensationAmount())
                 .degradedCompensationRate(c.getProduct().getConsignmentReceipt().getDegradedCompensationRate())
                 .paidAmount(c.getPaidAmount())

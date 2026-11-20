@@ -30,8 +30,8 @@ public class DegradedItemCase {
     private Product product;
 
     // Yêu cầu trả hàng dẫn đến ca này, nếu có
-    @OneToOne(fetch = FetchType.LAZY, optional = true)
-    @JoinColumn(name = "return_request_id", nullable = true, unique = true)
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "return_request_id", nullable = true)
     private ReturnRequest returnRequest;
 
     // FULL_COMPENSATION / PARTIAL_WITH_ITEM_BACK — Member chọn, null nếu chưa quyết định (API 95)

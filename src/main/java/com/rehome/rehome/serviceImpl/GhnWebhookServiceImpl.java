@@ -1,5 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.util.NotificationFormatting;
+
 import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 
@@ -103,7 +105,7 @@ public class GhnWebhookServiceImpl implements GhnWebhookService {
                 order.setAutoCompleteDeadline(occurredAt.plus(autoCompleteDays, ChronoUnit.DAYS));
                 order.setReturnDeadline(occurredAt.plus(returnWindowDays, ChronoUnit.DAYS));
                 businessNotifications.order(order, "Đơn hàng đã giao", "đã giao thành công · Mã GHN " + payload.getOrderCode()
-                        + ". Hạn yêu cầu trả hàng: " + order.getReturnDeadline() + ".");
+                        + ". Hạn yêu cầu trả hàng: " + NotificationFormatting.deadline(order.getReturnDeadline()) + ".");
                 orderRepository.save(order);
             }
         } else if (TERMINAL_FAILURE_STATUSES.contains(status)) {

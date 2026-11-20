@@ -80,6 +80,10 @@ springdoc:
 
 # ==================== APPLICATION CONFIG ====================
 app:
+  cache:
+    products:
+      enabled: ${PRODUCTS_CACHE_ENABLED:true}
+      ttl: ${PRODUCTS_CACHE_TTL:30s}
   ghn:
     fallback-on-error: ${GHN_FALLBACK_ON_ERROR:true}
   # Các initializer TỰ SEED dữ liệu mẫu (tài khoản, kho, danh mục, thương hiệu, gói thành viên,

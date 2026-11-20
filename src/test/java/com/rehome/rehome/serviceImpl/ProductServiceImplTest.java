@@ -77,6 +77,7 @@ import org.springframework.data.domain.PageRequest;
 @MockitoSettings(strictness = Strictness.LENIENT)
 @SuppressWarnings({"unchecked", "rawtypes"})
 class ProductServiceImplTest {
+    @Mock com.rehome.rehome.component.ProductListCache productListCache;
     @Mock ReturnRequestRepository returnRequestRepository;
 
     @Test void skuLookupIncludesPendingReturnAndHidesItOnceDegradedOrHandled() {
@@ -168,6 +169,8 @@ class ProductServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        when(productListCache.getOrLoad(any(), any())).thenAnswer(inv ->
+                ((java.util.function.Supplier<?>) inv.getArgument(1)).get());
         moderator = Account.builder()
                 .id(UUID.randomUUID())
                 .role(Role.MODERATOR)

@@ -21,6 +21,7 @@ public class MessageResponse {
     private String id;
     private String senderId;
     private String content;
+    private String originalContent;
     private List<String> imageUrls;
     private Instant createdAt;
 

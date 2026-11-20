@@ -100,8 +100,9 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(TokenRefreshException.class)
-    public ResponseEntity<ApiError> handleTokenRefresh(TokenRefreshException ex, HttpServletRequest req) {
-        return build(HttpStatus.FORBIDDEN, ex.getMessage(), req);
+    public ResponseEntity<ApiResponse<Object>> handleTokenRefresh(TokenRefreshException ex, HttpServletRequest req) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.error(ErrorCode.REFRESH_TOKEN_EXPIRED));
     }
 
     @ExceptionHandler(AppException.class)

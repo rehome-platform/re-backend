@@ -35,6 +35,10 @@ public class Message {
     @Column(name = "content", nullable = true, columnDefinition = "text")
     private String content;
 
+    // Sensitive identifiers remain masked; only violation words are unmasked here.
+    @Column(name = "original_content", nullable = true, columnDefinition = "text")
+    private String originalContent;
+
     // Thời điểm gửi
     @Column(name = "sent_at", nullable = false)
     private Instant sentAt;

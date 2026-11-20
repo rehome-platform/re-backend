@@ -54,6 +54,61 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ConversationServiceImplTest {
+    @org.junit.jupiter.api.BeforeEach
+    void allowCleanChatByDefault() {
+        org.mockito.Mockito.lenient().when(moderation.mask(any())).thenAnswer(inv ->
+                new com.rehome.rehome.service.ContentModerationService.MaskResult(inv.getArgument(0), null));
+    }
+
+    @Test
+    void maskedChatKeepsSanitizedOriginalInSendHistoryAndWebsocketButNotPushOrPreview() {
+        UUID memberId = UUID.randomUUID();
+        UUID organizationId = UUID.randomUUID();
+        UUID convId = UUID.randomUUID();
+        UUID messageId = UUID.randomUUID();
+        Account sender = account(memberId, Role.MEMBER);
+        Account recipient = account(organizationId, Role.ORGANIZATION);
+        Conversation conv = conversation(convId, memberId, ConversationType.MEMBER_ORGANIZATION, organizationId);
+        when(conversationRepository.findById(convId)).thenReturn(Optional.of(conv));
+        when(accountRepository.findById(memberId)).thenReturn(Optional.of(sender));
+        when(accountRepository.findById(organizationId)).thenReturn(Optional.of(recipient));
+        String original = "Đồ ngu, SĐT ***, email ***, STK ***";
+        String masked = "** ***, SĐT ***, email ***, STK ***";
+        var words = org.mockito.Mockito.mock(com.rehome.rehome.repository.ViolationWordRepository.class);
+        when(words.findAllByIsActiveTrue()).thenReturn(List.of(
+                com.rehome.rehome.entity.marketplace.ViolationWord.builder().word("đồ ngu")
+                        .action(com.rehome.rehome.entity.enums.ViolationWordAction.AUTO_REJECT).build()));
+        var masker = new com.rehome.rehome.service.ContentModerationService(words, null, null, null);
+        when(moderation.mask(any())).thenAnswer(inv -> masker.mask(inv.getArgument(0)));
+        when(messageRepository.save(any())).thenAnswer(inv -> {
+            Message message = inv.getArgument(0);
+            message.setId(messageId);
+            return message;
+        });
+        MessageResponse sent = service.sendMessage(sender, convId, new SendMessageRequest(
+                "Đồ ngu, SĐT 0912345678, email test@example.com, STK 123456789012", null));
+        assertThat(sent.getContent()).isEqualTo(masked);
+        assertThat(sent.getOriginalContent()).isEqualTo(original);
+        var saved = ArgumentCaptor.forClass(Message.class);
+        verify(messageRepository).save(saved.capture());
+        assertThat(saved.getValue().getOriginalContent()).isEqualTo(original);
+        verify(moderation, never()).evaluate(any());
+        verify(moderation).recordMatch(memberId, "CHAT", messageId,
+                com.rehome.rehome.entity.enums.ViolationWordAction.AUTO_REJECT);
+        var broadcast = ArgumentCaptor.forClass(MessageResponse.class);
+        verify(messagingTemplate).convertAndSend(eq("/topic/conversations." + convId), broadcast.capture());
+        assertThat(broadcast.getValue().getContent()).isEqualTo(masked);
+        assertThat(broadcast.getValue().getOriginalContent()).isEqualTo(original);
+        assertThat(broadcast.getValue().isMine()).isFalse();
+        verify(pushNotificationService).send(eq(recipient), eq("Tin nhắn mới"), eq(masked), any());
+        when(messageRepository.findByConversation_Id(eq(convId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(saved.getValue())));
+        assertThat(service.listMessages(sender, convId, 0, 20).getContent().get(0).getOriginalContent()).isEqualTo(original);
+        when(conversationRepository.findByMember_IdOrderByCreatedAtDesc(memberId)).thenReturn(List.of(conv));
+        when(messageRepository.findLastMessageByConversationIds(List.of(convId)))
+                .thenReturn(List.<Object[]>of(new Object[]{convId, masked, saved.getValue().getSentAt(), memberId}));
+        assertThat(service.listConversations(sender).get(0).getLastMessage().getContent()).isEqualTo(masked);
+    }
 
     @Mock private ConversationRepository conversationRepository;
     @Mock private MessageRepository messageRepository;

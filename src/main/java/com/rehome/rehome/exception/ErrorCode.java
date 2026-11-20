@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 @Getter
 @RequiredArgsConstructor
 public enum ErrorCode {
+    REFRESH_TOKEN_REVOKED(HttpStatus.UNAUTHORIZED, "Refresh token đã bị thu hồi. Vui lòng đăng nhập lại."),
     TRYON_IN_PROGRESS(HttpStatus.CONFLICT, "Bạn đang có một ảnh thử đồ đang tạo, vui lòng chờ"),
     RECEIPT_NOT_EDITABLE(HttpStatus.CONFLICT, "Biên nhận không thể sửa hoặc huỷ ở trạng thái hiện tại."),
     RECEIPT_CHANGED(HttpStatus.CONFLICT, "Biên nhận đã thay đổi. Vui lòng tải lại."),

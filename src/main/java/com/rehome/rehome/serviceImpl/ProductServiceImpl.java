@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.component.FeaturedListingManager;
+import com.rehome.rehome.component.ProductListCache;
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.CreateProductRequest;
 import com.rehome.rehome.dto.request.DonateProductRequest;
@@ -92,6 +93,7 @@ public class ProductServiceImpl implements ProductService {
     private final FeaturedListingManager featuredListingManager;
     private final AuditLogger auditLogger;
     private final ReturnRequestRepository returnRequestRepository;
+    private final ProductListCache productListCache;
 
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
@@ -109,10 +111,17 @@ public class ProductServiceImpl implements ProductService {
             throw new BadRequestException("priceMin không được lớn hơn priceMax.");
         }
 
-        PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1));
+        ProductListCache.Key key = new ProductListCache.Key(search, categoryId, brandId, priceMin, priceMax,
+                warehouseId, tryonSlot, Math.max(page, 0), Math.max(size, 1), viewerId);
+        return productListCache.getOrLoad(key, () -> loadProducts(key));
+    }
+
+    private PageResponse<ProductSummaryResponse> loadProducts(ProductListCache.Key key) {
+        PageRequest pageable = PageRequest.of(key.page(), key.size());
 
         Page<Product> result = productRepository.findAll(
-                ProductSpecifications.filter(search, categoryId, brandId, priceMin, priceMax, warehouseId, tryonSlot)
+                ProductSpecifications.filter(key.search(), key.categoryId(), key.brandId(), key.priceMin(), key.priceMax(),
+                                key.warehouseId(), key.tryonSlot())
                         .and(ProductSpecifications.featuredFirst(Instant.now())),
                 pageable
         );
@@ -136,7 +145,7 @@ public class ProductServiceImpl implements ProductService {
                 .condition(product.getConditionNote())
                 .originalPrice(product.getConsignmentReceipt().getAgreedPrice())
                 .currentPrice(product.getCurrentPrice())
-                .isMine(isOwnedBy(product, viewerId))
+                .isMine(isOwnedBy(product, key.viewerId()))
                 .featured(FeaturedListingManager.isFeatured(product))
                 .build());
 

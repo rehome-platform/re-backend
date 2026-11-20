@@ -237,7 +237,7 @@ public class AuthServiceImpl implements AuthService {
     public AuthResponse refreshToken(String requestRefreshToken) {
 
         RefreshToken refreshToken = refreshTokenService
-                .findByToken(requestRefreshToken)
+                .findByTokenForUpdate(requestRefreshToken)
                 .orElseThrow(() -> new AppException(ErrorCode.REFRESH_TOKEN_NOT_FOUND));
 
         refreshTokenService.verifyExpiration(refreshToken);
@@ -251,15 +251,15 @@ public class AuthServiceImpl implements AuthService {
         String newAccessToken =
                 jwtService.generateAccessToken(account);
 
-        // Rotate refresh token
-        refreshTokenService.deleteByAccount(account);
-
         RefreshToken newRefreshToken =
-                refreshTokenService.createRefreshToken(account);
+                refreshTokenService.rotateRefreshToken(refreshToken);
 
         return AuthResponse.builder()
                 .accessToken(newAccessToken)
                 .refreshToken(newRefreshToken.getToken())
+                .role(account.getRole())
+                .id(account.getId())
+                .is_verified(account.isEmailVerified())
                 .build();
     }
 

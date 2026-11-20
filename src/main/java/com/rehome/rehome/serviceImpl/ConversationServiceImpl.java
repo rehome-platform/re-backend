@@ -291,16 +291,18 @@ public class ConversationServiceImpl implements ConversationService {
         Account sender = accountRepository.findById(viewer.getId())
                 .orElseThrow(() -> new AppException(ErrorCode.UNAUTHORIZED));
 
-        var moderationAction = moderation.evaluate(request.getContent());
+        String sensitiveMasked = maskSensitiveContent(request.getContent());
+        var masked = moderation.mask(sensitiveMasked);
         Message message = Message.builder()
                 .conversation(conversation)
                 .senderAccount(sender)
-                .content(maskSensitiveContent(request.getContent()))
+                .content(masked.text())
+                .originalContent(java.util.Objects.equals(sensitiveMasked, masked.text()) ? null : sensitiveMasked)
                 .imageUrls(imageUrls)
                 .sentAt(Instant.now())
                 .build();
         messageRepository.save(message);
-        moderation.recordMatch(viewer.getId(), "CHAT", message.getId(), moderationAction);
+        moderation.recordMatch(viewer.getId(), "CHAT", message.getId(), masked.action());
 
         MessageResponse response = toMessageResponse(message, viewer.getId());
         // isMine phụ thuộc viewer nên broadcast riêng 1 bản trung lập (không ai được đánh dấu "của mình")
@@ -480,6 +482,7 @@ public class ConversationServiceImpl implements ConversationService {
                 .id(message.getId().toString())
                 .senderId(message.getSenderAccount().getId().toString())
                 .content(message.getContent())
+                .originalContent(message.getOriginalContent())
                 .imageUrls(message.getImageUrls() == null ? List.of() : message.getImageUrls())
                 .createdAt(message.getSentAt())
                 .isMine(message.getSenderAccount().getId().equals(viewerId))

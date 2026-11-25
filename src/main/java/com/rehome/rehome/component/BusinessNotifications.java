@@ -35,6 +35,10 @@ public class BusinessNotifications {
         schedule(recipient.getId(), type, title, body, target, targetId.toString(), warehouseId);
     }
 
+    public void withoutTarget(Account recipient, NotificationType type, String title, String body) {
+        schedule(recipient.getId(), type, title, body, null, null);
+    }
+
     public void order(Order order, String title, String message) {
         send(order.getBuyer(), NotificationType.ORDER_UPDATE, title,
                 "Đơn " + order.getOrderNo() + ": " + message, NotificationTargetType.ORDER, order.getId());
@@ -80,7 +84,7 @@ public class BusinessNotifications {
                     if (target == NotificationTargetType.PRODUCT) {
                         notificationService.notifyProduct(recipient, type, title, body, targetId, null);
                     } else {
-                        notificationService.notify(recipient, type, title, body, target, UUID.fromString(targetId), warehouseId);
+                        notificationService.notify(recipient, type, title, body, target, targetId == null ? null : UUID.fromString(targetId), warehouseId);
                     }
                 });
             } catch (Exception ex) {

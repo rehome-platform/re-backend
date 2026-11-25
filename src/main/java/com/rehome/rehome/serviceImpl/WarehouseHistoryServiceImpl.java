@@ -85,6 +85,8 @@ public class WarehouseHistoryServiceImpl implements WarehouseHistoryService {
         String name = nameByAccountId.get(actor.getId());
         return WarehouseHistoryResponse.builder()
                 .target(log.getTargetType() + " " + targetLabel(log))
+                .targetType(log.getTargetType())
+                .targetId(log.getTargetId())
                 .action(log.getActionType())
                 .actor(name != null ? name : actor.getEmail())
                 .timestamp(log.getCreatedAt())

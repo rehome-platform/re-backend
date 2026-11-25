@@ -1,0 +1,5 @@
+﻿target_users,completed_requests,failures,failure_pct,average_ms,completed_rps,successful_rps,max_observed_users
+1000,39028,0,0.0,1218.69,438.52,438.52,1000
+2000,37525,0,0.0,3585.46,416.94,416.94,2000
+2500,40392,3586,8.88,4474.14,448.8,408.96,2500
+recovery,3137,644,20.53,4618.41,52.28,41.55,2500

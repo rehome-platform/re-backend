@@ -81,6 +81,8 @@ public class ProductServiceImpl implements ProductService {
     private final ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
     private final DegradedItemCaseRepository degradedItemCaseRepository;
     private final ConsignmentReceiptRepository receiptRepository;
+    private final CategoryRepository categoryRepository;
+    private final BrandRepository brandRepository;
     private final OrderItemRepository orderItemRepository;
     private final SkuLabelPdfService skuLabelPdfService;
     private final GhnShippingFeeCalculator ghnShippingFeeCalculator;
@@ -94,6 +96,7 @@ public class ProductServiceImpl implements ProductService {
     private final AuditLogger auditLogger;
     private final ReturnRequestRepository returnRequestRepository;
     private final ProductListCache productListCache;
+    private final com.rehome.rehome.service.ProductCatalogReader productCatalogReader;
 
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
@@ -102,6 +105,7 @@ public class ProductServiceImpl implements ProductService {
     // ================================================================ Sàn (public)
 
     @Override
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
     public PageResponse<ProductSummaryResponse> getProducts(String search, UUID categoryId, UUID brandId,
                                                             BigDecimal priceMin, BigDecimal priceMax,
                                                             UUID warehouseId, TryOnSlot tryonSlot,
@@ -112,45 +116,10 @@ public class ProductServiceImpl implements ProductService {
         }
 
         ProductListCache.Key key = new ProductListCache.Key(search, categoryId, brandId, priceMin, priceMax,
-                warehouseId, tryonSlot, Math.max(page, 0), Math.max(size, 1), viewerId);
-        return productListCache.getOrLoad(key, () -> loadProducts(key));
+                warehouseId, tryonSlot, Math.max(page, 0), Math.min(Math.max(size, 1), MAX_SIZE), viewerId);
+        return productListCache.getOrLoad(key, () -> productCatalogReader.load(key));
     }
 
-    private PageResponse<ProductSummaryResponse> loadProducts(ProductListCache.Key key) {
-        PageRequest pageable = PageRequest.of(key.page(), key.size());
-
-        Page<Product> result = productRepository.findAll(
-                ProductSpecifications.filter(key.search(), key.categoryId(), key.brandId(), key.priceMin(), key.priceMax(),
-                                key.warehouseId(), key.tryonSlot())
-                        .and(ProductSpecifications.featuredFirst(Instant.now())),
-                pageable
-        );
-
-        List<String> productIds = result.getContent().stream().map(Product::getId).toList();
-        Map<String, String> thumbnailByProductId = productPhotoRepository
-                .findByProduct_IdInOrderByDisplayOrderAscIdAsc(productIds).stream()
-                .collect(Collectors.toMap(
-                        photo -> photo.getProduct().getId(),
-                        ProductPhoto::getImageUrl,
-                        (first, second) -> first
-                ));
-
-        Page<ProductSummaryResponse> mapped = result.map(product -> ProductSummaryResponse.builder()
-                .id(product.getId())
-                .name(product.getName())
-                .thumbnailUrl(thumbnailByProductId.get(product.getId()))
-                .brandName(product.getBrand().getName())
-                .categoryName(product.getCategory().getName())
-                .size(product.getSize())
-                .condition(product.getConditionNote())
-                .originalPrice(product.getConsignmentReceipt().getAgreedPrice())
-                .currentPrice(product.getCurrentPrice())
-                .isMine(isOwnedBy(product, key.viewerId()))
-                .featured(FeaturedListingManager.isFeatured(product))
-                .build());
-
-        return PageResponse.from(mapped);
-    }
 
     @Override
     @Transactional
@@ -637,18 +606,28 @@ public class ProductServiceImpl implements ProductService {
         }
 
         ConsignmentForm form = receipt.getConsignmentForm();
+        Category category = form.getCategory();
+        if (request.getCategoryId() != null && !request.getCategoryId().equals(category.getId())) {
+            category = categoryRepository.findById(request.getCategoryId())
+                    .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));
+        }
+        Brand brand = form.getBrand();
+        if (request.getBrandId() != null && !request.getBrandId().equals(brand.getId())) {
+            brand = brandRepository.findById(request.getBrandId())
+                    .orElseThrow(() -> new AppException(ErrorCode.BRAND_NOT_FOUND));
+        }
         Instant now = Instant.now();
 
         // Moderator không nhập size thì lấy size Member đã khai trong form
         String size = StringUtils.hasText(request.getSize()) ? request.getSize() : form.getSize();
 
         Product product = Product.builder()
-                .id(generateSku(receipt.getWarehouse(), form.getCategory()))
+                .id(generateSku(receipt.getWarehouse(), category))
                 .consignmentReceipt(receipt)
                 .member(receipt.getMember())
                 .warehouse(receipt.getWarehouse())
-                .category(form.getCategory())
-                .brand(form.getBrand())
+                .category(category)
+                .brand(brand)
                 .name(request.getName().trim())
                 .size(size)
                 .conditionNote(receipt.getConditionNote())

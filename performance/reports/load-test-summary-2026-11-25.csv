@@ -1,0 +1,8 @@
+﻿max_users,requests,failures,failure_pct,average_ms,p95_ms,p99_ms,total_rps,successful_rps,source_file
+200,24254,0,0.0,374.65,470,500,57.68,57.68,performance\results\restarted-200_stats.csv
+500,56032,0,0.0,371.27,470,490,109.9,109.9,performance\results\restarted-500_stats.csv
+1000,97898,0,0.0,676.43,1400,1500,163.19,163.19,performance\results\restarted-1000_stats.csv
+2000,77452,0,0.0,2519.67,3900,4100,323.25,323.25,performance\results\capacity-2000_stats.csv
+2200,119165,0,0.0,2952.38,4200,4400,361.65,361.65,performance\results\diagnostic-20261125-115938-2200_stats.csv
+2500,120083,4230,3.52,3142.12,5000,5000,363.95,351.13,performance\results\diagnostic-20261125-135758-2500_stats.csv
+3000,121810,43521,35.73,3440.48,5100,5200,369.63,237.57,performance\results\capacity-3000_stats.csv

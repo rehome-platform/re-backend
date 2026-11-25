@@ -13,15 +13,19 @@ import com.rehome.rehome.entity.enums.UploadFolder;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.tryon.TryOnImage;
+import com.rehome.rehome.entity.tryon.TryOnSharedAsset;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
 import com.rehome.rehome.repository.TryOnImageRepository;
+import com.rehome.rehome.repository.TryOnSharedAssetRepository;
 import com.rehome.rehome.service.FileStorageService;
 import com.rehome.rehome.service.TryOnImageGenerator;
 import com.rehome.rehome.service.TryOnService;
 import com.rehome.rehome.util.OutfitMatchingRules;
+import com.rehome.rehome.util.TryOnFingerprint;
+import org.springframework.dao.DataIntegrityViolationException;
 import java.util.Comparator;
 import org.springframework.data.domain.Slice;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +48,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -62,12 +67,20 @@ public class TryOnServiceImpl implements TryOnService {
     private static final String IMAGE_CONTENT_TYPE = "image/png";
 
     private final TryOnImageRepository tryOnImageRepository;
+    private final TryOnSharedAssetRepository sharedAssetRepository;
+    // Bounded striped locks prevent duplicate GPU work for the same input in this JVM.
+    private final ReentrantLock[] assetLocks =
+            java.util.stream.IntStream.range(0, 256)
+                    .mapToObj(i -> new ReentrantLock()).toArray(ReentrantLock[]::new);
     private final ProductPhotoRepository productPhotoRepository;
     private final FileStorageService fileStorageService;
     private final ProductRepository productRepository;
     private final TryOnImageGenerator tryOnImageGenerator;
     private final AiTryOnQuotaGuard aiTryOnQuotaGuard;
     private final com.rehome.rehome.client.GeminiOutfitClient geminiOutfitClient;
+    @org.springframework.beans.factory.annotation.Value("${tryon.generation-version:v1}")
+    private String generationVersion = "v1";
+
     private final Set<UUID> generatingMembers = ConcurrentHashMap.newKeySet();
 
     // ================================================================ API 97: F-077, F-078, F-079
@@ -94,7 +107,6 @@ public class TryOnServiceImpl implements TryOnService {
         // (502) KHÔNG mất lượt - khác LiveTryOnQuotaGuard vốn trừ ngay lúc mint token.
         // Xóa ảnh khỏi bộ sưu tập cũng KHÔNG hoàn lượt (đặc tả §8.8).
         // true = quota gói đã hết, lượt này trả bằng lượt thưởng (mua bằng điểm), trừ sau khi lưu ảnh xong.
-        boolean viaBonusCredit = aiTryOnQuotaGuard.assertCanGenerate(account.getId());        // 429
 
         String topId = blankToNull(request.getTopProductId());
         String bottomId = blankToNull(request.getBottomProductId());
@@ -124,41 +136,71 @@ public class TryOnServiceImpl implements TryOnService {
         // Ảnh của từng món: ưu tiên ảnh đã tách nền (F-120), không có thì ảnh đầu tiên
         List<ProductPhoto> photos = productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(ids);
 
-        // F-078: sinh ảnh (lỗi/timeout -> 502, chưa lưu gì)
-        byte[] png = outfit
-                ? tryOnImageGenerator.generateOutfit(request.getModelType(),
-                loadPhotoBytes(photos, top), loadPhotoBytes(photos, bottom))
-                : tryOnImageGenerator.generateDress(request.getModelType(), loadPhotoBytes(photos, dress));
-
-        // F-079: chỉ lưu khi sinh thành công
-        String path = UploadFolder.TRY_ON.getPath() + "/" + UUID.randomUUID() + ".png";
-        String imageUrl = fileStorageService.store(path, png, IMAGE_CONTENT_TYPE);
-
-        TryOnImage saved;
-        try {
-            saved = tryOnImageRepository.save(TryOnImage.builder()
-                    .member(account)
-                    .modelType(request.getModelType())
-                    .topProduct(top)
-                    .bottomProduct(bottom)
-                    .dressProduct(dress)
-                    .imageUrl(imageUrl)
-                    .build());
-        } catch (RuntimeException e) {
-            // Không để file mồ côi khi ghi DB lỗi
-            removeFile(imageUrl, null);
-            throw e;
-        }
-
-        // Ảnh đã lưu thành công mới trừ lượt thưởng. Nếu request khác đã dùng mất lượt cuối trong lúc
-        // AI đang sinh thì chấp nhận lệch 1 lượt (cùng mức đánh đổi với race đã ghi ở LiveTryOnQuotaGuard).
-        if (viaBonusCredit) {
-            aiTryOnQuotaGuard.consumeBonusCredit(account.getId());
-        }
-
+        // Hash the actual input bytes: overwriting a photo at the same URL also invalidates reuse.
+        byte[] first = loadPhotoBytes(photos, outfit ? top : dress);
+        byte[] second = outfit ? loadPhotoBytes(photos, bottom) : new byte[0];
+        String fingerprint = TryOnFingerprint.of(
+                request.getModelType(), topId, bottomId, dressId, first, second, generationVersion);
         Map<String, String> thumbnails = photos.stream().collect(Collectors.toMap(
-                ph -> ph.getProduct().getId(), ProductPhoto::getImageUrl, (first, second) -> first));
-        return toResponse(saved, thumbnails);
+                ph -> ph.getProduct().getId(), ProductPhoto::getImageUrl, (left, right) -> left));
+        var lock = assetLocks[Math.floorMod(fingerprint.hashCode(), assetLocks.length)];
+        lock.lock();
+        try {
+            var cached = sharedAssetRepository.findById(fingerprint);
+            if (cached.isPresent()) {
+                return attachSharedImage(account, request, top, bottom, dress, cached.get(), thumbnails, false);
+            }
+            boolean viaBonusCredit = aiTryOnQuotaGuard.assertCanGenerate(account.getId());
+            byte[] png = outfit
+                    ? tryOnImageGenerator.generateOutfit(request.getModelType(), first, second)
+                    : tryOnImageGenerator.generateDress(request.getModelType(), first);
+            String path = UploadFolder.TRY_ON.getPath() + "/" + UUID.randomUUID() + ".png";
+            String imageUrl = fileStorageService.store(path, png, IMAGE_CONTENT_TYPE);
+            TryOnSharedAsset asset;
+            boolean generated = true;
+            try {
+                asset = sharedAssetRepository.saveAndFlush(
+                        TryOnSharedAsset.builder()
+                                .fingerprint(fingerprint).imageUrl(imageUrl).build());
+            } catch (DataIntegrityViolationException ex) {
+                // Another replica may have published first. Repository transaction has already rolled back.
+                var winner = sharedAssetRepository.findById(fingerprint);
+                if (winner.isEmpty()) {
+                    removeFile(imageUrl, null);
+                    throw ex;
+                }
+                asset = winner.get();
+                generated = false;
+                if (!Objects.equals(imageUrl, asset.getImageUrl())) removeFile(imageUrl, null);
+            } catch (RuntimeException ex) {
+                removeFile(imageUrl, null);
+                throw ex;
+            }
+            // Once published, the shared asset owns the file, even if saving a collection item fails.
+            TryOnImageResponse response = attachSharedImage(account, request, top, bottom, dress,
+                    asset, thumbnails, generated);
+            if (generated && viaBonusCredit) aiTryOnQuotaGuard.consumeBonusCredit(account.getId());
+            return response;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private TryOnImageResponse attachSharedImage(Account account, CreateTryOnImageRequest request,
+            Product top, Product bottom, Product dress,
+            TryOnSharedAsset asset, Map<String, String> thumbnails,
+            boolean generated) {
+        // Each member gets their own collection row and ID; repeated use does not duplicate that row.
+        var existing = tryOnImageRepository
+                .findFirstByMember_IdAndGenerationFingerprintAndDeletedAtIsNullOrderByCreatedAtDesc(
+                        account.getId(), asset.getFingerprint());
+        TryOnImage image = existing.orElseGet(() -> tryOnImageRepository.save(TryOnImage.builder()
+                .member(account).modelType(request.getModelType()).topProduct(top).bottomProduct(bottom)
+                .dressProduct(dress).generationFingerprint(asset.getFingerprint()).sharedAsset(asset)
+                .quotaCharged(generated).imageUrl(asset.getImageUrl()).build()));
+        TryOnImageResponse response = toResponse(image, thumbnails);
+        response.setReused(!generated);
+        return response;
     }
 
     private Product requireUsable(Map<String, Product> products, String productId, TryOnSlot expectedSlot) {
@@ -218,7 +260,7 @@ public class TryOnServiceImpl implements TryOnService {
                 .orElseThrow(() -> new AppException(ErrorCode.TRYON_IMAGE_NOT_FOUND));      // 404
 
         // Giống deleteImage: ảnh của người khác cũng trả 404, không lộ ảnh có tồn tại hay không
-        if (!image.getMember().getId().equals(account.getId())) {
+        if (image.getDeletedAt() != null || !image.getMember().getId().equals(account.getId())) {
             throw new AppException(ErrorCode.TRYON_IMAGE_NOT_FOUND);                        // 404
         }
         return toResponse(image, loadThumbnails(List.of(image)));
@@ -359,6 +401,7 @@ public class TryOnServiceImpl implements TryOnService {
                 .id(image.getId())
                 .modelType(image.getModelType())
                 .imageUrl(image.getImageUrl())
+                .reused(!image.isQuotaCharged())
                 .createdAt(image.getCreatedAt())
                 .top(toProductInfo(image.getTopProduct(), thumbnails))
                 .bottom(toProductInfo(image.getBottomProduct(), thumbnails))
@@ -387,8 +430,14 @@ public class TryOnServiceImpl implements TryOnService {
                 .orElseThrow(() -> new AppException(ErrorCode.TRYON_IMAGE_NOT_FOUND));      // 404
 
         // Ảnh của người khác cũng trả 404 (API 99 chỉ định nghĩa 404), đồng thời không lộ ảnh có tồn tại hay không
-        if (!image.getMember().getId().equals(account.getId())) {
+        if (image.getDeletedAt() != null || !image.getMember().getId().equals(account.getId())) {
             throw new AppException(ErrorCode.TRYON_IMAGE_NOT_FOUND);                        // 404
+        }
+
+        if (image.getSharedAsset() != null) {
+            image.setDeletedAt(java.time.Instant.now());
+            tryOnImageRepository.saveAndFlush(image);
+            return; // Shared file and original generation usage survive collection deletion.
         }
 
         String imageUrl = image.getImageUrl();

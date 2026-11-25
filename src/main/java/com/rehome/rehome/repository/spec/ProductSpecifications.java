@@ -46,8 +46,8 @@ public class ProductSpecifications {
             // So trên cột đã bỏ dấu để "ao khoac" khớp "Áo khoác"; từ khóa cũng phải bỏ dấu
             // để người gõ đủ dấu vẫn tìm được như cũ.
             if (search != null && !search.isBlank()) {
-                String keyword = VietnameseText.normalize(search);
-                predicates.add(cb.like(root.get("nameNormalized"), "%" + keyword + "%"));
+                String keyword = VietnameseText.normalize(search).replace("!", "!!").replace("%", "!%").replace("_", "!_");
+                predicates.add(cb.like(root.get("nameNormalized"), "%" + keyword + "%", '!'));
             }
             if (categoryId != null) {
                 predicates.add(cb.equal(root.get("category").get("id"), categoryId));

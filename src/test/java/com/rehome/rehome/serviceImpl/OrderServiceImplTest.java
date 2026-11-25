@@ -2011,6 +2011,94 @@ class OrderServiceImplTest {
     }
 
     @Test
+    void payOrders_rejectsEmptyInputBeforeLoadingAccounts() {
+        assertThatThrownBy(() -> orderService.payOrders(email, null)).isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> orderService.payOrders(email, new PayOrdersRequest(null, "WALLET")))
+                .isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> orderService.payOrders(email, new PayOrdersRequest(List.of(), "WALLET")))
+                .isInstanceOf(BadRequestException.class);
+        verifyNoInteractions(accountRepository, walletRepository, orderRepository);
+    }
+
+    @Test
+    void payOrders_rejectsMissingBuyerBeforeWalletDebit() {
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> orderService.payOrders(email,
+                new PayOrdersRequest(List.of(UUID.randomUUID().toString()), "WALLET")))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(walletRepository);
+    }
+
+    @Test
+    void payOrders_rejectsMissingOrderBeforeWalletDebit() {
+        UUID id = UUID.randomUUID();
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(id)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> orderService.payOrders(email,
+                new PayOrdersRequest(List.of(id.toString()), "WALLET")))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(walletRepository);
+    }
+
+    @Test
+    void payOrders_rejectsAnotherBuyersOrderBeforeWalletDebit() {
+        UUID id = UUID.randomUUID();
+        Order order = pendingOrder(id, "OD-WORKBOOK", "150000");
+        order.setBuyer(Account.builder().id(UUID.randomUUID()).build());
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(id)).thenReturn(Optional.of(order));
+        assertThatThrownBy(() -> orderService.payOrders(email,
+                new PayOrdersRequest(List.of(id.toString()), "WALLET")))
+                .isInstanceOf(ForbiddenException.class);
+        verifyNoInteractions(walletRepository);
+    }
+
+    @Test
+    void payOrders_rejectsAlreadyPaidOrderBeforeWalletDebit() {
+        assertWorkbookPaymentStatusRejected(OrderStatus.PAID, "ORDER_ALREADY_PAID");
+    }
+
+    @Test
+    void payOrders_rejectsCancelledOrderBeforeWalletDebit() {
+        assertWorkbookPaymentStatusRejected(OrderStatus.CANCELLED, "ORDER_NOT_PENDING");
+    }
+
+    private void assertWorkbookPaymentStatusRejected(OrderStatus status, String code) {
+        UUID id = UUID.randomUUID();
+        Order order = pendingOrder(id, "OD-WORKBOOK", "150000");
+        order.setStatus(status);
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(id)).thenReturn(Optional.of(order));
+        assertThatThrownBy(() -> orderService.payOrders(email,
+                new PayOrdersRequest(List.of(id.toString()), "WALLET")))
+                .isInstanceOf(ConflictException.class)
+                .satisfies(error -> assertThat(((ConflictException) error).getCode()).isEqualTo(code));
+        verifyNoInteractions(walletRepository);
+    }
+
+    @Test
+    void payOrders_acceptsExactlyAvailableBalanceAndPreservesLockedFunds() {
+        UUID id = UUID.randomUUID();
+        Order order = pendingOrder(id, "OD-WORKBOOK", "150000");
+        Wallet wallet = Wallet.builder().id(UUID.randomUUID()).member(member)
+                .balance(new BigDecimal("200000")).lockedBalance(new BigDecimal("50000")).build();
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(orderRepository.findById(id)).thenReturn(Optional.of(order));
+        when(walletRepository.findByMemberIdForUpdate(member.getId())).thenReturn(Optional.of(wallet));
+        when(platformFundRepository.findTopByOrderByIdAsc()).thenReturn(Optional.of(
+                PlatformFund.builder().id(UUID.randomUUID()).balance(BigDecimal.ZERO).build()));
+
+        PayOrdersResponse result = orderService.payOrders(email,
+                new PayOrdersRequest(List.of(id.toString()), "WALLET"));
+
+        assertThat(result.getWalletBalance()).isEqualByComparingTo("50000");
+        assertThat(wallet.getLockedBalance()).isEqualByComparingTo("50000");
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
+        verify(walletTransactionRepository, times(2)).save(any());
+        verify(queueService).enqueue(eq(QueueType.PACKING), eq(id.toString()), any());
+    }
+
+    @Test
     void payOrders_debitsWalletAndMarksOrdersPaid() {
         UUID firstOrderId = UUID.randomUUID();
         UUID secondOrderId = UUID.randomUUID();

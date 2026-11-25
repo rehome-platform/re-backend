@@ -19,6 +19,8 @@ public class TryOnImageResponse {
     private UUID id;
     private TryOnModelType modelType;
     private String imageUrl;
+    // POST: whether this request reused a result. GET: whether the collection row originated from reuse.
+    private boolean reused;
     private Instant createdAt;
 
     // Thử Áo + Quần: top và bottom có giá trị, dress = null. Thử Đầm thì ngược lại.

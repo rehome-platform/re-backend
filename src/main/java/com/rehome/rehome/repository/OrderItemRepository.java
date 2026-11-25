@@ -11,6 +11,19 @@ import java.util.UUID;
 
 public interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
 
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"product", "product.category", "product.brand", "order"})
+    @Query("""
+            select oi from OrderItem oi join oi.order o
+            where o.buyer.id = :memberId
+              and o.status = com.rehome.rehome.entity.enums.OrderStatus.COMPLETED
+              and o.completedAt is not null
+              and not exists (select rr.id from ReturnRequest rr where rr.order = o
+                  and rr.status = com.rehome.rehome.entity.enums.ReturnRequestStatus.VALID)
+            order by o.completedAt desc, oi.id asc
+            """)
+    List<OrderItem> findOutfitPreferenceHistory(@Param("memberId") UUID memberId,
+            org.springframework.data.domain.Pageable pageable);
+
     // API 144: hàng đã bán (SOLD) nhưng đơn còn PAID/PACKING thì hàng vẫn ở kho chờ đóng gói
     @Query("select count(oi) from OrderItem oi join oi.order o join oi.product p "
             + "where p.warehouse.id = :warehouseId "

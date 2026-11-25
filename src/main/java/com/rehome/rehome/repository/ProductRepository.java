@@ -17,6 +17,20 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface ProductRepository extends JpaRepository<Product, String>, JpaSpecificationExecutor<Product> {
+
+    @EntityGraph(attributePaths = {"category", "brand", "warehouse", "consignmentReceipt"})
+    @Query("""
+            select p from Product p where p.status = com.rehome.rehome.entity.enums.ProductStatus.ON_SALE
+              and p.category.tryonSlot = :slot and p.id <> :selectedId and p.member.id <> :memberId
+            order by p.createdAt desc, p.id asc
+            """)
+    List<Product> findMlOutfitCandidates(@Param("slot") TryOnSlot slot, @Param("selectedId") String selectedId,
+            @Param("memberId") UUID memberId, Pageable pageable);
+    @Override
+    @EntityGraph(attributePaths = {"brand", "category", "warehouse", "consignmentReceipt"})
+    Page<Product> findAll(org.springframework.data.jpa.domain.Specification<Product> specification,
+                          Pageable pageable);
+
     // DELETE /categories/{id}, /brands/{id}: chặn xóa khi còn sản phẩm tham chiếu
     boolean existsByCategory_Id(UUID categoryId);
 

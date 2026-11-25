@@ -10,7 +10,7 @@ import lombok.*;
 import org.hibernate.annotations.Check;
 
 @Entity
-@Table(name = "try_on_images")
+@Table(name = "try_on_images", indexes = @Index(name = "idx_try_on_reuse", columnList = "member_id,generation_fingerprint,created_at"))
 @Check(constraints = "(top_product_id is not null and bottom_product_id is not null and dress_product_id is null) or (top_product_id is null and bottom_product_id is null and dress_product_id is not null)")
 @Getter
 @Setter
@@ -53,7 +53,23 @@ public class TryOnImage {
     @Column(name = "image_url", nullable = false, length = 2048)
     private String imageUrl;
 
-    // Thời điểm sinh ảnh
+    // Input fingerprint; shared mannequin assets may be reused across members.
+    @Column(name = "generation_fingerprint", length = 64)
+    private String generationFingerprint;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "shared_asset_fingerprint")
+    private TryOnSharedAsset sharedAsset;
+
+    @Builder.Default
+    @org.hibernate.annotations.ColumnDefault("true")
+    @Column(name = "quota_charged", nullable = false)
+    private boolean quotaCharged = true;
+
+    // Preserve generation accounting when removing an item from a member's collection.
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

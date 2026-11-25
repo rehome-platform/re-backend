@@ -32,7 +32,7 @@ class ProductListCacheTest {
     @Mock StringRedisTemplate redis;
     @Mock ValueOperations<String, String> values;
     ProductListCache cache;
-    Map<String, String> stored = new HashMap<>();
+    Map<String, String> stored = new java.util.concurrent.ConcurrentHashMap<>();
 
     @BeforeEach void setup() {
         cache = new ProductListCache(redis, new ObjectMapper(), true, "30s");
@@ -42,6 +42,16 @@ class ProductListCacheTest {
                 .when(values).set(anyString(), anyString(), any(Duration.class));
         lenient().doAnswer(inv -> { stored.put(inv.getArgument(0), inv.getArgument(1)); return null; })
                 .when(values).set(anyString(), anyString());
+    }
+
+    @Test void equivalentSearchAndPricesShareKeyWithoutSharingViewer() {
+        var first = new ProductListCache.Key(" ÁO ", null, null, new BigDecimal("150000.00"), null,
+                null, null, 0, 20, null);
+        var same = new ProductListCache.Key("ao", null, null, new BigDecimal("150000"), null,
+                null, null, 0, 20, null);
+        assertThat(first).isEqualTo(same);
+        assertThat(first).isNotEqualTo(new ProductListCache.Key("ao", null, null,
+                new BigDecimal("150000"), null, null, null, 0, 20, UUID.randomUUID()));
     }
 
     @AfterEach void cleanup() {
@@ -148,5 +158,80 @@ class ProductListCacheTest {
         verifyNoInteractions(redis);
         doThrow(new RedisConnectionFailureException("offline")).when(values).set(anyString(), anyString());
         assertThatCode(cache::invalidateAfterCommit).doesNotThrowAnyException();
+    }
+
+    @Test void concurrentSamePageCoalescesEvenWhenRedisIsOffline() throws Exception {
+        when(values.get(anyString())).thenThrow(new RedisConnectionFailureException("offline"));
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var followerThread = new java.util.concurrent.atomic.AtomicReference<Thread>();
+        var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+        AtomicInteger calls = new AtomicInteger();
+        try {
+            var leader = executor.submit(() -> cache.getOrLoad(key(null), () -> {
+                calls.incrementAndGet(); entered.countDown();
+                try { if (!release.await(5, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("timeout"); }
+                catch (InterruptedException ex) { throw new RuntimeException(ex); }
+                return page(false);
+            }));
+            assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            var follower = executor.submit(() -> {
+                followerThread.set(Thread.currentThread());
+                return cache.getOrLoad(key(null), () -> { calls.incrementAndGet(); return page(true); });
+            });
+            org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(3)).until(() ->
+                    followerThread.get() != null && followerThread.get().getState() == Thread.State.WAITING);
+            release.countDown();
+            assertThat(follower.get(5, java.util.concurrent.TimeUnit.SECONDS))
+                    .isSameAs(leader.get(5, java.util.concurrent.TimeUnit.SECONDS));
+            assertThat(calls.get()).isEqualTo(1);
+        } finally { release.countDown(); executor.shutdownNow(); }
+    }
+
+    @Test void requestAfterCommitDoesNotJoinAnOlderInflightLoad() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var old = executor.submit(() -> cache.getOrLoad(key(null), () -> {
+                entered.countDown();
+                try { if (!release.await(5, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("timeout"); }
+                catch (InterruptedException ex) { throw new RuntimeException(ex); }
+                return page(false);
+            }));
+            assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            cache.invalidateAfterCommit();
+            var fresh = executor.submit(() -> cache.getOrLoad(key(null), () -> page(true)));
+            assertThat(fresh.get(3, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo(page(true));
+            release.countDown();
+            old.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        } finally { release.countDown(); executor.shutdownNow(); }
+    }
+
+    @Test void sharedFailureKeepsOriginalExceptionAndNextRequestCanRetry() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var followerThread = new java.util.concurrent.atomic.AtomicReference<Thread>();
+        var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+        var failure = new com.rehome.rehome.exception.AppException(com.rehome.rehome.exception.ErrorCode.PRODUCT_NOT_FOUND);
+        try {
+            var leader = executor.submit(() -> cache.getOrLoad(key(null), () -> {
+                entered.countDown();
+                try { if (!release.await(5, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("timeout"); }
+                catch (InterruptedException ex) { throw new RuntimeException(ex); }
+                throw failure;
+            }));
+            assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            var follower = executor.submit(() -> {
+                followerThread.set(Thread.currentThread());
+                return cache.getOrLoad(key(null), () -> { throw new AssertionError("Duplicate database load"); });
+            });
+            org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(3)).until(() ->
+                    followerThread.get() != null && followerThread.get().getState() == Thread.State.WAITING);
+            release.countDown();
+            assertThatThrownBy(() -> leader.get(5, java.util.concurrent.TimeUnit.SECONDS)).hasCause(failure);
+            assertThatThrownBy(() -> follower.get(5, java.util.concurrent.TimeUnit.SECONDS)).hasCause(failure);
+            assertThat(cache.getOrLoad(key(null), () -> page(false))).isEqualTo(page(false));
+        } finally { release.countDown(); executor.shutdownNow(); }
     }
 }

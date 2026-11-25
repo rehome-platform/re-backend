@@ -149,6 +149,35 @@ class ConsignmentInspectionServiceImplTest {
 
         @Test
         @DisplayName("Thành công: tạo phiếu với dữ liệu form, giá, config mặc định; đóng việc INSPECTION")
+        void voidedPreviousReceiptCanBeReplacedWithPreservedTerms() {
+            stubFormFound();
+            ConsignmentReceipt previous = ConsignmentReceipt.builder()
+                    .id(UUID.randomUUID()).receiptNo("KG-2026-000001")
+                    .status(com.rehome.rehome.entity.enums.ReceiptStatus.VOIDED)
+                    .termLengthDays(45).maxRenewals(2).freeWithdrawalWindowDays(7)
+                    .commissionRateTerm1(new BigDecimal("0.10"))
+                    .commissionRateTerm2(new BigDecimal("0.15"))
+                    .commissionRateTerm3(new BigDecimal("0.20"))
+                    .withdrawalFee(BigDecimal.ZERO)
+                    .degradedCompensationRate(new BigDecimal("0.50")).build();
+            when(consignmentReceiptRepository.findFirstByConsignmentForm_IdOrderByCreatedAtDesc(formId))
+                    .thenReturn(Optional.of(previous));
+            when(receiptNoGenerator.next()).thenReturn("KG-2026-000002");
+            when(systemConfigReader.getDecimal(eq(FLOOR_PRICE_RATIO), any())).thenReturn(new BigDecimal("0.5"));
+            stubReceiptSave(UUID.randomUUID());
+
+            service.completeInspection(formId,
+                    completeRequest(InspectionResult.PASS, null, new BigDecimal("220000"), null), moderator);
+
+            ArgumentCaptor<ConsignmentReceipt> saved = ArgumentCaptor.forClass(ConsignmentReceipt.class);
+            verify(consignmentReceiptRepository).save(saved.capture());
+            assertThat(saved.getValue().getTermLengthDays()).isEqualTo(45);
+            assertThat(saved.getValue().getCommissionRateTerm1()).isEqualByComparingTo("0.10");
+            assertThat(saved.getValue().getReceiptNo()).isNotBlank();
+            verify(queueService).dequeue(QueueType.INSPECTION, formId.toString());
+        }
+
+        @Test
         void success_createsReceipt() {
             UUID receiptId = UUID.randomUUID();
             stubFormFound();

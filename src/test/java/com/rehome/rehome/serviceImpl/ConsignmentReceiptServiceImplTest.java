@@ -294,6 +294,21 @@ class ConsignmentReceiptServiceImplTest {
     // ------------------------------------------------------------------
 
     @Test
+    void confirmReceipt_voidedReceiptCannotGeneratePdf() {
+        Account owner = member();
+        ConsignmentReceipt receipt = unconfirmedReceiptOf(owner);
+        receipt.setStatus(com.rehome.rehome.entity.enums.ReceiptStatus.VOIDED);
+        when(consignmentReceiptRepository.findByIdForUpdate(receipt.getId()))
+                .thenReturn(Optional.of(receipt));
+
+        assertAppError(() -> service.confirmReceipt(owner, receipt.getId()),
+                ErrorCode.RECEIPT_NOT_EDITABLE);
+
+        verifyNoInteractions(receiptPdfService);
+        verify(consignmentReceiptRepository, never()).save(any());
+    }
+
+    @Test
     void confirmReceipt_notFound_throws404() {
         UUID id = UUID.randomUUID();
         when(consignmentReceiptRepository.findByIdForUpdate(id)).thenReturn(Optional.empty());

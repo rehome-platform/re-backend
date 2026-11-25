@@ -126,6 +126,18 @@ class OrganizationProfileServiceImplTest {
     // =====================================================================
 
     @Test
+    void register_rejectsModeratedContentBeforePersistence() {
+        UUID id = UUID.randomUUID();
+        RegisterOrganizationRequest req = request();
+        org.mockito.Mockito.doThrow(new AppException(ErrorCode.CONTENT_VIOLATION))
+                .when(moderation).check(id, "ORGANIZATION_PROFILE", req.getDisplayName(), req.getDescription());
+
+        assertAppError(() -> service.registerOrganization(id, req), ErrorCode.CONTENT_VIOLATION);
+
+        verifyNoInteractions(accountRepository, organizationProfileRepository, queueService);
+    }
+
+    @Test
     void register_success() {
         UUID id = UUID.randomUUID();
         Account account = account(id, Role.ORGANIZATION);

@@ -63,6 +63,14 @@ class BusinessNotificationsTest {
         assertThat(tx.getValue().getPropagationBehavior()).isEqualTo(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
+    @Test void voucherReminderHasNoTargetAndOnlyDeliversAfterCommit() {
+        notifications.withoutTarget(member, NotificationType.VOUCHER_ISSUED, "Voucher", "Code SHIP-1");
+        verifyNoInteractions(notificationService);
+        commitCallbacks();
+        verify(notificationService).notify(member, NotificationType.VOUCHER_ISSUED,
+                "Voucher", "Code SHIP-1", null, null, null);
+    }
+
     @Test void rollbackDiscardsNotification() {
         notifications.send(member, NotificationType.WALLET_EVENT, "title", "body", NotificationTargetType.PAYOUT, UUID.randomUUID());
         TransactionSynchronizationManager.getSynchronizations()

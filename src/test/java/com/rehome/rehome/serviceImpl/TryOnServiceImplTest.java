@@ -69,6 +69,7 @@ class TryOnServiceImplTest {
 
     @Mock private com.rehome.rehome.client.GeminiOutfitClient geminiOutfitClient;
     @Mock private TryOnImageRepository tryOnImageRepository;
+    @Mock private com.rehome.rehome.repository.TryOnSharedAssetRepository sharedAssetRepository;
     @Mock private ProductPhotoRepository productPhotoRepository;
     @Mock private FileStorageService fileStorageService;
     @Mock private ProductRepository productRepository;
@@ -83,6 +84,12 @@ class TryOnServiceImplTest {
     private Account member;
     @Test
     void createImage_concurrentRequestIsRejectedAndLockReleasedAfterFailure() throws Exception {
+        Product top = product(TOP_ID, TryOnSlot.TOP, ProductStatus.ON_SALE);
+        Product bottom = product(BOTTOM_ID, TryOnSlot.BOTTOM, ProductStatus.ON_SALE);
+        when(productRepository.findWithCategoryByIdIn(anyCollection())).thenReturn(List.of(top, bottom));
+        when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(anyCollection()))
+                .thenReturn(List.of(photo(top, TOP_PHOTO_URL), photo(bottom, BOTTOM_PHOTO_URL)));
+        when(fileStorageService.loadByUrl(anyString())).thenReturn(Optional.of(TOP_BYTES));
         var entered = new java.util.concurrent.CountDownLatch(1);
         var release = new java.util.concurrent.CountDownLatch(1);
         var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -106,7 +113,7 @@ class TryOnServiceImplTest {
                     () -> tryOnService.createImage(otherMember,
                             request(TryOnModelType.FEMALE, null, null, null))).getErrorCode());
             verify(aiTryOnQuotaGuard, times(1)).assertCanGenerate(member.getId());
-            verifyNoInteractions(tryOnImageGenerator, tryOnImageRepository);
+            verifyNoInteractions(tryOnImageGenerator);
             release.countDown();
             assertEquals(ErrorCode.TRYON_IMAGE_QUOTA_EXCEEDED,
                     first.get(5, java.util.concurrent.TimeUnit.SECONDS).getErrorCode());
@@ -125,6 +132,7 @@ class TryOnServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        lenient().when(sharedAssetRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
         member = Account.builder().id(UUID.randomUUID()).role(Role.MEMBER).build();
 
         top = Product.builder().id("Q7-AK-000001").name("Áo thun trắng")
@@ -198,10 +206,78 @@ class TryOnServiceImplTest {
         return r;
     }
 
+    @Test
+    void identicalInputReusesExistingImageEvenWithoutQuota() {
+        Product top = product(TOP_ID, TryOnSlot.TOP, ProductStatus.ON_SALE);
+        Product bottom = product(BOTTOM_ID, TryOnSlot.BOTTOM, ProductStatus.ON_SALE);
+        when(productRepository.findWithCategoryByIdIn(anyCollection())).thenReturn(List.of(top, bottom));
+        when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(anyCollection()))
+                .thenReturn(List.of(photo(top, TOP_PHOTO_URL), photo(bottom, BOTTOM_PHOTO_URL)));
+        when(fileStorageService.loadByUrl(TOP_PHOTO_URL)).thenReturn(Optional.of(TOP_BYTES));
+        when(fileStorageService.loadByUrl(BOTTOM_PHOTO_URL)).thenReturn(Optional.of(BOTTOM_BYTES));
+        TryOnImage existing = TryOnImage.builder().id(UUID.randomUUID()).member(member)
+                .modelType(TryOnModelType.FEMALE).topProduct(top).bottomProduct(bottom)
+                .imageUrl(IMAGE_URL).createdAt(Instant.now()).build();
+        String hash = com.rehome.rehome.util.TryOnFingerprint.of(TryOnModelType.FEMALE,
+                TOP_ID, BOTTOM_ID, null, TOP_BYTES, BOTTOM_BYTES, "v1");
+        when(sharedAssetRepository.findById(hash)).thenReturn(Optional.of(
+                com.rehome.rehome.entity.tryon.TryOnSharedAsset.builder().fingerprint(hash).imageUrl(IMAGE_URL).build()));
+        when(tryOnImageRepository.findFirstByMember_IdAndGenerationFingerprintAndDeletedAtIsNullOrderByCreatedAtDesc(
+                member.getId(), hash)).thenReturn(Optional.of(existing));
+        var response = tryOnService.createImage(member,
+                request(TryOnModelType.FEMALE, TOP_ID, BOTTOM_ID, null));
+        assertEquals(existing.getId(), response.getId());
+        verifyNoInteractions(aiTryOnQuotaGuard, tryOnImageGenerator);
+        verify(tryOnImageRepository, never()).save(any());
+        verify(fileStorageService, never()).store(anyString(), any(), anyString());
+    }
+
     // ==================== API 97: createImage ====================
 
     @Test
     @DisplayName("createImage: áo + quần hợp lệ -> sinh ảnh, lưu file + DB, trả đủ top/bottom")
+    void createImage_consumesBonusOnlyAfterSuccessfulGenerationAndSave() {
+        stubWorkbookOutfitWithBonus();
+        when(tryOnImageGenerator.generateOutfit(TryOnModelType.FEMALE, TOP_BYTES, BOTTOM_BYTES))
+                .thenReturn(RESULT_PNG);
+        when(fileStorageService.store(anyString(), eq(RESULT_PNG), eq("image/png"))).thenReturn(IMAGE_URL);
+        when(tryOnImageRepository.save(any(TryOnImage.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TryOnImageResponse result = tryOnService.createImage(member,
+                request(TryOnModelType.FEMALE, TOP_ID, BOTTOM_ID, null));
+
+        assertEquals(IMAGE_URL, result.getImageUrl());
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(tryOnImageRepository, aiTryOnQuotaGuard);
+        order.verify(tryOnImageRepository).save(any(TryOnImage.class));
+        order.verify(aiTryOnQuotaGuard).consumeBonusCredit(member.getId());
+    }
+
+    @Test
+    void createImage_generatorFailureDoesNotConsumeBonusOrSaveImage() {
+        stubWorkbookOutfitWithBonus();
+        when(tryOnImageGenerator.generateOutfit(TryOnModelType.FEMALE, TOP_BYTES, BOTTOM_BYTES))
+                .thenThrow(new IllegalStateException("AI unavailable"));
+
+        assertThrows(RuntimeException.class, () -> tryOnService.createImage(member,
+                request(TryOnModelType.FEMALE, TOP_ID, BOTTOM_ID, null)));
+
+        verify(aiTryOnQuotaGuard, never()).consumeBonusCredit(any());
+        verify(tryOnImageRepository, never()).save(any());
+        verify(fileStorageService, never()).store(anyString(), any(), anyString());
+    }
+
+    private void stubWorkbookOutfitWithBonus() {
+        Product top = product(TOP_ID, TryOnSlot.TOP, ProductStatus.ON_SALE);
+        Product bottom = product(BOTTOM_ID, TryOnSlot.BOTTOM, ProductStatus.ON_SALE);
+        when(productRepository.findWithCategoryByIdIn(anyCollection())).thenReturn(List.of(top, bottom));
+        when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(anyCollection()))
+                .thenReturn(List.of(photo(top, TOP_PHOTO_URL), photo(bottom, BOTTOM_PHOTO_URL)));
+        when(fileStorageService.loadByUrl(TOP_PHOTO_URL)).thenReturn(Optional.of(TOP_BYTES));
+        when(fileStorageService.loadByUrl(BOTTOM_PHOTO_URL)).thenReturn(Optional.of(BOTTOM_BYTES));
+        when(aiTryOnQuotaGuard.assertCanGenerate(member.getId())).thenReturn(true);
+    }
+
+    @Test
     void createImage_outfit_success() {
         Product t = product(TOP_ID, TryOnSlot.TOP, ProductStatus.ON_SALE);
         Product b = product(BOTTOM_ID, TryOnSlot.BOTTOM, ProductStatus.ON_SALE);
@@ -516,8 +592,8 @@ class TryOnServiceImplTest {
     }
 
     @Test
-    @DisplayName("createImage: ghi DB lỗi -> xóa file vừa lưu (không để file mồ côi) rồi ném lại lỗi")
-    void createImage_dbSaveFails_removesStoredFile() {
+    @DisplayName("Collection save failure keeps the already-published shared asset")
+    void createImage_collectionSaveFails_keepsPublishedSharedFile() {
         Product t = product(TOP_ID, TryOnSlot.TOP, ProductStatus.ON_SALE);
         Product b = product(BOTTOM_ID, TryOnSlot.BOTTOM, ProductStatus.ON_SALE);
         when(productRepository.findWithCategoryByIdIn(anyCollection())).thenReturn(List.of(t, b));
@@ -527,13 +603,13 @@ class TryOnServiceImplTest {
         when(tryOnImageGenerator.generateOutfit(any(), any(), any())).thenReturn(RESULT_PNG);
         when(fileStorageService.store(anyString(), any(), anyString())).thenReturn(IMAGE_URL);
         when(tryOnImageRepository.save(any(TryOnImage.class))).thenThrow(new RuntimeException("db down"));
-        when(fileStorageService.deleteByUrl(eq(IMAGE_URL), anyString())).thenReturn(true);
 
         RuntimeException ex = assertThrows(RuntimeException.class, () ->
                 tryOnService.createImage(member, request(TryOnModelType.FEMALE, TOP_ID, BOTTOM_ID, null)));
 
         assertEquals("db down", ex.getMessage());
-        verify(fileStorageService).deleteByUrl(eq(IMAGE_URL), eq("image/png"));
+        verify(fileStorageService, never()).deleteByUrl(anyString(), anyString());
+        verify(sharedAssetRepository).saveAndFlush(any());
     }
 
     // ==================== F-080: getCollection ====================

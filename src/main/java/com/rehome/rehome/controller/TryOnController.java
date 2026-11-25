@@ -28,6 +28,7 @@ public class TryOnController {
 
     private final TryOnService tryOnService;
     private final MembershipService membershipService;
+    private final com.rehome.rehome.service.MlOutfitSuggestionService mlOutfitSuggestionService;
 
     /**
      * §8.8 - hạn mức phối đồ AI (ảnh tĩnh) theo gói thành viên, tính theo NGÀY.
@@ -99,6 +100,18 @@ public class TryOnController {
             @RequestParam(required = false) Double longitude) {
         return ResponseEntity.ok(ApiResponse.success(
                 tryOnService.getOutfitSuggestions(productId, latitude, longitude)));
+    }
+
+    @GetMapping("/outfit-suggestions/ml")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<com.rehome.rehome.dto.response.MlOutfitSuggestionsResponse>> getMlOutfitSuggestions(
+            @AuthenticationPrincipal Account account,
+            @RequestParam String productId,
+            @RequestParam(required = false) Double latitude,
+            @RequestParam(required = false) Double longitude) {
+        if (account == null) throw new AppException(ErrorCode.UNAUTHORIZED);
+        return ResponseEntity.ok(ApiResponse.success(
+                mlOutfitSuggestionService.suggest(account, productId, latitude, longitude)));
     }
 
     // API 96 (F-075): gợi ý món còn thiếu. slot nhận String để slot sai/thiếu trả đúng message của spec

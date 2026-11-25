@@ -588,6 +588,34 @@ class WalletServiceImplTest {
     }
 
     @Test
+    void createPayoutRequest_acceptsAmountEqualToConfiguredMinimumAndAvailableBalance() {
+        wallet.setBalance(new BigDecimal("100000"));
+        wallet.setLockedBalance(BigDecimal.ZERO);
+        when(accountRepository.findByEmail(email)).thenReturn(Optional.of(member));
+        when(systemConfigRepository.findByKey("min_payout_amount")).thenReturn(Optional.of(
+                SystemConfig.builder().key("min_payout_amount").value("100000").build()));
+        when(walletRepository.findByMemberIdForUpdate(member.getId())).thenReturn(Optional.of(wallet));
+        when(payoutRequestRepository.save(any())).thenAnswer(invocation -> {
+            PayoutRequest saved = invocation.getArgument(0);
+            if (saved.getId() == null) saved.setId(UUID.randomUUID());
+            return saved;
+        });
+        when(platformFundRepository.save(any())).thenAnswer(invocation -> {
+            PlatformFund saved = invocation.getArgument(0);
+            if (saved.getId() == null) saved.setId(UUID.randomUUID());
+            return saved;
+        });
+
+        PayoutRequestResponse response = walletService.createPayoutRequest(email,
+                new CreatePayoutRequestRequest(new BigDecimal("100000")));
+
+        assertThat(response.getStatus()).isEqualTo("SUCCESS");
+        assertThat(wallet.getBalance()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(wallet.getLockedBalance()).isEqualByComparingTo(BigDecimal.ZERO);
+        verify(walletTransactionRepository, times(2)).save(any());
+    }
+
+    @Test
     void createPayoutRequest_succeeds_simulatesPayoutAndReleasesLockedBalance() {
         wallet.setBalance(new BigDecimal("1000000"));
         wallet.setLockedBalance(BigDecimal.ZERO);

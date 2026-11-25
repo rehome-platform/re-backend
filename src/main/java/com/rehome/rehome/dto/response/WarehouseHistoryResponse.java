@@ -16,6 +16,9 @@ import lombok.Setter;
 public class WarehouseHistoryResponse {
     // Đối tượng bị tác động, ví dụ "ORDER RH-000123", "CONSIGNMENT_FORM CF-0001", "PRODUCT SKU123"
     private String target;
+    // Loại và ID gốc dùng để điều hướng; target vẫn là chuỗi hiển thị dễ đọc.
+    private String targetType;
+    private String targetId;
     // Hành động, ví dụ SCAN_SKU, CREATE_SHIPMENT
     private String action;
     // Tên Moderator thực hiện (không có tên thì email)

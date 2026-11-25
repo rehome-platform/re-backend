@@ -18,6 +18,10 @@ public class CreateProductRequest {
     @NotBlank(message = "name là bắt buộc.")
     private String name;
 
+    // Không truyền thì giữ danh mục/thương hiệu Member đã khai trên form ký gửi.
+    private UUID categoryId;
+    private UUID brandId;
+
     private String size;          // nullable theo entity
     private List<String> photoUrls;
 }

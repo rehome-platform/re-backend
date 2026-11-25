@@ -49,6 +49,7 @@ class MembershipLifecycleServiceImplTest {
     @Mock private FeaturedListingManager featuredListingManager;
     @Mock private VoucherIssueService voucherIssueService;
     @Mock private NotificationService notificationService;
+    @Mock com.rehome.rehome.component.BusinessNotifications businessNotifications;
     @Mock private SystemConfigReader systemConfigReader;
 
     @InjectMocks
@@ -74,8 +75,8 @@ class MembershipLifecycleServiceImplTest {
         service.remindExpiringVouchers();
 
         assertThat(voucher.getRemindedAt()).isNotNull();
-        verify(notificationService).notify(eq(member), eq(NotificationType.VOUCHER_ISSUED),
-                anyString(), org.mockito.ArgumentMatchers.contains("SHIP-1"), any(), any(), any());
+        verify(businessNotifications).withoutTarget(eq(member), eq(NotificationType.VOUCHER_ISSUED),
+                anyString(), org.mockito.ArgumentMatchers.contains("SHIP-1"));
     }
 
     @Test

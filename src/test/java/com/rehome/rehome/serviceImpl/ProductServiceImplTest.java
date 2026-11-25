@@ -132,6 +132,8 @@ class ProductServiceImplTest {
     @Mock EndOfTermDecisionRepository endOfTermDecisionRepository;
 
     @Mock ConsignmentReceiptRepository receiptRepository;
+    @Mock CategoryRepository categoryRepository;
+    @Mock BrandRepository brandRepository;
     @Mock GhnShippingFeeCalculator ghnShippingFeeCalculator;
 
     // getMyProducts / getMyProduct dùng thêm hai repository này
@@ -169,6 +171,9 @@ class ProductServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "productCatalogReader",
+                new com.rehome.rehome.service.ProductCatalogReader(productRepository, productPhotoRepository));
+
         when(productListCache.getOrLoad(any(), any())).thenAnswer(inv ->
                 ((java.util.function.Supplier<?>) inv.getArgument(1)).get());
         moderator = Account.builder()
@@ -422,6 +427,15 @@ class ProductServiceImplTest {
             mocked.verify(() -> PageResponse.from(captor.capture()));
             return captor.getValue();
         }
+    }
+
+    @Test
+    void getProducts_capsClientPageSizeAtFifty() {
+        stubRepositoryPage(new PageImpl<>(List.of()));
+        service.getProducts(null, null, null, null, null, null, null, 0, Integer.MAX_VALUE, null);
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(productRepository).findAll(ArgumentMatchers.<Specification<Product>>any(), pageable.capture());
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(50);
     }
 
     @Test
@@ -994,6 +1008,7 @@ class ProductServiceImplTest {
         assertThat(p.getWarehouse()).isSameAs(receipt.getWarehouse());
         assertThat(p.getCategory()).isSameAs(receipt.getConsignmentForm().getCategory());
         assertThat(p.getBrand()).isSameAs(receipt.getConsignmentForm().getBrand());
+        verifyNoInteractions(categoryRepository, brandRepository);
         assertThat(p.getSize()).isEqualTo("M");
         assertThat(p.getCurrentPrice()).isEqualByComparingTo("220000");
         assertThat(p.getStatus()).isEqualTo(ProductStatus.ON_SALE);
@@ -1003,6 +1018,130 @@ class ProductServiceImplTest {
         assertThat(p.getTermStartedAt()).isBetween(before, after);
         assertThat(p.getEndOfTermDeadline())
                 .isBetween(before.plus(Duration.ofDays(90)), after.plus(Duration.ofDays(90)));
+    }
+
+    @Test
+    void create_usesModeratorCategoryAndBrandForProductSkuAndTryonSlot() {
+        ConsignmentReceipt receipt = receiptOf(Instant.now());
+        givenConfirmedReceipt(receipt);
+        Category originalCategory = receipt.getConsignmentForm().getCategory();
+        Brand originalBrand = receipt.getConsignmentForm().getBrand();
+        Category correctedCategory = Category.builder().id(UUID.randomUUID()).code("QN")
+                .name("Quần").tryonSlot(TryOnSlot.BOTTOM).build();
+        Brand correctedBrand = Brand.builder().id(UUID.randomUUID()).name("Corrected brand").build();
+        CreateProductRequest request = createRequest(null);
+        request.setCategoryId(correctedCategory.getId());
+        request.setBrandId(correctedBrand.getId());
+        when(categoryRepository.findById(correctedCategory.getId())).thenReturn(Optional.of(correctedCategory));
+        when(brandRepository.findById(correctedBrand.getId())).thenReturn(Optional.of(correctedBrand));
+
+        ProductResponse response = service.create(request, moderator);
+
+        ArgumentCaptor<Product> saved = ArgumentCaptor.forClass(Product.class);
+        verify(productRepository).save(saved.capture());
+        Product created = saved.getValue();
+        assertThat(response.getId()).isEqualTo("Q7-QN-000845");
+        assertThat(created.getCategory()).isSameAs(correctedCategory);
+        assertThat(created.getBrand()).isSameAs(correctedBrand);
+        assertThat(receipt.getConsignmentForm().getCategory()).isSameAs(originalCategory);
+        assertThat(receipt.getConsignmentForm().getBrand()).isSameAs(originalBrand);
+        verify(categoryRepository).findById(correctedCategory.getId());
+        verify(brandRepository).findById(correctedBrand.getId());
+        when(productRepository.findById(created.getId())).thenReturn(Optional.of(created));
+        ProductDetailResponse detail = service.getProductDetail(created.getId(), null);
+        assertThat(detail.getCategoryId()).isEqualTo(correctedCategory.getId());
+        assertThat(detail.getCategoryName()).isEqualTo("Quần");
+        assertThat(detail.getTryonSlot()).isEqualTo(TryOnSlot.BOTTOM);
+        assertThat(detail.getBrandName()).isEqualTo("Corrected brand");
+    }
+
+    @Test
+    void create_categoryOverrideKeepsFormBrandWhenBrandIdIsOmitted() {
+        ConsignmentReceipt receipt = receiptOf(Instant.now());
+        givenConfirmedReceipt(receipt);
+        Category corrected = Category.builder().id(UUID.randomUUID()).code("QN").build();
+        CreateProductRequest request = createRequest(null);
+        request.setCategoryId(corrected.getId());
+        when(categoryRepository.findById(corrected.getId())).thenReturn(Optional.of(corrected));
+
+        ProductResponse response = service.create(request, moderator);
+
+        ArgumentCaptor<Product> saved = ArgumentCaptor.forClass(Product.class);
+        verify(productRepository).save(saved.capture());
+        assertThat(response.getId()).isEqualTo("Q7-QN-000845");
+        assertThat(saved.getValue().getCategory()).isSameAs(corrected);
+        assertThat(saved.getValue().getBrand()).isSameAs(receipt.getConsignmentForm().getBrand());
+        verifyNoInteractions(brandRepository);
+    }
+
+    @Test
+    void create_brandOverrideKeepsFormCategoryAndSkuPrefixWhenCategoryIdIsOmitted() {
+        ConsignmentReceipt receipt = receiptOf(Instant.now());
+        givenConfirmedReceipt(receipt);
+        Brand corrected = Brand.builder().id(UUID.randomUUID()).name("Corrected brand").build();
+        CreateProductRequest request = createRequest(null);
+        request.setBrandId(corrected.getId());
+        when(brandRepository.findById(corrected.getId())).thenReturn(Optional.of(corrected));
+
+        ProductResponse response = service.create(request, moderator);
+
+        ArgumentCaptor<Product> saved = ArgumentCaptor.forClass(Product.class);
+        verify(productRepository).save(saved.capture());
+        assertThat(response.getId()).isEqualTo("Q7-AK-000845");
+        assertThat(saved.getValue().getCategory()).isSameAs(receipt.getConsignmentForm().getCategory());
+        assertThat(saved.getValue().getBrand()).isSameAs(corrected);
+        verifyNoInteractions(categoryRepository);
+    }
+
+    @Test
+    void create_identicalCategoryAndBrandIdsReuseFormReferencesWithoutQueries() {
+        ConsignmentReceipt receipt = receiptOf(Instant.now());
+        receipt.getConsignmentForm().getBrand().setId(UUID.randomUUID());
+        givenConfirmedReceipt(receipt);
+        CreateProductRequest request = createRequest(null);
+        request.setCategoryId(receipt.getConsignmentForm().getCategory().getId());
+        request.setBrandId(receipt.getConsignmentForm().getBrand().getId());
+
+        ProductResponse response = service.create(request, moderator);
+
+        ArgumentCaptor<Product> saved = ArgumentCaptor.forClass(Product.class);
+        verify(productRepository).save(saved.capture());
+        assertThat(response.getId()).isEqualTo("Q7-AK-000845");
+        assertThat(saved.getValue().getCategory()).isSameAs(receipt.getConsignmentForm().getCategory());
+        assertThat(saved.getValue().getBrand()).isSameAs(receipt.getConsignmentForm().getBrand());
+        verifyNoInteractions(categoryRepository, brandRepository);
+    }
+
+    @Test
+    void create_unknownCategoryRejectsBeforeSkuAllocationOrSaving() {
+        givenConfirmedReceipt(receiptOf(Instant.now()));
+        CreateProductRequest request = createRequest(List.of("photo.jpg"));
+        UUID unknownCategory = UUID.randomUUID();
+        request.setCategoryId(unknownCategory);
+        when(categoryRepository.findById(unknownCategory)).thenReturn(Optional.empty());
+
+        assertCreateError(() -> service.create(request, moderator), ErrorCode.CATEGORY_NOT_FOUND);
+
+        verify(productRepository, never()).nextSkuSequence();
+        verify(productRepository, never()).save(any());
+        verifyNoInteractions(brandRepository, productPhotoRepository, featuredListingManager, auditLogger,
+                businessNotifications);
+    }
+
+    @Test
+    void create_unknownBrandRejectsBeforeSkuAllocationOrSaving() {
+        givenConfirmedReceipt(receiptOf(Instant.now()));
+        CreateProductRequest request = createRequest(List.of("photo.jpg"));
+        UUID unknownBrand = UUID.randomUUID();
+        request.setBrandId(unknownBrand);
+        when(brandRepository.findById(unknownBrand)).thenReturn(Optional.empty());
+
+        assertCreateError(() -> service.create(request, moderator), ErrorCode.BRAND_NOT_FOUND);
+
+        verify(productRepository, never()).nextSkuSequence();
+        verify(productRepository, never()).save(any());
+        verifyNoInteractions(categoryRepository, productPhotoRepository, featuredListingManager, auditLogger,
+                businessNotifications);
     }
 
     @Test

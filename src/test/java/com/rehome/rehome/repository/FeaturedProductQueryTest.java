@@ -32,11 +32,13 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Real SQL regression test for featured-first sorting before pagination. */
-@DataJpaTest
+@DataJpaTest(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
 class FeaturedProductQueryTest {
 
     @Autowired EntityManager em;
     @Autowired ProductRepository productRepository;
+    @Autowired TryOnImageRepository tryOnImageRepository;
+    @Autowired TryOnSharedAssetRepository sharedAssetRepository;
 
     Account sellerA;
     Account sellerB;
@@ -187,4 +189,89 @@ class FeaturedProductQueryTest {
         var page = productRepository.findAll(spec, PageRequest.of(0, 20));
         assertThat(page.getContent()).extracting(Product::getId).containsExactly("FEATURED", "ORDINARY");
     }
+    @Test
+    void catalogMappingDoesNotLoadOneAssociationPerProduct() {
+        for (int i = 0; i < 5; i++) persistProduct("PERF-" + i, sellerA);
+        em.flush();
+        em.clear();
+        var statistics = em.getEntityManagerFactory().unwrap(org.hibernate.SessionFactory.class).getStatistics();
+        statistics.clear();
+        var page = productRepository.findAll(
+                com.rehome.rehome.repository.spec.ProductSpecifications.filter(null, null, null, null, null, null, null),
+                PageRequest.of(0, 3));
+        long queriesAfterPage = statistics.getPrepareStatementCount();
+        assertThat(page.getContent()).hasSize(3);
+        for (Product product : page) {
+            assertThat(product.getBrand().getName()).isNotBlank();
+            assertThat(product.getCategory().getName()).isNotBlank();
+            assertThat(product.getConsignmentReceipt().getAgreedPrice()).isPositive();
+        }
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(queriesAfterPage);
+        assertThat(queriesAfterPage).isEqualTo(2); // page + count; associations fetched in the page query
+    }
+
+    @Test
+    void searchTreatsPercentAndUnderscoreAsLiteralCharacters() {
+        Product literal = persistProduct("LITERAL", sellerA);
+        literal.setName("Sale 100%_cotton");
+        persistProduct("ORDINARY", sellerB);
+        em.flush();
+        em.clear();
+        var results = productRepository.findAll(
+                com.rehome.rehome.repository.spec.ProductSpecifications.filter("%_", null, null, null, null, null, null),
+                PageRequest.of(0, 20));
+        assertThat(results.getContent()).extracting(Product::getId).containsExactly("LITERAL");
+    }
+
+    @Test
+    void tryOnReuseIsScopedToMemberAndUsesLatestMatchingGeneration() {
+        Product top = persistProduct("REUSE-TOP", sellerA);
+        Product bottom = persistProduct("REUSE-BOTTOM", sellerA);
+        String fingerprint = "a".repeat(64);
+        for (int i = 0; i < 2; i++) {
+            em.persist(com.rehome.rehome.entity.tryon.TryOnImage.builder()
+                    .member(sellerA).topProduct(top).bottomProduct(bottom)
+                    .modelType(com.rehome.rehome.entity.enums.TryOnModelType.FEMALE)
+                    .imageUrl("http://localhost/result-" + i).generationFingerprint(fingerprint)
+                    .createdAt(Instant.parse("2026-11-21T00:00:00Z").plusSeconds(i)).build());
+        }
+        em.flush();
+        em.clear();
+        var reused = tryOnImageRepository.findFirstByMember_IdAndGenerationFingerprintAndDeletedAtIsNullOrderByCreatedAtDesc(
+                sellerA.getId(), fingerprint).orElseThrow();
+        assertThat(reused.getImageUrl()).endsWith("result-1");
+        assertThat(reused.getTopProduct().getWarehouse().getName()).isNotBlank();
+        assertThat(tryOnImageRepository.findFirstByMember_IdAndGenerationFingerprintAndDeletedAtIsNullOrderByCreatedAtDesc(
+                sellerB.getId(), fingerprint)).isEmpty();
+        assertThat(tryOnImageRepository.findFirstByMember_IdAndGenerationFingerprintAndDeletedAtIsNullOrderByCreatedAtDesc(
+                sellerA.getId(), "b".repeat(64))).isEmpty();
+    }
+
+    @Test
+    void sharedCollectionDeletionDoesNotRefundQuotaOrRemoveOtherMembersImage() {
+        Product top = persistProduct("SHARED-TOP", sellerA);
+        Product bottom = persistProduct("SHARED-BOTTOM", sellerA);
+        Instant created = Instant.parse("2026-11-21T00:00:01Z");
+        var asset = com.rehome.rehome.entity.tryon.TryOnSharedAsset.builder()
+                .fingerprint("c".repeat(64)).imageUrl("http://localhost/shared.png").createdAt(created).build();
+        em.persist(asset);
+        var first = com.rehome.rehome.entity.tryon.TryOnImage.builder()
+                .member(sellerA).modelType(com.rehome.rehome.entity.enums.TryOnModelType.FEMALE)
+                .topProduct(top).bottomProduct(bottom).sharedAsset(asset).generationFingerprint(asset.getFingerprint())
+                .quotaCharged(true).imageUrl(asset.getImageUrl()).createdAt(created).build();
+        var reused = com.rehome.rehome.entity.tryon.TryOnImage.builder()
+                .member(sellerB).modelType(com.rehome.rehome.entity.enums.TryOnModelType.FEMALE)
+                .topProduct(top).bottomProduct(bottom).sharedAsset(asset).generationFingerprint(asset.getFingerprint())
+                .quotaCharged(false).imageUrl(asset.getImageUrl()).createdAt(created).build();
+        em.persist(first); em.persist(reused);
+        first.setDeletedAt(created.plusSeconds(1));
+        em.flush(); em.clear();
+        assertThat(tryOnImageRepository.countByMember_IdAndCreatedAtBetween(sellerA.getId(), created.minusSeconds(1), created.plusSeconds(2))).isEqualTo(1);
+        assertThat(tryOnImageRepository.countByMember_IdAndCreatedAtBetween(sellerB.getId(), created.minusSeconds(1), created.plusSeconds(2))).isZero();
+        assertThat(tryOnImageRepository.findByMember_Id(sellerA.getId(), PageRequest.of(0,20))).isEmpty();
+        assertThat(tryOnImageRepository.findByMember_Id(sellerB.getId(), PageRequest.of(0,20))).hasSize(1);
+        assertThat(tryOnImageRepository.findWithProductsById(first.getId())).isEmpty();
+        assertThat(sharedAssetRepository.findById(asset.getFingerprint())).isPresent();
+    }
+
 }

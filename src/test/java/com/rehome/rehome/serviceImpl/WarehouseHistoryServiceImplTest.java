@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -68,8 +70,9 @@ class WarehouseHistoryServiceImplTest {
     @Test
     void list_mapsToCleanDto_withoutExposingRawDetail() {
         Account mod = moderator(warehouse);
+        UUID orderId = UUID.randomUUID();
         AuditLog log = AuditLog.builder().id(UUID.randomUUID()).actorAccount(mod)
-                .actionType("SCAN_SKU").targetType("ORDER").targetId("order-uuid")
+                .actionType("SCAN_SKU").targetType("ORDER").targetId(orderId.toString())
                 .detail(objectMapper.createObjectNode().put("label", "OD-1").put("secret", "internal"))
                 .result("SUCCESS").auditGroup("PACKING").warehouseId(warehouse.getId())
                 .createdAt(Instant.parse("2026-11-14T01:00:00Z")).build();
@@ -82,11 +85,39 @@ class WarehouseHistoryServiceImplTest {
 
         WarehouseHistoryResponse row = result.getContent().get(0);
         assertThat(row.getTarget()).isEqualTo("ORDER OD-1");
+        assertThat(row.getTargetType()).isEqualTo("ORDER");
+        assertThat(row.getTargetId()).isEqualTo(orderId.toString());
         assertThat(row.getAction()).isEqualTo("SCAN_SKU");
         assertThat(row.getActor()).isEqualTo("Nguyễn Văn A");
         assertThat(row.getResult()).isEqualTo("SUCCESS");
         assertThat(row.getTimestamp()).isEqualTo(Instant.parse("2026-11-14T01:00:00Z"));
-        assertThat(row.toString()).doesNotContain("internal");
+        var json = objectMapper.copy().findAndRegisterModules().valueToTree(row);
+        assertThat(json.get("target").asText()).isEqualTo("ORDER OD-1");
+        assertThat(json.get("targetType").asText()).isEqualTo("ORDER");
+        assertThat(json.get("targetId").asText()).isEqualTo(orderId.toString());
+        assertThat(json.has("detail")).isFalse();
+        assertThat(json.toString()).doesNotContain("secret", "internal");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "ORDER, 11111111-1111-4111-8111-111111111111, OD-2026-000019, PACKING",
+            "CONSIGNMENT_FORM, 22222222-2222-4222-8222-222222222222, KG-000019, INSPECTION",
+            "PRODUCT, Q7-AK-000845, Q7-AK-000845, INVENTORY"
+    })
+    void list_returnsRawTargetIdSeparatelyFromDisplayLabel(String targetType, String targetId,
+                                                          String label, String group) {
+        Account mod = moderator(warehouse);
+        AuditLog log = AuditLog.builder().actorAccount(mod).targetType(targetType).targetId(targetId)
+                .detail(objectMapper.createObjectNode().put("label", label)).build();
+        when(auditLogRepository.findWarehouseHistory(eq(warehouse.getId()), eq(group), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(log)));
+
+        WarehouseHistoryResponse row = service.list(mod, group, 0, 20).getContent().get(0);
+
+        assertThat(row.getTarget()).isEqualTo(targetType + " " + label);
+        assertThat(row.getTargetType()).isEqualTo(targetType);
+        assertThat(row.getTargetId()).isEqualTo(targetId);
     }
 
     @Test
@@ -102,6 +133,8 @@ class WarehouseHistoryServiceImplTest {
         assertThat(result.getContent().get(0).getActor()).isEqualTo("mod@example.com");
         // Không có label trong detail thì target dùng targetId
         assertThat(result.getContent().get(0).getTarget()).isEqualTo("PRODUCT SKU-1");
+        assertThat(result.getContent().get(0).getTargetType()).isEqualTo("PRODUCT");
+        assertThat(result.getContent().get(0).getTargetId()).isEqualTo("SKU-1");
     }
 
     @Test

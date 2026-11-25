@@ -456,6 +456,24 @@ class ConsignmentFormServiceImplTest {
         }
 
         @Test
+        void onePhotoAtLastAvailablePendingSlotIsAccepted() {
+            when(consignmentFormRepository.countByMember_IdAndStatus(memberId, ConsignmentFormStatus.PENDING))
+                    .thenReturn((long) maxPending - 1);
+            ConsignmentFormRequest r = validReq();
+            r.setPhotoUrls(List.of("https://example.test/one.jpg"));
+            ConsignmentForm entity = newForm(ConsignmentFormStatus.PENDING, null);
+            when(consignmentFormMapper.toEntity(r)).thenReturn(entity);
+            List<ConsignmentFormPhoto> photos = List.of(mock(ConsignmentFormPhoto.class));
+            when(consignmentFormMapper.toPhotoEntities(entity, r.getPhotoUrls())).thenReturn(photos);
+
+            service.create(r, member);
+
+            verify(consignmentFormRepository).save(entity);
+            verify(photoRepository).saveAll(photos);
+            verify(queueService).enqueue(QueueType.FORM_REVIEW, entity.getId().toString(), warehouse);
+        }
+
+        @Test
         void pendingBelowLimit_isAllowed() {
             when(consignmentFormRepository.countByMember_IdAndStatus(memberId, ConsignmentFormStatus.PENDING))
                     .thenReturn((long) maxPending - 1);

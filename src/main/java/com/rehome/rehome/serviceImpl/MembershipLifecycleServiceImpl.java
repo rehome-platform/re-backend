@@ -43,6 +43,7 @@ public class MembershipLifecycleServiceImpl implements MembershipLifecycleServic
     private final FeaturedListingManager featuredListingManager;
     private final VoucherIssueService voucherIssueService;
     private final NotificationService notificationService;
+    private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
     private final SystemConfigReader systemConfigReader;
 
     // ================================================================ 00:05 - hết hạn gói
@@ -167,9 +168,9 @@ public class MembershipLifecycleServiceImpl implements MembershipLifecycleServic
         for (MemberVoucher voucher : memberVoucherRepository.findDueForReminder(
                 now, now.plus(java.time.Duration.ofDays(3)))) {
             voucher.setRemindedAt(now);
-            notificationService.notify(voucher.getMember(), NotificationType.VOUCHER_ISSUED,
-                    "Mã giảm giá sắp hết hạn", "Mã " + voucher.getCode() + " sẽ hết hạn trong vòng 3 ngày.",
-                    null, null, null);
+            businessNotifications.withoutTarget(voucher.getMember(), NotificationType.VOUCHER_ISSUED,
+                    "Mã giảm giá sắp hết hạn", "Mã " + voucher.getCode() + " hết hạn lúc "
+                            + com.rehome.rehome.util.NotificationFormatting.deadline(voucher.getExpiresAt()) + ".");
         }
     }
     @Scheduled(fixedDelay = 60_000)

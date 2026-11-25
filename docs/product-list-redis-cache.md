@@ -46,3 +46,22 @@ Manual verification: call the same list twice and observe no catalog SQL on the
 second request; change filter/page/viewer and verify separate results; update a
 price or reserve a product and verify the next list reflects the committed change;
 stop Redis and verify the list still loads from the database.
+
+Performance changes after the 25 November load test:
+
+- The `getProducts` facade suspends transactions while accessing Redis or waiting
+  for an identical request. `ProductCatalogReader.load` owns a short read-only
+  transaction for database queries and DTO mapping only. A cache hit does not
+  acquire a JDBC connection for catalogue loading. JWT account lookup is separate
+  and remains unchanged, including current account-status checks.
+- In-flight requests for the same viewer/filter/page/generation share one page
+  read and, on miss, one DB load within a JVM. Redis generation is still checked
+  per request; this is not a persistent local cache. No coalescing occurs across
+  different viewers or Redis generations. Original application exceptions are
+  propagated to waiters; completed/failed flights are removed so retries work.
+- When Redis generation lookup fails, overlapping identical DB fallbacks are
+  coalesced using the request hash and a local invalidation epoch. Disabled cache
+  retains the original direct DB behavior. This does not coordinate DB loads
+  across different backend replicas or eliminate Redis/authentication latency.
+- Validate the impact by repeating the same Locust stages after restarting the
+  backend; passing functional tests is not evidence of a particular user capacity.

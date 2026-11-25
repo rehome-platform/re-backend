@@ -12,6 +12,10 @@ import java.time.Duration;
 import java.util.HexFormat;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.convert.DurationStyle;
@@ -31,10 +35,19 @@ public class ProductListCache {
     private final ObjectMapper mapper;
     private final boolean enabled;
     private final Duration ttl;
+    private final ConcurrentHashMap<String, CompletableFuture<PageResponse<ProductSummaryResponse>>> inFlight = new ConcurrentHashMap<>();
+    private final AtomicLong localGeneration = new AtomicLong();
 
     public record Key(String search, UUID categoryId, UUID brandId, BigDecimal priceMin,
                       BigDecimal priceMax, UUID warehouseId, TryOnSlot tryonSlot,
-                      int page, int size, UUID viewerId) {}
+                      int page, int size, UUID viewerId) {
+        public Key {
+            search = com.rehome.rehome.util.VietnameseText.normalize(search);
+            if (search != null && search.isBlank()) search = null;
+            priceMin = priceMin == null ? null : priceMin.stripTrailingZeros();
+            priceMax = priceMax == null ? null : priceMax.stripTrailingZeros();
+        }
+    }
 
     public ProductListCache(StringRedisTemplate redis, ObjectMapper mapper,
                             @Value("${app.cache.products.enabled:true}") boolean enabled,
@@ -49,17 +62,58 @@ public class ProductListCache {
             Supplier<PageResponse<ProductSummaryResponse>> loader) {
         if (!enabled || ttl.isZero() || ttl.isNegative()) return loader.get();
         String key = null;
+        String digest;
+        long epoch = localGeneration.get();
+        try {
+            digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(mapper.writeValueAsString(request).getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception ex) {
+            return loader.get();
+        }
         try {
             String generation = redis.opsForValue().get(GENERATION_KEY);
-            String digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(mapper.writeValueAsString(request).getBytes(StandardCharsets.UTF_8)));
             key = PREFIX + (generation == null ? "0" : generation) + ":" + digest;
-            String cached = redis.opsForValue().get(key);
-            if (cached != null) return mapper.readValue(cached, PAGE_TYPE);
         } catch (Exception ex) {
             // Do not retry a Redis write after a failed read (especially a connection timeout).
             key = null;
             log.warn("Product cache read failed; loading database ({})", ex.getClass().getSimpleName());
+        }
+
+        // Include the generation: requests after invalidation cannot join an older read.
+        String flightKey = epoch + ":" + (key == null ? "offline:" + digest : key);
+        var pending = new CompletableFuture<PageResponse<ProductSummaryResponse>>();
+        var existing = inFlight.putIfAbsent(flightKey, pending);
+        if (existing != null) {
+            try {
+                return existing.join();
+            } catch (CompletionException ex) {
+                if (ex.getCause() instanceof RuntimeException failure) throw failure;
+                if (ex.getCause() instanceof Error failure) throw failure;
+                throw ex;
+            }
+        }
+        try {
+            var result = readPageOrLoad(key, loader);
+            pending.complete(result);
+            return result;
+        } catch (RuntimeException | Error ex) {
+            pending.completeExceptionally(ex);
+            throw ex;
+        } finally {
+            inFlight.remove(flightKey, pending);
+        }
+    }
+
+    private PageResponse<ProductSummaryResponse> readPageOrLoad(String key,
+            Supplier<PageResponse<ProductSummaryResponse>> loader) {
+        if (key != null) {
+            try {
+                String cached = redis.opsForValue().get(key);
+                if (cached != null) return mapper.readValue(cached, PAGE_TYPE);
+            } catch (Exception ex) {
+                key = null;
+                log.warn("Product cache page read failed; loading database ({})", ex.getClass().getSimpleName());
+            }
         }
 
         // Database/application exceptions propagate normally, without a second loader call.
@@ -92,6 +146,7 @@ public class ProductListCache {
     }
 
     private void invalidate() {
+        localGeneration.incrementAndGet();
         try {
             // No KEYS/SCAN or mass deletion: old pages expire through their existing TTL.
             redis.opsForValue().set(GENERATION_KEY, UUID.randomUUID().toString());

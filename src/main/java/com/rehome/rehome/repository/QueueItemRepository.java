@@ -25,6 +25,20 @@ public interface QueueItemRepository extends JpaRepository<QueueItem, String> {
             + "order by q.createdAt asc")
     List<QueueItem> findAllVisible(@Param("warehouse") Warehouse warehouse);
 
+    @Query("select q from QueueItem q "
+            + "where q.type = :type and q.claimedBy = :moderator "
+            + "and (q.warehouse is null or q.warehouse = :warehouse) "
+            + "order by q.createdAt asc")
+    List<QueueItem> findVisibleByTypeClaimedBy(@Param("type") QueueType type,
+                                           @Param("warehouse") Warehouse warehouse,
+                                           @Param("moderator") Account moderator);
+
+    @Query("select q from QueueItem q "
+            + "where q.claimedBy = :moderator and (q.warehouse is null or q.warehouse = :warehouse) "
+            + "order by q.createdAt asc")
+    List<QueueItem> findAllVisibleClaimedBy(@Param("warehouse") Warehouse warehouse,
+                                        @Param("moderator") Account moderator);
+
     Optional<QueueItem> findByTypeAndRefId(QueueType type, String refId);
 
     // Đóng gói: khóa dòng queue cùng lúc với đơn để kiểm tra claim và hoàn tất việc không bị chen ngang

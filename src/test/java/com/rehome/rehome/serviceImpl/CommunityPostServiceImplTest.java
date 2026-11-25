@@ -15,6 +15,8 @@ import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.CampaignStatus;
 import com.rehome.rehome.entity.enums.ContentStatus;
+import com.rehome.rehome.entity.enums.ContentReviewStatus;
+import com.rehome.rehome.entity.enums.ViolationWordAction;
 import com.rehome.rehome.entity.enums.NotificationTargetType;
 import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.entity.enums.Role;
@@ -45,6 +47,9 @@ import com.rehome.rehome.repository.ViolationReportRepository;
 import com.rehome.rehome.service.NotificationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -88,6 +93,111 @@ class CommunityPostServiceImplTest {
     @Mock private com.rehome.rehome.service.ContentModerationService moderation;
 
     @InjectMocks private CommunityPostServiceImpl service;
+
+    @ParameterizedTest
+    @EnumSource(ViolationWordAction.class)
+    void createPost_anyMatchedActionHidesPostAndDoesNotNotifyFollowers(ViolationWordAction action) {
+        UUID orgId = UUID.randomUUID();
+        stubVerifiedOrganization(orgId);
+        stubPostSaveAssignsId();
+        String content = "Nội dung cần duyệt";
+        when(moderation.evaluateForReview(content)).thenReturn(action);
+
+        PostCreateResponse result = service.createPost(orgId, new CreatePostRequest(content, null, null));
+
+        ArgumentCaptor<CommunityPost> saved = ArgumentCaptor.forClass(CommunityPost.class);
+        verify(communityPostRepository).save(saved.capture());
+        assertThat(saved.getValue().getStatus()).isEqualTo(ContentStatus.PENDING_REVIEW);
+        assertThat(saved.getValue().getReviewStatus()).isEqualTo(ContentReviewStatus.PENDING_REVIEW);
+        assertThat(result.getStatus()).isEqualTo("PENDING_REVIEW");
+        verify(moderation).recordMatch(orgId, "POST", saved.getValue().getId(), action);
+        verify(moderation, never()).evaluate(any());
+        verifyNoInteractions(notificationService);
+    }
+
+    @ParameterizedTest
+    @EnumSource(ViolationWordAction.class)
+    void updatePost_anyMatchedActionMovesVisiblePostToPending(ViolationWordAction action) {
+        UUID orgId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        CommunityPost entity = post(postId, orgId, ContentStatus.VISIBLE);
+        entity.setReviewStatus(ContentReviewStatus.APPROVED);
+        when(communityPostRepository.findById(postId)).thenReturn(Optional.of(entity));
+        when(moderation.evaluateForReview("Nội dung mới cần duyệt")).thenReturn(action);
+
+        PostUpdateResponse result = service.updatePost(orgId, postId,
+                new UpdatePostRequest("Nội dung mới cần duyệt", null, null));
+
+        assertThat(entity.getStatus()).isEqualTo(ContentStatus.PENDING_REVIEW);
+        assertThat(entity.getReviewStatus()).isEqualTo(ContentReviewStatus.PENDING_REVIEW);
+        assertThat(result.getStatus()).isEqualTo("PENDING_REVIEW");
+        verify(moderation).recordMatch(orgId, "POST", postId, action);
+        verify(moderation, never()).evaluate(any());
+        verifyNoInteractions(notificationService);
+    }
+
+    @ParameterizedTest
+    @EnumSource(ViolationWordAction.class)
+    void createComment_anyMatchedActionHidesReplyWithoutNormalNotifications(ViolationWordAction action) {
+        UUID orgId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        UUID parentId = UUID.randomUUID();
+        CommunityPost entity = post(postId, orgId, ContentStatus.VISIBLE);
+        Account member = memberAccount(memberId);
+        PostComment parent = PostComment.builder().id(parentId).post(entity)
+                .author(memberAccount(UUID.randomUUID())).build();
+        when(communityPostRepository.findById(postId)).thenReturn(Optional.of(entity));
+        when(accountRepository.findById(memberId)).thenReturn(Optional.of(member));
+        when(postCommentRepository.findById(parentId)).thenReturn(Optional.of(parent));
+        when(postCommentRepository.save(any())).thenAnswer(inv -> {
+            PostComment saved = inv.getArgument(0);
+            saved.setId(UUID.randomUUID());
+            return saved;
+        });
+        when(moderation.evaluateForReview("Bình luận cần duyệt")).thenReturn(action);
+
+        CommentResponse result = service.createComment(memberId, postId,
+                new CreateCommentRequest("Bình luận cần duyệt", parentId.toString()));
+
+        ArgumentCaptor<PostComment> saved = ArgumentCaptor.forClass(PostComment.class);
+        verify(postCommentRepository).save(saved.capture());
+        assertThat(saved.getValue().getStatus()).isEqualTo(ContentStatus.PENDING_REVIEW);
+        assertThat(saved.getValue().getReviewStatus()).isEqualTo(ContentReviewStatus.PENDING_REVIEW);
+        assertThat(result.getStatus()).isEqualTo("PENDING_REVIEW");
+        assertThat(result.getReviewStatus()).isEqualTo(ContentReviewStatus.PENDING_REVIEW);
+        assertThat(result.getContent()).isEqualTo("Bình luận cần duyệt");
+        assertThat(result.isMine()).isTrue();
+        verify(moderation).recordMatch(memberId, "POST_COMMENT", saved.getValue().getId(), action);
+        verifyNoInteractions(notificationService);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"PENDING_REVIEW,AUTHOR,true", "PENDING_REVIEW,OTHER,false", "PENDING_REVIEW,GUEST,false",
+            "REMOVED,AUTHOR,false", "REMOVED,OTHER,false", "REMOVED,GUEST,false",
+            "VISIBLE,AUTHOR,true", "VISIBLE,OTHER,true", "VISIBLE,GUEST,true"})
+    void listComments_masksHiddenContentAndKeepsReviewReasonPrivate(ContentStatus status, String viewer,
+                                                                   boolean contentVisible) {
+        UUID postId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        UUID viewerId = viewer.equals("AUTHOR") ? authorId : viewer.equals("GUEST") ? null : UUID.randomUUID();
+        CommunityPost entity = post(postId, UUID.randomUUID(), ContentStatus.VISIBLE);
+        PostComment comment = PostComment.builder().id(UUID.randomUUID()).post(entity)
+                .author(memberAccount(authorId)).content("Stored original")
+                .status(status).reviewStatus(ContentReviewStatus.PENDING_REVIEW)
+                .reviewReason("Private review reason").build();
+        when(communityPostRepository.findById(postId)).thenReturn(Optional.of(entity));
+        when(postCommentRepository.findByPost_Id(eq(postId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(comment)));
+
+        CommentResponse result = service.listComments(postId, viewerId, 0, 20).getContent().get(0);
+
+        assertThat(result.getContent()).isEqualTo(contentVisible ? "Stored original" : null);
+        assertThat(result.getReviewReason()).isEqualTo(viewer.equals("AUTHOR") ? "Private review reason" : null);
+        assertThat(result.isMine()).isEqualTo(viewer.equals("AUTHOR"));
+        assertThat(result.getStatus()).isEqualTo(status.name());
+        assertThat(comment.getContent()).isEqualTo("Stored original");
+    }
 
     private CommunityPost post(UUID id, UUID organizationId, ContentStatus status) {
         OrganizationProfile organization = OrganizationProfile.builder()

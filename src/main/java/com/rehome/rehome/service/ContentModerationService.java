@@ -74,20 +74,25 @@ public class ContentModerationService {
     }
 
     public ViolationWordAction evaluate(String... texts) {
+        ViolationWordAction action = evaluateForReview(texts);
+        if (action == ViolationWordAction.AUTO_REJECT) {
+            throw new AppException(ErrorCode.CONTENT_VIOLATION);
+        }
+        return action;
+    }
+
+    /** Community content is hidden for review even when the strongest rule is AUTO_REJECT. */
+    public ViolationWordAction evaluateForReview(String... texts) {
+        if (texts == null) return null;
         List<String> values = Arrays.stream(texts).filter(Objects::nonNull)
                 .filter(value -> !value.isBlank()).map(ContentModerationService::normalize).toList();
         if (values.isEmpty()) {
             return null;
         }
-        var matches = activeRules().stream().filter(rule ->
-                values.stream().anyMatch(value -> rule.pattern().matcher(value).find())).toList();
-        if (matches.stream().anyMatch(rule -> rule.action() == ViolationWordAction.AUTO_REJECT)) {
-            throw new AppException(ErrorCode.CONTENT_VIOLATION);
-        }
-        if (matches.stream().anyMatch(rule -> rule.action() == ViolationWordAction.AUTO_FLAG)) {
-            return ViolationWordAction.AUTO_FLAG;
-        }
-        return matches.isEmpty() ? null : ViolationWordAction.NOTIFY_ADMIN;
+        return activeRules().stream().filter(rule ->
+                values.stream().anyMatch(value -> rule.pattern().matcher(value).find()))
+                .map(Rule::action).filter(Objects::nonNull)
+                .max(Comparator.comparingInt(ContentModerationService::severity)).orElse(null);
     }
 
     /** Chat-only moderation. Matching offsets retain the original UTF-16 positions. */
@@ -136,7 +141,9 @@ public class ContentModerationService {
         if (action == null) {
             return;
         }
-        boolean flagged = action == ViolationWordAction.AUTO_FLAG;
+        boolean chat = "CHAT".equals(context);
+        boolean communityReview = "POST".equals(context) || "POST_COMMENT".equals(context);
+        boolean flagged = communityReview || action == ViolationWordAction.AUTO_FLAG;
         var detail = JsonNodeFactory.instance.objectNode().put("context", context)
                 .put("moderationAction", action.name());
         if (contentId != null) {
@@ -144,9 +151,10 @@ public class ContentModerationService {
         }
         // Keep private conversation text out of the shared audit log.
         AuditLog audit = audits.save(AuditLog.builder().actorAccount(accounts.getReferenceById(actorId))
-                .actionType(flagged ? "CONTENT_AUTO_FLAG" : "CONTENT_NOTIFY_ADMIN")
+                .actionType(chat ? "CONTENT_CHAT_MASKED" : flagged ? "CONTENT_AUTO_FLAG" : "CONTENT_NOTIFY_ADMIN")
                 .targetType("CONTENT_REVIEW").targetId(UUID.randomUUID().toString()).detail(detail).build());
-        if (!flagged) {
+        if (chat) return;
+        if (communityReview || !flagged) {
             for (var admin : accounts.findByRole(Role.ADMIN)) {
                 notifications.notify(admin, NotificationType.CONTENT_REVIEW, "Cần xem xét nội dung",
                         "Kiểm tra nhật ký quản trị, mã " + audit.getTargetId(), null, null, null);

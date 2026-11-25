@@ -137,13 +137,9 @@ public class OrganizationVerificationResponse {
     }
 
     /**
-     * Số giấy tờ tối thiểu loại tổ chức này phải nộp — dùng lại bảng giấy tờ ở mục 9 để
-     * F-138 chặn duyệt khi hồ sơ còn thiếu, thay vì nhân đôi bảng đó ở service.
+     * Các mục hướng dẫn đối chiếu theo loại tổ chức; nhiều mục có thể nằm chung trong một file.
+     * Điều kiện có đủ tệp hồ sơ để xác minh được kiểm tra riêng tại service.
      */
-    public static int requiredDocumentCount(String rawOrgType) {
-        return documentItemsFor(rawOrgType).size();
-    }
-
     private static List<ChecklistItem> documentItemsFor(String rawOrgType) {
         OrganizationType orgType = parseOrgType(rawOrgType);
         if (orgType == null) {

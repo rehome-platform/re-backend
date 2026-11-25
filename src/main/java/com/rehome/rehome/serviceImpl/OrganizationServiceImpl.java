@@ -664,17 +664,24 @@ public class OrganizationServiceImpl implements OrganizationService {
      * (gọi điện, tra mã số thuế, soi ảnh) thì FE chặn trước khi cho bấm Xác thực.
      */
     private void requireCompleteDossier(OrganizationProfile profile) {
-        int requiredDocuments = OrganizationVerificationResponse.requiredDocumentCount(profile.getOrgType());
-        int submittedDocuments = profile.getDocuments() == null ? 0 : profile.getDocuments().size();
+        boolean hasLegalFile = profile.getDocuments() != null && profile.getDocuments().stream()
+                .anyMatch(doc -> doc != null && StringUtils.hasText(doc.getFileUrl()));
 
         OrganizationRepresentative representative = profile.getRepresentative();
         boolean hasCccdImages = representative != null
                 && StringUtils.hasText(representative.getCccdFrontUrl())
                 && StringUtils.hasText(representative.getCccdBackUrl());
 
-        if (submittedDocuments < requiredDocuments || !hasCccdImages) {
+        if (!hasLegalFile && !hasCccdImages) {
             throw new ConflictException(
-                    "CHECKLIST_INCOMPLETE: chưa hoàn tất checklist xác minh.",
+                    "CHECKLIST_INCOMPLETE: cần có ít nhất 1 tệp giấy tờ pháp lý và đủ ảnh CCCD 2 mặt của người đại diện.",
+                    "CHECKLIST_INCOMPLETE");
+        }
+        if (!hasLegalFile) {
+            throw new ConflictException("CHECKLIST_INCOMPLETE: thiếu tệp giấy tờ pháp lý.", "CHECKLIST_INCOMPLETE");
+        }
+        if (!hasCccdImages) {
+            throw new ConflictException("CHECKLIST_INCOMPLETE: thiếu ảnh CCCD mặt trước hoặc mặt sau của người đại diện.",
                     "CHECKLIST_INCOMPLETE");
         }
     }

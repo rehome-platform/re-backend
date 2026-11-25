@@ -22,8 +22,9 @@ public class QueueController {
     // API 28
     @GetMapping
     public ApiResponse<List<QueueItemResponse>> list(
-            @RequestParam(required = false) String type, @AuthenticationPrincipal Account moderator) {
-        return ApiResponse.success(queueService.list(type, moderator));
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) Boolean mine, @AuthenticationPrincipal Account moderator) {
+        return ApiResponse.success(queueService.list(type, mine, moderator));
     }
 
     // API 29

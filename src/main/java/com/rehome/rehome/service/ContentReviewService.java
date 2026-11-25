@@ -65,7 +65,8 @@ public class ContentReviewService {
             }
             case COMMENT -> {
                 var comment = comments.findById(id).orElseThrow(() -> new IllegalArgumentException("Không tìm thấy bình luận."));
-                requirePending(comment.getReviewStatus(), comment.getVersion() == version && comment.getStatus() == ContentStatus.VISIBLE
+                requirePending(comment.getReviewStatus(), comment.getVersion() == version
+                        && (comment.getStatus() == ContentStatus.PENDING_REVIEW || comment.getStatus() == ContentStatus.VISIBLE)
                         && comment.getPost().getStatus() != ContentStatus.REMOVED);
                 comment.setStatus(visibility);
                 comment.setReviewStatus(result);

@@ -315,20 +315,23 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         PostComment rootParent = replyTarget == null ? null
                 : (replyTarget.getParent() != null ? replyTarget.getParent() : replyTarget);
 
-        var moderationAction = moderation.evaluate(request.getContent());
+        var moderationAction = moderation.evaluateForReview(request.getContent());
         PostComment comment = PostComment.builder()
                 .post(post)
                 .author(author)
                 .parent(rootParent)
                 .content(request.getContent())
                 .build();
-        if (moderationAction == ViolationWordAction.AUTO_FLAG) {
+        if (moderationAction != null) {
             comment.setReviewStatus(ContentReviewStatus.PENDING_REVIEW);
+            comment.setStatus(ContentStatus.PENDING_REVIEW);
         }
         postCommentRepository.save(comment);
         moderation.recordMatch(authorId, "POST_COMMENT", comment.getId(), moderationAction);
 
-        notifyAboutComment(post, author, replyTarget);
+        if (comment.getStatus() == ContentStatus.VISIBLE) {
+            notifyAboutComment(post, author, replyTarget);
+        }
 
         AuthorInfo authorInfo = loadAuthorInfo(author);
         return toCommentResponse(comment, Collections.singletonMap(authorId, authorInfo), authorId);
@@ -442,7 +445,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         // chính tổ chức này, ngoài phạm vi đó coi như không tìm thấy (giống DonationServiceImpl)
         Campaign campaign = resolveOwnOpenCampaignOrNull(organizationAccountId, request.getCampaignId(), null);
 
-        var moderationAction = moderation.evaluate(request.getContent());
+        var moderationAction = moderation.evaluateForReview(request.getContent());
         CommunityPost post = CommunityPost.builder()
                 .organization(organization)
                 .content(request.getContent())
@@ -491,7 +494,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         }
         Campaign campaign = resolveOwnOpenCampaignOrNull(organizationAccountId, request.getCampaignId(), post.getCampaign());
 
-        var moderationAction = moderation.evaluate(request.getContent());
+        var moderationAction = moderation.evaluateForReview(request.getContent());
         post.setContent(request.getContent());
         post.setCampaign(campaign);
         applyPostReview(post, moderationAction);
@@ -516,7 +519,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
     }
 
     private static void applyPostReview(CommunityPost post, ViolationWordAction action) {
-        if (action == ViolationWordAction.AUTO_FLAG) {
+        if (action != null) {
             post.setReviewStatus(ContentReviewStatus.PENDING_REVIEW);
             post.setStatus(ContentStatus.PENDING_REVIEW);
         } else {
@@ -683,16 +686,18 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                                                       UUID viewerId) {
         boolean removed = comment.getStatus() == ContentStatus.REMOVED;
         Account authorAccount = comment.getAuthor();
+        boolean isMine = authorAccount.getId().equals(viewerId);
+        boolean hideContent = removed || (comment.getStatus() == ContentStatus.PENDING_REVIEW && !isMine);
         AuthorInfo authorInfo = authorInfoByAccountId.get(authorAccount.getId());
 
         return CommentResponse.builder()
                 .id(comment.getId().toString())
                 .parentId(comment.getParent() == null ? null : comment.getParent().getId().toString())
-                // REMOVED: Moderator đã ẩn -> bỏ nội dung, dòng vẫn trả về (OB-05)
-                .content(removed ? null : comment.getContent())
+                // Chỉ tác giả thấy nội dung đang chờ duyệt; bình luận đã gỡ luôn ẩn nội dung.
+                .content(hideContent ? null : comment.getContent())
                 .status(comment.getStatus().name())
                 .reviewStatus(comment.getReviewStatus())
-                .reviewReason(authorAccount.getId().equals(viewerId) ? comment.getReviewReason() : null)
+                .reviewReason(isMine ? comment.getReviewReason() : null)
                 .author(CommentAuthorResponse.builder()
                         .id(authorAccount.getId().toString())
                         .type(authorInfo != null ? authorInfo.type() : authorAccount.getRole().name())
@@ -700,7 +705,7 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                         .avatarUrl(authorInfo == null ? null : authorInfo.avatarUrl())
                         .build())
                 .createdAt(comment.getCreatedAt())
-                .isMine(viewerId != null && authorAccount.getId().equals(viewerId))
+                .isMine(isMine)
                 .build();
     }
 }

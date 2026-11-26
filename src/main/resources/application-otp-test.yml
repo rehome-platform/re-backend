@@ -1,0 +1,7 @@
+# Enable with SPRING_PROFILES_ACTIVE=otp-test on the test environment.
+# Existing OTP_RATE_LIMIT_* environment variables still override these defaults.
+app:
+  otp:
+    rate-limit:
+      email-limit: ${OTP_RATE_LIMIT_EMAIL:10}
+      window-seconds: ${OTP_RATE_LIMIT_WINDOW_SECONDS:300}

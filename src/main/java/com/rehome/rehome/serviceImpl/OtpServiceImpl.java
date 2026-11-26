@@ -27,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Locale;
@@ -69,7 +70,9 @@ public class OtpServiceImpl implements OtpService {
         EmailOtp otp = otps.findById(key).orElseGet(EmailOtp::new);
         Instant now = Instant.now();
         if (otp.getSentAt() != null && now.isBefore(otp.getSentAt().plusSeconds(resendSeconds))) {
-            throw new OtpException(HttpStatus.TOO_MANY_REQUESTS, "Vui lòng chờ trước khi gửi lại OTP.");
+            Duration remaining = Duration.between(now, otp.getSentAt().plusSeconds(resendSeconds));
+            long retryAfter = remaining.getSeconds() + (remaining.getNano() > 0 ? 1 : 0);
+            throw new OtpException(HttpStatus.TOO_MANY_REQUESTS, "Bạn vừa yêu cầu gửi OTP.", retryAfter);
         }
         String code = String.format(Locale.ROOT, "%06d", random.nextInt(1_000_000));
         otp.setId(key);

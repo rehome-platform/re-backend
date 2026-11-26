@@ -12,7 +12,11 @@ public interface AuthService {
 
     OtpResponse registerMember(RegisterRequest request);
 
+    OtpResponse registerMember(RegisterRequest request, String clientIp);
+
     OtpResponse registerOrganization(RegisterRequest request);
+
+    OtpResponse registerOrganization(RegisterRequest request, String clientIp);
 
     AuthResponse login(LoginRequest request);
 

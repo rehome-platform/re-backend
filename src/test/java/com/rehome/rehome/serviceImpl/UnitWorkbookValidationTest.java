@@ -40,6 +40,8 @@ class UnitWorkbookValidationTest {
     @Mock OrganizationProfileMapper mapper;
     @Mock GoogleTokenVerifier google;
     @Mock WalletRepository wallets;
+    @Mock ContentModerationService moderation;
+    @Mock OtpRateLimiter limiter;
     @InjectMocks AuthServiceImpl service;
 
     private RegisterRequest request() {

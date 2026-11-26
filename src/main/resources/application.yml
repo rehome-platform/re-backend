@@ -1,5 +1,7 @@
 server:
   port: 8080
+  # Render forwards the client IP through its reverse proxy.
+  forward-headers-strategy: framework
 
 spring:
   config:

@@ -79,17 +79,26 @@ public class QueueServiceImpl implements QueueService {
     @Override
     @Transactional
     public List<QueueItemResponse> list(String type, Account moderator) {
+        return list(type, null, moderator);
+    }
+
+    @Override
+    @Transactional
+    public List<QueueItemResponse> list(String type, Boolean mine, Account moderator) {
         Warehouse warehouse = requireWarehouse(moderator);
+        boolean onlyMine = Boolean.TRUE.equals(mine);
 
         List<QueueItem> items;
         if (type == null || type.isBlank()) {
-            items = queueItemRepository.findAllVisible(warehouse);
+            items = onlyMine ? queueItemRepository.findAllVisibleClaimedBy(warehouse, moderator)
+                    : queueItemRepository.findAllVisible(warehouse);
         } else {
             QueueType queueType = parseType(type);
-            if (queueType == QueueType.RETURN) {
+            if (!onlyMine && queueType == QueueType.RETURN) {
                 syncPendingReturnRequests(warehouse);
             }
-            items = queueItemRepository.findVisibleByType(queueType, warehouse);
+            items = onlyMine ? queueItemRepository.findVisibleByTypeClaimedBy(queueType, warehouse, moderator)
+                    : queueItemRepository.findVisibleByType(queueType, warehouse);
         }
         return toResponses(items);
     }

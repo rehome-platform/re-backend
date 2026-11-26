@@ -13,6 +13,9 @@ public interface QueueService {
     // API 28: danh sách việc, lọc theo type (null = tất cả), theo kho của Moderator
     List<QueueItemResponse> list(String type, Account moderator);
 
+    // mine=true chỉ lấy việc đang được chính Moderator giữ; null/false giữ hành vi cũ.
+    List<QueueItemResponse> list(String type, Boolean mine, Account moderator);
+
     // API 29: nhận việc, ném 409 nếu người khác nhận trước
     QueueClaimResponse claim(String id, Account moderator);
 

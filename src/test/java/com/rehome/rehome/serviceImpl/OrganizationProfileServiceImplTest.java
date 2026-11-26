@@ -1462,27 +1462,23 @@ class OrganizationProfileServiceImplTest {
         verifyNoInteractions(queueService);
     }
 
-    @Test
-    void verifyOrganization_missingDocuments_throwsChecklistIncomplete() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(OrganizationType.class)
+    void verifyOrganization_oneCombinedPdfIsEnoughForEveryOrganizationType(OrganizationType orgType) {
         UUID orgId = UUID.randomUUID();
-        // SCHOOL_CLUB cần 3 giấy tờ nhưng chỉ nộp 1
         OrganizationProfile profile = baseProfile(orgId)
-                .orgType(OrganizationType.SCHOOL_CLUB.name())
+                .orgType(orgType.name())
                 .verificationStatus(VerificationStatus.PENDING)
                 .representative(representativeWithCccd())
                 .documents(documents(1))
                 .build();
         when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
 
-        assertThatThrownBy(() -> service.verifyOrganization(account(UUID.randomUUID(), Role.MODERATOR), orgId))
-                .isInstanceOf(ConflictException.class)
-                .hasMessage("CHECKLIST_INCOMPLETE: chưa hoàn tất checklist xác minh.")
-                .satisfies(e -> assertThat(((ConflictException) e).getCode())
-                        .isEqualTo("CHECKLIST_INCOMPLETE"));
+        service.verifyOrganization(account(UUID.randomUUID(), Role.MODERATOR), orgId);
 
-        assertThat(profile.getVerificationStatus()).isEqualTo(VerificationStatus.PENDING);
-        verify(organizationProfileRepository, never()).save(any());
-        verifyNoInteractions(queueService);
+        assertThat(profile.getVerificationStatus()).isEqualTo(VerificationStatus.VERIFIED);
+        verify(organizationProfileRepository).save(profile);
+        verify(queueService).dequeue(QueueType.ORG_VERIFICATION, orgId.toString());
     }
 
     @Test
@@ -1497,7 +1493,7 @@ class OrganizationProfileServiceImplTest {
 
         assertThatThrownBy(() -> service.verifyOrganization(account(UUID.randomUUID(), Role.MODERATOR), orgId))
                 .isInstanceOf(ConflictException.class)
-                .hasMessage("CHECKLIST_INCOMPLETE: chưa hoàn tất checklist xác minh.");
+                .hasMessage("CHECKLIST_INCOMPLETE: thiếu tệp giấy tờ pháp lý.");
     }
 
     @Test
@@ -1515,9 +1511,73 @@ class OrganizationProfileServiceImplTest {
 
         assertThatThrownBy(() -> service.verifyOrganization(account(UUID.randomUUID(), Role.MODERATOR), orgId))
                 .isInstanceOf(ConflictException.class)
-                .hasMessage("CHECKLIST_INCOMPLETE: chưa hoàn tất checklist xác minh.");
+                .hasMessage("CHECKLIST_INCOMPLETE: thiếu ảnh CCCD mặt trước hoặc mặt sau của người đại diện.");
 
         verify(organizationProfileRepository, never()).save(any());
+    }
+
+    @Test
+    void verifyOrganization_missingBothLegalFileAndRepresentativeGivesCombinedError() {
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile profile = baseProfile(orgId).verificationStatus(VerificationStatus.PENDING).build();
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        assertThatThrownBy(() -> service.verifyOrganization(account(UUID.randomUUID(), Role.MODERATOR), orgId))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("CHECKLIST_INCOMPLETE: cần có ít nhất 1 tệp giấy tờ pháp lý và đủ ảnh CCCD 2 mặt của người đại diện.")
+                .hasFieldOrPropertyWithValue("code", "CHECKLIST_INCOMPLETE");
+
+        verify(organizationProfileRepository, never()).save(any());
+        verifyNoInteractions(queueService, notificationService);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.NullAndEmptySource
+    @org.junit.jupiter.params.provider.ValueSource(strings = {" ", "\t"})
+    void verifyOrganization_documentRowsWithoutAFileAreNotEnough(String fileUrl) {
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile profile = completeCharityFundProfile(orgId, VerificationStatus.PENDING);
+        profile.setDocuments(List.of(
+                OrganizationDocument.builder().fileUrl(fileUrl).build(),
+                OrganizationDocument.builder().fileUrl("  ").build()));
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        assertThatThrownBy(() -> service.verifyOrganization(account(UUID.randomUUID(), Role.MODERATOR), orgId))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("CHECKLIST_INCOMPLETE: thiếu tệp giấy tờ pháp lý.")
+                .hasFieldOrPropertyWithValue("code", "CHECKLIST_INCOMPLETE");
+        verify(organizationProfileRepository, never()).save(any());
+        verifyNoInteractions(queueService, notificationService);
+    }
+
+    @Test
+    void verifyOrganization_acceptsOneValidFileAmongEmptyDocumentRows() {
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile profile = completeCharityFundProfile(orgId, VerificationStatus.PENDING);
+        profile.setDocuments(List.of(OrganizationDocument.builder().fileUrl("  ").build(),
+                OrganizationDocument.builder().fileUrl("combined-legal.pdf").build()));
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        service.verifyOrganization(account(UUID.randomUUID(), Role.MODERATOR), orgId);
+
+        assertThat(profile.getVerificationStatus()).isEqualTo(VerificationStatus.VERIFIED);
+        verify(organizationProfileRepository).save(profile);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource(value = {"NULL,back", "front,NULL", "' ',back", "front,' '"}, nullValues = "NULL")
+    void verifyOrganization_requiresBothNonBlankCccdSides(String front, String back) {
+        UUID orgId = UUID.randomUUID();
+        OrganizationProfile profile = completeCharityFundProfile(orgId, VerificationStatus.PENDING);
+        profile.setRepresentative(new OrganizationRepresentative("Nguyễn Văn B", "Giám đốc", "079123456789", front, back));
+        when(organizationProfileRepository.findById(orgId)).thenReturn(Optional.of(profile));
+
+        assertThatThrownBy(() -> service.verifyOrganization(account(UUID.randomUUID(), Role.MODERATOR), orgId))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("CHECKLIST_INCOMPLETE: thiếu ảnh CCCD mặt trước hoặc mặt sau của người đại diện.")
+                .hasFieldOrPropertyWithValue("code", "CHECKLIST_INCOMPLETE");
+        verify(organizationProfileRepository, never()).save(any());
+        verifyNoInteractions(queueService, notificationService);
     }
 
     @Test

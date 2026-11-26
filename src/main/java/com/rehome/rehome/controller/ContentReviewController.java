@@ -17,7 +17,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/content-reviews")
-@PreAuthorize("hasRole('MODERATOR')")
+@PreAuthorize("hasAnyRole('ADMIN', 'MODERATOR')")
 @RequiredArgsConstructor
 public class ContentReviewController {
     private final ContentReviewService reviews;

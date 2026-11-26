@@ -182,6 +182,53 @@ class QueueServiceImplTest {
     class ListTests {
 
         @Test
+        void mineWithTypeFiltersByCurrentModeratorAndSkipsReturnSynchronization() {
+            when(queueItemRepository.findVisibleByTypeClaimedBy(QueueType.RETURN, warehouse, moderator))
+                    .thenReturn(List.of());
+
+            assertThat(service.list("RETURN", true, moderator)).isEmpty();
+
+            verify(queueItemRepository).findVisibleByTypeClaimedBy(QueueType.RETURN, warehouse, moderator);
+            verify(queueItemRepository, never()).findVisibleByType(any(), any());
+            verify(returnRequestRepository, never()).findPendingIdsByWarehouse(any());
+            verify(queueItemRepository, never()).save(any());
+        }
+
+        @Test
+        void mineWithoutTypeLoadsOnlyCurrentModeratorsVisibleItems() {
+            when(queueItemRepository.findAllVisibleClaimedBy(warehouse, moderator)).thenReturn(List.of());
+
+            service.list(null, true, moderator);
+            service.list("  ", true, moderator);
+
+            verify(queueItemRepository, times(2)).findAllVisibleClaimedBy(warehouse, moderator);
+            verify(queueItemRepository, never()).findAllVisible(any());
+            verify(returnRequestRepository, never()).findPendingIdsByWarehouse(any());
+        }
+
+        @org.junit.jupiter.params.ParameterizedTest
+        @org.junit.jupiter.params.provider.NullSource
+        @org.junit.jupiter.params.provider.ValueSource(booleans = false)
+        void omittedOrFalseMineKeepsExistingReturnSynchronization(Boolean mine) {
+            when(returnRequestRepository.findPendingIdsByWarehouse(warehouse)).thenReturn(List.of());
+            when(queueItemRepository.findVisibleByType(QueueType.RETURN, warehouse)).thenReturn(List.of());
+
+            service.list("RETURN", mine, moderator);
+
+            verify(returnRequestRepository).findPendingIdsByWarehouse(warehouse);
+            verify(queueItemRepository).findVisibleByType(QueueType.RETURN, warehouse);
+            verify(queueItemRepository, never()).findVisibleByTypeClaimedBy(any(), any(), any());
+        }
+
+        @Test
+        void mineStillRequiresAssignedWarehouseAndValidType() {
+            assertAppError(() -> service.list("invalid", true, moderator), ErrorCode.INVALID_QUEUE_TYPE);
+            when(moderator.getWarehouse()).thenReturn(null);
+            assertAppError(() -> service.list("PACKING", true, moderator), ErrorCode.MODERATOR_NO_WAREHOUSE);
+            verify(queueItemRepository, never()).findVisibleByTypeClaimedBy(any(), any(), any());
+        }
+
+        @Test
         void moderatorWithoutWarehouse_throws() {
             when(moderator.getWarehouse()).thenReturn(null);
             assertAppError(() -> service.list(null, moderator), ErrorCode.MODERATOR_NO_WAREHOUSE);

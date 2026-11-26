@@ -24,4 +24,6 @@ public interface LiveTryOnService {
     LiveTryOnSessionVideoResponse uploadVideo(Account account, UUID sessionId, MultipartFile video);
 
     PageResponse<LiveTryOnHistoryItemResponse> getHistory(Account account, int page, int size);
+
+    void deleteVideo(Account account, UUID sessionId);
 }

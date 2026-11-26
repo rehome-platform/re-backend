@@ -188,6 +188,23 @@ class ReturnedInventoryQueryTest {
         return request;
     }
 
+    @Test void inventoryFetchesCategoryAndReceiptWithoutPerRowLazyLoads() {
+        persistProduct("INVENTORY-1", sellerA);
+        persistProduct("INVENTORY-2", sellerB);
+        em.flush();
+        em.clear();
+
+        var page = productRepository.findInventory(warehouse.getId(), ProductStatus.ON_SALE, false, PageRequest.of(0, 20));
+
+        assertThat(page.getContent()).hasSize(2);
+        var loaded = em.getEntityManagerFactory().getPersistenceUnitUtil();
+        for (Product item : page) {
+            assertThat(loaded.isLoaded(item, "category")).isTrue();
+            assertThat(loaded.isLoaded(item, "consignmentReceipt")).isTrue();
+            assertThat(item.getCategory().getTryonSlot()).isEqualTo(TryOnSlot.TOP);
+        }
+    }
+
     @Test void oneReturnedOrderCanLinkSeparateCasesForEachProduct() {
         Product first = persistProduct("RETURNED-1", sellerA);
         Product second = persistProduct("RETURNED-2", sellerB);

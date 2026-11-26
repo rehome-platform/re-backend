@@ -116,6 +116,7 @@ public interface ProductRepository extends JpaRepository<Product, String>, JpaSp
     @Query(value = "SELECT nextval('product_sku_seq')", nativeQuery = true)
     long nextSkuSequence();
 
+    @EntityGraph(attributePaths = {"category", "consignmentReceipt"})
     @Query("""
     SELECT p FROM Product p
 WHERE p.warehouse.id = :warehouseId

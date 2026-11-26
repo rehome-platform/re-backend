@@ -137,6 +137,12 @@ public class ProductServiceImpl implements ProductService {
             throw new AppException(ErrorCode.PRODUCT_UPDATE_CONFLICT);
         }
 
+        if (request.categoryId() != null
+                && (product.getCategory() == null || !request.categoryId().equals(product.getCategory().getId()))) {
+            Category category = categoryRepository.findById(request.categoryId())
+                    .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));
+            product.setCategory(category);
+        }
         product.setName(request.name().strip());
         productRepository.save(product);
         auditLogger.logOperation(moderator, "UPDATE_PRODUCT", "PRODUCT", id, "SUCCESS");
@@ -712,7 +718,9 @@ public class ProductServiceImpl implements ProductService {
                 .name(product.getName())
                 .status(product.getStatus())
                 .brandName(product.getBrand().getName())
+                .categoryId(product.getCategory().getId())
                 .categoryName(product.getCategory().getName())
+                .tryonSlot(product.getCategory().getTryonSlot())
                 .size(product.getSize())
                 .conditionNote(product.getConditionNote())
                 .currentPrice(product.getCurrentPrice())
@@ -761,10 +769,23 @@ public class ProductServiceImpl implements ProductService {
                 account.getWarehouse().getId(), status, degradedOnly, pageable);
 
         Map<String, UUID> pendingReturns = pendingReturnRequests(result.getContent());
+        List<String> productIds = result.getContent().stream().map(Product::getId).toList();
+        Map<String, List<String>> photosByProductId = productIds.isEmpty() ? Map.of() : productPhotoRepository
+                .findByProduct_IdInOrderByDisplayOrderAscIdAsc(productIds).stream()
+                .collect(Collectors.groupingBy(photo -> photo.getProduct().getId(),
+                        Collectors.mapping(ProductPhoto::getImageUrl, Collectors.toList())));
 
-        return PageResponse.from(result.map(p -> InventoryItemResponse.builder()
+        return PageResponse.from(result.map(p -> {
+            List<String> photos = photosByProductId.getOrDefault(p.getId(), List.of());
+            Category category = p.getCategory();
+            return InventoryItemResponse.builder()
                 .id(p.getId())
                 .name(p.getName())
+                .thumbnailUrl(photos.isEmpty() ? null : photos.get(0))
+                .photos(photos)
+                .categoryId(category == null ? null : category.getId())
+                .categoryName(category == null ? null : category.getName())
+                .tryonSlot(category == null ? null : category.getTryonSlot())
                 .status(p.getStatus())
                 .agreedPrice(p.getConsignmentReceipt().getAgreedPrice())
                 .termLengthDays(p.getConsignmentReceipt().getTermLengthDays())
@@ -772,7 +793,8 @@ public class ProductServiceImpl implements ProductService {
                 .daysIntoTerm(daysIntoCurrentTerm(p))
                 .currentPrice(p.getCurrentPrice())
                 .pendingReturnRequestId(pendingReturns.get(p.getId()))
-                .build()));
+                .build();
+        }));
     }
 
     private Map<String, UUID> pendingReturnRequests(List<Product> products) {

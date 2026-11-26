@@ -26,6 +26,8 @@ import com.rehome.rehome.security.GoogleTokenVerifier;
 import com.rehome.rehome.security.JwtService;
 
 import com.rehome.rehome.service.AuthService;
+import com.rehome.rehome.service.ContentModerationService;
+import com.rehome.rehome.service.OtpRateLimiter;
 import com.rehome.rehome.service.OtpService;
 import com.rehome.rehome.service.RefreshTokenService;
 
@@ -58,13 +60,22 @@ public class AuthServiceImpl implements AuthService {
     private final OrganizationProfileMapper organizationProfileMapper;
     private final GoogleTokenVerifier googleTokenVerifier;
     private final WalletRepository walletRepository;
+    private final ContentModerationService moderation;
+    private final OtpRateLimiter otpRateLimiter;
 
     // ==================== REGISTER ====================
 
     @Transactional
     @Override
     public OtpResponse registerMember(RegisterRequest request) {
+        return registerMember(request, null);
+    }
 
+    @Transactional
+    @Override
+    public OtpResponse registerMember(RegisterRequest request, String clientIp) {
+        // No account exists yet: evaluate the name without recording an actor audit.
+        moderation.evaluate(request.getFullName());
         if (accountRepository.existsByEmail(request.getEmail())) {
             throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
@@ -73,6 +84,8 @@ public class AuthServiceImpl implements AuthService {
         if (phone != null && accountRepository.existsByPhone(phone)) {
             throw new AppException(ErrorCode.PHONE_TAKEN);
         }
+
+        otpRateLimiter.check(request.getEmail(), clientIp);
 
         Account account = Account.builder()
                 .email(request.getEmail())
@@ -104,7 +117,13 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     @Override
     public OtpResponse registerOrganization(RegisterRequest request) {
+        return registerOrganization(request, null);
+    }
 
+    @Transactional
+    @Override
+    public OtpResponse registerOrganization(RegisterRequest request, String clientIp) {
+        moderation.evaluate(request.getFullName());
         if (accountRepository.existsByEmail(request.getEmail())) {
             throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
@@ -113,6 +132,8 @@ public class AuthServiceImpl implements AuthService {
         if (phone != null && accountRepository.existsByPhone(phone)) {
             throw new AppException(ErrorCode.PHONE_TAKEN);
         }
+
+        otpRateLimiter.check(request.getEmail(), clientIp);
 
         Account account = Account.builder()
                 .email(request.getEmail())

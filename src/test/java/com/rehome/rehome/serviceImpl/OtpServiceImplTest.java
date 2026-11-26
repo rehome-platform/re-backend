@@ -175,7 +175,8 @@ class OtpServiceImplTest {
 
         assertThatThrownBy(() -> service.issue(account, OtpPurpose.REGISTER))
                 .isInstanceOf(OtpException.class)
-                .hasMessage("Vui lòng chờ trước khi gửi lại OTP.");
+                .hasMessageStartingWith("Bạn vừa yêu cầu gửi OTP. Vui lòng thử lại sau ")
+                .satisfies(error -> assertThat(((OtpException) error).getRetryAfterSeconds()).isBetween(1L, 50L));
 
         verify(otps, never()).save(any());
         verifyNoInteractions(otpEmailService);

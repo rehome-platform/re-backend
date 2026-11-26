@@ -31,6 +31,8 @@ import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.service.RefreshTokenService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
@@ -66,6 +68,7 @@ class AuthServiceImplTest {
     @Mock OrganizationProfileMapper organizationProfileMapper;
     @Mock GoogleTokenVerifier googleTokenVerifier;
     @Mock WalletRepository walletRepository;
+    @Mock com.rehome.rehome.service.OtpRateLimiter otpRateLimiter;
     @Mock QueueService queueService;
 
     @org.mockito.Mock com.rehome.rehome.component.AuditLogger auditLogger;
@@ -85,6 +88,110 @@ class AuthServiceImplTest {
     }
 
     // ==================== registerMember ====================
+
+    private RegisterRequest newRegistration() {
+        return new RegisterRequest("new@example.com", "12345678", "Nguyen Minh Nguyen", " 0909000000 ");
+    }
+
+    private OtpResponse registerForRole(Role role, RegisterRequest request, String ip) {
+        return role == Role.MEMBER ? service.registerMember(request, ip) : service.registerOrganization(request, ip);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Role.class, names = {"MEMBER", "ORGANIZATION"})
+    void registration_duplicateEmailDoesNotConsumeOtpQuota(Role role) {
+        RegisterRequest request = newRegistration();
+        when(accountRepository.existsByEmail(request.getEmail())).thenReturn(true);
+
+        assertAppError(() -> registerForRole(role, request, "198.51.100.10"), ErrorCode.EMAIL_ALREADY_EXISTS);
+
+        verifyNoInteractions(otpRateLimiter, otpService, passwordEncoder, memberProfileRepository, walletRepository);
+        verify(accountRepository, never()).save(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Role.class, names = {"MEMBER", "ORGANIZATION"})
+    void registration_duplicateNormalizedPhoneDoesNotConsumeOtpQuota(Role role) {
+        RegisterRequest request = newRegistration();
+        when(accountRepository.existsByPhone("0909000000")).thenReturn(true);
+
+        assertAppError(() -> registerForRole(role, request, "198.51.100.10"), ErrorCode.PHONE_TAKEN);
+
+        verify(accountRepository).existsByEmail(request.getEmail());
+        verifyNoInteractions(otpRateLimiter, otpService, passwordEncoder, memberProfileRepository, walletRepository);
+        verify(accountRepository, never()).save(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Role.class, names = {"MEMBER", "ORGANIZATION"})
+    void registration_rejectedNameDoesNotCreateAccountLogOrConsumeOtpQuota(Role role) {
+        RegisterRequest request = newRegistration();
+        doThrow(new AppException(ErrorCode.CONTENT_VIOLATION)).when(moderation).evaluate(request.getFullName());
+
+        assertAppError(() -> registerForRole(role, request, "198.51.100.10"), ErrorCode.CONTENT_VIOLATION);
+
+        verify(moderation).evaluate(request.getFullName());
+        verifyNoMoreInteractions(moderation);
+        verifyNoInteractions(accountRepository, otpRateLimiter, otpService, passwordEncoder,
+                memberProfileRepository, walletRepository);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Role.class, names = {"MEMBER", "ORGANIZATION"})
+    void registration_rateLimitIsCheckedAfterUniquenessAndBeforeCreatingAccount(Role role) {
+        RegisterRequest request = newRegistration();
+        var blocked = new OtpException(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS, "Quá nhiều yêu cầu.", 720L);
+        doThrow(blocked).when(otpRateLimiter).check(request.getEmail(), "198.51.100.10");
+
+        assertThatThrownBy(() -> registerForRole(role, request, "198.51.100.10")).isSameAs(blocked);
+
+        InOrder order = inOrder(moderation, accountRepository, otpRateLimiter);
+        order.verify(moderation).evaluate(request.getFullName());
+        order.verify(accountRepository).existsByEmail(request.getEmail());
+        order.verify(accountRepository).existsByPhone("0909000000");
+        order.verify(otpRateLimiter).check(request.getEmail(), "198.51.100.10");
+        verify(accountRepository, never()).save(any());
+        verifyNoInteractions(passwordEncoder, otpService, memberProfileRepository, walletRepository);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Role.class, names = {"MEMBER", "ORGANIZATION"})
+    void registration_validRequestChecksQuotaOnceThenCreatesAccountAndIssuesOtp(Role role) {
+        RegisterRequest request = newRegistration();
+        when(passwordEncoder.encode(request.getPassword())).thenReturn("hash");
+
+        registerForRole(role, request, "198.51.100.10");
+
+        ArgumentCaptor<Account> saved = ArgumentCaptor.forClass(Account.class);
+        InOrder order = inOrder(moderation, accountRepository, otpRateLimiter, passwordEncoder, otpService);
+        order.verify(moderation).evaluate(request.getFullName());
+        order.verify(accountRepository).existsByEmail(request.getEmail());
+        order.verify(accountRepository).existsByPhone("0909000000");
+        order.verify(otpRateLimiter).check(request.getEmail(), "198.51.100.10");
+        order.verify(passwordEncoder).encode(request.getPassword());
+        order.verify(accountRepository).save(saved.capture());
+        order.verify(otpService).issue(saved.getValue(), OtpPurpose.REGISTER);
+        assertThat(saved.getValue().getRole()).isEqualTo(role);
+        assertThat(saved.getValue().getPhone()).isEqualTo("0909000000");
+        assertThat(saved.getValue().getPasswordHash()).isEqualTo("hash");
+        verifyNoMoreInteractions(otpRateLimiter, moderation);
+        if (role == Role.MEMBER) {
+            verify(memberProfileRepository).save(any());
+            verify(walletRepository).save(any());
+        } else {
+            verifyNoInteractions(memberProfileRepository, walletRepository);
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Role.class, names = {"MEMBER", "ORGANIZATION"})
+    void registration_legacyServiceOverloadStillAppliesModerationAndEmailQuota(Role role) {
+        RegisterRequest request = newRegistration();
+        if (role == Role.MEMBER) service.registerMember(request);
+        else service.registerOrganization(request);
+        verify(moderation).evaluate(request.getFullName());
+        verify(otpRateLimiter).check(request.getEmail(), null);
+    }
 
     @Test
     void register_emailExists_throws() {

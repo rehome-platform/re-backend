@@ -25,7 +25,6 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.RequestMapping;
 import com.rehome.rehome.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
-import com.rehome.rehome.service.OtpRateLimiter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -39,7 +38,6 @@ import java.util.UUID;
 public class OrganizationProfileController {
     private final OrganizationService organizationService;
     private final AuthService authService;
-    private final OtpRateLimiter otpRateLimiter;
     private final CampaignService campaignService;
     private final CommunityPostService communityPostService;
     private final DonationService donationService;
@@ -67,8 +65,8 @@ public class OrganizationProfileController {
     @PostMapping("/register/account")
     @Operation(summary = "Đăng ký tài khoản organization")
     public ResponseEntity<ApiResponse<OtpResponse>> register(@Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest) {
-        otpRateLimiter.check(request.getEmail(), httpRequest.getRemoteAddr());
-        return ResponseEntity.status(201).body(ApiResponse.success(authService.registerOrganization(request), 201));
+        return ResponseEntity.status(201).body(ApiResponse.success(
+                authService.registerOrganization(request, httpRequest.getRemoteAddr()), 201));
     }
 
     @GetMapping("/options")

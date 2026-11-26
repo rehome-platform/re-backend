@@ -52,7 +52,10 @@ public class OtpRateLimiter {
     }
 
     public void check(String email, String ipAddress) {
-        checkBucket("ip", ipAddress, ipLimit);
+        // Internal callers may omit the IP; the email limit still applies.
+        if (ipAddress != null && !ipAddress.isBlank()) {
+            checkBucket("ip", ipAddress, ipLimit);
+        }
         checkBucket("email", email.strip().toLowerCase(Locale.ROOT), emailLimit);
     }
 
@@ -72,7 +75,7 @@ public class OtpRateLimiter {
         }
         if (retryAfter > 0) {
             throw new OtpException(HttpStatus.TOO_MANY_REQUESTS,
-                    "Bạn đã yêu cầu gửi email xác thực quá nhiều lần. Vui lòng thử lại sau.", retryAfter);
+                    "Bạn đã yêu cầu gửi email xác thực quá nhiều lần.", retryAfter);
         }
     }
 

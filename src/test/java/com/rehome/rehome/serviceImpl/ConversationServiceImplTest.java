@@ -29,6 +29,9 @@ import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -283,6 +286,86 @@ class ConversationServiceImplTest {
         assertThat(summary.getConsignCount()).isEqualTo(2L);
         assertThat(summary.getShippingCount()).isEqualTo(1L);
         assertThat(summary.getReturnCount()).isEqualTo(3L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void moderatorCanReadInboxAndConversationWhenMemberPhoneIsNull(boolean detail) {
+        UUID warehouseId = UUID.randomUUID();
+        Account viewer = moderator(UUID.randomUUID(), warehouseId);
+        Account member = account(UUID.randomUUID(), Role.MEMBER);
+        Conversation conv = conversation(UUID.randomUUID(), member.getId(), ConversationType.MEMBER_WAREHOUSE, warehouseId);
+        when(accountRepository.findAllById(List.of(member.getId()))).thenReturn(List.of(member));
+        when(messageRepository.findLastMessageByConversationIds(List.of(conv.getId())))
+                .thenReturn(List.<Object[]>of(new Object[]{conv.getId(), "Preview", Instant.now(), null}));
+        if (detail) when(conversationRepository.findById(conv.getId())).thenReturn(Optional.of(conv));
+        else when(conversationRepository.findByTypeAndCounterpartIdOrderByCreatedAtDesc(
+                ConversationType.MEMBER_WAREHOUSE, warehouseId)).thenReturn(List.of(conv));
+
+        ConversationSummaryResponse result = detail ? service.getConversation(viewer, conv.getId())
+                : service.listConversations(viewer).get(0);
+
+        assertThat(result.getPhone()).isNull();
+        assertThat(result.getLastMessage().getSenderId()).isNull();
+        assertThat(result.getLastMessage().getContent()).isEqualTo("Preview");
+        assertThat(result.getConsignCount()).isZero();
+        assertThat(result.getShippingCount()).isZero();
+        assertThat(result.getReturnCount()).isZero();
+    }
+
+    static java.util.stream.Stream<Number> countRepresentations() {
+        return java.util.stream.Stream.of(7, 7L, new java.math.BigInteger("7"), new java.math.BigDecimal("7"));
+    }
+
+    private List<Object[]> countRowsWithInvalidEntries(UUID id, Number value) {
+        return java.util.Arrays.asList(null, new Object[0], new Object[]{id}, new Object[]{null, value},
+                new Object[]{"not-a-uuid", value}, new Object[]{id, null}, new Object[]{id, "not-a-number"},
+                new Object[]{id, value});
+    }
+
+    @ParameterizedTest
+    @MethodSource("countRepresentations")
+    void inboxStatsAcceptNumberCountsAndIgnoreMalformedRows(Number count) {
+        UUID warehouseId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        Conversation conv = conversation(UUID.randomUUID(), memberId, ConversationType.MEMBER_WAREHOUSE, warehouseId);
+        when(conversationRepository.findByTypeAndCounterpartIdOrderByCreatedAtDesc(
+                ConversationType.MEMBER_WAREHOUSE, warehouseId)).thenReturn(List.of(conv));
+        when(accountRepository.findAllById(List.of(memberId)))
+                .thenReturn(List.of(Account.builder().id(memberId).phone("0901234567").build()));
+        when(messageRepository.countUnreadByConversationIds(eq(List.of(conv.getId())), any()))
+                .thenReturn(countRowsWithInvalidEntries(conv.getId(), count));
+        when(consignmentFormRepository.countActiveFormsByMemberIds(List.of(memberId)))
+                .thenReturn(countRowsWithInvalidEntries(memberId, count));
+        when(orderRepository.countByBuyerIdsInAndStatusIn(eq(List.of(memberId)), any()))
+                .thenReturn(countRowsWithInvalidEntries(memberId, count));
+        when(returnRequestRepository.countByOrderBuyerIdsInAndStatusIn(eq(List.of(memberId)), any()))
+                .thenReturn(countRowsWithInvalidEntries(memberId, count));
+
+        var result = service.listConversations(moderator(UUID.randomUUID(), warehouseId)).get(0);
+
+        assertThat(result.getPhone()).isEqualTo("0901234567");
+        assertThat(result.getUnreadCount()).isEqualTo(7L);
+        assertThat(result.getConsignCount()).isEqualTo(7L);
+        assertThat(result.getShippingCount()).isEqualTo(7L);
+        assertThat(result.getReturnCount()).isEqualTo(7L);
+    }
+
+    @Test
+    void inboxWithMissingActivityDatesSortsNullLastAndKeepsNewestFirst() {
+        UUID memberId = UUID.randomUUID();
+        UUID warehouseId = UUID.randomUUID();
+        Conversation noDate = conversation(UUID.randomUUID(), memberId, ConversationType.MEMBER_WAREHOUSE, warehouseId);
+        Conversation older = conversation(UUID.randomUUID(), memberId, ConversationType.MEMBER_WAREHOUSE, warehouseId);
+        Conversation newest = conversation(UUID.randomUUID(), memberId, ConversationType.MEMBER_WAREHOUSE, warehouseId);
+        older.setCreatedAt(Instant.parse("2026-11-01T00:00:00Z"));
+        newest.setCreatedAt(Instant.parse("2026-11-02T00:00:00Z"));
+        when(conversationRepository.findByMember_IdOrderByCreatedAtDesc(memberId))
+                .thenReturn(List.of(noDate, older, newest));
+
+        assertThat(service.listConversations(account(memberId, Role.MEMBER)))
+                .extracting(ConversationSummaryResponse::getId)
+                .containsExactly(newest.getId().toString(), older.getId().toString(), noDate.getId().toString());
     }
 
     @Test

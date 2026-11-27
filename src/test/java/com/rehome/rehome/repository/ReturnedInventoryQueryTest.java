@@ -5,6 +5,7 @@ import com.rehome.rehome.entity.enums.OrderPaymentMethod;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;
+import com.rehome.rehome.entity.enums.ReturnRequestStatus;
 import com.rehome.rehome.entity.enums.TryOnSlot;
 import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.entity.marketplace.Category;
@@ -38,6 +39,7 @@ class ReturnedInventoryQueryTest {
     @Autowired EntityManager em;
     @Autowired ProductRepository productRepository;
     @Autowired ReturnRequestRepository returnRequestRepository;
+    @Autowired OrderItemRepository orderItemRepository;
 
     Account sellerA;
     Account sellerB;
@@ -186,6 +188,58 @@ class ReturnedInventoryQueryTest {
                 .status(com.rehome.rehome.entity.enums.ReturnRequestStatus.VALID).createdAt(createdAt).build();
         em.persist(request);
         return request;
+    }
+
+    @Test void activeItemsExcludeCancelledAndReturnedOrdersIncludingResaleHistory() {
+        Product product = persistProduct("RESOLD-1", sellerA);
+        Product historicalOnly = persistProduct("HISTORY-ONLY", sellerB);
+        Product unrelated = persistProduct("UNRELATED", sellerB);
+        Instant now = Instant.parse("2026-11-27T01:00:00Z");
+        java.util.Set<UUID> expectedOrderIds = new java.util.HashSet<>();
+        for (OrderStatus status : OrderStatus.values()) {
+            Order order = persistOrder("STATUS-" + status.name(), status, now);
+            persistItem(order, product);
+            if (status == OrderStatus.CANCELLED || status == OrderStatus.RETURNED) {
+                persistItem(order, historicalOnly);
+            } else {
+                expectedOrderIds.add(order.getId());
+            }
+        }
+        persistItem(persistOrder("UNRELATED-ORDER", OrderStatus.PAID, now), unrelated);
+        em.flush();
+        em.clear();
+
+        var result = orderItemRepository.findActiveByProductIds(List.of(product.getId()));
+
+        assertThat(result).extracting(item -> item.getOrder().getId())
+                .containsExactlyInAnyOrderElementsOf(expectedOrderIds);
+        assertThat(result).allSatisfy(item -> {
+            assertThat(item.getProduct().getId()).isEqualTo(product.getId());
+            assertThat(item.getOrder().getStatus()).isNotIn(OrderStatus.CANCELLED, OrderStatus.RETURNED);
+        });
+        assertThat(orderItemRepository.findActiveByProductIds(List.of(historicalOnly.getId()))).isEmpty();
+    }
+
+    @Test void returnCountsGroupByBuyerAndRespectRequestedStatuses() {
+        Instant now = Instant.parse("2026-11-27T01:00:00Z");
+        returned(persistOrder("PENDING-RETURN", OrderStatus.DELIVERED, now), now)
+                .setStatus(ReturnRequestStatus.PENDING);
+        returned(persistOrder("APPROVED-RETURN", OrderStatus.DELIVERED, now), now)
+                .setStatus(ReturnRequestStatus.APPROVED);
+        returned(persistOrder("CLOSED-RETURN", OrderStatus.RETURNED, now), now)
+                .setStatus(ReturnRequestStatus.VALID);
+        Order otherBuyerOrder = persistOrder("OTHER-BUYER-RETURN", OrderStatus.DELIVERED, now);
+        otherBuyerOrder.setBuyer(sellerA);
+        returned(otherBuyerOrder, now).setStatus(ReturnRequestStatus.PENDING);
+        em.flush();
+        em.clear();
+
+        var result = returnRequestRepository.countByOrderBuyerIdsInAndStatusIn(
+                List.of(buyer.getId()), List.of(ReturnRequestStatus.PENDING, ReturnRequestStatus.APPROVED));
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0)[0]).isEqualTo(buyer.getId());
+        assertThat(((Number) result.get(0)[1]).longValue()).isEqualTo(2L);
     }
 
     @Test void inventoryFetchesCategoryAndReceiptWithoutPerRowLazyLoads() {

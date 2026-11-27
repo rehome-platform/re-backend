@@ -207,6 +207,8 @@ public enum ErrorCode {
     // API 91 - F-033: Member trả phí rút hàng
     ITEM_WITHDRAWAL_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy yêu cầu rút hàng."),
     ITEM_WITHDRAWAL_FORBIDDEN(HttpStatus.FORBIDDEN, "Yêu cầu rút hàng này không thuộc về bạn."),
+    WITHDRAWAL_FEE_NOT_PAID(HttpStatus.CONFLICT,
+            "Member chưa trả phí rút hàng. Nhắc Member trả trên app ReHome trước khi bàn giao."),
     ITEM_WITHDRAWAL_NOT_PENDING(HttpStatus.CONFLICT,
             "Yêu cầu rút hàng không còn ở trạng thái chờ lấy hàng (đã hết hạn)."),
 

@@ -675,6 +675,55 @@ class CounterServiceImplTest {
     }
 
     @Test
+    void handover_itemWithdrawal_unpaidFee_blocksWithoutChangingStatusOrDequeuing() {
+        ItemWithdrawalRequest withdrawal = itemWithdrawalRequest(member, ItemWithdrawalStatus.PENDING_PICKUP);
+        withdrawal.setFeeCharged(new BigDecimal("20000"));
+        withdrawal.setFeePaidAt(null);
+        Instant deadline = Instant.now().plus(15, ChronoUnit.MINUTES);
+        withdrawal.setFeePaymentDeadline(deadline);
+        when(itemWithdrawalRequestRepository.findById(refId)).thenReturn(Optional.of(withdrawal));
+
+        assertErrorCode(() -> service.handover(moderator, request("ITEM_WITHDRAWAL", memberId, refId.toString())),
+                ErrorCode.WITHDRAWAL_FEE_NOT_PAID);
+
+        assertThat(withdrawal.getStatus()).isEqualTo(ItemWithdrawalStatus.PENDING_PICKUP);
+        assertThat(withdrawal.getCompletedAt()).isNull();
+        assertThat(withdrawal.getFeePaidAt()).isNull();
+        assertThat(withdrawal.getFeePaymentDeadline()).isEqualTo(deadline);
+        verify(itemWithdrawalRequestRepository, never()).save(any());
+        verifyNoInteractions(queueService, auditLogger);
+    }
+
+    @Test
+    void handover_itemWithdrawal_paidFee_succeedsAndRetainsPaymentRecord() {
+        ItemWithdrawalRequest withdrawal = itemWithdrawalRequest(member, ItemWithdrawalStatus.PENDING_PICKUP);
+        withdrawal.setFeeCharged(new BigDecimal("20000"));
+        Instant paidAt = Instant.now().minusSeconds(30);
+        withdrawal.setFeePaidAt(paidAt);
+        when(itemWithdrawalRequestRepository.findById(refId)).thenReturn(Optional.of(withdrawal));
+
+        service.handover(moderator, request("ITEM_WITHDRAWAL", memberId, refId.toString()));
+
+        assertThat(withdrawal.getStatus()).isEqualTo(ItemWithdrawalStatus.COMPLETED);
+        assertThat(withdrawal.getFeePaidAt()).isEqualTo(paidAt);
+        assertThat(withdrawal.getFeeCharged()).isEqualByComparingTo("20000");
+        verify(queueService).dequeue(QueueType.WITHDRAWAL, refId.toString());
+    }
+
+    @Test
+    void handover_itemWithdrawal_zeroFee_doesNotRequirePayment() {
+        ItemWithdrawalRequest withdrawal = itemWithdrawalRequest(member, ItemWithdrawalStatus.PENDING_PICKUP);
+        withdrawal.setFeeCharged(BigDecimal.ZERO);
+        withdrawal.setFeePaidAt(null);
+        when(itemWithdrawalRequestRepository.findById(refId)).thenReturn(Optional.of(withdrawal));
+
+        service.handover(moderator, request("ITEM_WITHDRAWAL", memberId, refId.toString()));
+
+        assertThat(withdrawal.getStatus()).isEqualTo(ItemWithdrawalStatus.COMPLETED);
+        verify(queueService).dequeue(QueueType.WITHDRAWAL, refId.toString());
+    }
+
+    @Test
     @DisplayName("handover ITEM_WITHDRAWAL: không tìm thấy refId -> COUNTER_RECORD_NOT_FOUND")
     void handover_itemWithdrawal_notFound_throws() {
         when(itemWithdrawalRequestRepository.findById(refId)).thenReturn(Optional.empty());

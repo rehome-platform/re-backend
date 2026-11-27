@@ -5,7 +5,10 @@ import com.rehome.rehome.entity.enums.CounterfeitConclusion;
 import com.rehome.rehome.entity.enums.InvalidReturnChoice;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
 import com.rehome.rehome.entity.enums.ReturnedItemAction;
+import com.rehome.rehome.entity.enums.ShipBackPaymentMethod;
+import com.rehome.rehome.entity.enums.ShipBackStatus;
 import jakarta.persistence.*;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.*;
@@ -115,6 +118,69 @@ public class ReturnRequest {
     // Thời điểm Moderator giao lại hàng trả bị từ chối cho Member tại quầy — API 72
     @Column(name = "picked_up_at", nullable = true)
     private Instant pickedUpAt;
+
+    // ---- Gửi lại hàng trả không hợp lệ qua GHN (invalidReturnChoice = SHIP_BACK) ----
+
+    // AWAITING_PAYMENT / PAID / SHIPPING / DELIVERED / FAILED - null khi chưa chọn gửi lại
+    @Enumerated(EnumType.STRING)
+    @Column(name = "ship_back_status", nullable = true)
+    private ShipBackStatus shipBackStatus;
+
+    // Phí gửi lại chốt lúc chọn (GHN thật, lỗi thì phí dự phòng) - không tính lại
+    @Column(name = "ship_back_fee", nullable = true, precision = 19, scale = 2)
+    private BigDecimal shipBackFee;
+
+    // Hạn trả phí gửi lại; quá hạn thì xoá lựa chọn, người mua chọn lại
+    @Column(name = "ship_back_fee_deadline", nullable = true)
+    private Instant shipBackFeeDeadline;
+
+    // Địa chỉ trong sổ địa chỉ người mua chọn để nhận hàng
+    @Column(name = "ship_back_address_id", nullable = true)
+    private UUID shipBackAddressId;
+
+    // Snapshot địa chỉ nhận lúc chọn - sổ địa chỉ sửa/xoá sau đó không làm lệch vận đơn
+    @Column(name = "ship_back_recipient_name", nullable = true, length = 255)
+    private String shipBackRecipientName;
+
+    @Column(name = "ship_back_phone", nullable = true, length = 255)
+    private String shipBackPhone;
+
+    @Column(name = "ship_back_address_detail", nullable = true, length = 255)
+    private String shipBackAddressDetail;
+
+    @Column(name = "ship_back_ward_name", nullable = true, length = 255)
+    private String shipBackWardName;
+
+    @Column(name = "ship_back_province_name", nullable = true, length = 255)
+    private String shipBackProvinceName;
+
+    // WALLET / VNPAY
+    @Enumerated(EnumType.STRING)
+    @Column(name = "ship_back_payment_method", nullable = true)
+    private ShipBackPaymentMethod shipBackPaymentMethod;
+
+    @Column(name = "ship_back_paid_at", nullable = true)
+    private Instant shipBackPaidAt;
+
+    // Giao dịch VNPay đang mở cho phí gửi lại (tiền tố RSB-)
+    @Column(name = "ship_back_vnp_txn_ref", nullable = true, length = 100)
+    private String shipBackVnpTxnRef;
+
+    @Column(name = "ship_back_vnp_create_date", nullable = true, length = 20)
+    private String shipBackVnpCreateDate;
+
+    // Mã vận đơn GHN chiều kho -> người mua
+    @Column(name = "ship_back_tracking_code", nullable = true, length = 255)
+    private String shipBackTrackingCode;
+
+    @Column(name = "ship_back_shipped_at", nullable = true)
+    private Instant shipBackShippedAt;
+
+    @Column(name = "ship_back_delivered_at", nullable = true)
+    private Instant shipBackDeliveredAt;
+
+    @Column(name = "ship_back_failed_at", nullable = true)
+    private Instant shipBackFailedAt;
 
     @PrePersist
     private void onCreate() {

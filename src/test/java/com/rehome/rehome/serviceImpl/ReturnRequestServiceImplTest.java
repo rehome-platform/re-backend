@@ -98,10 +98,12 @@ class ReturnRequestServiceImplTest {
     @Mock private com.rehome.rehome.service.ContentModerationService moderation;
     @Mock private com.rehome.rehome.repository.MemberProfileRepository memberProfileRepository;
     @Mock private com.rehome.rehome.repository.ProductPhotoRepository productPhotoRepository;
+    @Mock private com.rehome.rehome.repository.ShippingAddressRepository shippingAddressRepository;
     @Mock private OrderService orderService;
     @Mock private QueueService queueService;
     @Mock private com.rehome.rehome.component.AuditLogger auditLogger;
     @Mock private GhnApi ghnApi;
+    @Mock private com.rehome.rehome.client.GhnShippingFeeCalculator ghnShippingFeeCalculator;
     @Mock private com.rehome.rehome.service.SystemConfigReader systemConfigReader;
 
     @InjectMocks
@@ -1143,13 +1145,150 @@ class ReturnRequestServiceImplTest {
         @Test
         void success_whenPickupDeadlineNull() throws Exception {
             InvalidReturnChoiceRequest req = mock(InvalidReturnChoiceRequest.class);
-            Object choice = stubChoice(req, "SHIP_BACK");
+            Object choice = stubChoice(req, "WAREHOUSE_PICKUP");
             ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INVALID);
             rr.setPickupDeadline(null);
 
             service.chooseInvalidReturn(EMAIL, RR_ID, req);
 
             assertThat(rr.getInvalidReturnChoice()).isEqualTo(choice);
+        }
+
+        @Test
+        void shipBack_missingAddressId_throwsBadRequest() throws Exception {
+            InvalidReturnChoiceRequest req = mock(InvalidReturnChoiceRequest.class);
+            stubChoice(req, "SHIP_BACK");
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INVALID);
+            rr.setPickupDeadline(Instant.now().plus(2, ChronoUnit.DAYS));
+
+            assertThatThrownBy(() -> service.chooseInvalidReturn(EMAIL, RR_ID, req))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("addressId");
+            verify(returnRequestRepository, never()).save(any());
+        }
+
+        @Test
+        void shipBack_addressNotOwned_throwsNotFound() throws Exception {
+            UUID addrId = UUID.randomUUID();
+            Account other = mock(Account.class);
+            when(other.getId()).thenReturn(UUID.randomUUID());
+            com.rehome.rehome.entity.marketplace.ShippingAddress addr =
+                    com.rehome.rehome.entity.marketplace.ShippingAddress.builder().id(addrId).member(other).build();
+            when(shippingAddressRepository.findById(addrId)).thenReturn(Optional.of(addr));
+
+            InvalidReturnChoiceRequest req = new InvalidReturnChoiceRequest(
+                    com.rehome.rehome.entity.enums.InvalidReturnChoice.SHIP_BACK, addrId);
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INVALID);
+            rr.setPickupDeadline(Instant.now().plus(2, ChronoUnit.DAYS));
+
+            assertThatThrownBy(() -> service.chooseInvalidReturn(EMAIL, RR_ID, req))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void shipBack_success_calculatesFeeSnapshotsAddressAndSetsAwaitingPayment() {
+            UUID addrId = UUID.randomUUID();
+            com.rehome.rehome.entity.marketplace.ShippingAddress addr =
+                    com.rehome.rehome.entity.marketplace.ShippingAddress.builder()
+                            .id(addrId)
+                            .member(buyer)
+                            .recipientName("Nguyễn Văn A")
+                            .phone("0901234567")
+                            .addressDetail("12 Lê Lợi")
+                            .wardName("Phường Bến Nghé")
+                            .provinceName("Hồ Chí Minh")
+                            .build();
+            when(shippingAddressRepository.findById(addrId)).thenReturn(Optional.of(addr));
+            when(ghnShippingFeeCalculator.calculate(any(), eq("Phường Bến Nghé"), eq("Hồ Chí Minh")))
+                    .thenReturn(new BigDecimal("32000"));
+            when(systemConfigReader.getInt(eq(SystemConfigKeys.RETURN_SHIP_BACK_FEE_DEADLINE_MINUTES), anyInt()))
+                    .thenReturn(30);
+
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INVALID);
+            rr.setPickupDeadline(Instant.now().plus(5, ChronoUnit.DAYS));
+
+            Instant before = Instant.now();
+            ReturnRequestResponse res = service.chooseInvalidReturn(
+                    EMAIL, RR_ID, new InvalidReturnChoiceRequest(
+                            com.rehome.rehome.entity.enums.InvalidReturnChoice.SHIP_BACK, addrId));
+
+            assertThat(rr.getInvalidReturnChoice()).isEqualTo(com.rehome.rehome.entity.enums.InvalidReturnChoice.SHIP_BACK);
+            assertThat(rr.getShipBackStatus()).isEqualTo(com.rehome.rehome.entity.enums.ShipBackStatus.AWAITING_PAYMENT);
+            assertThat(rr.getShipBackFee()).isEqualByComparingTo("32000");
+            assertThat(rr.getShipBackFeeDeadline()).isAfterOrEqualTo(before.plus(29, ChronoUnit.MINUTES));
+            assertThat(rr.getShipBackAddressId()).isEqualTo(addrId);
+            assertThat(res.getShipBackStatus()).isEqualTo("AWAITING_PAYMENT");
+            assertThat(res.getShipBackFee()).isEqualByComparingTo("32000");
+            assertThat(res.getShipBackRecipientName()).isEqualTo("Nguyễn Văn A");
+            assertThat(res.getShipBackPhone()).isEqualTo("0901234567");
+            assertThat(res.getShipBackAddressDetail()).isEqualTo("12 Lê Lợi");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"PAID", "SHIPPING"})
+        void inProgressShipBack_cannotChangeChoice(String shipBackStatus) {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INVALID);
+            rr.setPickupDeadline(Instant.now().plus(5, ChronoUnit.DAYS));
+            rr.setShipBackStatus(com.rehome.rehome.entity.enums.ShipBackStatus.valueOf(shipBackStatus));
+
+            assertThatThrownBy(() -> service.chooseInvalidReturn(
+                    EMAIL, RR_ID, new InvalidReturnChoiceRequest(
+                            com.rehome.rehome.entity.enums.InvalidReturnChoice.WAREHOUSE_PICKUP)))
+                    .isInstanceOf(ConflictException.class)
+                    .extracting("code")
+                    .isEqualTo("RETURN_SHIP_BACK_IN_PROGRESS");
+        }
+
+        @Test
+        void failedShipBack_cannotChooseShipBackAgain() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INVALID);
+            rr.setPickupDeadline(Instant.now().plus(7, ChronoUnit.DAYS));
+            rr.setShipBackStatus(com.rehome.rehome.entity.enums.ShipBackStatus.FAILED);
+
+            assertThatThrownBy(() -> service.chooseInvalidReturn(
+                    EMAIL, RR_ID, new InvalidReturnChoiceRequest(
+                            com.rehome.rehome.entity.enums.InvalidReturnChoice.SHIP_BACK, UUID.randomUUID())))
+                    .isInstanceOf(ConflictException.class)
+                    .extracting("code")
+                    .isEqualTo("RETURN_SHIP_BACK_NOT_ALLOWED");
+        }
+
+        @Test
+        void getShipBackQuote_successAndErrors() {
+            ReturnRequest notInvalid = givenReturnRequest(ReturnRequestStatus.INSPECTING);
+            assertThatThrownBy(() -> service.getShipBackQuote(EMAIL, RR_ID, UUID.randomUUID()))
+                    .isInstanceOf(ConflictException.class)
+                    .extracting("code")
+                    .isEqualTo("RETURN_NOT_INVALID");
+
+            notInvalid.setStatus(ReturnRequestStatus.INVALID);
+            notInvalid.setPickupDeadline(Instant.now().minusSeconds(60));
+            assertThatThrownBy(() -> service.getShipBackQuote(EMAIL, RR_ID, UUID.randomUUID()))
+                    .isInstanceOf(ConflictException.class)
+                    .extracting("code")
+                    .isEqualTo("RETURN_PICKUP_EXPIRED");
+
+            notInvalid.setPickupDeadline(Instant.now().plus(5, ChronoUnit.DAYS));
+            UUID addrId = UUID.randomUUID();
+            when(shippingAddressRepository.findById(addrId)).thenReturn(Optional.empty());
+            assertThatThrownBy(() -> service.getShipBackQuote(EMAIL, RR_ID, addrId))
+                    .isInstanceOf(IllegalArgumentException.class);
+
+            Warehouse wh = Warehouse.builder().id(UUID.randomUUID()).name("Kho Q7").build();
+            when(order.getWarehouse()).thenReturn(wh);
+            com.rehome.rehome.entity.marketplace.ShippingAddress addr =
+                    com.rehome.rehome.entity.marketplace.ShippingAddress.builder()
+                            .id(addrId).member(buyer).recipientName("Lê B").phone("0988888888")
+                            .addressDetail("99 Trần Hưng Đạo").wardName("Phường Cầu Ông Lãnh").provinceName("Hồ Chí Minh")
+                            .build();
+            when(shippingAddressRepository.findById(addrId)).thenReturn(Optional.of(addr));
+            when(ghnShippingFeeCalculator.calculate(wh, "Phường Cầu Ông Lãnh", "Hồ Chí Minh"))
+                    .thenReturn(new BigDecimal("25000"));
+
+            var quote = service.getShipBackQuote(EMAIL, RR_ID, addrId);
+            assertThat(quote.getFee()).isEqualByComparingTo("25000");
+            assertThat(quote.getWarehouseName()).isEqualTo("Kho Q7");
+            assertThat(quote.getRecipientName()).isEqualTo("Lê B");
         }
     }
 
@@ -1263,6 +1402,48 @@ class ReturnRequestServiceImplTest {
             assertThat(service.applyGhnReturnStatus(CODE, "ready_to_pick", null)).isTrue();
 
             assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.APPROVED);
+        }
+
+        @Test
+        void shipBack_delivered_marksDeliveredAndResolves() {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INVALID);
+            rr.setShipBackStatus(com.rehome.rehome.entity.enums.ShipBackStatus.SHIPPING);
+            rr.setShipBackTrackingCode("GHN-SB-1");
+            when(returnRequestRepository.findByGhnReturnTrackingCode("GHN-SB-1")).thenReturn(Optional.empty());
+            when(returnRequestRepository.findByShipBackTrackingCode("GHN-SB-1")).thenReturn(Optional.of(rr));
+
+            assertThat(service.applyGhnReturnStatus("GHN-SB-1", "delivered", null)).isTrue();
+
+            assertThat(rr.getStatus()).isEqualTo(ReturnRequestStatus.INVALID);
+            assertThat(rr.getShipBackStatus()).isEqualTo(com.rehome.rehome.entity.enums.ShipBackStatus.DELIVERED);
+            assertThat(rr.getShipBackDeliveredAt()).isNotNull();
+            assertThat(rr.getResolvedAt()).isNotNull();
+            assertThat(rr.getResolutionNote()).isEqualTo("Đã gửi lại hàng cho người mua");
+            verify(returnRequestRepository).save(rr);
+            verify(businessNotifications).returned(eq(rr), any(), anyString(), anyString());
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"returned", "return", "RETURNED"})
+        void shipBack_returned_marksFailedSwitchesToWarehousePickupWithNew7DayDeadline(String ghnStatus) {
+            ReturnRequest rr = givenReturnRequest(ReturnRequestStatus.INVALID);
+            rr.setShipBackStatus(com.rehome.rehome.entity.enums.ShipBackStatus.SHIPPING);
+            rr.setInvalidReturnChoice(com.rehome.rehome.entity.enums.InvalidReturnChoice.SHIP_BACK);
+            rr.setShipBackFee(new BigDecimal("25000"));
+            rr.setShipBackTrackingCode("GHN-SB-2");
+            when(returnRequestRepository.findByGhnReturnTrackingCode("GHN-SB-2")).thenReturn(Optional.empty());
+            when(returnRequestRepository.findByShipBackTrackingCode("GHN-SB-2")).thenReturn(Optional.of(rr));
+
+            Instant before = Instant.now();
+            assertThat(service.applyGhnReturnStatus("GHN-SB-2", ghnStatus, "Không liên lạc được")).isTrue();
+
+            assertThat(rr.getShipBackStatus()).isEqualTo(com.rehome.rehome.entity.enums.ShipBackStatus.FAILED);
+            assertThat(rr.getShipBackFailedAt()).isNotNull();
+            assertThat(rr.getInvalidReturnChoice()).isEqualTo(com.rehome.rehome.entity.enums.InvalidReturnChoice.WAREHOUSE_PICKUP);
+            assertThat(rr.getPickupDeadline()).isAfter(before.plus(6, ChronoUnit.DAYS));
+            assertThat(rr.getResolvedAt()).isNull();
+            verify(orderService, never()).refundOrderForReturn(any(), anyString());
+            verify(businessNotifications).returned(eq(rr), any(), anyString(), anyString());
         }
     }
 

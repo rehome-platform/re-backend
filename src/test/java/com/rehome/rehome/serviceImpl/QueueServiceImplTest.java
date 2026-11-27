@@ -92,15 +92,29 @@ class QueueServiceImplTest {
         var expected = switch (type) {
             case FORM_REVIEW, INSPECTION -> com.rehome.rehome.entity.enums.NotificationTargetType.CONSIGNMENT_FORM;
             case PACKING -> com.rehome.rehome.entity.enums.NotificationTargetType.ORDER;
-            case RETURN -> com.rehome.rehome.entity.enums.NotificationTargetType.RETURN_REQUEST;
+            case RETURN, RETURN_SHIP_BACK -> com.rehome.rehome.entity.enums.NotificationTargetType.RETURN_REQUEST;
             case WITHDRAWAL -> com.rehome.rehome.entity.enums.NotificationTargetType.WITHDRAWAL;
             case ORG_VERIFICATION -> com.rehome.rehome.entity.enums.NotificationTargetType.ORGANIZATION;
             case LEGAL_CHANGE -> com.rehome.rehome.entity.enums.NotificationTargetType.LEGAL_CHANGE;
             case VIOLATION_REPORT -> com.rehome.rehome.entity.enums.NotificationTargetType.VIOLATION_REPORT;
             case DONATION_PICKUP, DONATION_REASSIGN, DONATION_PREP -> com.rehome.rehome.entity.enums.NotificationTargetType.DONATION;
         };
+        String expectedTask = switch (type) {
+            case FORM_REVIEW -> "Duyệt yêu cầu ký gửi";
+            case INSPECTION -> "Kiểm định món ký gửi";
+            case PACKING -> "Đóng gói đơn hàng";
+            case RETURN -> "Xử lý yêu cầu trả hàng";
+            case RETURN_SHIP_BACK -> "Tạo vận đơn gửi lại hàng trả";
+            case WITHDRAWAL -> "Xử lý yêu cầu rút hàng";
+            case ORG_VERIFICATION -> "Xác minh tổ chức";
+            case LEGAL_CHANGE -> "Duyệt thay đổi thông tin pháp lý";
+            case VIOLATION_REPORT -> "Xử lý báo cáo";
+            case DONATION_PICKUP -> "Bàn giao lượt quyên góp";
+            case DONATION_REASSIGN -> "Chuyển lượt quyên góp tạm giữ";
+            case DONATION_PREP -> "Chuẩn bị món quyên góp";
+        };
         verify(businessNotifications).send(eq(moderator), eq(com.rehome.rehome.entity.enums.NotificationType.QUEUE_TASK),
-                anyString(), contains(ref.toString()), eq(expected), eq(ref), eq(warehouseId));
+                anyString(), eq(expectedTask), eq(expected), eq(ref), eq(warehouseId));
         verify(accountRepository, never()).findByRole(any());
     }
 

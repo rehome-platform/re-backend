@@ -96,6 +96,8 @@ public class QueueServiceImpl implements QueueService {
             QueueType queueType = parseType(type);
             if (!onlyMine && queueType == QueueType.RETURN) {
                 syncPendingReturnRequests(warehouse);
+            } else if (!onlyMine && queueType == QueueType.RETURN_SHIP_BACK) {
+                syncPaidReturnShipBacks(warehouse);
             }
             items = onlyMine ? queueItemRepository.findVisibleByTypeClaimedBy(queueType, warehouse, moderator)
                     : queueItemRepository.findVisibleByType(queueType, warehouse);
@@ -118,6 +120,23 @@ public class QueueServiceImpl implements QueueService {
         for (String refId : pendingIds) {
             if (!queuedRefIds.contains(refId)) {
                 enqueue(QueueType.RETURN, refId, warehouse);
+            }
+        }
+    }
+
+    private void syncPaidReturnShipBacks(Warehouse warehouse) {
+        List<String> paidIds = returnRequestRepository.findPaidShipBackIdsByWarehouse(warehouse).stream()
+                .map(UUID::toString)
+                .toList();
+        if (paidIds.isEmpty()) {
+            return;
+        }
+        Set<String> queuedRefIds = new HashSet<>();
+        queueItemRepository.findByTypesAndRefIds(List.of(QueueType.RETURN_SHIP_BACK), paidIds)
+                .forEach(q -> queuedRefIds.add(q.getRefId()));
+        for (String refId : paidIds) {
+            if (!queuedRefIds.contains(refId)) {
+                enqueue(QueueType.RETURN_SHIP_BACK, refId, warehouse);
             }
         }
     }
@@ -158,9 +177,10 @@ public class QueueServiceImpl implements QueueService {
         }
 
         List<UUID> returnRequestIds = items.stream()
-                .filter(i -> i.getType() == QueueType.RETURN)
+                .filter(i -> i.getType() == QueueType.RETURN || i.getType() == QueueType.RETURN_SHIP_BACK)
                 .map(i -> parseUuid(i.getRefId()))
                 .filter(Objects::nonNull)
+                .distinct()
                 .toList();
 
         Map<UUID, ReturnRequest> returnRequestsById = new HashMap<>();
@@ -336,6 +356,16 @@ public class QueueServiceImpl implements QueueService {
                 String buyerName = buyerNameByOrderId.get(order.getId());
                 return QueueItemResponse.fromReturn(q, order, sellerName, buyerName);
             }
+            if (q.getType() == QueueType.RETURN_SHIP_BACK) {
+                UUID returnRequestId = parseUuid(q.getRefId());
+                ReturnRequest returnRequest = returnRequestId == null ? null : returnRequestsById.get(returnRequestId);
+                Order order = returnRequest == null ? null : returnOrdersById.get(returnRequest.getOrder().getId());
+                if (returnRequest == null || order == null) {
+                    return QueueItemResponse.from(q);
+                }
+                String buyerName = buyerNameByOrderId.get(order.getId());
+                return QueueItemResponse.fromReturnShipBack(q, returnRequest, order, buyerName);
+            }
             if (q.getType() == QueueType.FORM_REVIEW || q.getType() == QueueType.INSPECTION) {
                 UUID formId = parseUuid(q.getRefId());
                 ConsignmentForm form = formId == null ? null : formsById.get(formId);
@@ -461,7 +491,7 @@ public class QueueServiceImpl implements QueueService {
         NotificationTargetType target = switch (type) {
             case FORM_REVIEW, INSPECTION -> NotificationTargetType.CONSIGNMENT_FORM;
             case PACKING -> NotificationTargetType.ORDER;
-            case RETURN -> NotificationTargetType.RETURN_REQUEST;
+            case RETURN, RETURN_SHIP_BACK -> NotificationTargetType.RETURN_REQUEST;
             case WITHDRAWAL -> NotificationTargetType.WITHDRAWAL;
             case ORG_VERIFICATION -> NotificationTargetType.ORGANIZATION;
             case LEGAL_CHANGE -> NotificationTargetType.LEGAL_CHANGE;
@@ -473,6 +503,7 @@ public class QueueServiceImpl implements QueueService {
             case INSPECTION -> "Kiểm định món ký gửi";
             case PACKING -> "Đóng gói đơn hàng";
             case RETURN -> "Xử lý yêu cầu trả hàng";
+            case RETURN_SHIP_BACK -> "Tạo vận đơn gửi lại hàng trả";
             case WITHDRAWAL -> "Xử lý yêu cầu rút hàng";
             case ORG_VERIFICATION -> "Xác minh tổ chức";
             case LEGAL_CHANGE -> "Duyệt thay đổi thông tin pháp lý";
@@ -486,7 +517,7 @@ public class QueueServiceImpl implements QueueService {
                 : accountRepository.findByRoleAndWarehouse_Id(Role.MODERATOR, warehouse.getId());
         for (Account moderator : moderators) {
             businessNotifications.send(moderator, NotificationType.QUEUE_TASK, "Có việc mới cần xử lý",
-                    task + " · " + refId, target, targetId, warehouse == null ? null : warehouse.getId());
+                    task, target, targetId, warehouse == null ? null : warehouse.getId());
         }
     }
 

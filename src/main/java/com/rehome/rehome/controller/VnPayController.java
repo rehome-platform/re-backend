@@ -4,7 +4,9 @@ import com.rehome.rehome.dto.request.CreateGatewayPaymentRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.CreateVnPayResponse;
 import com.rehome.rehome.dto.response.PaymentStatusResponse;
+import com.rehome.rehome.dto.response.ShipBackPaymentStatusResponse;
 import com.rehome.rehome.dto.response.VnPayIpnResult;
+import com.rehome.rehome.service.ReturnShipBackService;
 import com.rehome.rehome.service.VnPayService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +26,7 @@ import java.util.UUID;
 public class VnPayController {
 
     private final VnPayService vnPayService;
+    private final ReturnShipBackService returnShipBackService;
 
     @PostMapping("create")
     @PreAuthorize("hasRole('MEMBER')")
@@ -80,6 +83,15 @@ public class VnPayController {
             @org.springframework.security.core.annotation.AuthenticationPrincipal
             com.rehome.rehome.entity.auth.Account account) {
         return ResponseEntity.ok(ApiResponse.success(vnPayService.checkMembershipPayment(account.getId(), paymentId)));
+    }
+
+    @GetMapping("return-ship-back/status/{returnRequestId}")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<ShipBackPaymentStatusResponse>> checkReturnShipBackPayment(
+            @PathVariable UUID returnRequestId,
+            Authentication authentication) {
+        return ResponseEntity.ok(ApiResponse.success(
+                returnShipBackService.syncPaymentStatus(authentication.getName(), returnRequestId)));
     }
 
     private String clientIp(HttpServletRequest request) {

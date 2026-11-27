@@ -91,13 +91,14 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .mapToLong(AdminDashboardQueryRepository.TermSales::itemCount)
                 .sum();
 
-        // Cơ cấu nguồn thu: hoa hồng + phí rút hàng + gói thành viên là doanh thu nền tảng;
+        // Cơ cấu nguồn thu: hoa hồng + phí rút hàng + phí gửi lại hàng trả + gói thành viên là doanh thu nền tảng;
         // đền bù là khoản chi riêng, không trừ vào đây
         long commissionRevenue = toLong(queryRepository.sumCompletedCommission(from, to));
         long withdrawalFeeRevenue = toLong(queryRepository.sumWithdrawalFeeRevenue(from, to));
+        long returnShipBackFeeRevenue = toLong(queryRepository.sumReturnShipBackFeeRevenue(from, to));
         long membershipRevenue = toLong(queryRepository.sumMembershipRevenue(from, to));
         long compensationExpense = toLong(queryRepository.sumDegradedCompensation(from, to));
-        long platformRevenue = commissionRevenue + withdrawalFeeRevenue + membershipRevenue;
+        long platformRevenue = commissionRevenue + withdrawalFeeRevenue + returnShipBackFeeRevenue + membershipRevenue;
 
         return AdminDashboardResponse.builder()
                 .revenue(toLong(queryRepository.sumCompletedOrderAmount(from, to)))
@@ -108,6 +109,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .platformRevenue(platformRevenue)
                 .commissionRevenue(commissionRevenue)
                 .withdrawalFeeRevenue(withdrawalFeeRevenue)
+                .returnShipBackFeeRevenue(returnShipBackFeeRevenue)
                 .membershipRevenue(membershipRevenue)
                 .compensationExpense(compensationExpense)
                 .fundBalance(toLong(queryRepository.sumPlatformFundBalance()))
@@ -159,6 +161,6 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     }
 
     private static long toLong(BigDecimal value) {
-        return value.setScale(0, RoundingMode.HALF_UP).longValue();
+        return value == null ? 0L : value.setScale(0, RoundingMode.HALF_UP).longValue();
     }
 }

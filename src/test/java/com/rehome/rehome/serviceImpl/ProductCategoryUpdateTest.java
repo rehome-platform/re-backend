@@ -8,6 +8,7 @@ import com.rehome.rehome.dto.response.ProductSummaryResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.OrderStatus;
+import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.TryOnSlot;
 import com.rehome.rehome.entity.marketplace.*;
@@ -40,6 +41,7 @@ class ProductCategoryUpdateTest {
     @Mock CategoryRepository categories;
     @Mock OrderItemRepository orderItems;
     @Mock AuditLogger audit;
+    @Mock ItemWithdrawalRequestRepository withdrawals;
     @InjectMocks ProductServiceImpl service;
 
     Product product;
@@ -182,6 +184,21 @@ class ProductCategoryUpdateTest {
                         OrderItem.builder().order(Order.builder().status(OrderStatus.PAID).build()).build()));
 
         assertError(ErrorCode.PRODUCT_UPDATE_CONFLICT, new UpdateProductRequest("Name", List.of()));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ItemWithdrawalStatus.class, names = {"PENDING_APPROVAL", "PENDING_PICKUP"})
+    void warehouseProductWithActiveWithdrawalCannotBeEdited(ItemWithdrawalStatus status) {
+        product.setStatus(ProductStatus.WAREHOUSE);
+        allowUpdate();
+        when(withdrawals.existsByProduct_IdAndStatusIn(eq(product.getId()),
+                argThat(statuses -> statuses.contains(status))))
+                .thenReturn(true);
+
+        assertError(ErrorCode.PRODUCT_UPDATE_CONFLICT, new UpdateProductRequest("Changed", List.of()));
+
+        assertThat(product.getName()).isEqualTo("Old name");
+        verifyNoInteractions(categories, orderItems, photos, audit);
     }
 
     @Test void differentWarehouseStillBlocksCategoryChange() {

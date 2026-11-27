@@ -43,6 +43,7 @@ class AdminDashboardServiceImplTest {
         when(queryRepository.sumMemberWalletBalance()).thenReturn(BigDecimal.ZERO);
         when(queryRepository.sumCompletedCommission(any(), any())).thenReturn(new BigDecimal(commission));
         when(queryRepository.sumWithdrawalFeeRevenue(any(), any())).thenReturn(new BigDecimal(withdrawalFee));
+        when(queryRepository.sumReturnShipBackFeeRevenue(any(), any())).thenReturn(BigDecimal.ZERO);
         when(queryRepository.sumMembershipRevenue(any(), any())).thenReturn(BigDecimal.ZERO);
         when(queryRepository.sumDegradedCompensation(any(), any())).thenReturn(new BigDecimal(compensation));
         when(queryRepository.sumPlatformFundBalance()).thenReturn(BigDecimal.ZERO);
@@ -148,5 +149,19 @@ class AdminDashboardServiceImplTest {
         assertThatThrownBy(() -> service.getDashboard("2026-12-01", "2026-11-01"))
                 .isInstanceOf(AppException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_DATE_RANGE);
+    }
+
+    @Test
+    @DisplayName("getDashboard: cộng doanh thu phí gửi lại hàng trả vào platformRevenue và tách dòng riêng")
+    void getDashboard_includesReturnShipBackFeeRevenue() {
+        stubScalars("100000", "20000", "0");
+        when(queryRepository.sumReturnShipBackFeeRevenue(any(), any())).thenReturn(new BigDecimal("25000"));
+        when(queryRepository.sumCompletedSalesByTerm(any(), any())).thenReturn(List.of());
+        when(queryRepository.countStockedProductsByTerm()).thenReturn(Map.of());
+
+        AdminDashboardResponse r = service.getDashboard(null, null);
+
+        assertThat(r.getReturnShipBackFeeRevenue()).isEqualTo(25000);
+        assertThat(r.getPlatformRevenue()).isEqualTo(145000);
     }
 }

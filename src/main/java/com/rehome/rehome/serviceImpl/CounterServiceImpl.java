@@ -39,6 +39,8 @@ import java.util.stream.Collectors;
 public class CounterServiceImpl implements CounterService {
 
     private static final Duration IDENTITY_CONFIRMATION_TTL = Duration.ofMinutes(15);
+    private static final List<ItemWithdrawalStatus> ACTIVE_WITHDRAWAL_STATUSES =
+            List.of(ItemWithdrawalStatus.PENDING_APPROVAL, ItemWithdrawalStatus.PENDING_PICKUP);
     private final MemberProfileRepository memberProfileRepository;
     private final ConsignmentFormRepository consignmentFormRepository;
     private final ConsignmentReceiptRepository consignmentReceiptRepository;
@@ -94,7 +96,7 @@ public class CounterServiceImpl implements CounterService {
         switch (context) {
             case ITEM_WITHDRAWAL -> handoverItemWithdrawal(moderator, request.getAccountId(), refId);
             case END_OF_TERM_TAKE_BACK -> handoverEndOfTermTakeBack(moderator, request.getAccountId(), refId);
-            case INVALID_RETURN_PICKUP -> handoverInvalidReturnPickup(request.getAccountId(), refId);
+            case INVALID_RETURN_PICKUP -> handoverInvalidReturnPickup(moderator, request.getAccountId(), refId);
             case DEGRADED_ITEM_PICKUP -> handoverDegradedItemPickup(moderator, request.getAccountId(), refId);
         }
     }
@@ -125,8 +127,7 @@ public class CounterServiceImpl implements CounterService {
     }
 
     // F-034: đóng yêu cầu rút hàng khi Moderator bàn giao xong tại quầy (record phải khớp thực
-    // tế: hàng đã về tay người ký gửi). Sản phẩm đã WITHDRAWN từ lúc tạo yêu cầu (F-032 - ngừng
-    // bán ngay), ở đây chỉ cần đóng yêu cầu.
+    // tế: hàng đã về tay người ký gửi). Trước bàn giao hàng vẫn ở WAREHOUSE; dữ liệu cũ có thể WITHDRAWN.
     private void handoverItemWithdrawal(Account moderator, UUID accountId, UUID refId) {
         ItemWithdrawalRequest withdrawal = itemWithdrawalRequestRepository.findById(refId)
                 .filter(r -> r.getMember().getId().equals(accountId))
@@ -141,6 +142,12 @@ public class CounterServiceImpl implements CounterService {
         withdrawal.setStatus(ItemWithdrawalStatus.COMPLETED);
         withdrawal.setCompletedAt(Instant.now());
         itemWithdrawalRequestRepository.save(withdrawal);
+        var product = productRepository.findByIdForUpdate(withdrawal.getProduct().getId())
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+        if (product.getStatus() != ProductStatus.WITHDRAWN) {
+            product.setStatus(ProductStatus.WITHDRAWN);
+            productRepository.save(product);
+        }
         auditLogger.logOperation(moderator, "HANDOVER_WITHDRAWAL", "WITHDRAWAL", refId, "COMPLETED");
 
         // API 72: việc trong hàng đợi (mở ở API 90 lúc tạo yêu cầu) đã xử lý xong
@@ -162,7 +169,7 @@ public class CounterServiceImpl implements CounterService {
                 decision.getProduct().getId());
     }
 
-    private void handoverInvalidReturnPickup(UUID accountId, UUID refId) {
+    private void handoverInvalidReturnPickup(Account moderator, UUID accountId, UUID refId) {
         ReturnRequest returnRequest = returnRequestRepository.findById(refId)
                 .filter(r -> r.getOrder().getBuyer().getId().equals(accountId))
                 .filter(r -> r.getStatus() == ReturnRequestStatus.INVALID)
@@ -170,8 +177,23 @@ public class CounterServiceImpl implements CounterService {
                 .filter(r -> r.getPickedUpAt() == null)
                 .orElseThrow(() -> new AppException(ErrorCode.COUNTER_RECORD_NOT_FOUND));
 
-        returnRequest.setPickedUpAt(Instant.now());
+        Instant now = Instant.now();
+        returnRequest.setPickedUpAt(now);
+        returnRequest.setResolvedAt(now);
+        returnRequest.setResolutionNote("Người mua đã nhận lại hàng tại quầy");
         returnRequestRepository.save(returnRequest);
+
+        com.rehome.rehome.entity.marketplace.Warehouse warehouse = returnRequest.getOrder().getWarehouse() != null
+                ? returnRequest.getOrder().getWarehouse()
+                : (moderator == null ? null : moderator.getWarehouse());
+        if (warehouse != null) {
+            auditLogger.logWarehouseOp(moderator, warehouse, WarehouseAuditGroup.INVENTORY,
+                    "HANDOVER_INVALID_RETURN", "RETURN_REQUEST", returnRequest.getId().toString(), "HANDED_OVER",
+                    returnRequest.getOrder().getOrderNo());
+        } else {
+            auditLogger.logOperation(moderator, "HANDOVER_INVALID_RETURN", "RETURN_REQUEST",
+                    returnRequest.getId(), "HANDED_OVER");
+        }
     }
 
     private void handoverDegradedItemPickup(Account moderator, UUID accountId, UUID refId) {
@@ -294,10 +316,18 @@ public class CounterServiceImpl implements CounterService {
                 productRepository.findAllById(productIds.values()).forEach(p -> products.put(p.getId(), p));
             }
         }
+        List<String> withdrawalProductIds = products.values().stream()
+                .filter(p -> p.getStatus() == ProductStatus.WAREHOUSE || p.getStatus() == ProductStatus.WITHDRAWN)
+                .map(com.rehome.rehome.entity.marketplace.Product::getId).toList();
+        Map<String, ItemWithdrawalRequest> activeWithdrawals = withdrawalProductIds.isEmpty() ? Map.of()
+                : itemWithdrawalRequestRepository.findByProductIdsAndStatusIn(
+                        withdrawalProductIds, ACTIVE_WITHDRAWAL_STATUSES).stream()
+                        .collect(Collectors.toMap(w -> w.getProduct().getId(), w -> w, (first, second) -> first));
         List<MemberTasksResponse.PendingFormItem> forms = pendingForms.stream()
                 .map(f -> {
                     var receipt = receipts.get(f.getId());
                     var product = products.get(productIds.get(f.getId()));
+                    var activeWithdrawal = product == null ? null : activeWithdrawals.get(product.getId());
                     var step = ModeratorConsignmentFormServiceImpl.resolveResumeStep(f, receipt, product != null);
                     return MemberTasksResponse.PendingFormItem.builder()
                         .id(f.getId())
@@ -310,6 +340,8 @@ public class CounterServiceImpl implements CounterService {
                         .resumeStep(step)
                         .productSku(product == null ? null : product.getId())
                         .productStatus(product == null ? null : product.getStatus())
+                        .activeWithdrawalId(activeWithdrawal == null ? null : activeWithdrawal.getId())
+                        .activeWithdrawalStatus(activeWithdrawal == null ? null : activeWithdrawal.getStatus())
                         .displayStatus(product == null ? step.name() : product.getStatus().name())
                         .build();
                 })
@@ -363,7 +395,13 @@ public class CounterServiceImpl implements CounterService {
     // query cho cả lô để tránh N+1 (mỗi đơn ở hệ thống này chỉ có 1 kho/1 món - xem Order)
     private List<MemberTasksResponse.PendingInvalidReturnItem> buildPendingInvalidReturns(UUID accountId) {
         List<ReturnRequest> invalidReturns = returnRequestRepository
-                .findRecentInvalidByBuyerId(accountId, Instant.now().minus(7, ChronoUnit.DAYS));
+                .findRecentInvalidByBuyerId(accountId, Instant.now().minus(7, ChronoUnit.DAYS))
+                .stream()
+                .filter(r -> r.getPickedUpAt() == null && r.getResolvedAt() == null)
+                .filter(r -> r.getShipBackStatus() != ShipBackStatus.PAID
+                        && r.getShipBackStatus() != ShipBackStatus.SHIPPING
+                        && r.getShipBackStatus() != ShipBackStatus.DELIVERED)
+                .toList();
         if (invalidReturns.isEmpty()) {
             return List.of();
         }

@@ -22,6 +22,7 @@ import com.rehome.rehome.dto.response.MembershipPaymentStatusResponse;
 import com.rehome.rehome.entity.membership.MembershipPayment;
 import com.rehome.rehome.repository.MembershipPaymentRepository;
 import com.rehome.rehome.service.OrderService;
+import com.rehome.rehome.service.ReturnShipBackService;
 import com.rehome.rehome.service.VnPayService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -73,6 +74,7 @@ public class VnPayServiceImpl implements VnPayService {
     // MembershipGatewayPaymentBuilder, không gọi vào service này.
     private final MembershipService membershipService;
     private final MembershipPaymentRepository membershipPaymentRepository;
+    private final ReturnShipBackService returnShipBackService;
 
     @Override
     @Transactional
@@ -205,6 +207,11 @@ public class VnPayServiceImpl implements VnPayService {
             }
             log.warn(">>>> IPN mua goi cho vnp_TxnRef={} khong khop giao dich nao, bo qua", txnRef);
             return new VnPayIpnResult("01", "Order not found");
+        }
+
+        if (ReturnShipBackService.isShipBackRef(txnRef)) {
+            return returnShipBackService.handleVnPayIpn(
+                    txnRef, params.get("vnp_Amount"), params.get("vnp_ResponseCode"), params.get("vnp_TransactionNo"));
         }
 
         List<Payment> payments = paymentRepository.findAllByVnpTxnRef(txnRef);

@@ -144,6 +144,10 @@ app:
     # return_handover_carrier_days (hạn bàn giao cho GHN), counter_pickup_days (hạn đến kho nhận lại hàng)
     # F-069/F-071: chu kỳ job quét hai mốc hết hạn ở trên
     auto-expire-check-interval-ms: 60000
+    # Gửi lại hàng trả không hợp lệ qua GHN: giá trị mặc định, Admin ghi đè được qua system_configs
+    # (return_ship_back_fee_deadline_minutes / return_ship_back_ship_within_days)
+    ship-back-fee-deadline-minutes: 30
+    ship-back-ship-within-days: 2
 
   # Rút lại hàng ký gửi giữa kỳ F-032
   item-withdrawal:

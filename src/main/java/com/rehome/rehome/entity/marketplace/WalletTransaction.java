@@ -76,6 +76,12 @@ public class WalletTransaction {
     @JoinColumn(name = "related_degraded_item_case_id", nullable = true)
     private DegradedItemCase relatedDegradedItemCase;
 
+    // Yêu cầu trả hàng sinh ra bút toán này — chỉ có với RETURN_SHIP_BACK_FEE / RETURN_SHIP_BACK_FEE_REVENUE
+    // và hoàn phí gửi lại về muộn
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "related_return_request_id", nullable = true)
+    private ReturnRequest relatedReturnRequest;
+
     // Bút toán đối ứng bên kia — ghi sổ kép, hai dòng bằng nhau và ngược dấu
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "counterpart_transaction_id", nullable = true)

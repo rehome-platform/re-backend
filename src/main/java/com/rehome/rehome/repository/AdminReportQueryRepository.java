@@ -160,6 +160,7 @@ public class AdminReportQueryRepository {
     private static final List<WalletTransactionType> REVENUE_RECOGNITION_TYPES = List.of(
             WalletTransactionType.COMMISSION_REVENUE,
             WalletTransactionType.WITHDRAWAL_FEE_REVENUE,
+            WalletTransactionType.RETURN_SHIP_BACK_FEE_REVENUE,
             // Doanh thu bán gói khi tiền đến từ VNPay: 1 dòng PLATFORM dương, không có dòng
             // Member đối ứng và không đổi số dư quỹ (xem MembershipServiceImpl.recordMembershipRevenue).
             // Mua gói bằng VÍ thì KHÔNG đi qua loại này - dòng đối ứng bên quỹ mang type

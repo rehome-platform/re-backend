@@ -142,6 +142,7 @@ public class DashboardExcelWriter {
             r = line(sheet, r, "Doanh thu nền tảng", d.getPlatformRevenue(), s.label, s.money);
             r = line(sheet, r, "— Hoa hồng ký gửi", d.getCommissionRevenue(), s.label, s.money);
             r = line(sheet, r, "— Phí rút hàng", d.getWithdrawalFeeRevenue(), s.label, s.money);
+            r = line(sheet, r, "— Phí gửi lại hàng trả", d.getReturnShipBackFeeRevenue(), s.label, s.money);
             r = line(sheet, r, "— Doanh thu gói thành viên", d.getMembershipRevenue(), s.label, s.money);
             r = line(sheet, r, "Số dư quỹ nền tảng (hiện tại)", d.getFundBalance(), s.label, s.money);
             r = line(sheet, r, "Tổng số món đã bán", d.getTotalSoldItemsCount(), s.label, s.count);

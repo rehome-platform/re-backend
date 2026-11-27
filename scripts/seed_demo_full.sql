@@ -184,7 +184,13 @@ INSERT INTO accounts (id, email, password_hash, phone, role, status, email_verif
  'ORGANIZATION', 'ACTIVE', true, NULL, NULL, now() - interval '6 days', now() - interval '6 days'),
 ('2a000000-0000-4000-8000-000000000033', 'org3@rehome.com',
  '$2a$10$9oLul/HMTIiG0xkAyG6zQuL9VlDY1gj6f8.Faz1CdLL/4PdfX2dXS', '0900000033',
- 'ORGANIZATION', 'ACTIVE', true, NULL, NULL, now() - interval '30 days', now() - interval '25 days');
+ 'ORGANIZATION', 'ACTIVE', true, NULL, NULL, now() - interval '30 days', now() - interval '25 days'),
+-- org4: ĐÃ DUYỆT từ 35 ngày trước - quá legal_image_retention_days (30 ngày), demo F-139
+-- OrganizationLegalImageCleanupServiceImpl: ảnh CCCD/giấy tờ vẫn còn URL (job chưa chạy lần nào
+-- trên dữ liệu seed), nhưng đã đủ điều kiện để job xoá ở lần quét kế tiếp.
+('2a000000-0000-4000-8000-000000000034', 'org4@rehome.com',
+ '$2a$10$9oLul/HMTIiG0xkAyG6zQuL9VlDY1gj6f8.Faz1CdLL/4PdfX2dXS', '0900000034',
+ 'ORGANIZATION', 'ACTIVE', true, NULL, NULL, now() - interval '40 days', now() - interval '35 days');
 
 -- Hồ sơ Moderator (moderator_code do ModeratorCodeGenerator sinh dạng MOD000001)
 INSERT INTO moderator_profiles (account_id, full_name, moderator_code, warehouse_id) VALUES
@@ -272,7 +278,21 @@ INSERT INTO organization_profiles (
  now() - interval '30 days', now() - interval '25 days',
  'Điểm nhận đồ Hy Vọng Mới', '88 Lê Lợi, Phường Bến Thành, TP. Hồ Chí Minh',
  10.7720000, 106.6980000, '09:00 - 16:00 (Thứ 3 - Thứ 7)', '0900000033',
- 'Trần Quốc Bảo', 'Chủ tịch Hội đồng quản lý', '079987654321', NULL, NULL);
+ 'Trần Quốc Bảo', 'Chủ tịch Hội đồng quản lý', '079987654321', NULL, NULL),
+-- org4: ĐÃ DUYỆT 35 ngày trước - còn ảnh CCCD/giấy tờ (xem bước 4.1 dưới), demo F-139
+('2a000000-0000-4000-8000-000000000034',
+ 'Hội Chữ thập đỏ Phường Tân Mỹ', 'hoi chu thap do phuong tan my',
+ 'CTĐ Phường Tân Mỹ', 'ctd phuong tan my',
+ 'Tổ chức phi lợi nhuận', '0356789012', 'TP. Hồ Chí Minh',
+ '5 Nguyễn Thị Thập, Phường Tân Mỹ, TP. Hồ Chí Minh', '0900000034', 'org4@rehome.com', NULL,
+ 'Chi hội vận động quyên góp quần áo cũ cho các hộ khó khăn trong phường.',
+ NULL, 'VERIFIED', NULL, '2a000000-0000-4000-8000-000000000002',
+ now() - interval '35 days', now() - interval '40 days', NULL,
+ 'Điểm nhận đồ CTĐ Tân Mỹ', '5 Nguyễn Thị Thập, Phường Tân Mỹ, TP. Hồ Chí Minh',
+ 10.7330000, 106.7245000, '08:00 - 17:00 (Thứ 2 - Thứ 6)', '0900000034',
+ 'Lý Thị Kim Hoa', 'Chi hội trưởng', '079456123789',
+ 'http://localhost:8080/files/organization-documents/f6a1b2c3-0001-4a00-8000-000000000001.jpg',
+ 'http://localhost:8080/files/organization-documents/f6a1b2c3-0001-4a00-8000-000000000002.jpg');
 
 -- Giấy tờ pháp lý kèm theo hồ sơ (accepted = kết luận của Moderator cho từng giấy tờ)
 INSERT INTO organization_documents (id, organization_id, doc_type, doc_number, issuing_authority,
@@ -285,7 +305,10 @@ INSERT INTO organization_documents (id, organization_id, doc_type, doc_number, i
  'Giấy xác nhận của Đoàn trường', 'XN-2026/77', 'Đoàn TNCS Trường ĐH Quốc gia Hà Nội',
  DATE '2026-09-10', NULL, NULL),
 ('2b000000-0000-4000-8000-000000000004', '2a000000-0000-4000-8000-000000000033',
- 'Giấy phép hoạt động', 'GP-2019/0921', 'Bộ Nội vụ', DATE '2019-01-15', NULL, false);
+ 'Giấy phép hoạt động', 'GP-2019/0921', 'Bộ Nội vụ', DATE '2019-01-15', NULL, false),
+('2b000000-0000-4000-8000-000000000005', '2a000000-0000-4000-8000-000000000034',
+ 'Quyết định thành lập chi hội', 'QD-2022/058', 'UBND Phường Tân Mỹ', DATE '2022-06-20',
+ 'http://localhost:8080/files/organization-documents/f6a1b2c3-0001-4a00-8000-000000000003.pdf', true);
 
 -- Tổ chức đã duyệt xin đổi thông tin pháp lý -> việc LEGAL_CHANGE trong hàng đợi Moderator
 INSERT INTO organization_legal_change_requests (id, organization_id, proposed_changes, status,
@@ -558,33 +581,136 @@ DECLARE
     v_mod2          uuid := '2a000000-0000-4000-8000-000000000003';
     v_mod3          uuid := '2a000000-0000-4000-8000-000000000004';
     v_photos        jsonb := jsonb_build_object(
-        -- TOP: áo sơ mi / áo thun / áo khoác
-        'T1', 'https://cdn.dummyjson.com/product-images/mens-shirts/blue-&-black-check-shirt/1.webp',
-        'T2', 'https://cdn.dummyjson.com/product-images/mens-shirts/gigabyte-aorus-men-tshirt/1.webp',
-        'T3', 'https://cdn.dummyjson.com/product-images/mens-shirts/man-plaid-shirt/1.webp',
-        'T4', 'https://cdn.dummyjson.com/product-images/mens-shirts/man-short-sleeve-shirt/1.webp',
-        'T5', 'https://cdn.dummyjson.com/product-images/mens-shirts/men-check-shirt/1.webp',
-        'T6', 'https://fakestoreapi.com/img/71li-ujtlUL._AC_UX679_t.png',
-        'T7', 'https://fakestoreapi.com/img/51Y5NI-I5jL._AC_UX679_t.png',
-        'T8', 'https://fakestoreapi.com/img/71-3HjGNDUL._AC_SY879._SX._UX._SY._UY_t.png',
-        'T9', 'https://fakestoreapi.com/img/71z3kpMAYsL._AC_UY879_t.png',
-        -- BOTTOM: quần jeans / quần tây / chân váy
-        'B1', 'https://images.unsplash.com/photo-1708523842501-1619478cea1f?rect=316,0,2598,3745&w=800&fit=crop&q=80',
-        'B2', 'https://images.unsplash.com/photo-1718252540511-e958742e4165?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=NHwxMjA3fDA&ixlib=rb-4.1.0&q=80&w=1080',
-        'B3', 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/501xx-front.jpg/500px-501xx-front.jpg',
-        'B4', 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Back_side_Chino_trousers_with_welt_pocket.jpg/960px-Back_side_Chino_trousers_with_welt_pocket.jpg',
-        'B5', 'https://cdn.dummyjson.com/product-images/womens-dresses/corset-leather-with-skirt/1.webp',
-        'B6', 'https://cdn.dummyjson.com/product-images/womens-dresses/corset-with-black-skirt/1.webp',
-        'B7', 'https://upload.wikimedia.org/wikipedia/commons/f/f9/Pleated_skirt.jpg',
-        -- DRESS: đầm / váy liền / jumpsuit
-        'D1', 'https://cdn.dummyjson.com/product-images/tops/blue-frock/1.webp',
-        'D2', 'https://cdn.dummyjson.com/product-images/tops/girl-summer-dress/1.webp',
-        'D3', 'https://cdn.dummyjson.com/product-images/tops/gray-dress/1.webp',
-        'D4', 'https://cdn.dummyjson.com/product-images/tops/short-frock/1.webp',
-        'D5', 'https://cdn.dummyjson.com/product-images/tops/tartan-dress/1.webp',
-        'D6', 'https://cdn.dummyjson.com/product-images/womens-dresses/black-women''s-gown/1.webp',
-        'D7', 'https://cdn.dummyjson.com/product-images/womens-dresses/dress-pea/1.webp',
-        'D8', 'https://cdn.dummyjson.com/product-images/womens-dresses/marni-red-&-black-suit/1.webp',
+        -- Mỗi sản phẩm một ảnh KHÁC NHAU, đúng loại món (áo thun/sơ mi lấy từ dummyjson
+        -- mens-shirts; đầm/váy liền/jumpsuit từ dummyjson tops + womens-dresses; các loại
+        -- còn lại - polo/len/hoodie/khoác/blazer/kiểu/áo dài/quần jeans/tây/kaki/short/
+        -- jogger/chân váy - từ Wikimedia Commons, đã xác minh từng file thật qua API
+        -- trước khi đưa vào đây). Các khoá T1-T9/B1-B7/D1-D8 dùng ở các bản trước ĐÃ BỊ
+        -- XOÁ hẳn (không còn dòng sản phẩm nào trỏ tới) vì một vài giá trị của chúng
+        -- trùng ảnh với consignment_form_photos/return_request_photos bên dưới - để lại
+        -- key chết mang giá trị trùng ảnh thật vẫn tính là "ảnh lặp lại trong file".
+        -- ÁO THUN (TH1-11, dummyjson mens-shirts)
+        'TH1', 'https://cdn.dummyjson.com/product-images/mens-shirts/blue-&-black-check-shirt/1.webp',
+        'TH2', 'https://cdn.dummyjson.com/product-images/mens-shirts/blue-&-black-check-shirt/2.webp',
+        'TH3', 'https://cdn.dummyjson.com/product-images/mens-shirts/blue-&-black-check-shirt/3.webp',
+        'TH4', 'https://cdn.dummyjson.com/product-images/mens-shirts/blue-&-black-check-shirt/4.webp',
+        'TH5', 'https://upload.wikimedia.org/wikipedia/commons/e/e8/Oversized_t-shirt_with_slightly_baggy_pants.jpg',
+        'TH6', 'https://upload.wikimedia.org/wikipedia/commons/6/60/T-shirt_mocup_gray.jpg',
+        'TH7', 'https://upload.wikimedia.org/wikipedia/commons/b/b3/Ironed_blue_T-shirt_%28001%29.JPG',
+        'TH8', 'https://upload.wikimedia.org/wikipedia/commons/9/9c/Young_North_Indian_man_with_beard_in_white_t-shirt.jpg',
+        'TH9', 'https://cdn.dummyjson.com/product-images/mens-shirts/man-plaid-shirt/1.webp',
+        'TH10', 'https://cdn.dummyjson.com/product-images/mens-shirts/man-plaid-shirt/2.webp',
+        'TH11', 'https://cdn.dummyjson.com/product-images/mens-shirts/man-plaid-shirt/3.webp',
+        'TH12', 'https://cdn.dummyjson.com/product-images/mens-shirts/men-check-shirt/4.webp',
+        -- ÁO SƠ MI (SM1-8, dummyjson mens-shirts, phần còn lại của bộ ảnh)
+        'SM1', 'https://cdn.dummyjson.com/product-images/mens-shirts/man-plaid-shirt/4.webp',
+        'SM2', 'https://cdn.dummyjson.com/product-images/mens-shirts/man-short-sleeve-shirt/1.webp',
+        'SM3', 'https://cdn.dummyjson.com/product-images/mens-shirts/man-short-sleeve-shirt/2.webp',
+        'SM4', 'https://cdn.dummyjson.com/product-images/mens-shirts/man-short-sleeve-shirt/3.webp',
+        'SM5', 'https://cdn.dummyjson.com/product-images/mens-shirts/man-short-sleeve-shirt/4.webp',
+        'SM6', 'https://cdn.dummyjson.com/product-images/mens-shirts/men-check-shirt/1.webp',
+        'SM7', 'https://cdn.dummyjson.com/product-images/mens-shirts/men-check-shirt/2.webp',
+        'SM8', 'https://cdn.dummyjson.com/product-images/mens-shirts/men-check-shirt/3.webp',
+        -- ÁO POLO (PL1-5, Wikimedia Commons)
+        'PL1', 'https://upload.wikimedia.org/wikipedia/commons/f/f8/Example_od_a_polo_Replica_with_logos_on_the_chest%2C_a_big_number_on_the_back_and_a_number_on_the_sleeve.jpg',
+        'PL2', 'https://upload.wikimedia.org/wikipedia/commons/f/f9/Assortimento_di_polo_in_vari_colori.jpg',
+        'PL3', 'https://upload.wikimedia.org/wikipedia/commons/8/86/East_spring_2016_polo_tee_but_sideways.jpg',
+        'PL4', 'https://upload.wikimedia.org/wikipedia/commons/d/d1/Various_colors_of_polo_shirt_at_JCPenney.jpg',
+        'PL5', 'https://upload.wikimedia.org/wikipedia/commons/4/4e/Farm-Fresh_shirt_polo.png',
+        -- ÁO LEN (LE1-5, Wikimedia Commons)
+        'LE1', 'https://upload.wikimedia.org/wikipedia/commons/e/e2/Elijah-Mckenzie-Jackson-in-Red-Sweater-Neutral.jpg',
+        'LE2', 'https://upload.wikimedia.org/wikipedia/commons/3/3b/020251122_174350_Knitwear.jpg',
+        'LE3', 'https://upload.wikimedia.org/wikipedia/commons/7/7a/02025_0192_Knitwear.jpg',
+        'LE4', 'https://upload.wikimedia.org/wikipedia/commons/f/fa/1986_Spring-Summer_knit_set_by_Sonia_Rykiel%2C_Paris_01.jpg',
+        'LE5', 'https://upload.wikimedia.org/wikipedia/commons/8/85/1986_Spring-Summer_knit_set_by_Sonia_Rykiel%2C_Paris_02.jpg',
+        -- ÁO HOODIE / ÁO NỈ (HO1-4, Wikimedia Commons)
+        'HO1', 'https://upload.wikimedia.org/wikipedia/commons/c/c6/2008_Butterfly_Hoodie_by_Damien_Hirst_for_Adrian_Nyman_01.jpg',
+        'HO2', 'https://upload.wikimedia.org/wikipedia/commons/f/f5/2008_Butterfly_Hoodie_by_Damien_Hirst_for_Adrian_Nyman_02.jpg',
+        'HO3', 'https://upload.wikimedia.org/wikipedia/commons/3/36/Bookstore_-_Hoodies_for_sale_-_Tulane_University_2008.jpg',
+        'HO4', 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Vexxille_Seated_outside_in_a_black_hoodie%2C_2022.jpg',
+        -- ÁO KHOÁC (KH1-10, Wikimedia Commons)
+        'KH1', 'https://upload.wikimedia.org/wikipedia/commons/c/c0/Blue_tailored_jacket.jpg',
+        'KH2', 'https://upload.wikimedia.org/wikipedia/commons/8/8e/Bomber_jacket.jpg',
+        'KH3', 'https://upload.wikimedia.org/wikipedia/commons/0/07/Blauw_denim_jasje%2C_objectnr_68398.JPG',
+        'KH4', 'https://upload.wikimedia.org/wikipedia/commons/6/6c/Boardjacket.JPG',
+        'KH5', 'https://upload.wikimedia.org/wikipedia/commons/0/0b/Biotex-travel-jkt-sand-home.jpg',
+        'KH6', 'https://upload.wikimedia.org/wikipedia/commons/a/a3/020211107_132834_Fashion_in_2021%2C_Silesia.jpg',
+        'KH7', 'https://upload.wikimedia.org/wikipedia/commons/f/f1/2025-04-30_Maimarkt_MA_106.jpg',
+        'KH8', 'https://upload.wikimedia.org/wikipedia/commons/d/d2/BH_Tarnjacke.JPG',
+        'KH9', 'https://upload.wikimedia.org/wikipedia/commons/2/21/Baltic_Princess%2C_20220910%2C_Fashion_Street.jpg',
+        'KH10', 'https://upload.wikimedia.org/wikipedia/commons/6/68/95-76-K_Uniform%2C_Working_Khaki%2C_Aviation_Midshipman%2CJacket_%285476583616%29.jpg',
+        -- ÁO BLAZER (BZ1-3, Wikimedia Commons)
+        'BZ1', 'https://upload.wikimedia.org/wikipedia/commons/8/8d/Blazer.JPG',
+        'BZ2', 'https://upload.wikimedia.org/wikipedia/commons/e/e9/Blazer_Jackets_on_Rack_%28Unsplash%29.jpg',
+        'BZ3', 'https://upload.wikimedia.org/wikipedia/commons/9/92/Gray_blazer_brown_shirt_black_split_skirt_sheer_tights_and_strappy_heels_-_modeled_by_Marina_Daschner.jpg'
+    ) || jsonb_build_object(
+        -- Postgres chặn jsonb_build_object quá 100 tham số (50 cặp) 1 lệnh nên phải tách
+        -- làm 3 lệnh rồi nối bằng || - vẫn CÙNG MỘT map, không đổi gì về nội dung/khoá.
+        -- ÁO KIỂU (KI1-4, Wikimedia Commons)
+        'KI1', 'https://upload.wikimedia.org/wikipedia/commons/0/0c/Blouse_%28ST653_2_01%29_-_Kostuum_-_Bloeze_-_MoMu_Antwerp.jpg',
+        'KI2', 'https://upload.wikimedia.org/wikipedia/commons/b/b9/Blouse_%28ST653_2_02%29_-_Kostuum_-_Bloeze_-_MoMu_Antwerp.jpg',
+        'KI3', 'https://upload.wikimedia.org/wikipedia/commons/1/18/Blouse_%28ST653_2_03%29_-_Kostuum_-_Bloeze_-_MoMu_Antwerp.jpg',
+        'KI4', 'https://upload.wikimedia.org/wikipedia/commons/d/db/Aari_blouse_design.jpg',
+        -- ÁO DÀI (AD1, Wikimedia Commons)
+        'AD1', 'https://upload.wikimedia.org/wikipedia/commons/0/03/Ao_Dai_%28modern%29.jpg',
+        -- QUẦN JEANS (JE1-9, Wikimedia Commons)
+        'JE1', 'https://upload.wikimedia.org/wikipedia/commons/d/da/Brown_Dickies_Carpenter_Jeans_New.jpg',
+        'JE2', 'https://upload.wikimedia.org/wikipedia/commons/a/a7/Skinny_Jeans_%28Unsplash%29.jpg',
+        'JE3', 'https://upload.wikimedia.org/wikipedia/commons/8/84/Skinny_jeans_01.jpg',
+        'JE4', 'https://upload.wikimedia.org/wikipedia/commons/1/15/Skinny_jeans_02.jpg',
+        'JE5', 'https://upload.wikimedia.org/wikipedia/commons/d/d1/Skinny_jeans_03.jpg',
+        'JE6', 'https://upload.wikimedia.org/wikipedia/commons/7/76/Skinny_jeans_05.jpg',
+        'JE7', 'https://upload.wikimedia.org/wikipedia/commons/1/1a/Skinny_jeans_jan_2007.jpg',
+        'JE8', 'https://upload.wikimedia.org/wikipedia/commons/c/c8/Girl_low_rise_jeans_autumn_2010.jpg',
+        'JE9', 'https://upload.wikimedia.org/wikipedia/commons/3/3b/Blauwe_jeans%2C_skinny_jeans_model%2C_merk_Revers_Jeans%2C_maat_S36%2C_objectnr_86974-3%281%29.JPG',
+        -- QUẦN TÂY (TY1-6, Wikimedia Commons)
+        'TY1', 'https://upload.wikimedia.org/wikipedia/commons/a/a5/Baggy_Trousers_%289607536711%29.jpg',
+        'TY2', 'https://upload.wikimedia.org/wikipedia/commons/f/fb/Trousers.jpg',
+        'TY3', 'https://upload.wikimedia.org/wikipedia/commons/0/09/Men%27s_trousers_inside_out.jpg',
+        'TY4', 'https://upload.wikimedia.org/wikipedia/commons/6/6f/Basic_trousers_for_men.jpg',
+        'TY5', 'https://upload.wikimedia.org/wikipedia/commons/e/ec/Man_wearing_blue_denim_shirt_with_rolled_sleeves%2C_tan_chinos_1.jpg',
+        'TY6', 'https://upload.wikimedia.org/wikipedia/commons/a/a8/Chino_pants_close-up_-_DSC02850.JPG',
+        -- QUẦN KAKI (KA1-5, Wikimedia Commons)
+        'KA1', 'https://upload.wikimedia.org/wikipedia/commons/7/77/Chino_Pant_Stack.jpg',
+        'KA2', 'https://upload.wikimedia.org/wikipedia/commons/3/3e/Chino_pants.jpg',
+        'KA3', 'https://upload.wikimedia.org/wikipedia/commons/4/45/Khaki_Cargo_Pants_Front.jpg',
+        'KA4', 'https://upload.wikimedia.org/wikipedia/commons/d/d6/Khaki_Cargo_Pants_Side.jpg',
+        'KA5', 'https://upload.wikimedia.org/wikipedia/commons/7/7b/Khaki_Cargo_Pants_Pockets1.jpg',
+        -- QUẦN SHORT (SH1-5, Wikimedia Commons)
+        'SH1', 'https://upload.wikimedia.org/wikipedia/commons/6/60/Bermuda_%28clothing%29.jpg',
+        'SH2', 'https://upload.wikimedia.org/wikipedia/commons/4/45/Cargo_shorts.jpg',
+        'SH3', 'https://upload.wikimedia.org/wikipedia/commons/a/a7/Alpenflage_Shorts.jpg',
+        'SH4', 'https://upload.wikimedia.org/wikipedia/commons/3/30/Orange_men%27s_shorts_for_sale_at_Target.jpg',
+        'SH5', 'https://upload.wikimedia.org/wikipedia/commons/9/95/Brown_Yellow_White_Plaid_%283168536754%29.jpg',
+        -- QUẦN JOGGER / THỂ THAO (JG1-2, Wikimedia Commons)
+        'JG1', 'https://upload.wikimedia.org/wikipedia/commons/4/4b/Corteiz_Alcatraz_Joggers.jpg',
+        'JG2', 'https://upload.wikimedia.org/wikipedia/commons/c/c3/Sweatpants.jpg',
+        -- CHÂN VÁY (CV1-6, Wikimedia Commons)
+        'CV1', 'https://upload.wikimedia.org/wikipedia/commons/9/90/A-line_skirt.jpg',
+        'CV2', 'https://upload.wikimedia.org/wikipedia/commons/e/ea/A-line_skirts.jpg',
+        'CV3', 'https://upload.wikimedia.org/wikipedia/commons/b/b6/Long-Skirt_%28Flare-Maxi-Type%29.jpg',
+        'CV4', 'https://upload.wikimedia.org/wikipedia/commons/b/be/Longskirt%28Flaretype_Flourpattern%29.jpg',
+        'CV5', 'https://upload.wikimedia.org/wikipedia/commons/e/e3/Falda_Jean_Negra.jpg',
+        'CV6', 'https://upload.wikimedia.org/wikipedia/commons/c/c5/Black_Turtleneck_T-shirt%2C_Leopard_Print_Skater_Skirt%2C_and_Heart_Print_Tights_%2816919126582%29.jpg'
+    ) || jsonb_build_object(
+        -- ĐẦM (DA1-8, dummyjson tops + womens-dresses)
+        'DA1', 'https://cdn.dummyjson.com/product-images/tops/blue-frock/1.webp',
+        'DA2', 'https://cdn.dummyjson.com/product-images/tops/blue-frock/2.webp',
+        'DA3', 'https://cdn.dummyjson.com/product-images/tops/girl-summer-dress/1.webp',
+        'DA4', 'https://cdn.dummyjson.com/product-images/tops/gray-dress/1.webp',
+        'DA5', 'https://cdn.dummyjson.com/product-images/tops/short-frock/1.webp',
+        'DA6', 'https://cdn.dummyjson.com/product-images/tops/tartan-dress/1.webp',
+        'DA7', 'https://cdn.dummyjson.com/product-images/womens-dresses/black-women''s-gown/1.webp',
+        'DA8', 'https://cdn.dummyjson.com/product-images/womens-dresses/corset-leather-with-skirt/1.webp',
+        -- VÁY LIỀN (VY1-6, dummyjson womens-dresses + tops)
+        'VY1', 'https://cdn.dummyjson.com/product-images/womens-dresses/corset-with-black-skirt/1.webp',
+        'VY2', 'https://cdn.dummyjson.com/product-images/womens-dresses/corset-with-black-skirt/2.webp',
+        'VY3', 'https://cdn.dummyjson.com/product-images/womens-dresses/dress-pea/1.webp',
+        'VY4', 'https://cdn.dummyjson.com/product-images/womens-dresses/marni-red-&-black-suit/1.webp',
+        'VY5', 'https://cdn.dummyjson.com/product-images/tops/girl-summer-dress/2.webp',
+        'VY6', 'https://cdn.dummyjson.com/product-images/tops/gray-dress/2.webp',
+        -- JUMPSUIT (JP1, dummyjson womens-dresses)
+        'JP1', 'https://cdn.dummyjson.com/product-images/womens-dresses/marni-red-&-black-suit/2.webp',
         -- Ảnh NỘI BỘ (uploads/products/...) - chỉ 2 ảnh này thử đồ AI mới chạy được
         'LT', 'http://localhost:8080/files/products/seed-tryon-top.png',
         'LB', 'http://localhost:8080/files/products/seed-tryon-bottom.png');
@@ -595,114 +721,150 @@ FOR r IN
     --   người ký gửi (11..20 = member1..member10), số ngày đã ký gửi, kỳ ép (NULL = tự tính),
     --   trạng thái, ảnh 1, ảnh 2, tình trạng hàng
     -- ---------------------------------------------------------------- ÁO THUN (TOP)
-    (  1, 'HCM-AT-000001',  'Áo thun Uniqlo cotton trắng trơn',        'Áo thun',  'Uniqlo',           'M',  150000, 150000, 13, 12, NULL, 'ON_SALE', 'T2', 'T8',  'Như mới, chỉ mặc 2 lần, không giãn cổ'),
-    (  2, 'HCM-AT-000002',  'Áo thun Coolmate Excool đen',             'Áo thun',  'Coolmate',         'L',  120000, 120000, 15,  8, NULL, 'ON_SALE', 'T8', NULL,  'Còn 90%, vải mát, không xù lông'),
-    (  3, 'HN-AT-000003',   'Áo thun Routine in họa tiết',             'Áo thun',  'Routine',          'M',  135000, 135000, 14, 20, NULL, 'ON_SALE', 'T9', NULL,  'Còn 85%, hình in còn rõ, không bong'),
-    (  4, 'HCM-AT-000004',  'Áo thun The Blue Tshirt form oversize',   'Áo thun',  'The Blue Tshirt',  'XL', 180000, 180000, 16,  5, NULL, 'ON_SALE', 'T2', 'T9',  'Như mới, còn nguyên tem'),
-    (  5, 'HN-AT-000005',   'Áo thun Nike Dri-FIT xanh navy',          'Áo thun',  'Nike',             'S',  230000, 210000, 17, 33, NULL, 'ON_SALE', 'T8', NULL,  'Còn 90%, đã giảm giá sang kỳ 2'),
+    (  1, 'HCM-AT-000001',  'Áo thun Uniqlo cotton trắng trơn',        'Áo thun',  'Uniqlo',           'M',  150000, 150000, 13, 12, NULL, 'ON_SALE', 'TH1', 'TH2',  'Như mới, chỉ mặc 2 lần, không giãn cổ'),
+    (  2, 'HCM-AT-000002',  'Áo thun Coolmate Excool đen',             'Áo thun',  'Coolmate',         'L',  120000, 120000, 15,  8, NULL, 'ON_SALE', 'TH3', NULL,  'Còn 90%, vải mát, không xù lông'),
+    (  3, 'HN-AT-000003',   'Áo thun Routine in họa tiết',             'Áo thun',  'Routine',          'M',  135000, 135000, 14, 20, NULL, 'ON_SALE', 'TH4', NULL,  'Còn 85%, hình in còn rõ, không bong'),
+    (  4, 'HCM-AT-000004',  'Áo thun The Blue Tshirt form oversize',   'Áo thun',  'The Blue Tshirt',  'XL', 180000, 180000, 16,  5, NULL, 'ON_SALE', 'TH5', 'TH6',  'Như mới, còn nguyên tem'),
+    (  5, 'HN-AT-000005',   'Áo thun Nike Dri-FIT xanh navy',          'Áo thun',  'Nike',             'S',  230000, 210000, 17, 33, NULL, 'ON_SALE', 'TH7', NULL,  'Còn 90%, đã giảm giá sang kỳ 2'),
     -- -------------------------------------------------------------- ÁO SƠ MI (TOP)
-    (  6, 'HCM-ASM-000006', 'Áo sơ mi Zara trắng tay dài',             'Áo sơ mi', 'Zara',             'M',  320000, 320000, 13, 15, NULL, 'ON_SALE', 'T1', 'T5',  'Như mới, không vết bẩn ở cổ và tay'),
-    (  7, 'HCM-ASM-000007', 'Áo sơ mi Owen kẻ sọc xanh',               'Áo sơ mi', 'Owen',             'L',  280000, 280000, 15, 25, NULL, 'ON_SALE', 'T3', NULL,  'Còn 90%, vải không nhăn, cúc đủ'),
-    (  8, 'HN-ASM-000008',  'Áo sơ mi Uniqlo Oxford xanh nhạt',        'Áo sơ mi', 'Uniqlo',           'M',  250000, 250000, 14, 40, NULL, 'ON_SALE', 'T4', NULL,  'Còn 85%, bạc nhẹ ở cổ tay, đang ở kỳ 2'),
-    (  9, 'HN-ASM-000009',  'Áo sơ mi Biluxury dài tay đen',           'Áo sơ mi', 'Biluxury',         'XL', 230000, 230000, 17, 10, NULL, 'ON_SALE', 'T5', NULL,  'Như mới, mua sai size nên chưa mặc'),
+    (  6, 'HCM-ASM-000006', 'Áo sơ mi Zara trắng tay dài',             'Áo sơ mi', 'Zara',             'M',  320000, 320000, 13, 15, NULL, 'ON_SALE', 'SM1', 'SM2',  'Như mới, không vết bẩn ở cổ và tay'),
+    (  7, 'HCM-ASM-000007', 'Áo sơ mi Owen kẻ sọc xanh',               'Áo sơ mi', 'Owen',             'L',  280000, 280000, 15, 25, NULL, 'ON_SALE', 'SM3', NULL,  'Còn 90%, vải không nhăn, cúc đủ'),
+    (  8, 'HN-ASM-000008',  'Áo sơ mi Uniqlo Oxford xanh nhạt',        'Áo sơ mi', 'Uniqlo',           'M',  250000, 250000, 14, 40, NULL, 'ON_SALE', 'SM4', NULL,  'Còn 85%, bạc nhẹ ở cổ tay, đang ở kỳ 2'),
+    (  9, 'HN-ASM-000009',  'Áo sơ mi Biluxury dài tay đen',           'Áo sơ mi', 'Biluxury',         'XL', 230000, 230000, 17, 10, NULL, 'ON_SALE', 'SM5', NULL,  'Như mới, mua sai size nên chưa mặc'),
     -- --------------------------------------------------------------- ÁO POLO (TOP)
-    ( 10, 'HCM-AP-000010',  'Áo polo Yame xanh rêu',                   'Áo polo',  'Yame',             'L',  190000, 190000, 16, 18, NULL, 'ON_SALE', 'T5', NULL,  'Còn 90%, cổ áo còn đứng'),
-    ( 11, 'HN-AP-000011',   'Áo polo Adidas trắng viền đen',           'Áo polo',  'Adidas',           'M',  220000, 220000, 19,  6, NULL, 'ON_SALE', 'T4', 'T1',  'Như mới, còn nguyên logo thêu'),
+    ( 10, 'HCM-AP-000010',  'Áo polo Yame xanh rêu',                   'Áo polo',  'Yame',             'L',  190000, 190000, 16, 18, NULL, 'ON_SALE', 'PL1', NULL,  'Còn 90%, cổ áo còn đứng'),
+    ( 11, 'HN-AP-000011',   'Áo polo Adidas trắng viền đen',           'Áo polo',  'Adidas',           'M',  220000, 220000, 19,  6, NULL, 'ON_SALE', 'PL2', 'PL3',  'Như mới, còn nguyên logo thêu'),
     -- ---------------------------------------------------------------- ÁO LEN (TOP)
-    ( 12, 'HCM-AL-000012',  'Áo len H&M cổ tròn màu be',               'Áo len',   'H&M',              'M',  240000, 240000, 13, 28, NULL, 'ON_SALE', 'T7', NULL,  'Còn 85%, xù lông nhẹ ở vùng nách'),
-    ( 13, 'HN-AL-000013',   'Áo len Canifa dệt kim xám',               'Áo len',   'Canifa',           'S',  290000, 260000, 14, 44, NULL, 'ON_SALE', 'T7', NULL,  'Còn 85%, đã giảm giá, dáng vẫn đẹp'),
+    ( 12, 'HCM-AL-000012',  'Áo len H&M cổ tròn màu be',               'Áo len',   'H&M',              'M',  240000, 240000, 13, 28, NULL, 'ON_SALE', 'LE1', NULL,  'Còn 85%, xù lông nhẹ ở vùng nách'),
+    ( 13, 'HN-AL-000013',   'Áo len Canifa dệt kim xám',               'Áo len',   'Canifa',           'S',  290000, 260000, 14, 44, NULL, 'ON_SALE', 'LE2', NULL,  'Còn 85%, đã giảm giá, dáng vẫn đẹp'),
     -- ----------------------------------------------------- ÁO HOODIE / ÁO NỈ (TOP)
-    ( 14, 'HCM-AHAN-000014','Áo hoodie Champion nỉ bông xám',          'Áo hoodie / Áo nỉ', 'Champion','L',  350000, 350000, 15,  9, NULL, 'ON_SALE', 'T6', 'T7',  'Như mới, bông còn dày, dây mũ đủ'),
-    ( 15, 'HCM-AHAN-000015','Áo nỉ Puma cổ tròn đen',                  'Áo hoodie / Áo nỉ', 'Puma',    'M',  290000, 290000, 16, 22, NULL, 'ON_SALE', 'T7', NULL,  'Còn 90%, không bai bo tay'),
-    ( 16, 'HN-AHAN-000016', 'Áo hoodie Converse in logo trước',        'Áo hoodie / Áo nỉ', 'Converse','XL', 350000, 310000, 17, 65, NULL, 'ON_SALE', 'T6', NULL,  'Còn 80%, đã sang kỳ 3 nên giảm giá'),
+    ( 14, 'HCM-AHAN-000014','Áo hoodie Champion nỉ bông xám',          'Áo hoodie / Áo nỉ', 'Champion','L',  350000, 350000, 15,  9, NULL, 'ON_SALE', 'HO1', 'HO2',  'Như mới, bông còn dày, dây mũ đủ'),
+    ( 15, 'HCM-AHAN-000015','Áo nỉ Puma cổ tròn đen',                  'Áo hoodie / Áo nỉ', 'Puma',    'M',  290000, 290000, 16, 22, NULL, 'ON_SALE', 'HO3', NULL,  'Còn 90%, không bai bo tay'),
+    ( 16, 'HN-AHAN-000016', 'Áo hoodie Converse in logo trước',        'Áo hoodie / Áo nỉ', 'Converse','XL', 350000, 310000, 17, 65, NULL, 'ON_SALE', 'HO4', NULL,  'Còn 80%, đã sang kỳ 3 nên giảm giá'),
     -- -------------------------------------------------------------- ÁO KHOÁC (TOP)
-    ( 17, 'HCM-AK-000017',  'Áo khoác jean Levi''s trucker',           'Áo khoác', 'Levi''s',          'M',  520000, 520000, 13,  3, NULL, 'ON_SALE', 'T6', 'T7',  'Như mới, cúc đồng còn sáng'),
-    ( 18, 'HCM-AK-000018',  'Áo khoác gió Uniqlo chống nước',          'Áo khoác', 'Uniqlo',           'L',  450000, 450000, 11, 14, NULL, 'ON_SALE', 'T7', NULL,  'Còn 90%, khoá kéo mượt'),
-    ( 19, 'HN-AK-000019',   'Áo khoác bomber Zara đen',                'Áo khoác', 'Zara',             'M',  520000, 480000, 14, 31, NULL, 'ON_SALE', 'T6', NULL,  'Còn 90%, đã giảm giá sang kỳ 2'),
-    ( 20, 'HN-AK-000020',   'Áo khoác phao Canifa lông vũ',            'Áo khoác', 'Canifa',           'XL', 650000, 650000, 19,  7, NULL, 'ON_SALE', 'T7', 'T6',  'Như mới, mặc 1 mùa đông, không bục chỉ'),
+    ( 17, 'HCM-AK-000017',  'Áo khoác jean Levi''s trucker',           'Áo khoác', 'Levi''s',          'M',  520000, 520000, 13,  3, NULL, 'ON_SALE', 'KH1', 'KH2',  'Như mới, cúc đồng còn sáng'),
+    ( 18, 'HCM-AK-000018',  'Áo khoác gió Uniqlo chống nước',          'Áo khoác', 'Uniqlo',           'L',  450000, 450000, 11, 14, NULL, 'ON_SALE', 'KH3', NULL,  'Còn 90%, khoá kéo mượt'),
+    ( 19, 'HN-AK-000019',   'Áo khoác bomber Zara đen',                'Áo khoác', 'Zara',             'M',  520000, 480000, 14, 31, NULL, 'ON_SALE', 'KH4', NULL,  'Còn 90%, đã giảm giá sang kỳ 2'),
+    ( 20, 'HN-AK-000020',   'Áo khoác phao Canifa lông vũ',            'Áo khoác', 'Canifa',           'XL', 650000, 650000, 19,  7, NULL, 'ON_SALE', 'KH5', 'KH6',  'Như mới, mặc 1 mùa đông, không bục chỉ'),
     -- ------------------------------------------------------------- ÁO BLAZER (TOP)
-    ( 21, 'HCM-AB-000021',  'Áo blazer Mango xám công sở',             'Áo blazer','Mango',            'M',  540000, 540000, 15, 11, NULL, 'ON_SALE', 'T6', NULL,  'Như mới, đã giặt khô, không nhăn'),
-    ( 22, 'HN-AB-000022',   'Áo blazer IVY moda dáng lửng',            'Áo blazer','IVY moda',         'S',  580000, 580000, 17, 26, NULL, 'ON_SALE', 'T6', NULL,  'Còn 90%, lớp lót nguyên vẹn'),
+    ( 21, 'HCM-AB-000021',  'Áo blazer Mango xám công sở',             'Áo blazer','Mango',            'M',  540000, 540000, 15, 11, NULL, 'ON_SALE', 'BZ1', NULL,  'Như mới, đã giặt khô, không nhăn'),
+    ( 22, 'HN-AB-000022',   'Áo blazer IVY moda dáng lửng',            'Áo blazer','IVY moda',         'S',  580000, 580000, 17, 26, NULL, 'ON_SALE', 'BZ2', NULL,  'Còn 90%, lớp lót nguyên vẹn'),
     -- -------------------------------------------------------------- ÁO KIỂU (TOP)
-    ( 23, 'HCM-AK2-000023', 'Áo kiểu Elise tay bồng trắng',            'Áo kiểu',  'Elise',            'S',  330000, 330000, 15, 16, NULL, 'ON_SALE', 'T1', NULL,  'Như mới, vải lụa không rút'),
-    ( 24, 'HN-AK2-000024',  'Áo kiểu Mango cổ vuông hồng',             'Áo kiểu',  'Mango',            'M',  300000, 300000, 14,  4, NULL, 'ON_SALE', 'T3', NULL,  'Như mới, còn nguyên tem giá'),
+    ( 23, 'HCM-AK2-000023', 'Áo kiểu Elise tay bồng trắng',            'Áo kiểu',  'Elise',            'S',  330000, 330000, 15, 16, NULL, 'ON_SALE', 'KI1', NULL,  'Như mới, vải lụa không rút'),
+    ( 24, 'HN-AK2-000024',  'Áo kiểu Mango cổ vuông hồng',             'Áo kiểu',  'Mango',            'M',  300000, 300000, 14,  4, NULL, 'ON_SALE', 'KI2', NULL,  'Như mới, còn nguyên tem giá'),
     -- ---------------------------------------------------------- QUẦN JEANS (BOTTOM)
-    ( 25, 'HCM-QJ-000025',  'Quần jeans Levi''s 501 ống đứng',         'Quần jeans','Levi''s',         '32', 420000, 420000, 13, 13, NULL, 'ON_SALE', 'B3', 'B1',  'Còn 90%, form đứng, đường chỉ nguyên'),
-    ( 26, 'HCM-QJ-000026',  'Quần jeans H&M slim fit xanh đậm',        'Quần jeans','H&M',             '30', 320000, 320000, 16, 19, NULL, 'ON_SALE', 'B1', NULL,  'Còn 85%, bạc nhẹ ở đầu gối'),
-    ( 27, 'HN-QJ-000027',   'Quần jeans Uniqlo ống suông',             'Quần jeans','Uniqlo',          '31', 390000, 350000, 14, 36, NULL, 'ON_SALE', 'B2', NULL,  'Còn 90%, đã giảm giá sang kỳ 2'),
-    ( 28, 'HCM-QJ-000028',  'Quần jeans Zara baggy xanh nhạt',         'Quần jeans','Zara',            '29', 380000, 380000, 15,  2, NULL, 'ON_SALE', 'B1', 'B3',  'Như mới, chưa qua sử dụng'),
-    ( 29, 'HN-QJ-000029',   'Quần jeans Routine rách gối',             'Quần jeans','Routine',         '32', 330000, 290000, 17, 72, NULL, 'ON_SALE', 'B2', NULL,  'Còn 80%, rách gối là thiết kế, kỳ 3'),
+    ( 25, 'HCM-QJ-000025',  'Quần jeans Levi''s 501 ống đứng',         'Quần jeans','Levi''s',         '32', 420000, 420000, 13, 13, NULL, 'ON_SALE', 'JE1', 'JE2',  'Còn 90%, form đứng, đường chỉ nguyên'),
+    ( 26, 'HCM-QJ-000026',  'Quần jeans H&M slim fit xanh đậm',        'Quần jeans','H&M',             '30', 320000, 320000, 16, 19, NULL, 'ON_SALE', 'JE3', NULL,  'Còn 85%, bạc nhẹ ở đầu gối'),
+    ( 27, 'HN-QJ-000027',   'Quần jeans Uniqlo ống suông',             'Quần jeans','Uniqlo',          '31', 390000, 350000, 14, 36, NULL, 'ON_SALE', 'JE4', NULL,  'Còn 90%, đã giảm giá sang kỳ 2'),
+    ( 28, 'HCM-QJ-000028',  'Quần jeans Zara baggy xanh nhạt',         'Quần jeans','Zara',            '29', 380000, 380000, 15,  2, NULL, 'ON_SALE', 'JE5', 'JE6',  'Như mới, chưa qua sử dụng'),
+    ( 29, 'HN-QJ-000029',   'Quần jeans Routine rách gối',             'Quần jeans','Routine',         '32', 330000, 290000, 17, 72, NULL, 'ON_SALE', 'JE7', NULL,  'Còn 80%, rách gối là thiết kế, kỳ 3'),
     -- ----------------------------------------------------------- QUẦN TÂY (BOTTOM)
-    ( 30, 'HCM-QT-000030',  'Quần tây Owen đen ống côn',               'Quần tây', 'Owen',             '32', 280000, 280000, 16, 21, NULL, 'ON_SALE', 'B4', NULL,  'Còn 90%, không bóng vải, gấu nguyên'),
-    ( 31, 'HN-QT-000031',   'Quần tây Biluxury xám chì',               'Quần tây', 'Biluxury',         '30', 260000, 260000, 19,  9, NULL, 'ON_SALE', 'B4', NULL,  'Như mới, mặc 3 lần đi làm'),
-    ( 32, 'HCM-QT-000032',  'Quần tây Mango nữ ống rộng',              'Quần tây', 'Mango',            'M',  310000, 310000, 15, 29, NULL, 'ON_SALE', 'B4', NULL,  'Còn 90%, cạp chun còn tốt'),
+    ( 30, 'HCM-QT-000030',  'Quần tây Owen đen ống côn',               'Quần tây', 'Owen',             '32', 280000, 280000, 16, 21, NULL, 'ON_SALE', 'TY1', NULL,  'Còn 90%, không bóng vải, gấu nguyên'),
+    ( 31, 'HN-QT-000031',   'Quần tây Biluxury xám chì',               'Quần tây', 'Biluxury',         '30', 260000, 260000, 19,  9, NULL, 'ON_SALE', 'TY2', NULL,  'Như mới, mặc 3 lần đi làm'),
+    ( 32, 'HCM-QT-000032',  'Quần tây Mango nữ ống rộng',              'Quần tây', 'Mango',            'M',  310000, 310000, 15, 29, NULL, 'ON_SALE', 'TY3', NULL,  'Còn 90%, cạp chun còn tốt'),
     -- ---------------------------------------------------------- QUẦN KAKI (BOTTOM)
-    ( 33, 'HCM-QK-000033',  'Quần kaki Uniqlo be ống đứng',            'Quần kaki','Uniqlo',           '31', 250000, 250000, 13, 17, NULL, 'ON_SALE', 'B4', NULL,  'Còn 90%, màu chưa phai'),
-    ( 34, 'HN-QK-000034',   'Quần kaki Coolmate xanh rêu',             'Quần kaki','Coolmate',         '32', 220000, 220000, 14,  1, NULL, 'ON_SALE', 'B2', NULL,  'Như mới, vừa nhập kho hôm nay'),
+    ( 33, 'HCM-QK-000033',  'Quần kaki Uniqlo be ống đứng',            'Quần kaki','Uniqlo',           '31', 250000, 250000, 13, 17, NULL, 'ON_SALE', 'KA1', NULL,  'Còn 90%, màu chưa phai'),
+    ( 34, 'HN-QK-000034',   'Quần kaki Coolmate xanh rêu',             'Quần kaki','Coolmate',         '32', 220000, 220000, 14,  1, NULL, 'ON_SALE', 'KA2', NULL,  'Như mới, vừa nhập kho hôm nay'),
     -- --------------------------------------------------------- QUẦN SHORT (BOTTOM)
-    ( 35, 'HCM-QS-000035',  'Quần short jeans Zara lưng cao',          'Quần short','Zara',            '28', 190000, 190000, 15, 24, NULL, 'ON_SALE', 'B1', NULL,  'Còn 90%, không sờn gấu'),
-    ( 36, 'HN-QS-000036',   'Quần short thể thao Nike',                'Quần short','Nike',            'L',  160000, 160000, 17, 12, NULL, 'ON_SALE', 'B1', NULL,  'Còn 85%, chun lưng còn đàn hồi'),
+    ( 35, 'HCM-QS-000035',  'Quần short jeans Zara lưng cao',          'Quần short','Zara',            '28', 190000, 190000, 15, 24, NULL, 'ON_SALE', 'SH1', NULL,  'Còn 90%, không sờn gấu'),
+    ( 36, 'HN-QS-000036',   'Quần short thể thao Nike',                'Quần short','Nike',            'L',  160000, 160000, 17, 12, NULL, 'ON_SALE', 'SH2', NULL,  'Còn 85%, chun lưng còn đàn hồi'),
     -- ------------------------------------------------ QUẦN JOGGER/THỂ THAO (BOTTOM)
-    ( 37, 'HCM-QJQTT-000037','Quần jogger Adidas 3 sọc đen',           'Quần jogger / Quần thể thao','Adidas','M', 280000, 280000, 16,  6, NULL, 'ON_SALE', 'B4', NULL, 'Như mới, 3 sọc còn nguyên'),
-    ( 38, 'HN-QJQTT-000038', 'Quần thể thao Puma co giãn',             'Quần jogger / Quần thể thao','Puma',  'L', 270000, 240000, 19, 61, NULL, 'ON_SALE', 'B4', NULL, 'Còn 80%, đã giảm giá, kỳ 3'),
+    ( 37, 'HCM-QJQTT-000037','Quần jogger Adidas 3 sọc đen',           'Quần jogger / Quần thể thao','Adidas','M', 280000, 280000, 16,  6, NULL, 'ON_SALE', 'JG1', NULL, 'Như mới, 3 sọc còn nguyên'),
+    ( 38, 'HN-QJQTT-000038', 'Quần thể thao Puma co giãn',             'Quần jogger / Quần thể thao','Puma',  'L', 270000, 240000, 19, 61, NULL, 'ON_SALE', 'JG2', NULL, 'Còn 80%, đã giảm giá, kỳ 3'),
     -- ----------------------------------------------------------- CHÂN VÁY (BOTTOM)
-    ( 39, 'HCM-CV-000039',  'Chân váy xếp ly Elise đen',               'Chân váy', 'Elise',            'S',  270000, 270000, 15, 10, NULL, 'ON_SALE', 'B7', 'B5',  'Như mới, ly còn sắc nét'),
-    ( 40, 'HCM-CV-000040',  'Chân váy jeans H&M chữ A',                'Chân váy', 'H&M',              'M',  230000, 230000, 11, 23, NULL, 'ON_SALE', 'B5', NULL,  'Còn 90%, khoá sau trơn'),
-    ( 41, 'HN-CV-000041',   'Chân váy dài IVY moda hoa nhí',           'Chân váy', 'IVY moda',         'M',  320000, 320000, 14,  5, NULL, 'ON_SALE', 'B6', NULL,  'Như mới, vải mềm không xước'),
+    ( 39, 'HCM-CV-000039',  'Chân váy xếp ly Elise đen',               'Chân váy', 'Elise',            'S',  270000, 270000, 15, 10, NULL, 'ON_SALE', 'CV1', 'CV2',  'Như mới, ly còn sắc nét'),
+    ( 40, 'HCM-CV-000040',  'Chân váy jeans H&M chữ A',                'Chân váy', 'H&M',              'M',  230000, 230000, 11, 23, NULL, 'ON_SALE', 'CV3', NULL,  'Còn 90%, khoá sau trơn'),
+    ( 41, 'HN-CV-000041',   'Chân váy dài IVY moda hoa nhí',           'Chân váy', 'IVY moda',         'M',  320000, 320000, 14,  5, NULL, 'ON_SALE', 'CV4', NULL,  'Như mới, vải mềm không xước'),
     -- ------------------------------------------------------------------ ĐẦM (DRESS)
-    ( 42, 'HCM-D-000042',   'Đầm dạ hội Elise đen dài',                'Đầm',      'Elise',            'M',  780000, 780000, 15,  7, NULL, 'ON_SALE', 'D6', 'D3',  'Như mới, mặc 1 lần dự tiệc'),
-    ( 43, 'HCM-D-000043',   'Đầm suông Zara hoa nhí',                  'Đầm',      'Zara',             'S',  420000, 420000, 13, 27, NULL, 'ON_SALE', 'D2', NULL,  'Còn 90%, hoa văn còn tươi'),
-    ( 44, 'HN-D-000044',    'Đầm công sở Mango xám',                   'Đầm',      'Mango',            'M',  450000, 450000, 14, 15, NULL, 'ON_SALE', 'D3', NULL,  'Còn 90%, không bai vai'),
-    ( 45, 'HN-D-000045',    'Đầm maxi IVY moda họa tiết',              'Đầm',      'IVY moda',         'L',  620000, 560000, 17, 81, NULL, 'ON_SALE', 'D5', NULL,  'Còn 80%, đã giảm giá, kỳ cuối'),
+    ( 42, 'HCM-D-000042',   'Đầm dạ hội Elise đen dài',                'Đầm',      'Elise',            'M',  780000, 780000, 15,  7, NULL, 'ON_SALE', 'DA1', 'DA2',  'Như mới, mặc 1 lần dự tiệc'),
+    ( 43, 'HCM-D-000043',   'Đầm suông Zara hoa nhí',                  'Đầm',      'Zara',             'S',  420000, 420000, 13, 27, NULL, 'ON_SALE', 'DA3', NULL,  'Còn 90%, hoa văn còn tươi'),
+    ( 44, 'HN-D-000044',    'Đầm công sở Mango xám',                   'Đầm',      'Mango',            'M',  450000, 450000, 14, 15, NULL, 'ON_SALE', 'DA4', NULL,  'Còn 90%, không bai vai'),
+    ( 45, 'HN-D-000045',    'Đầm maxi IVY moda họa tiết',              'Đầm',      'IVY moda',         'L',  620000, 560000, 17, 81, NULL, 'ON_SALE', 'DA5', NULL,  'Còn 80%, đã giảm giá, kỳ cuối'),
     -- ------------------------------------------------------------ VÁY LIỀN (DRESS)
-    ( 46, 'HCM-VL-000046',  'Váy liền thân H&M cổ vuông',              'Váy liền', 'H&M',              'S',  340000, 340000, 15,  4, NULL, 'ON_SALE', 'D1', NULL,  'Như mới, còn nguyên tem'),
-    ( 47, 'HCM-VL-000047',  'Váy liền Mango xanh pastel',              'Váy liền', 'Mango',            'M',  390000, 390000, 11, 20, NULL, 'ON_SALE', 'D4', 'D1',  'Còn 90%, không vết loang'),
-    ( 48, 'HN-VL-000048',   'Váy liền Elise tay ngắn đỏ',              'Váy liền', 'Elise',            'M',  410000, 410000, 19, 11, NULL, 'ON_SALE', 'D8', NULL,  'Còn 90%, màu còn đậm'),
+    ( 46, 'HCM-VL-000046',  'Váy liền thân H&M cổ vuông',              'Váy liền', 'H&M',              'S',  340000, 340000, 15,  4, NULL, 'ON_SALE', 'VY1', NULL,  'Như mới, còn nguyên tem'),
+    ( 47, 'HCM-VL-000047',  'Váy liền Mango xanh pastel',              'Váy liền', 'Mango',            'M',  390000, 390000, 11, 20, NULL, 'ON_SALE', 'VY2', 'VY3',  'Còn 90%, không vết loang'),
+    ( 48, 'HN-VL-000048',   'Váy liền Elise tay ngắn đỏ',              'Váy liền', 'Elise',            'M',  410000, 410000, 19, 11, NULL, 'ON_SALE', 'VY4', NULL,  'Còn 90%, màu còn đậm'),
     -- ----------------------------------------------------------- JUMPSUIT (DRESS)
-    ( 49, 'HCM-J-000049',   'Jumpsuit Zara ống rộng đen',              'Jumpsuit', 'Zara',             'M',  490000, 490000, 15,  8, NULL, 'ON_SALE', 'D7', NULL,  'Như mới, vải đứng dáng'),
+    ( 49, 'HCM-J-000049',   'Jumpsuit Zara ống rộng đen',              'Jumpsuit', 'Zara',             'M',  490000, 490000, 15,  8, NULL, 'ON_SALE', 'JP1', NULL,  'Như mới, vải đứng dáng'),
     -- ------------------------------------------------------------- ÁO DÀI (DRESS)
-    ( 50, 'HN-AD-000050',   'Áo dài truyền thống Elise lụa',           'Áo dài',   'Elise',            'M',  850000, 850000, 14, 18, NULL, 'ON_SALE', 'D5', NULL,  'Như mới, lụa chưa phai, mặc 1 dịp Tết'),
+    ( 50, 'HN-AD-000050',   'Áo dài truyền thống Elise lụa',           'Áo dài',   'Elise',            'M',  850000, 850000, 14, 18, NULL, 'ON_SALE', 'AD1', NULL,  'Như mới, lụa chưa phai, mặc 1 dịp Tết'),
 
     -- ======================= 5 MÓN ĐÃ BÁN (đi với 5 đơn COMPLETED ở bước 9) =======
     -- Kỳ ép = kỳ TẠI THỜI ĐIỂM BÁN, vì món đã bán thì job không tăng kỳ nữa.
-    ( 51, 'HCM-AK-000051',  'Áo khoác dạ Uniqlo nữ cổ lọ',             'Áo khoác', 'Uniqlo',           'M',  520000, 520000, 11, 60,    1, 'SOLD',    'T7', NULL,  'Còn 90%, dạ không bị xù'),
-    ( 52, 'HCM-AT-000052',  'Áo thun Zara basic trắng',                'Áo thun',  'Zara',             'M',  290000, 290000, 11, 70,    2, 'SOLD',    'T9', NULL,  'Còn 90%, cổ chưa giãn'),
-    ( 53, 'HCM-ASM-000053', 'Áo sơ mi Zara lụa trắng',                 'Áo sơ mi', 'Zara',             'M',  450000, 450000, 13, 25,    1, 'SOLD',    'T1', NULL,  'Như mới, không lỗi'),
-    ( 54, 'HN-QJ-000054',   'Quần jeans Uniqlo nữ ống đứng',           'Quần jeans','Uniqlo',          '29', 320000, 320000, 14, 50, NULL, 'SOLD',    'B2', NULL,  'Còn 90%, co giãn tốt'),
-    ( 55, 'HCM-D-000055',   'Đầm Elise hoa nhí tay ngắn',              'Đầm',      'Elise',            'S',  380000, 380000, 15,  9, NULL, 'SOLD',    'D2', NULL,  'Như mới, mặc 1 lần'),
+    ( 51, 'HCM-AK-000051',  'Áo khoác dạ Uniqlo nữ cổ lọ',             'Áo khoác', 'Uniqlo',           'M',  520000, 520000, 11, 60,    1, 'SOLD',    'KH7', NULL,  'Còn 90%, dạ không bị xù'),
+    ( 52, 'HCM-AT-000052',  'Áo thun Zara basic trắng',                'Áo thun',  'Zara',             'M',  290000, 290000, 11, 70,    2, 'SOLD',    'TH8', NULL,  'Còn 90%, cổ chưa giãn'),
+    ( 53, 'HCM-ASM-000053', 'Áo sơ mi Zara lụa trắng',                 'Áo sơ mi', 'Zara',             'M',  450000, 450000, 13, 25,    1, 'SOLD',    'SM6', NULL,  'Như mới, không lỗi'),
+    ( 54, 'HN-QJ-000054',   'Quần jeans Uniqlo nữ ống đứng',           'Quần jeans','Uniqlo',          '29', 320000, 320000, 14, 50, NULL, 'SOLD',    'JE8', NULL,  'Còn 90%, co giãn tốt'),
+    ( 55, 'HCM-D-000055',   'Đầm Elise hoa nhí tay ngắn',              'Đầm',      'Elise',            'S',  380000, 380000, 15,  9, NULL, 'SOLD',    'DA6', NULL,  'Như mới, mặc 1 lần'),
 
     -- ===================== TRẢ HÀNG (F-132/F-136/F-036, bước 9) ===================
-    ( 56, 'HCM-QT-000056',  'Quần tây Owen xám ống đứng',              'Quần tây', 'Owen',             '31', 310000, 310000, 16, 20,    1, 'RETURNED','B4', NULL,  'Còn 90%, chưa sửa gấu'),
-    ( 57, 'HN-CV-000057',   'Chân váy IVY moda dáng dài',              'Chân váy', 'IVY moda',         'M',  260000, 260000, 17, 16,    1, 'PLATFORM_OWNED','B6', NULL, 'Còn 85%, đã tuột chỉ ở lưng sau khi trả về'),
-    ( 68, 'HCM-AT-000068',  'Áo thun Nike cổ tròn bạc màu',            'Áo thun',  'Nike',             'L',   90000,  90000, 19, 45,    1, 'DESTROYED','T8', NULL, 'Hàng đã trả về, vải mục ở vai, không thể bán lại'),
+    ( 56, 'HCM-QT-000056',  'Quần tây Owen xám ống đứng',              'Quần tây', 'Owen',             '31', 310000, 310000, 16, 20,    1, 'RETURNED','TY4', NULL,  'Còn 90%, chưa sửa gấu'),
+    ( 57, 'HN-CV-000057',   'Chân váy IVY moda dáng dài',              'Chân váy', 'IVY moda',         'M',  260000, 260000, 17, 16,    1, 'PLATFORM_OWNED','CV5', NULL, 'Còn 85%, đã tuột chỉ ở lưng sau khi trả về'),
+    ( 68, 'HCM-AT-000068',  'Áo thun Nike cổ tròn bạc màu',            'Áo thun',  'Nike',             'L',   90000,  90000, 19, 45,    1, 'DESTROYED','TH9', NULL, 'Hàng đã trả về, vải mục ở vai, không thể bán lại'),
 
     -- ===================== ĐANG NẰM TRONG ĐƠN CHƯA XONG (RESERVED) ================
-    ( 58, 'HCM-AB-000058',  'Áo blazer Mango đen một khuy',            'Áo blazer','Mango',            'M',  560000, 560000, 13,  4, NULL, 'RESERVED','T6', NULL,  'Như mới, chưa cắt chỉ vai'),
-    ( 59, 'HN-VL-000059',   'Váy liền Elise xanh cổ tim',              'Váy liền', 'Elise',            'S',  370000, 370000, 19,  6, NULL, 'RESERVED','D1', NULL,  'Như mới, còn nguyên tem'),
-    ( 60, 'HN-AL-000060',   'Áo len Canifa cổ tim nâu',                'Áo len',   'Canifa',           'M',  240000, 240000, 14,  7, NULL, 'RESERVED','T7', NULL,  'Còn 90%, không xù'),
-    ( 61, 'HCM-AT-000061',  'Áo thun Uniqlo nữ cổ tim',                'Áo thun',  'Uniqlo',           'S',  120000, 120000, 19,  5, NULL, 'RESERVED','T2', NULL,  'Còn 90%, mặc vài lần'),
-    ( 71, 'HN-AP-000071',   'Áo polo Owen trắng viền xanh',            'Áo polo',  'Owen',             'M',  200000, 200000, 14,  4, NULL, 'RESERVED','T4', NULL,  'Như mới, chưa sử dụng'),
+    ( 58, 'HCM-AB-000058',  'Áo blazer Mango đen một khuy',            'Áo blazer','Mango',            'M',  560000, 560000, 13,  4, NULL, 'RESERVED','BZ3', NULL,  'Như mới, chưa cắt chỉ vai'),
+    ( 59, 'HN-VL-000059',   'Váy liền Elise xanh cổ tim',              'Váy liền', 'Elise',            'S',  370000, 370000, 19,  6, NULL, 'RESERVED','VY5', NULL,  'Như mới, còn nguyên tem'),
+    ( 60, 'HN-AL-000060',   'Áo len Canifa cổ tim nâu',                'Áo len',   'Canifa',           'M',  240000, 240000, 14,  7, NULL, 'RESERVED','LE3', NULL,  'Còn 90%, không xù'),
+    ( 61, 'HCM-AT-000061',  'Áo thun Uniqlo nữ cổ tim',                'Áo thun',  'Uniqlo',           'S',  120000, 120000, 19,  5, NULL, 'RESERVED','TH10', NULL,  'Còn 90%, mặc vài lần'),
+    ( 71, 'HN-AP-000071',   'Áo polo Owen trắng viền xanh',            'Áo polo',  'Owen',             'M',  200000, 200000, 14,  4, NULL, 'RESERVED','PL4', NULL,  'Như mới, chưa sử dụng'),
 
     -- ===================== ĐƠN BỊ HUỶ -> HÀNG ĐÃ ĐƯỢC NHẢ VỀ BÁN LẠI ==============
-    ( 62, 'HCM-AK-000062',  'Áo khoác gió Nike xanh đen',              'Áo khoác', 'Nike',             'L',  420000, 420000, 13,  6, NULL, 'ON_SALE','T6', NULL,   'Như mới, mặc 1 lần'),
+    ( 62, 'HCM-AK-000062',  'Áo khoác gió Nike xanh đen',              'Áo khoác', 'Nike',             'L',  420000, 420000, 13,  6, NULL, 'ON_SALE','KH8', NULL,   'Như mới, mặc 1 lần'),
 
     -- ======== HẾT 90 NGÀY: GỠ KHỎI SÀN, CHỜ MEMBER CHỌN CÁCH XỬ LÝ (F-029) ========
-    ( 63, 'HCM-QK-000063',  'Quần kaki Uniqlo xanh than',              'Quần kaki','Uniqlo',           '32', 230000, 230000, 16, 95, NULL, 'WAREHOUSE','B4', NULL, 'Còn 85%, hết kỳ chưa bán được'),
-    ( 64, 'HN-D-000064',    'Đầm Zara dự tiệc vai ngang',              'Đầm',      'Zara',             'M',  480000, 480000, 17, 98, NULL, 'WAREHOUSE','D6', NULL, 'Còn 90%, hết kỳ, Member xin ký gửi lại'),
-    ( 65, 'HCM-ASM-000065', 'Áo sơ mi Owen trắng dài tay',             'Áo sơ mi', 'Owen',             'L',  240000, 240000, 16,100, NULL, 'WITHDRAWN','T4', NULL,  'Còn 85%, Member chọn lấy về'),
-    ( 66, 'HN-AT-000066',   'Áo thun Routine xanh cổ tròn',            'Áo thun',  'Routine',          'M',  150000, 150000, 19,135, NULL, 'UNCLAIMED','T9', NULL,  'Còn 80%, Member không phản hồi'),
-    ( 67, 'HCM-QS-000067',  'Quần short Puma đen',                     'Quần short','Puma',            'M',  140000, 140000, 16,105, NULL, 'DONATED',  'B1', NULL,  'Còn 85%, Member tặng lại cho từ thiện'),
+    ( 63, 'HCM-QK-000063',  'Quần kaki Uniqlo xanh than',              'Quần kaki','Uniqlo',           '32', 230000, 230000, 16, 95, NULL, 'WAREHOUSE','KA3', NULL, 'Còn 85%, hết kỳ chưa bán được'),
+    ( 64, 'HN-D-000064',    'Đầm Zara dự tiệc vai ngang',              'Đầm',      'Zara',             'M',  480000, 480000, 17, 98, NULL, 'WAREHOUSE','DA7', NULL, 'Còn 90%, hết kỳ, Member xin ký gửi lại'),
+    ( 65, 'HCM-ASM-000065', 'Áo sơ mi Owen trắng dài tay',             'Áo sơ mi', 'Owen',             'L',  240000, 240000, 16,100, NULL, 'WITHDRAWN','SM7', NULL,  'Còn 85%, Member chọn lấy về'),
+    ( 66, 'HN-AT-000066',   'Áo thun Routine xanh cổ tròn',            'Áo thun',  'Routine',          'M',  150000, 150000, 19,135, NULL, 'UNCLAIMED','TH11', NULL,  'Còn 80%, Member không phản hồi'),
+    ( 67, 'HCM-QS-000067',  'Quần short Puma đen',                     'Quần short','Puma',            'M',  140000, 140000, 16,105, NULL, 'DONATED',  'SH3', NULL,  'Còn 85%, Member tặng lại cho từ thiện'),
 
     -- ===================== ĐANG CÓ YÊU CẦU RÚT HÀNG (F-032) =======================
     -- Sản phẩm sang WITHDRAWN NGAY khi Member gửi yêu cầu rút, không chờ tới lúc bàn giao.
-    ( 72, 'HCM-AK2-000072', 'Áo kiểu Elise hoa xanh tay lỡ',           'Áo kiểu',  'Elise',            'M',  310000, 310000, 16, 25, NULL, 'WITHDRAWN','T3', NULL,  'Như mới, Member xin rút về để tặng'),
-    ( 73, 'HN-QT-000073',   'Quần tây Biluxury đen ống suông',         'Quần tây', 'Biluxury',         '31', 270000, 270000, 19, 40, NULL, 'WITHDRAWN','B4', NULL,  'Còn 90%, Member cần dùng lại'),
+    ( 72, 'HCM-AK2-000072', 'Áo kiểu Elise hoa xanh tay lỡ',           'Áo kiểu',  'Elise',            'M',  310000, 310000, 16, 25, NULL, 'WITHDRAWN','KI3', NULL,  'Như mới, Member xin rút về để tặng'),
+    ( 73, 'HN-QT-000073',   'Quần tây Biluxury đen ống suông',         'Quần tây', 'Biluxury',         '31', 270000, 270000, 19, 40, NULL, 'WITHDRAWN','TY5', NULL,  'Còn 90%, Member cần dùng lại'),
 
     -- =========== 2 MÓN DÙNG ẢNH NỘI BỘ -> DEMO THỬ ĐỒ AI (TOP + BOTTOM) ===========
     -- Thử đồ AI đọc ảnh bằng FileStorageService.loadByUrl và chỉ nhận URL do chính
     -- storage sinh ra, nên ảnh CDN của 71 món trên KHÔNG thử đồ được - chỉ 2 món này.
     ( 69, 'HCM-ASM-000069', 'Áo sơ mi Uniqlo Oxford xanh tay ngắn',    'Áo sơ mi', 'Uniqlo',           'L',  200000, 200000, 13,  2, NULL, 'ON_SALE','LT', NULL,   'Như mới, không lỗi'),
-    ( 70, 'HCM-QT-000070',  'Quần tây Owen đen ống đứng',              'Quần tây', 'Owen',             '32', 250000, 250000, 13,  2, NULL, 'ON_SALE','LB', NULL,   'Như mới, còn nguyên form')
+    ( 70, 'HCM-QT-000070',  'Quần tây Owen đen ống đứng',              'Quần tây', 'Owen',             '32', 250000, 250000, 13,  2, NULL, 'ON_SALE','LB', NULL,   'Như mới, còn nguyên form'),
+
+    -- ============ member1 (seller=11): PHỦ ĐỦ CÁC MỐC THỜI GIAN CỦA HỆ THỐNG =======
+    -- Chuỗi 83-99 chỉ thêm vào, không đụng tới dữ liệu member1 đã có ở trên.
+    -- Bắt đầu từ 83 (không phải 74): 7 phiếu KG-000074..KG-000080 ở bước 14 (phiếu CHƯA
+    -- thành sản phẩm) đã dùng hết số 74-80 - vòng lặp này tự sinh form_no = 'KG-' + ord
+    -- cho MỌI sản phẩm nên dùng lại 74-82 sẽ đụng unique constraint consignment_forms.form_no.
+    -- 83-84: kỳ ký gửi đang chạy (Điều 8) - kỳ 2 và kỳ 3, vẫn ON_SALE bình thường.
+    ( 83, 'HCM-QK-000083',  'Quần kaki Coolmate xanh rêu đậm',         'Quần kaki','Coolmate',         'L',  220000, 220000, 11, 45, NULL, 'ON_SALE', 'KA4', NULL,  'Còn 90%, đang ở kỳ 2'),
+    ( 84, 'HN-AL-000084',   'Áo len Canifa cổ lọ nâu',                 'Áo len',   'Canifa',            'M',  260000, 230000, 11, 75, NULL, 'ON_SALE', 'LE4', NULL,  'Còn 80%, đã giảm giá, đang kỳ cuối'),
+
+    -- 85-86: rút hàng ký gửi (F-032) - miễn phí trong 7 ngày đầu kỳ (85) và có phí ngoài
+    -- cửa sổ đó (86, xem item_withdrawal_requests bước 12.1 cho 2 món này).
+    ( 85, 'HCM-AT-000085',  'Áo thun Routine cổ tròn xanh rêu',        'Áo thun',  'Routine',          'M',  140000, 140000, 11,  3,    1, 'WITHDRAWN','TH12', NULL,  'Còn 90%, xin rút trong 7 ngày đầu kỳ nên miễn phí'),
+    ( 86, 'HN-QT-000086',   'Quần tây Biluxury xanh đen',              'Quần tây', 'Biluxury',         '32', 260000, 260000, 11, 10,    1, 'ON_SALE', 'TY6', NULL,  'Còn 90%, vừa được đăng bán lại sau khi huỷ yêu cầu rút'),
+
+    -- 87,88,89,90: hết kỳ ký gửi (Điều 8.1/8.3, F-029) - 4 trạng thái của EndOfTermDecision
+    -- (không demo thêm "quá hạn không chọn gì -> tự UNCLAIMED": xem lý do ở bước 12.3).
+    ( 87, 'HCM-QS-000087',  'Quần short Nike đen',                     'Quần short','Nike',            'M',  150000, 150000, 11, 92, NULL, 'WAREHOUSE','SH4', NULL, 'Còn 85%, hết kỳ, còn hạn chọn phương án'),
+    ( 88, 'HN-D-000088',    'Đầm Mango công sở xám',                   'Đầm',      'Mango',            'M',  420000, 420000, 11,100, NULL, 'WITHDRAWN','DA8', NULL, 'Còn 85%, chọn lấy về, chưa ra kho nhận (còn hạn)'),
+    ( 89, 'HCM-AK-000089',  'Áo khoác Zara dạ đen',                    'Áo khoác', 'Zara',             'L',  480000, 480000, 11,140, NULL, 'UNCLAIMED','KH9', NULL, 'Còn 85%, chọn lấy về nhưng quá hạn 30 ngày không tới nhận'),
+    ( 90, 'HCM-AP-000090',  'Áo polo Routine xanh đen',                'Áo polo',  'Routine',          'M',  210000, 210000, 11, 95, NULL, 'WAREHOUSE','PL5', NULL, 'Còn 90%, xin ký gửi lại, chờ Moderator chốt giá mới'),
+
+    -- 91-93: hàng xuống cấp phát hiện lúc kiểm kho (F-036, không qua yêu cầu trả hàng) -
+    -- 3 trạng thái của DegradedItemCase.
+    ( 91, 'HN-QK-000091',   'Quần kaki Uniqlo nâu',                    'Quần kaki','Uniqlo',           '31', 240000, 240000, 11, 15, NULL, 'WAREHOUSE','KA5', NULL, 'Còn 85%, phát hiện ẩm mốc nhẹ lúc kiểm kho định kỳ'),
+    ( 92, 'HCM-CV-000092',  'Chân váy Zara kẻ caro',                   'Chân váy', 'Zara',             'M',  250000, 250000, 11, 50, NULL, 'UNCLAIMED','CV6', NULL, 'Còn 85%, hàng xuống cấp, quá hạn không chọn phương án'),
+    ( 93, 'HN-VL-000093',   'Váy liền H&M caro đỏ',                    'Váy liền', 'H&M',              'S',  360000, 360000, 11, 12, NULL, 'WITHDRAWN','VY6', NULL, 'Còn 85%, hàng xuống cấp, đã nhận đền bù một phần và lấy lại hàng'),
+
+    -- 94-99: member1 là NGƯỜI MUA (không phải người ký gửi) - phủ các mốc hạn thanh toán/
+    -- tự hoàn thành/trả hàng của đơn hàng (xem orders bước 10 cho 6 đơn OD-2026-000015..020).
+    ( 94, 'HCM-ASM-000094', 'Áo sơ mi Zara kẻ nhỏ xanh',               'Áo sơ mi', 'Zara',             'M',  270000, 270000, 13,  6, NULL, 'RESERVED','SM8', NULL,  'Còn 90%, đang nằm trong đơn chờ thanh toán'),
+    ( 95, 'HCM-QJ-000095',  'Quần jeans H&M xanh đậm nam',             'Quần jeans','H&M',             '31', 310000, 310000, 14,  9, NULL, 'ON_SALE', 'JE9', NULL,  'Còn 90%, vừa được nhả lại sàn sau khi đơn mua bị tự huỷ'),
+    ( 96, 'HCM-AK-000096',  'Áo khoác Uniqlo gió xanh rêu',            'Áo khoác', 'Uniqlo',           'L',  290000, 290000, 15, 18, NULL, 'RESERVED','KH10', NULL,  'Còn 90%, đơn đã giao, còn hạn gửi yêu cầu trả hàng'),
+    ( 97, 'HN-AL-000097',   'Áo len H&M cổ tròn xám',                  'Áo len',   'H&M',              'M',  330000, 330000, 16, 22, NULL, 'RESERVED','LE5', NULL,  'Còn 90%, yêu cầu trả hàng bị huỷ do quá hạn gửi hàng cho GHN'),
+    ( 98, 'HCM-QS-000098',  'Quần short Puma xanh navy',               'Quần short','Puma',            'L',  260000, 260000, 17, 28,    1, 'SOLD',    'SH5', NULL,  'Còn 85%, hàng trả về bị kết luận không hợp lệ, còn hạn tới kho nhận lại'),
+    ( 99, 'HN-AK2-000099',  'Áo kiểu Elise tay lỡ xanh',               'Áo kiểu',  'Elise',            'M',  300000, 300000, 18, 33,    2, 'SOLD',    'KI4', NULL,  'Còn 85%, hàng trả về bị kết luận không hợp lệ, đã quá hạn tới kho nhận lại')
     ) AS t(ord, sku, name, cat, brand, size, agreed, price, seller, days_ago, term_force,
            status, photo, photo2, cond)
     ORDER BY ord
@@ -871,7 +1033,15 @@ INSERT INTO member_subscriptions (id, member_id, plan_id, tier, billing_cycle, p
  '6f000000-0000-4000-8000-000000000003', 'GOLD', 'MONTHLY', 59000,
  10, NULL, 15, 40, NULL, true, 15, 'PENDING_PAYMENT',
  NULL, NULL, NULL, NULL, NULL, NULL, NULL,
- now() - interval '30 minutes', now() - interval '30 minutes');
+ now() - interval '30 minutes', now() - interval '30 minutes'),
+-- member1: mở cổng mua thêm gói BẠC rồi bỏ giữa đường, ĐÃ QUÁ 15 phút (PAY_LINK_MINUTES) ->
+-- MembershipLifecycleServiceImpl.cancelExpiredPendingPayments tự chuyển CANCELLED. Không ảnh
+-- hưởng gói GOLD đang ACTIVE (b0...002) vì PENDING_PAYMENT không tính là dòng ACTIVE.
+('b0000000-0000-4000-8000-000000000007', '2a000000-0000-4000-8000-000000000011',
+ '6f000000-0000-4000-8000-000000000002', 'SILVER', 'MONTHLY', 29000,
+ 5, NULL, 10, 15, NULL, true, 10, 'CANCELLED',
+ NULL, NULL, now() - interval '20 minutes', 'VNPay payment window expired', NULL,
+ NULL, NULL, now() - interval '35 minutes', now() - interval '20 minutes');
 
 -- Lần thanh toán gói. Mã tham chiếu cổng dạng SUB-<uuid không gạch>-<millis> để
 -- VnPayServiceImpl nhận ra IPN này là của gói thành viên (không phải đơn hàng) nhờ
@@ -901,7 +1071,13 @@ INSERT INTO membership_payments (id, subscription_id, member_id, amount, method,
 ('b1000000-0000-4000-8000-000000000006', 'b0000000-0000-4000-8000-000000000006',
  '2a000000-0000-4000-8000-000000000014', 59000, 'VNPAY', 'PENDING', NULL,
  'SUB-b0000000000040008000000000000006-1762000000006', NULL,
- to_char(now() - interval '30 minutes', 'YYYYMMDDHH24MISS'), now() - interval '30 minutes');
+ to_char(now() - interval '30 minutes', 'YYYYMMDDHH24MISS'), now() - interval '30 minutes'),
+-- member1: subscription đối ứng đã CANCELLED ở trên, nhưng dòng payments vẫn PENDING mãi
+-- (không có webhook FAILED nào từ VNPay) - đúng như hành vi thật của hệ thống.
+('b1000000-0000-4000-8000-000000000007', 'b0000000-0000-4000-8000-000000000007',
+ '2a000000-0000-4000-8000-000000000011', 29000, 'VNPAY', 'PENDING', NULL,
+ 'SUB-b0000000000040008000000000000007-1762000000007', NULL,
+ to_char(now() - interval '35 minutes', 'YYYYMMDDHH24MISS'), now() - interval '35 minutes');
 
 -- Voucher trong ví người dùng. Mỗi mã SNAPSHOT luật của mẫu lúc phát, nên Admin sửa
 -- mẫu về sau KHÔNG đổi các mã đã phát. Mã dạng SHIP-xxxxxx / SALE-xxxxxx để người mua
@@ -938,7 +1114,21 @@ INSERT INTO member_vouchers (id, code, member_id, voucher_template_id, source_su
  '70000000-0000-4000-8000-000000000002', 'b0000000-0000-4000-8000-000000000001',
  'ORDER_DISCOUNT', 'PERCENT', 0.10, 50000, 0, 'EXPIRED',
  now() - interval '40 days',
- date_trunc('day', now() - interval '40 days') + interval '31 days' - interval '1 second', NULL),
+ date_trunc('day', now() - interval '40 days') + interval '31 days' - interval '1 second', NULL);
+
+-- member1: mã SẮP HẾT HẠN trong 3 ngày tới, ĐÃ được MembershipLifecycleServiceImpl.remindExpiringVouchers
+-- nhắc 1 lần (reminded_at không NULL) - cột này không có trong câu INSERT chung ở trên nên tách riêng.
+INSERT INTO member_vouchers (id, code, member_id, voucher_template_id, source_subscription_id,
+                             type, discount_kind, discount_value, max_discount_amount,
+                             min_order_amount, status, issued_at, expires_at, used_at, reminded_at) VALUES
+('b2000000-0000-4000-8000-000000000011', 'SHIP-5Q7N2X', '2a000000-0000-4000-8000-000000000011',
+ '70000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-000000000002',
+ 'SHIPPING', 'FIXED', 15000, NULL, 0, 'UNUSED',
+ now() - interval '28 days', now() + interval '2 days', NULL, now() - interval '3 hours');
+
+INSERT INTO member_vouchers (id, code, member_id, voucher_template_id, source_subscription_id,
+                             type, discount_kind, discount_value, max_discount_amount,
+                             min_order_amount, status, issued_at, expires_at, used_at) VALUES
 -- member2 (SILVER): 2 mã SHIPPING + 1 mã ORDER_DISCOUNT
 ('b2000000-0000-4000-8000-000000000006', 'SHIP-6R3W8F', '2a000000-0000-4000-8000-000000000012',
  '70000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-000000000003',
@@ -1172,12 +1362,83 @@ INSERT INTO orders (id, order_no, buyer_id, warehouse_id, shipping_address_id,
  now() - interval '16 days', now() - interval '13 days', now() - interval '13 days',
  NULL, NULL, 115000, now() - interval '13 days', NULL,
  NULL, NULL, NULL, NULL,
- now() - interval '20 days', now() - interval '5 days');
+ now() - interval '20 days', now() - interval '5 days'),
+-- 15. PENDING_PAYMENT - member1 MUA (không phải ký gửi), còn trong hạn 15 phút thanh toán
+('aa000000-0000-4000-8000-000000000015', 'OD-2026-000015',
+ '2a000000-0000-4000-8000-000000000011', '1b000000-0000-4000-8000-000000000001',
+ '90000000-0000-4000-8000-000000000001',
+ 'Nguyễn Văn An', '0900000011', '12 Nguyễn Huệ, Căn hộ 8A',
+ 'Phường Sài Gòn', NULL, 'Hồ Chí Minh', true, NULL, 0,
+ 270000, 25000, 0, 295000, NULL, 'WALLET', 'PENDING_PAYMENT', NULL, NULL,
+ now() + interval '1 day', NULL, NULL, NULL,
+ NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+ now() - interval '3 minutes', now() - interval '3 minutes'),
+-- 16. CANCELLED - member1 MUA, quá hạn 15 phút thanh toán VNPay, tự huỷ, hàng về lại sàn
+('aa000000-0000-4000-8000-000000000016', 'OD-2026-000016',
+ '2a000000-0000-4000-8000-000000000011', '1b000000-0000-4000-8000-000000000001',
+ '90000000-0000-4000-8000-000000000002',
+ 'Nguyễn Văn An (giao tới công ty)', '0912345678', '45 Lê Lợi, Toà nhà Saigon Centre, tầng 9',
+ 'Phường Bến Thành', NULL, 'Hồ Chí Minh', true, NULL, 0,
+ 310000, 25000, 0, 335000, NULL, 'VNPAY', 'CANCELLED', NULL, NULL,
+ now() - interval '4 days' + interval '15 minutes', NULL, NULL, NULL,
+ 'PAYMENT_EXPIRED', now() - interval '4 days' + interval '16 minutes', NULL, NULL, NULL,
+ NULL, NULL, NULL, NULL,
+ now() - interval '4 days', now() - interval '4 days' + interval '16 minutes'),
+-- 17. DELIVERED - member1 MUA, đã gửi yêu cầu trả hàng ĐÃ ĐƯỢC DUYỆT, còn hạn 3 ngày bàn giao GHN
+('aa000000-0000-4000-8000-000000000017', 'OD-2026-000017',
+ '2a000000-0000-4000-8000-000000000011', '1b000000-0000-4000-8000-000000000001',
+ '90000000-0000-4000-8000-000000000001',
+ 'Nguyễn Văn An', '0900000011', '12 Nguyễn Huệ, Căn hộ 8A',
+ 'Phường Sài Gòn', NULL, 'Hồ Chí Minh', true, NULL, 1,
+ 290000, 25000, 0, 315000, NULL, 'VNPAY', 'DELIVERED', 'GHN00000017',
+ now() - interval '7 days', now() - interval '8 days' + interval '15 minutes',
+ now() - interval '1 day', now() + interval '2 days', now() + interval '2 days',
+ NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+ now() - interval '8 days', now() - interval '12 hours'),
+-- 18. DELIVERED - member1 MUA, kho HÀ NỘI (giao liên tỉnh về HCM nên ship 35.000đ) -
+--     yêu cầu trả hàng đã bị tự HUỶ vì quá hạn bàn giao GHN
+('aa000000-0000-4000-8000-000000000018', 'OD-2026-000018',
+ '2a000000-0000-4000-8000-000000000011', '1b000000-0000-4000-8000-000000000002',
+ '90000000-0000-4000-8000-000000000002',
+ 'Nguyễn Văn An (giao tới công ty)', '0912345678', '45 Lê Lợi, Toà nhà Saigon Centre, tầng 9',
+ 'Phường Bến Thành', NULL, 'Hồ Chí Minh', true, NULL, 1,
+ 330000, 35000, 0, 365000, NULL, 'VNPAY', 'DELIVERED', 'GHN00000018',
+ now() - interval '7 days', now() - interval '8 days' + interval '15 minutes',
+ now() - interval '1 day', now() + interval '2 days', now() + interval '2 days',
+ NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+ now() - interval '8 days', now() - interval '20 hours'),
+-- 19. COMPLETED - member1 MUA, hàng trả về bị kết luận KHÔNG HỢP LỆ, người ký gửi đã được trả tiền
+--     ngay lúc kết luận (không chờ hạn 3 ngày). Còn hạn 7 ngày tới kho nhận lại hàng trả.
+('aa000000-0000-4000-8000-000000000019', 'OD-2026-000019',
+ '2a000000-0000-4000-8000-000000000011', '1b000000-0000-4000-8000-000000000001',
+ '90000000-0000-4000-8000-000000000001',
+ 'Nguyễn Văn An', '0900000011', '12 Nguyễn Huệ, Căn hộ 8A',
+ 'Phường Sài Gòn', NULL, 'Hồ Chí Minh', true, NULL, 1,
+ 260000, 25000, 0, 285000, NULL, 'VNPAY', 'COMPLETED', 'GHN00000019',
+ now() - interval '13 days', now() - interval '14 days' + interval '15 minutes',
+ now() - interval '6 days', now() - interval '3 days', now() - interval '3 days',
+ NULL, NULL, NULL, now() - interval '1 day', now() - interval '1 day',
+ NULL, NULL, NULL, NULL,
+ now() - interval '14 days', now() - interval '1 day'),
+-- 20. COMPLETED - member1 MUA, kho HÀ NỘI (giao liên tỉnh về HCM nên ship 35.000đ) - hàng
+--     trả về bị kết luận KHÔNG HỢP LỆ, ĐÃ QUÁ hạn 7 ngày tới kho nhận lại mà Member chưa
+--     tới -> job đóng hộ với ghi chú quá hạn.
+('aa000000-0000-4000-8000-000000000020', 'OD-2026-000020',
+ '2a000000-0000-4000-8000-000000000011', '1b000000-0000-4000-8000-000000000002',
+ '90000000-0000-4000-8000-000000000002',
+ 'Nguyễn Văn An (giao tới công ty)', '0912345678', '45 Lê Lợi, Toà nhà Saigon Centre, tầng 9',
+ 'Phường Bến Thành', NULL, 'Hồ Chí Minh', true, NULL, 1,
+ 300000, 35000, 0, 335000, NULL, 'VNPAY', 'COMPLETED', 'GHN00000020',
+ now() - interval '28 days', now() - interval '29 days' + interval '15 minutes',
+ now() - interval '20 days', now() - interval '17 days', now() - interval '17 days',
+ NULL, NULL, NULL, now() - interval '15 days', now() - interval '15 days',
+ NULL, NULL, NULL, NULL,
+ now() - interval '29 days', now() - interval '15 days');
 
 -- Ảnh người mua gửi kèm khi đánh giá đơn OD-2026-000003
 INSERT INTO order_rating_image_urls (order_id, position, image_url) VALUES
 ('aa000000-0000-4000-8000-000000000003', 0,
- 'https://cdn.dummyjson.com/product-images/mens-shirts/blue-&-black-check-shirt/2.webp');
+ 'https://upload.wikimedia.org/wikipedia/commons/b/ba/02123jfClothes_shirts_pants_in_Philippinesfvf_05.jpg');
 
 -- Dòng hàng của từng đơn.
 --   commission_rate_applied + term_applied là SNAPSHOT kỳ ký gửi lúc đặt hàng:
@@ -1199,7 +1460,13 @@ INSERT INTO order_items (id, order_id, product_id, price_at_order, commission_ra
 ('ab000000-0000-4000-8000-000000000011', 'aa000000-0000-4000-8000-000000000011', 'HN-AL-000060',   240000, 0.10, 0, 1, true),
 ('ab000000-0000-4000-8000-000000000012', 'aa000000-0000-4000-8000-000000000012', 'HCM-AT-000061',  120000, 0.10, 0, 1, false),
 ('ab000000-0000-4000-8000-000000000013', 'aa000000-0000-4000-8000-000000000013', 'HN-AP-000071',   200000, 0.10, 0, 1, false),
-('ab000000-0000-4000-8000-000000000014', 'aa000000-0000-4000-8000-000000000014', 'HCM-AT-000068',   90000, 0.10, 0, 1, true);
+('ab000000-0000-4000-8000-000000000014', 'aa000000-0000-4000-8000-000000000014', 'HCM-AT-000068',   90000, 0.10, 0, 1, true),
+('ab000000-0000-4000-8000-000000000015', 'aa000000-0000-4000-8000-000000000015', 'HCM-ASM-000094', 270000, 0.10, 0, 1, false),
+('ab000000-0000-4000-8000-000000000016', 'aa000000-0000-4000-8000-000000000016', 'HCM-QJ-000095',  310000, 0.10, 0, 1, false),
+('ab000000-0000-4000-8000-000000000017', 'aa000000-0000-4000-8000-000000000017', 'HCM-AK-000096',  290000, 0.10, 0, 1, true),
+('ab000000-0000-4000-8000-000000000018', 'aa000000-0000-4000-8000-000000000018', 'HN-AL-000097',   330000, 0.10, 0, 1, true),
+('ab000000-0000-4000-8000-000000000019', 'aa000000-0000-4000-8000-000000000019', 'HCM-QS-000098',  260000, 0.10, 0, 1, true),
+('ab000000-0000-4000-8000-000000000020', 'aa000000-0000-4000-8000-000000000020', 'HN-AK2-000099',  300000, 0.15, 0, 2, true);
 
 -- Giao dịch cổng thanh toán. Bảng payments CHỈ dành cho VNPay - đơn trả bằng ví
 -- (OD-2026-000003 và OD-2026-000012) KHÔNG có dòng nào ở đây.
@@ -1250,7 +1517,27 @@ INSERT INTO payments (id, order_id, amount, method, status, paid_at,
 ('ac000000-0000-4000-8000-000000000014', 'aa000000-0000-4000-8000-000000000014', 115000, 'VNPAY', 'SUCCESS',
  now() - interval '20 days' + interval '3 minutes',
  'OD-2026-000014-1761000000014', '14001014',
- to_char(now() - interval '20 days', 'YYYYMMDDHH24MISS'));
+ to_char(now() - interval '20 days', 'YYYYMMDDHH24MISS')),
+-- OD-2026-000016: mở cổng rồi không trả -> đứng mãi ở PENDING, giống OD-2026-000010
+('ac000000-0000-4000-8000-000000000016', 'aa000000-0000-4000-8000-000000000016', 335000, 'VNPAY', 'PENDING',
+ NULL, 'OD-2026-000016-1761000000016', NULL,
+ to_char(now() - interval '4 days', 'YYYYMMDDHH24MISS')),
+('ac000000-0000-4000-8000-000000000017', 'aa000000-0000-4000-8000-000000000017', 315000, 'VNPAY', 'SUCCESS',
+ now() - interval '8 days' + interval '3 minutes',
+ 'OD-2026-000017-1761000000017', '14001017',
+ to_char(now() - interval '8 days', 'YYYYMMDDHH24MISS')),
+('ac000000-0000-4000-8000-000000000018', 'aa000000-0000-4000-8000-000000000018', 365000, 'VNPAY', 'SUCCESS',
+ now() - interval '8 days' + interval '3 minutes',
+ 'OD-2026-000018-1761000000018', '14001018',
+ to_char(now() - interval '8 days', 'YYYYMMDDHH24MISS')),
+('ac000000-0000-4000-8000-000000000019', 'aa000000-0000-4000-8000-000000000019', 285000, 'VNPAY', 'SUCCESS',
+ now() - interval '14 days' + interval '3 minutes',
+ 'OD-2026-000019-1761000000019', '14001019',
+ to_char(now() - interval '14 days', 'YYYYMMDDHH24MISS')),
+('ac000000-0000-4000-8000-000000000020', 'aa000000-0000-4000-8000-000000000020', 335000, 'VNPAY', 'SUCCESS',
+ now() - interval '29 days' + interval '3 minutes',
+ 'OD-2026-000020-1761000000020', '14001020',
+ to_char(now() - interval '29 days', 'YYYYMMDDHH24MISS'));
 
 -- Hành trình vận đơn GHN (webhook POST /webhooks/ghn ghi vào đây).
 -- Sự kiện MỚI NHẤT của OD-2026-000009 là 'delivering' (bình thường) nên
@@ -1323,18 +1610,69 @@ INSERT INTO return_requests (id, order_id, reason, status, counterfeit_suspected
  'Áo len bị xù lông nhiều hơn ảnh, cổ áo có vết loang màu nhỏ.',
  'PENDING', false, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
  now() + interval '3 days', NULL, NULL, NULL, NULL, NULL,
- now() - interval '12 hours', NULL);
+ now() - interval '12 hours', NULL),
+-- 5. member1 MUA (OD-2026-000017) - ĐÃ DUYỆT, còn hạn 3 ngày bàn giao cho GHN (F-069/F-070)
+('c0000000-0000-4000-8000-000000000005', 'aa000000-0000-4000-8000-000000000017',
+ 'Áo khoác bị lem màu nhẹ ở túi, không giống ảnh đăng bán.',
+ 'APPROVED', false, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+ now() + interval '2 days', NULL, NULL, NULL,
+ '2a000000-0000-4000-8000-000000000002', NULL,
+ now() - interval '18 hours', NULL),
+-- 6. member1 MUA (OD-2026-000018) - ĐÃ QUÁ hạn 3 ngày bàn giao cho GHN -> job tự HUỶ (F-071)
+('c0000000-0000-4000-8000-000000000006', 'aa000000-0000-4000-8000-000000000018',
+ 'Áo len bị xù lông nhiều hơn ảnh.',
+ 'CANCELLED', false, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+ now() - interval '1 hour', NULL, NULL,
+ 'Quá hạn bàn giao hàng trả cho GHN, yêu cầu bị hủy tự động.',
+ '2a000000-0000-4000-8000-000000000004', NULL,
+ now() - interval '20 hours', now() - interval '50 minutes'),
+-- 7. member1 MUA (OD-2026-000019) - KẾT LUẬN KHÔNG HỢP LỆ, còn hạn 7 ngày tới kho nhận lại hàng.
+--    resolved_at ĐỂ TRỐNG: chỉ đóng hẳn khi Member tới nhận hoặc khi quá pickup_deadline (F-070).
+('c0000000-0000-4000-8000-000000000007', 'aa000000-0000-4000-8000-000000000019',
+ 'Quần short không đúng mẫu, mặt vải khác với hàng đã nhận lúc giao.',
+ 'INVALID', false, NULL, false, false,
+ 'Hàng trả về không khớp mã vạch/đặc điểm với sản phẩm đã bán, nghi gửi nhầm hàng khác.',
+ NULL, NULL, 'GHNRT000019', now() - interval '2 days', now() + interval '6 days', NULL,
+ 'Hàng trả về không phải sản phẩm gốc đã bán (khác mã vạch), kết luận không hợp lệ. '
+ 'Người ký gửi đã được thanh toán ngay theo quy định.',
+ '2a000000-0000-4000-8000-000000000003', NULL,
+ now() - interval '5 days', NULL),
+-- 8. member1 MUA (OD-2026-000020) - KẾT LUẬN KHÔNG HỢP LỆ, ĐÃ QUÁ hạn 7 ngày tới kho nhận lại,
+--    Member không tới -> ReturnRequestAutoExpireServiceImpl tự đóng với ghi chú quá hạn (F-071).
+('c0000000-0000-4000-8000-000000000008', 'aa000000-0000-4000-8000-000000000020',
+ 'Áo kiểu bị rách ở nách, không giống mô tả lúc mua.',
+ 'INVALID', false, NULL, false, false,
+ 'Hàng trả về không khớp đặc điểm sản phẩm gốc, nghi gửi nhầm/đánh tráo.',
+ NULL, NULL, 'GHNRT000020', now() - interval '16 days', now() - interval '8 days', NULL,
+ 'Quá hạn đến kho nhận lại hàng trả không hợp lệ.',
+ '2a000000-0000-4000-8000-000000000004', NULL,
+ now() - interval '19 days', now() - interval '8 days' + interval '10 minutes');
 
 -- Ảnh người mua / Moderator gửi kèm yêu cầu trả hàng
 INSERT INTO return_request_photos (id, return_request_id, image_url, source) VALUES
 ('c0100000-0000-4000-8000-000000000001', 'c0000000-0000-4000-8000-000000000002',
- 'https://cdn.dummyjson.com/product-images/womens-dresses/corset-with-black-skirt/2.webp', 'MEMBER'),
+ 'https://cdn.dummyjson.com/product-images/womens-dresses/corset-leather-with-skirt/3.webp', 'MEMBER'),
 ('c0100000-0000-4000-8000-000000000002', 'c0000000-0000-4000-8000-000000000002',
  'https://cdn.dummyjson.com/product-images/womens-dresses/corset-with-black-skirt/3.webp', 'MODERATOR'),
 ('c0100000-0000-4000-8000-000000000003', 'c0000000-0000-4000-8000-000000000003',
  'https://fakestoreapi.com/img/71-3HjGNDUL._AC_SY879._SX._UX._SY._UY_t.png', 'MEMBER'),
 ('c0100000-0000-4000-8000-000000000004', 'c0000000-0000-4000-8000-000000000004',
- 'https://fakestoreapi.com/img/51Y5NI-I5jL._AC_UX679_t.png', 'MEMBER');
+ 'https://upload.wikimedia.org/wikipedia/commons/1/11/1986_Spring-Summer_knit_set_by_Sonia_Rykiel%2C_Paris_03.jpg', 'MEMBER'),
+-- OD-2026-000006 (LOST) - ảnh người mua gửi kèm (sản phẩm HCM-QT-000056, quần tây)
+('c0100000-0000-4000-8000-000000000005', 'c0000000-0000-4000-8000-000000000001',
+ 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Back_side_Chino_trousers_with_welt_pocket.jpg/960px-Back_side_Chino_trousers_with_welt_pocket.jpg', 'MEMBER'),
+-- OD-2026-000017 (OR1, member1 mua) - sản phẩm HCM-AK-000096, áo khoác
+('c0100000-0000-4000-8000-000000000006', 'c0000000-0000-4000-8000-000000000005',
+ 'https://upload.wikimedia.org/wikipedia/commons/7/75/Boy%27s_stylish_jinbei.jpg', 'MEMBER'),
+-- OD-2026-000018 (OR2, member1 mua) - sản phẩm HN-AL-000097, áo len
+('c0100000-0000-4000-8000-000000000007', 'c0000000-0000-4000-8000-000000000006',
+ 'https://upload.wikimedia.org/wikipedia/commons/6/6c/1927_wool_knit_day_dress%2C_French_01.jpg', 'MEMBER'),
+-- OD-2026-000019 (OR3, member1 mua) - sản phẩm HCM-QS-000098, quần short
+('c0100000-0000-4000-8000-000000000008', 'c0000000-0000-4000-8000-000000000007',
+ 'https://upload.wikimedia.org/wikipedia/commons/0/03/Blauwe_jeans%2C_skinny_jeans_model%2C_merk_Revers_Jeans%2C_maat_S36%2C_objectnr_86974-3%282%29.JPG', 'MODERATOR'),
+-- OD-2026-000020 (OR4, member1 mua) - sản phẩm HN-AK2-000099, áo kiểu
+('c0100000-0000-4000-8000-000000000009', 'c0000000-0000-4000-8000-000000000008',
+ 'https://upload.wikimedia.org/wikipedia/commons/b/b0/Blouse_MET_CI45.91.3_F.jpg', 'MODERATOR');
 
 -- Ca đền bù hàng xuống cấp: người ký gửi đã chọn FULL_COMPENSATION và ĐÃ ĐƯỢC TRẢ TIỀN.
 -- compensation_amount = price_at_order * (1 - hoa hồng kỳ áp dụng) = 260.000 * 0.9 = 234.000đ,
@@ -1348,11 +1686,54 @@ INSERT INTO degraded_item_cases (id, product_id, return_request_id, moderator_id
  '2a000000-0000-4000-8000-000000000004', 'FULL_COMPENSATION', 234000, 234000,
  now() - interval '3 days' + interval '30 days', now() - interval '2 days', NULL, false, NULL,
  'Người ký gửi chọn nhận đền bù toàn bộ, nhường món hàng cho nền tảng thanh lý.',
- 0, now() - interval '3 days');
+ 0, now() - interval '3 days'),
+-- member1 - 3 ca mở TRỰC TIẾP lúc Moderator kiểm kho (không qua yêu cầu trả hàng), phủ 3
+-- trạng thái của DegradedItemCase (F-036).
+-- D1: chờ Member chọn, còn hạn 30 ngày, đã được nhắc 1 lần (reminderIntervalDays = 7 ngày)
+('c1000000-0000-4000-8000-000000000002', 'HN-QK-000091', NULL,
+ '2a000000-0000-4000-8000-000000000004', NULL, 216000, NULL,
+ now() - interval '10 days' + interval '30 days', NULL, NULL, false, now() - interval '3 days',
+ 'Phát hiện vải bị ẩm mốc nhẹ ở gấu quần lúc kiểm kho định kỳ.',
+ 0, now() - interval '10 days'),
+-- D2: quá hạn 30 ngày không chọn -> hệ thống tự gán UNCLAIMED, không đền bù gì
+('c1000000-0000-4000-8000-000000000003', 'HCM-CV-000092', NULL,
+ '2a000000-0000-4000-8000-000000000002', 'UNCLAIMED', 212500, NULL,
+ now() - interval '40 days' + interval '30 days', now() - interval '1 day', NULL, false,
+ now() - interval '33 days',
+ 'Chân váy bị tuột chỉ phát hiện lúc kiểm kho, Member không phản hồi trong hạn.',
+ 0, now() - interval '40 days'),
+-- D3: Member chọn PARTIAL_WITH_ITEM_BACK, đã được trả 50% và đã ra kho lấy lại hàng
+('c1000000-0000-4000-8000-000000000004', 'HN-VL-000093', NULL,
+ '2a000000-0000-4000-8000-000000000004', 'PARTIAL_WITH_ITEM_BACK', 324000, 162000,
+ now() - interval '5 days' + interval '30 days', now() - interval '3 days', now() - interval '1 day',
+ false, NULL,
+ 'Váy bị lem màu phát hiện lúc kiểm kho, Member chọn nhận lại hàng kèm đền bù một phần.',
+ 0, now() - interval '5 days');
 
 INSERT INTO degraded_item_case_photos (degraded_item_case_id, position, image_url) VALUES
 ('c1000000-0000-4000-8000-000000000001', 0,
- 'https://cdn.dummyjson.com/product-images/womens-dresses/corset-with-black-skirt/3.webp');
+ 'https://cdn.dummyjson.com/product-images/womens-dresses/corset-leather-with-skirt/4.webp'),
+('c1000000-0000-4000-8000-000000000002', 0,
+ 'https://cdn.dummyjson.com/product-images/womens-dresses/corset-leather-with-skirt/2.webp'),
+('c1000000-0000-4000-8000-000000000003', 0,
+ 'https://upload.wikimedia.org/wikipedia/commons/f/f9/Pleated_skirt.jpg'),
+('c1000000-0000-4000-8000-000000000004', 0,
+ 'https://cdn.dummyjson.com/product-images/tops/tartan-dress/2.webp');
+
+-- Bút toán đền bù cho D3 (PARTIAL_WITH_ITEM_BACK, F-162): cộng ví member1 ngay lúc quyết định.
+INSERT INTO wallet_transactions (id, transaction_no, wallet_type, wallet_id, type, amount,
+                                 balance_after, status, note, counterpart_transaction_id,
+                                 related_order_id, related_order_item_id, related_payout_request_id,
+                                 related_degraded_item_case_id, related_item_withdrawal_request_id,
+                                 created_at) VALUES
+('e0000000-0000-4000-8000-000000000047', NULL, 'MEMBER', '3c000000-0000-4000-8000-000000000011',
+ 'DEGRADED_COMPENSATION', 162000, NULL, 'SUCCESS',
+ 'Đền bù một phần hàng xuống cấp - sản phẩm HN-VL-000093', NULL,
+ NULL, NULL, NULL, 'c1000000-0000-4000-8000-000000000004', NULL, now() - interval '3 days'),
+('e0000000-0000-4000-8000-000000000048', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'DEGRADED_COMPENSATION', -162000, NULL, 'SUCCESS',
+ 'Đền bù một phần hàng xuống cấp - sản phẩm HN-VL-000093', 'e0000000-0000-4000-8000-000000000047',
+ NULL, NULL, NULL, 'c1000000-0000-4000-8000-000000000004', NULL, now() - interval '3 days');
 
 
 -- =============================================================================
@@ -1378,7 +1759,21 @@ INSERT INTO item_withdrawal_requests (id, product_id, member_id, moderator_id, s
  now() - interval '2 days' + interval '7 days', now() - interval '2 days', NULL, NULL, 0,
  'WD-c2000000000040008000000000000002-1762000000002', '14621002',
  to_char(now() - interval '2 days', 'YYYYMMDDHH24MISS'),
- now() - interval '3 days');
+ now() - interval '3 days'),
+-- member1 - MIỄN PHÍ (rút trong 7 ngày đầu kỳ): đã duyệt, còn hạn 7 ngày ra kho nhận hàng.
+('c2000000-0000-4000-8000-000000000003', 'HCM-AT-000085', '2a000000-0000-4000-8000-000000000011',
+ '2a000000-0000-4000-8000-000000000002', 'PENDING_PICKUP', 0, NULL, NULL, NULL,
+ now() - interval '2 days' + interval '7 days', now() - interval '2 days', NULL, NULL, 0,
+ NULL, NULL, NULL, now() - interval '2 days' - interval '1 hour'),
+-- member1 - CÓ PHÍ (ngoài cửa sổ miễn phí): ĐÃ QUÁ hạn 15 phút trả phí -> job tự huỷ SỚM,
+-- không chờ hết hạn 7 ngày ra kho nhận hàng (ItemWithdrawalAutoExpireServiceImpl), sản phẩm
+-- HN-QT-000086 đã được đăng bán lại ngay (xem trạng thái ON_SALE ở bước 7).
+('c2000000-0000-4000-8000-000000000004', 'HN-QT-000086', '2a000000-0000-4000-8000-000000000011',
+ '2a000000-0000-4000-8000-000000000004', 'EXPIRED', 50000, NULL, NULL,
+ now() - interval '1 day' - interval '10 minutes',
+ now() - interval '1 day' - interval '20 minutes' + interval '7 days',
+ now() - interval '1 day' - interval '20 minutes', NULL, NULL, 0,
+ NULL, NULL, NULL, now() - interval '1 day' - interval '25 minutes');
 
 -- 12.2 YÊU CẦU RÚT TIỀN TỪ VÍ (tối thiểu 50.000đ, tối đa 3 lần/ngày)
 -- RT-00001 đã chi xong -> có bút toán WITHDRAWAL trừ ví member3.
@@ -1389,7 +1784,88 @@ INSERT INTO payout_requests (id, wallet_id, payout_no, amount, status, failure_r
 ('c3000000-0000-4000-8000-000000000001', '3c000000-0000-4000-8000-000000000013', 'RT-00001',
  300000, 'SUCCESS', NULL, now() - interval '5 days', now() - interval '6 days'),
 ('c3000000-0000-4000-8000-000000000002', '3c000000-0000-4000-8000-000000000014', 'RT-00002',
- 200000, 'PENDING', NULL, NULL, now() - interval '2 days');
+ 200000, 'PENDING', NULL, NULL, now() - interval '2 days'),
+-- member1: 3 yêu cầu rút tiền TRONG NGÀY HÔM NAY (giờ UTC - WalletServiceImpl.countPayoutsToday
+-- cắt mốc "hôm nay" theo UTC, không theo giờ VN) -> đã chạm max_payout_requests_per_day = 3,
+-- yêu cầu thứ 4 trong ngày sẽ bị từ chối DAILY_PAYOUT_LIMIT_REACHED.
+('c3000000-0000-4000-8000-000000000003', '3c000000-0000-4000-8000-000000000011', 'RT-00003',
+ 50000, 'SUCCESS', NULL, now() - interval '3 hours', now() - interval '4 hours'),
+('c3000000-0000-4000-8000-000000000004', '3c000000-0000-4000-8000-000000000011', 'RT-00004',
+ 50000, 'SUCCESS', NULL, now() - interval '2 hours', now() - interval '2 hours' - interval '30 minutes'),
+('c3000000-0000-4000-8000-000000000005', '3c000000-0000-4000-8000-000000000011', 'RT-00005',
+ 60000, 'PENDING', NULL, NULL, now() - interval '30 minutes');
+
+-- Bút toán rút tiền của RT-00003/RT-00004 (RT-00005 còn PENDING nên chưa có bút toán, tiền chỉ
+-- bị khoá ở locked_balance tính lại ở bước 18.5).
+INSERT INTO wallet_transactions (id, transaction_no, wallet_type, wallet_id, type, amount,
+                                 balance_after, status, note, counterpart_transaction_id,
+                                 related_order_id, related_order_item_id, related_payout_request_id,
+                                 related_degraded_item_case_id, related_item_withdrawal_request_id,
+                                 created_at) VALUES
+('e0000000-0000-4000-8000-000000000049', NULL, 'MEMBER', '3c000000-0000-4000-8000-000000000011',
+ 'WITHDRAWAL', -50000, NULL, 'SUCCESS', 'Rút tiền về ngân hàng - RT-00003', NULL,
+ NULL, NULL, 'c3000000-0000-4000-8000-000000000003', NULL, NULL, now() - interval '3 hours'),
+('e0000000-0000-4000-8000-000000000050', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'WITHDRAWAL', 50000, NULL, 'SUCCESS', 'Rút tiền về ngân hàng - RT-00003',
+ 'e0000000-0000-4000-8000-000000000049',
+ NULL, NULL, 'c3000000-0000-4000-8000-000000000003', NULL, NULL, now() - interval '3 hours'),
+('e0000000-0000-4000-8000-000000000051', NULL, 'MEMBER', '3c000000-0000-4000-8000-000000000011',
+ 'WITHDRAWAL', -50000, NULL, 'SUCCESS', 'Rút tiền về ngân hàng - RT-00004', NULL,
+ NULL, NULL, 'c3000000-0000-4000-8000-000000000004', NULL, NULL, now() - interval '2 hours'),
+('e0000000-0000-4000-8000-000000000052', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'WITHDRAWAL', 50000, NULL, 'SUCCESS', 'Rút tiền về ngân hàng - RT-00004',
+ 'e0000000-0000-4000-8000-000000000051',
+ NULL, NULL, 'c3000000-0000-4000-8000-000000000004', NULL, NULL, now() - interval '2 hours'),
+-- Tiền VNPay về quỹ cho OD-2026-000017/000018 (chưa payout, còn đang xử lý trả hàng)
+('e0000000-0000-4000-8000-000000000053', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'ORDER_PAYMENT', 315000, NULL, 'SUCCESS', 'Tiền VNPay về cho đơn OD-2026-000017', NULL,
+ 'aa000000-0000-4000-8000-000000000017', NULL, NULL, NULL, NULL,
+ now() - interval '8 days' + interval '3 minutes'),
+('e0000000-0000-4000-8000-000000000054', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'ORDER_PAYMENT', 365000, NULL, 'SUCCESS', 'Tiền VNPay về cho đơn OD-2026-000018', NULL,
+ 'aa000000-0000-4000-8000-000000000018', NULL, NULL, NULL, NULL,
+ now() - interval '8 days' + interval '3 minutes'),
+-- OD-2026-000019: tiền VNPay về quỹ, rồi trả tiền người ký gửi (member7) NGAY lúc kết luận
+-- KHÔNG HỢP LỆ (ReturnRequestServiceImpl.resolve -> payoutOrder), không chờ hạn 3 ngày.
+('e0000000-0000-4000-8000-000000000055', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'ORDER_PAYMENT', 285000, NULL, 'SUCCESS', 'Tiền VNPay về cho đơn OD-2026-000019', NULL,
+ 'aa000000-0000-4000-8000-000000000019', NULL, NULL, NULL, NULL,
+ now() - interval '14 days' + interval '3 minutes'),
+('e0000000-0000-4000-8000-000000000056', NULL, 'MEMBER', '3c000000-0000-4000-8000-000000000017',
+ 'ORDER_PAYOUT', 234000, NULL, 'SUCCESS',
+ 'Thanh toán đơn hàng - hàng trả bị kết luận không hợp lệ, đơn OD-2026-000019', NULL,
+ 'aa000000-0000-4000-8000-000000000019', 'ab000000-0000-4000-8000-000000000019', NULL, NULL, NULL,
+ now() - interval '1 day'),
+('e0000000-0000-4000-8000-000000000057', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'ORDER_PAYOUT', -234000, NULL, 'SUCCESS',
+ 'Thanh toán đơn hàng - hàng trả bị kết luận không hợp lệ, đơn OD-2026-000019',
+ 'e0000000-0000-4000-8000-000000000056',
+ 'aa000000-0000-4000-8000-000000000019', 'ab000000-0000-4000-8000-000000000019', NULL, NULL, NULL,
+ now() - interval '1 day'),
+('e0000000-0000-4000-8000-000000000058', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'COMMISSION_REVENUE', 26000, NULL, 'SUCCESS', 'Hoa hồng đơn OD-2026-000019', NULL,
+ 'aa000000-0000-4000-8000-000000000019', 'ab000000-0000-4000-8000-000000000019', NULL, NULL, NULL,
+ now() - interval '1 day'),
+-- OD-2026-000020: tương tự nhưng kết luận đã lâu (15 ngày trước), người ký gửi member8 đã nhận tiền
+('e0000000-0000-4000-8000-000000000059', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'ORDER_PAYMENT', 335000, NULL, 'SUCCESS', 'Tiền VNPay về cho đơn OD-2026-000020', NULL,
+ 'aa000000-0000-4000-8000-000000000020', NULL, NULL, NULL, NULL,
+ now() - interval '29 days' + interval '3 minutes'),
+('e0000000-0000-4000-8000-000000000060', NULL, 'MEMBER', '3c000000-0000-4000-8000-000000000018',
+ 'ORDER_PAYOUT', 255000, NULL, 'SUCCESS',
+ 'Thanh toán đơn hàng - hàng trả bị kết luận không hợp lệ, đơn OD-2026-000020', NULL,
+ 'aa000000-0000-4000-8000-000000000020', 'ab000000-0000-4000-8000-000000000020', NULL, NULL, NULL,
+ now() - interval '15 days'),
+('e0000000-0000-4000-8000-000000000061', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'ORDER_PAYOUT', -255000, NULL, 'SUCCESS',
+ 'Thanh toán đơn hàng - hàng trả bị kết luận không hợp lệ, đơn OD-2026-000020',
+ 'e0000000-0000-4000-8000-000000000060',
+ 'aa000000-0000-4000-8000-000000000020', 'ab000000-0000-4000-8000-000000000020', NULL, NULL, NULL,
+ now() - interval '15 days'),
+('e0000000-0000-4000-8000-000000000062', NULL, 'PLATFORM', '80000000-0000-4000-8000-000000000001',
+ 'COMMISSION_REVENUE', 45000, NULL, 'SUCCESS', 'Hoa hồng đơn OD-2026-000020', NULL,
+ 'aa000000-0000-4000-8000-000000000020', 'ab000000-0000-4000-8000-000000000020', NULL, NULL, NULL,
+ now() - interval '15 days');
 
 -- 12.3 QUYẾT ĐỊNH CUỐI KỲ - hết 90 ngày hàng bị gỡ khỏi sàn, Member có 30 ngày để chọn
 -- lấy về / ký gửi lại / tặng từ thiện; quá hạn thành hàng vô thừa nhận.
@@ -1413,7 +1889,27 @@ INSERT INTO end_of_term_decisions (id, product_id, decision, new_receipt_id, dec
  now() - interval '45 days' + interval '30 days', NULL, 0),
 -- Member chọn TẶNG LẠI CHO TỪ THIỆN -> món thành DONATED và vào luồng quyên góp
 ('c4000000-0000-4000-8000-000000000005', 'HCM-QS-000067', 'DONATE', NULL,
- now() - interval '10 days', now() - interval '15 days' + interval '30 days', NULL, 0);
+ now() - interval '10 days', now() - interval '15 days' + interval '30 days', NULL, 0),
+-- member1 - 5 trạng thái của chính luồng này, không đụng gì tới c4-001..005 ở trên.
+-- Chờ Member chọn, còn hạn (deadline chưa qua)
+('c4000000-0000-4000-8000-000000000006', 'HCM-QS-000087', NULL, NULL, NULL,
+ now() - interval '2 days' + interval '30 days', NULL, 0),
+-- Member chọn LẤY VỀ, hàng đã WITHDRAWN, còn trong hạn 30 ngày ra kho nhận (Điều 8.3)
+('c4000000-0000-4000-8000-000000000007', 'HN-D-000088', 'TAKE_BACK', NULL,
+ now() - interval '5 days', now() + interval '20 days', NULL, 0),
+-- Member chọn LẤY VỀ nhưng ĐÃ QUÁ hạn 30 ngày (kể từ decided_at) ra kho nhận -> job tự đánh
+-- dấu vô thừa nhận (markUnclaimedForOverdueTakeBack, Điều 8.3) - decision VẪN là TAKE_BACK,
+-- chỉ product.status đổi thành UNCLAIMED, khác với nhánh UNCLAIMED do không chọn gì ở dưới.
+('c4000000-0000-4000-8000-000000000008', 'HCM-AK-000089', 'TAKE_BACK', NULL,
+ now() - interval '40 days', now() - interval '20 days', NULL, 0),
+-- (Không thêm case "quá hạn 30 ngày không chọn gì -> tự UNCLAIMED" cho member1: đọc kỹ
+-- EndOfTermLifecycleServiceImpl thì KHÔNG có job nào quét decision IS NULL AND deadline
+-- đã qua để tự gán UNCLAIMED - chỉ decide() chặn bấm tiếp bằng DECISION_EXPIRED (409).
+-- Dòng product HN-AT-000066/c4-004 có sẵn ở trên thể hiện trạng thái này nhưng không có
+-- job nào trong code thực sự tạo ra nó; không nhân bản thêm một dòng không có thật.)
+-- Member chọn KÝ GỬI LẠI, Moderator CHƯA chốt giá/điều khoản mới (new_receipt_id còn NULL)
+('c4000000-0000-4000-8000-000000000010', 'HCM-AP-000090', 'RE_CONSIGN', NULL,
+ now() - interval '2 days', now() + interval '25 days', NULL, 0);
 
 
 -- =============================================================================
@@ -1706,14 +2202,29 @@ INSERT INTO consignment_forms (id, form_no, member_id, warehouse_id, category_id
  '5e000000-0000-4000-8000-000000000008',
  'Quần short Puma xanh navy', 'Đổi ý không ký gửi nữa, muốn để lại dùng.',
  150000, 'M', 'GOOD', 'CANCELLED', NULL, NULL,
- now() - interval '8 days', now() - interval '7 days');
+ now() - interval '8 days', now() - interval '7 days'),
+-- member1 - 2 trường hợp của hạn mang hàng tới kho (bring_in_deadline_days, mặc định 7 ngày)
+-- sau khi phiếu được duyệt (Điều 6/F-028), riêng với các phiếu CHƯA thành sản phẩm ở đây.
+('f0000000-0000-4000-8000-000000000009', 'KG-000081', '2a000000-0000-4000-8000-000000000011',
+ '1b000000-0000-4000-8000-000000000001', '4d000000-0000-4000-8000-000000000003',
+ '5e000000-0000-4000-8000-000000000011',
+ 'Áo polo Routine trắng viền xanh', 'Áo polo còn mới, mặc 1 lần, không lỗi.',
+ 190000, 'M', 'LIKE_NEW', 'APPROVED', NULL, (now() + interval '4 days')::date,
+ now() - interval '3 days', now() - interval '3 days'),
+-- ĐÃ QUÁ hạn 7 ngày mang hàng tới kho mà Member không mang tới -> phiếu EXPIRED
+('f0000000-0000-4000-8000-000000000010', 'KG-000082', '2a000000-0000-4000-8000-000000000011',
+ '1b000000-0000-4000-8000-000000000001', '4d000000-0000-4000-8000-000000000010',
+ '5e000000-0000-4000-8000-000000000014',
+ 'Quần tây Owen xám ống côn', 'Quần tây còn 90%, mặc vài lần đi làm.',
+ 220000, '31', 'GOOD', 'EXPIRED', NULL, (now() - interval '2 days')::date,
+ now() - interval '11 days', now() - interval '2 days');
 
 -- Ảnh Member chụp sản phẩm lúc gửi phiếu ký gửi
 INSERT INTO consignment_form_photos (id, form_id, image_url, display_order) VALUES
 ('f1000000-0000-4000-8000-000000000001', 'f0000000-0000-4000-8000-000000000002',
- 'https://cdn.dummyjson.com/product-images/tops/blue-frock/1.webp', 0),
+ 'https://cdn.dummyjson.com/product-images/tops/tartan-dress/3.webp', 0),
 ('f1000000-0000-4000-8000-000000000002', 'f0000000-0000-4000-8000-000000000002',
- 'https://cdn.dummyjson.com/product-images/tops/blue-frock/2.webp', 1),
+ 'https://cdn.dummyjson.com/product-images/tops/tartan-dress/4.webp', 1),
 ('f1000000-0000-4000-8000-000000000003', 'f0000000-0000-4000-8000-000000000003',
  'https://fakestoreapi.com/img/71li-ujtlUL._AC_UX679_t.png', 0),
 ('f1000000-0000-4000-8000-000000000004', 'f0000000-0000-4000-8000-000000000004',
@@ -1721,7 +2232,22 @@ INSERT INTO consignment_form_photos (id, form_id, image_url, display_order) VALU
 ('f1000000-0000-4000-8000-000000000005', 'f0000000-0000-4000-8000-000000000005',
  'https://fakestoreapi.com/img/51Y5NI-I5jL._AC_UX679_t.png', 0),
 ('f1000000-0000-4000-8000-000000000006', 'f0000000-0000-4000-8000-000000000006',
- 'https://fakestoreapi.com/img/71z3kpMAYsL._AC_UY879_t.png', 0);
+ 'https://fakestoreapi.com/img/71z3kpMAYsL._AC_UY879_t.png', 0),
+-- f0-001 (DRAFT, "Áo thun Uniqlo AIRism xám")
+('f1000000-0000-4000-8000-000000000007', 'f0000000-0000-4000-8000-000000000001',
+ 'https://upload.wikimedia.org/wikipedia/commons/9/93/02123jfClothes_shirts_pants_in_Philippinesfvf_06.jpg', 0),
+-- f0-007 (EXPIRED, "Chân váy H&M xếp ly nâu")
+('f1000000-0000-4000-8000-000000000008', 'f0000000-0000-4000-8000-000000000007',
+ 'https://upload.wikimedia.org/wikipedia/commons/c/c7/HK_TKO_Tseung_Kwan_O_PopCorn_mall_shop_UNIQLO_Clothing_August_2021_SS2_034.jpg', 0),
+-- f0-008 (CANCELLED, "Quần short Puma xanh navy")
+('f1000000-0000-4000-8000-000000000009', 'f0000000-0000-4000-8000-000000000008',
+ 'https://images.unsplash.com/photo-1708523842501-1619478cea1f?rect=316,0,2598,3745&w=800&fit=crop&q=80', 0),
+-- f0-009 (APPROVED, member1, "Áo polo Routine trắng viền xanh")
+('f1000000-0000-4000-8000-000000000010', 'f0000000-0000-4000-8000-000000000009',
+ 'https://upload.wikimedia.org/wikipedia/commons/6/6c/Erie_Raptors_Jersey.jpeg', 0),
+-- f0-010 (EXPIRED, member1, "Quần tây Owen xám ống côn")
+('f1000000-0000-4000-8000-000000000011', 'f0000000-0000-4000-8000-000000000010',
+ 'https://images.unsplash.com/photo-1718252540511-e958742e4165?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=NHwxMjA3fDA&ixlib=rb-4.1.0&q=80&w=1080', 0);
 
 
 -- =============================================================================
@@ -1761,6 +2287,9 @@ INSERT INTO queue_items (id, type, ref_id, warehouse_id, claimed_by, claimed_at,
 ('d0000000-0000-4000-8000-000000000010', 'WITHDRAWAL', 'c2000000-0000-4000-8000-000000000002',
  '1b000000-0000-4000-8000-000000000002', '2a000000-0000-4000-8000-000000000004',
  now() - interval '2 days', now() - interval '3 days'),
+('d0000000-0000-4000-8000-000000000013', 'WITHDRAWAL', 'c2000000-0000-4000-8000-000000000003',
+ '1b000000-0000-4000-8000-000000000001', '2a000000-0000-4000-8000-000000000002',
+ now() - interval '2 days', now() - interval '2 days' - interval '1 hour'),
 -- Chuẩn bị và giao hàng quyên góp cho tổ chức
 ('d0000000-0000-4000-8000-000000000011', 'DONATION_PICKUP', 'd2000000-0000-4000-8000-000000000001',
  '1b000000-0000-4000-8000-000000000001', NULL, NULL, now() - interval '2 days'),
@@ -1800,7 +2329,15 @@ INSERT INTO campaigns (id, organization_id, title, title_normalized, description
  'mặc dịp Tết. Tổng kết nhận được 312 món.',
  'Áo dài, Đầm, Váy liền', now() - interval '60 days', now() - interval '30 days',
  'CLOSED', true, 'Điểm nhận đồ Ánh Dương - Quận 1', 10.7745000, 106.7030000, NULL,
- now() - interval '65 days');
+ now() - interval '65 days'),
+-- Hết end_time 6 giờ trước nhưng tổ chức CHƯA tự đóng (F-101) -> vẫn còn OPEN, demo F-102:
+-- CampaignAutoCloseServiceImpl sẽ tự chuyển CLOSED ở lần quét kế tiếp sau khi app chạy lên.
+('d1000000-0000-4000-8000-000000000004', '2a000000-0000-4000-8000-000000000031',
+ 'Giải cứu đồ cũ cuối năm', 'giai cuu do cu cuoi nam',
+ 'Thu gom quần áo còn mặc được trước Tết, ưu tiên đồ người lớn.',
+ 'Áo thun, Quần jeans', now() - interval '25 days', now() - interval '6 hours',
+ 'OPEN', false, 'Kho ReHome TP.HCM', 10.7329000, 106.7240000, NULL,
+ now() - interval '26 days');
 
 -- Kho nhận hàng hộ cho từng chiến dịch (bảng nối nhiều-nhiều)
 INSERT INTO campaign_warehouses (campaign_id, warehouse_id) VALUES
@@ -1808,7 +2345,8 @@ INSERT INTO campaign_warehouses (campaign_id, warehouse_id) VALUES
 ('d1000000-0000-4000-8000-000000000001', '1b000000-0000-4000-8000-000000000002'),
 ('d1000000-0000-4000-8000-000000000002', '1b000000-0000-4000-8000-000000000001'),
 ('d1000000-0000-4000-8000-000000000003', '1b000000-0000-4000-8000-000000000001'),
-('d1000000-0000-4000-8000-000000000003', '1b000000-0000-4000-8000-000000000002');
+('d1000000-0000-4000-8000-000000000003', '1b000000-0000-4000-8000-000000000002'),
+('d1000000-0000-4000-8000-000000000004', '1b000000-0000-4000-8000-000000000001');
 
 -- Quyên góp. source = DIRECT (Member mang đồ tới kho tặng thẳng) hoặc CONSIGNED_ITEM
 -- (món đang ký gửi được Member tặng lại, xem end_of_term_decisions decision = DONATE).
@@ -1868,7 +2406,7 @@ INSERT INTO community_post_photos (id, post_id, image_url) VALUES
 ('d4100000-0000-4000-8000-000000000002', 'd4000000-0000-4000-8000-000000000001',
  'https://cdn.dummyjson.com/product-images/mens-shirts/men-cotton-jacket/3.webp'),
 ('d4100000-0000-4000-8000-000000000003', 'd4000000-0000-4000-8000-000000000002',
- 'https://cdn.dummyjson.com/product-images/tops/tartan-dress/1.webp');
+ 'https://cdn.dummyjson.com/product-images/tops/short-frock/3.webp');
 
 -- Bình luận (có 1 bình luận trả lời bình luận khác qua parent_id) và lượt thích
 INSERT INTO post_comments (id, post_id, author_id, parent_id, content, status, created_at) VALUES
@@ -2256,8 +2794,20 @@ SELECT setval('product_sku_seq',
 --  Email                 Mã        Tên              Ví          Vai trò trong demo
 --  member1@rehome.com    MB000001  Nguyễn Văn An      370.500đ  Nhân vật chính: vừa mua
 --      vừa ký gửi. Gói THÀNH VIÊN VÀNG đang chạy (mua bằng VÍ), từng mua gói BẠC rồi
---      nâng hạng -> dòng REPLACED. Có 5 voucher (3 chưa dùng, 1 đã dùng, 1 hết hạn),
---      2 địa chỉ giao hàng, giỏ hàng 2 món Ở 2 KHO KHÁC NHAU, 5 đơn hàng, 2 ảnh thử đồ.
+--      nâng hạng -> dòng REPLACED. Có 6 voucher (4 chưa dùng - 1 trong đó sắp hết hạn đã
+--      được nhắc, 1 đã dùng, 1 hết hạn), 2 địa chỉ giao hàng, giỏ hàng 2 món Ở 2 KHO KHÁC
+--      NHAU, 10 đơn hàng, 2 ảnh thử đồ.
+--      ĐƯỢC GẮN THÊM MỌI MỐC THỜI GIAN CỦA HỆ THỐNG (sản phẩm #83-99, xem bước 7):
+--      kỳ ký gửi 2/3 đang chạy; rút hàng miễn phí (trong 7 ngày đầu kỳ) và có phí (ngoài
+--      cửa sổ, đã hết hạn trả phí nên bị huỷ sớm); 4 trạng thái hết kỳ ký gửi (Điều 8,
+--      gồm cả nhánh TAKE_BACK quá hạn 30 ngày không tới lấy -> vô thừa nhận, khác với
+--      nhánh chọn lấy về còn trong hạn); 3 ca hàng xuống cấp mở trực tiếp lúc kiểm kho (chờ chọn/
+--      quá hạn vô thừa nhận/đã nhận đền bù một phần); phiếu ký gửi còn hạn và đã quá hạn
+--      mang hàng tới kho; đơn mua CHỜ THANH TOÁN còn hạn và đã tự huỷ quá hạn; đơn mua
+--      ĐÃ GIAO còn hạn trả hàng và bị huỷ yêu cầu trả hàng do quá hạn gửi GHN; đơn mua bị
+--      trả hàng KHÔNG HỢP LỆ còn hạn và đã quá hạn tới kho nhận lại; gói mua thêm bị tự
+--      huỷ do quá hạn thanh toán; 3 yêu cầu rút tiền trong ngày -> đã chạm giới hạn 3
+--      lần/ngày.
 --  member2@rehome.com    MB000002  Trần Thị Bình      285.000đ  Người mua ở Hà Nội.
 --      Gói BẠC đang chạy (VNPay), 2 voucher chưa dùng, 4 đơn, 1 đơn bị trả hàng do
 --      hàng xuống cấp (đã được hoàn 285.000đ).
@@ -2290,28 +2840,45 @@ SELECT setval('product_sku_seq',
 --   org2@rehome.com   CLB Thiện nguyện Sinh viên  - CHỜ DUYỆT: có việc ORG_VERIFICATION
 --       trong hàng đợi Moderator.
 --   org3@rehome.com   Hy Vọng Mới                 - BỊ TỪ CHỐI kèm lý do, demo nộp lại.
+--   org4@rehome.com   CTĐ Phường Tân Mỹ           - ĐÃ DUYỆT 35 ngày trước (quá
+--       legal_image_retention_days = 30 ngày): ảnh CCCD/giấy tờ vẫn còn URL, demo F-139 -
+--       OrganizationLegalImageCleanupServiceImpl sẽ xoá ở lần quét kế tiếp. org1 cũng có
+--       1 chiến dịch đã hết end_time nhưng CHƯA tự đóng, demo F-102 (tự đóng sau khi app
+--       chạy lên, trong vòng app.campaign.auto-close-check-interval-ms).
 --
 -- ########################################################################### #
 -- #                      SỐ LIỆU TỔNG QUAN SAU KHI SEED                       #
 -- #############################################################################
 --   2 kho (TP.HCM + Hà Nội)        18 danh mục       20 thương hiệu
---   17 tài khoản                   4 gói VIP         2 mẫu voucher + 6 luật theo hạng
---   26 tham số hệ thống            6 từ khoá vi phạm
---   73 sản phẩm, trong đó 53 ĐANG BÁN:
---        - 24 áo (tryon_slot = TOP)      áo thun, sơ mi, polo, len, hoodie, khoác,
+--   18 tài khoản (4 ORGANIZATION)   4 gói VIP         2 mẫu voucher + 6 luật theo hạng
+--   29 tham số hệ thống            6 từ khoá vi phạm
+--   90 sản phẩm, trong đó 57 ĐANG BÁN:
+--        - 25 áo (tryon_slot = TOP)      áo thun, sơ mi, polo, len, hoodie, khoác,
 --                                        blazer, áo kiểu
---        - 17 quần/chân váy (BOTTOM)     jeans, tây, kaki, short, jogger, chân váy
+--        - 20 quần/chân váy (BOTTOM)     jeans, tây, kaki, short, jogger, chân váy
 --        - 12 đầm/váy liền/jumpsuit/áo dài (DRESS)
 --     (slot gắn theo DANH MỤC nên không bao giờ lệch: áo luôn là TOP, quần luôn là
 --      BOTTOM, đầm luôn là DRESS và mặc nguyên bộ)
---   81 phiếu ký gửi (73 đã thành sản phẩm + 8 phiếu ở 7 trạng thái còn lại)
---   73 biên nhận ký gửi
---   14 đơn hàng phủ đủ 8 trạng thái; 11 giao dịch cổng (VNPay); 5 sự kiện GHN
---   4 yêu cầu trả hàng (LOST / VALID+xuống cấp / VALID+tiêu huỷ / chờ duyệt)
---   36 bút toán ví + quỹ; 2 yêu cầu rút tiền; 2 yêu cầu rút hàng
---   5 quyết định cuối kỳ (chờ chọn / ký gửi lại / lấy về / vô thừa nhận / tặng)
---   12 việc trong hàng đợi Moderator phủ 9 loại QueueType
---   3 chiến dịch, 3 lô quyên góp, 3 bài viết, 4 bình luận, 4 lượt thích, 3 lượt theo dõi
+--   17 sản phẩm #83-99 (đánh số từ 83 để không đụng form_no KG-000074..080 ở bước 14) của
+--   member1 phủ đủ các mốc thời
+--   gian còn lại của hệ thống (kỳ ký gửi 2/3, rút hàng miễn phí/có phí, 4 trạng thái hết
+--   kỳ ký gửi, 3 ca hàng xuống cấp mở trực tiếp lúc kiểm kho, và member1 ở vai người mua
+--   cho 6 đơn hàng #15-20) - xem chi tiết trong mục MEMBER ở trên và các chú thích tại
+--   bước 7/10/11/12 trong file.
+--   100 phiếu ký gửi (90 đã thành sản phẩm + 10 phiếu ở các trạng thái còn lại)
+--   90 biên nhận ký gửi
+--   20 đơn hàng phủ đủ 8 trạng thái; 16 giao dịch cổng (VNPay); 5 sự kiện GHN
+--   8 yêu cầu trả hàng (LOST / VALID+xuống cấp / VALID+tiêu huỷ / chờ duyệt / 2 KHÔNG HỢP
+--   LỆ / APPROVED còn hạn+GHN / APPROVED quá hạn GHN tự huỷ)
+--   62 bút toán ví + quỹ; 5 yêu cầu rút tiền; 4 yêu cầu rút hàng
+--   9 quyết định cuối kỳ (chờ chọn / ký gửi lại / lấy về / vô thừa nhận / tặng, cộng thêm
+--   4 bản của member1 gồm nhánh TAKE_BACK quá hạn lấy hàng -> vô thừa nhận)
+--   4 ca hàng xuống cấp (1 từ yêu cầu trả hàng + 3 mở trực tiếp lúc kiểm kho của member1)
+--   13 việc trong hàng đợi Moderator phủ 9 loại QueueType
+--   4 chiến dịch (org1, 1 đã hết hạn chờ tự đóng), 3 lô quyên góp, 3 bài viết, 4 bình luận,
+--   4 lượt thích, 3 lượt theo dõi
 --   2 báo cáo vi phạm; 12 thông báo; 2 hội thoại + 5 tin nhắn; 5 dòng lịch sử Admin
 --   3 ảnh thử đồ AI + 3 phiên thử đồ real-time
+--   7 dòng gói thành viên (1 CANCELLED do quá hạn thanh toán); 7 lần thanh toán gói;
+--   11 voucher trong ví (1 sắp hết hạn trong 3 ngày, đã được nhắc)
 -- #############################################################################

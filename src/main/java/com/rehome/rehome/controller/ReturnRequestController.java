@@ -3,20 +3,27 @@ package com.rehome.rehome.controller;
 import com.rehome.rehome.dto.request.CreateReturnRequestRequest;
 import com.rehome.rehome.dto.request.InvalidReturnChoiceRequest;
 import com.rehome.rehome.dto.request.MarkLostRequest;
+import com.rehome.rehome.dto.request.PayShipBackFeeRequest;
 import com.rehome.rehome.dto.request.RejectReturnRequestRequest;
 import com.rehome.rehome.dto.request.ResolveReturnRequestRequest;
 import com.rehome.rehome.dto.request.StartInspectionRequest;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.dto.response.PageResponse;
+import com.rehome.rehome.dto.response.PayShipBackFeeResponse;
 import com.rehome.rehome.dto.response.ReturnRequestResponse;
+import com.rehome.rehome.dto.response.ShipBackPaymentStatusResponse;
+import com.rehome.rehome.dto.response.ShipBackQuoteResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.service.ReturnRequestService;
+import com.rehome.rehome.service.ReturnShipBackService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -34,6 +41,7 @@ import java.util.UUID;
 public class ReturnRequestController {
 
     private final ReturnRequestService returnRequestService;
+    private final ReturnShipBackService returnShipBackService;
 
     // F-067
     @PostMapping
@@ -87,7 +95,21 @@ public class ReturnRequestController {
         return ResponseEntity.ok(ApiResponse.success(result, "Đã ghi nhận bàn giao cho GHN"));
     }
 
-    // F-070 - Member chọn cách nhận lại hàng trả không hợp lệ
+    // Báo phí gửi lại hàng trả không hợp lệ qua GHN
+    @GetMapping("/{id}/ship-back-quote")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<ShipBackQuoteResponse>> getShipBackQuote(
+            Authentication authentication,
+            @PathVariable UUID id,
+            @RequestParam(required = false) UUID addressId) {
+
+        String email = authentication.getName();
+        ShipBackQuoteResponse result = returnRequestService.getShipBackQuote(email, id, addressId);
+
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    // F-070 (API 82) - Member chọn cách nhận lại hàng trả không hợp lệ
     @PostMapping("/{id}/invalid-choice")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> chooseInvalidReturn(
@@ -99,6 +121,44 @@ public class ReturnRequestController {
         ReturnRequestResponse result = returnRequestService.chooseInvalidReturn(email, id, request);
 
         return ResponseEntity.ok(ApiResponse.success(result, "Đã ghi nhận lựa chọn"));
+    }
+
+    // Member trả phí gửi lại hàng trả không hợp lệ (WALLET hoặc VNPAY)
+    @PostMapping("/{id}/ship-back/pay")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<PayShipBackFeeResponse>> payShipBackFee(
+            Authentication authentication,
+            @PathVariable UUID id,
+            @RequestBody PayShipBackFeeRequest request,
+            HttpServletRequest httpRequest) {
+
+        String email = authentication.getName();
+        PayShipBackFeeResponse result = returnShipBackService.payFee(email, id, request, clientIp(httpRequest));
+        String message = Boolean.TRUE.equals(result.getPaid()) ? "Đã thanh toán phí gửi lại hàng" : "";
+
+        return ResponseEntity.ok(ApiResponse.success(result, message));
+    }
+
+    // Đồng bộ trạng thái thanh toán phí gửi lại hàng (app hỏi lại khi quay về từ VNPay)
+    @GetMapping("/{id}/ship-back/payment-status")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<ShipBackPaymentStatusResponse>> getShipBackPaymentStatus(
+            Authentication authentication,
+            @PathVariable UUID id) {
+
+        String email = authentication.getName();
+        return ResponseEntity.ok(ApiResponse.success(returnShipBackService.syncPaymentStatus(email, id)));
+    }
+
+    // Moderator của kho tạo vận đơn GHN chiều kho -> người mua sau khi người mua đã trả phí gửi lại
+    @PostMapping("/{id}/ship-back/ship")
+    @PreAuthorize("hasRole('MODERATOR')")
+    public ResponseEntity<ApiResponse<ReturnRequestResponse>> shipInvalidReturn(
+            @AuthenticationPrincipal Account moderator,
+            @PathVariable UUID id) {
+
+        ReturnRequestResponse result = returnShipBackService.ship(moderator, id);
+        return ResponseEntity.ok(ApiResponse.success(result, "Đã tạo vận đơn gửi lại hàng trả"));
     }
 
     // Hàng đợi xử lý của Moderator, giới hạn theo kho moderator phụ trách (không thấy chéo kho)
@@ -187,5 +247,13 @@ public class ReturnRequestController {
         ReturnRequestResponse result = returnRequestService.markLost(id, request);
 
         return ResponseEntity.ok(ApiResponse.success(result, "Đã đánh dấu thất lạc, hoàn tiền người mua"));
+    }
+
+    private static String clientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (StringUtils.hasText(forwarded)) {
+            return forwarded.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 }

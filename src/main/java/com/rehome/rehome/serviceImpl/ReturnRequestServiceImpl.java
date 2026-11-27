@@ -8,6 +8,7 @@ import com.rehome.rehome.entity.enums.NotificationTargetType;
 import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import com.rehome.rehome.client.GhnApi;
+import com.rehome.rehome.client.GhnShippingFeeCalculator;
 import com.rehome.rehome.dto.request.CreateReturnRequestRequest;
 import com.rehome.rehome.dto.request.GhnCreateOrderRequest;
 import com.rehome.rehome.dto.request.GhnOrderItem;
@@ -19,14 +20,17 @@ import com.rehome.rehome.dto.request.StartInspectionRequest;
 import com.rehome.rehome.dto.response.GhnCreateOrderResponse;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.ReturnRequestResponse;
+import com.rehome.rehome.dto.response.ShipBackQuoteResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.MemberProfile;
+import com.rehome.rehome.entity.enums.InvalidReturnChoice;
 import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.service.QueueService;
 import com.rehome.rehome.entity.enums.ReturnPhotoSource;
 import com.rehome.rehome.entity.enums.ReturnRequestStatus;
 import com.rehome.rehome.entity.enums.ReturnedItemAction;
+import com.rehome.rehome.entity.enums.ShipBackStatus;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.DegradedItemCase;
 import com.rehome.rehome.entity.marketplace.Order;
@@ -35,6 +39,7 @@ import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
 import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import com.rehome.rehome.entity.marketplace.ReturnRequestPhoto;
+import com.rehome.rehome.entity.marketplace.ShippingAddress;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
@@ -50,6 +55,7 @@ import com.rehome.rehome.repository.OrderRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ReturnRequestPhotoRepository;
 import com.rehome.rehome.repository.ReturnRequestRepository;
+import com.rehome.rehome.repository.ShippingAddressRepository;
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.service.OrderService;
 import com.rehome.rehome.service.ReturnRequestService;
@@ -103,10 +109,18 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     private final DegradedItemCaseRepository degradedItemCaseRepository;
     private final MemberProfileRepository memberProfileRepository;
     private final ProductPhotoRepository productPhotoRepository;
+    private final ShippingAddressRepository shippingAddressRepository;
     private final OrderService orderService;
     private final QueueService queueService;
     private final GhnApi ghnApi;
+    private final GhnShippingFeeCalculator ghnShippingFeeCalculator;
     private final SystemConfigReader systemConfigReader;
+
+    @Value("${app.return.ship-back-fee-deadline-minutes:30}")
+    private int defaultShipBackFeeDeadlineMinutes = SystemConfigKeys.DEFAULT_RETURN_SHIP_BACK_FEE_DEADLINE_MINUTES;
+
+    @Value("${app.return.ship-back-ship-within-days:2}")
+    private int defaultShipBackShipWithinDays = SystemConfigKeys.DEFAULT_RETURN_SHIP_BACK_SHIP_WITHIN_DAYS;
 
     @Value("${ghn.token}")
     private String ghnToken;
@@ -612,7 +626,71 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 item.getProduct().getId());
     }
 
-    // F-070: Member chọn gửi lại (tự trả phí) hoặc đến kho nhận hàng trả không hợp lệ
+    private int shipBackFeeDeadlineMinutes() {
+        int configured = systemConfigReader.getInt(
+                SystemConfigKeys.RETURN_SHIP_BACK_FEE_DEADLINE_MINUTES, defaultShipBackFeeDeadlineMinutes);
+        return configured > 0 ? configured : defaultShipBackFeeDeadlineMinutes;
+    }
+
+    private int shipBackShipWithinDays() {
+        int configured = systemConfigReader.getInt(
+                SystemConfigKeys.RETURN_SHIP_BACK_SHIP_WITHIN_DAYS, defaultShipBackShipWithinDays);
+        return configured > 0 ? configured : defaultShipBackShipWithinDays;
+    }
+
+    private int counterPickupDays() {
+        int configured = systemConfigReader.getInt(
+                SystemConfigKeys.COUNTER_PICKUP_DAYS, SystemConfigKeys.DEFAULT_COUNTER_PICKUP_DAYS);
+        return configured > 0 ? configured : SystemConfigKeys.DEFAULT_COUNTER_PICKUP_DAYS;
+    }
+
+    // 1.2: Báo phí gửi lại hàng trả không hợp lệ qua GHN tới địa chỉ người mua chọn
+    @Override
+    public ShipBackQuoteResponse getShipBackQuote(String email, UUID id, UUID addressId) {
+
+        Account buyer = accountRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
+
+        ReturnRequest returnRequest = findOrThrow(id);
+
+        if (!returnRequest.getOrder().getBuyer().getId().equals(buyer.getId())) {
+            throw new ForbiddenException("Bạn không có quyền xem yêu cầu trả hàng này.");
+        }
+
+        assertInvalidChoiceChangeable(returnRequest);
+        if (returnRequest.getShipBackStatus() == ShipBackStatus.FAILED) {
+            throw new ConflictException(
+                    "Đã gửi lại không thành công một lần, vui lòng đến kho nhận hàng.",
+                    "RETURN_SHIP_BACK_NOT_ALLOWED");
+        }
+
+        UUID effectiveAddressId = addressId;
+        if (effectiveAddressId == null && returnRequest.getOrder().getShippingAddress() != null) {
+            effectiveAddressId = returnRequest.getOrder().getShippingAddress().getId();
+        }
+        if (effectiveAddressId == null) {
+            throw new BadRequestException("addressId là bắt buộc.");
+        }
+
+        ShippingAddress address = requireBuyerAddress(buyer, effectiveAddressId);
+        Warehouse warehouse = returnRequest.getOrder().getWarehouse();
+        BigDecimal fee = ghnShippingFeeCalculator.calculate(
+                warehouse, address.getWardName(), address.getProvinceName());
+
+        return ShipBackQuoteResponse.builder()
+                .fee(fee)
+                .addressId(address.getId().toString())
+                .recipientName(address.getRecipientName())
+                .phone(address.getPhone())
+                .addressDetail(address.getAddressDetail())
+                .wardName(address.getWardName())
+                .provinceName(address.getProvinceName())
+                .warehouseName(warehouse != null ? warehouse.getName() : null)
+                .feeDeadlineMinutes(shipBackFeeDeadlineMinutes())
+                .build();
+    }
+
+    // F-070 (API 82): Member chọn gửi lại (tự trả phí trước) hoặc đến kho nhận hàng trả không hợp lệ
     @Override
     @Transactional
     public ReturnRequestResponse chooseInvalidReturn(String email, UUID id, InvalidReturnChoiceRequest request) {
@@ -624,27 +702,94 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         Account buyer = accountRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
 
-        ReturnRequest returnRequest = findOrThrow(id);
+        ReturnRequest returnRequest = returnRequestRepository.findByIdForUpdate(id)
+                .orElseGet(() -> findOrThrow(id));
 
         if (!returnRequest.getOrder().getBuyer().getId().equals(buyer.getId())) {
             throw new ForbiddenException("Bạn không có quyền cập nhật yêu cầu trả hàng này.");
         }
 
+        assertInvalidChoiceChangeable(returnRequest);
+
+        if (request.getChoice() == InvalidReturnChoice.SHIP_BACK) {
+            if (returnRequest.getShipBackStatus() == ShipBackStatus.FAILED) {
+                throw new ConflictException(
+                        "Đã gửi lại không thành công một lần, vui lòng đến kho nhận hàng.",
+                        "RETURN_SHIP_BACK_NOT_ALLOWED");
+            }
+            if (request.getAddressId() == null) {
+                throw new BadRequestException("addressId là bắt buộc khi chọn SHIP_BACK.");
+            }
+            ShippingAddress address = requireBuyerAddress(buyer, request.getAddressId());
+            BigDecimal fee = ghnShippingFeeCalculator.calculate(
+                    returnRequest.getOrder().getWarehouse(), address.getWardName(), address.getProvinceName());
+
+            clearUnpaidShipBackFields(returnRequest);
+            returnRequest.setInvalidReturnChoice(InvalidReturnChoice.SHIP_BACK);
+            returnRequest.setShipBackStatus(ShipBackStatus.AWAITING_PAYMENT);
+            returnRequest.setShipBackFee(fee);
+            returnRequest.setShipBackFeeDeadline(
+                    Instant.now().plus(shipBackFeeDeadlineMinutes(), ChronoUnit.MINUTES));
+            returnRequest.setShipBackAddressId(address.getId());
+            returnRequest.setShipBackRecipientName(address.getRecipientName());
+            returnRequest.setShipBackPhone(address.getPhone());
+            returnRequest.setShipBackAddressDetail(address.getAddressDetail());
+            returnRequest.setShipBackWardName(address.getWardName());
+            returnRequest.setShipBackProvinceName(address.getProvinceName());
+        } else {
+            if (returnRequest.getShipBackStatus() == ShipBackStatus.AWAITING_PAYMENT) {
+                clearUnpaidShipBackFields(returnRequest);
+            }
+            returnRequest.setInvalidReturnChoice(InvalidReturnChoice.WAREHOUSE_PICKUP);
+        }
+
+        returnRequestRepository.save(returnRequest);
+
+        return toResponseWithPhotos(returnRequest);
+    }
+
+    private void assertInvalidChoiceChangeable(ReturnRequest returnRequest) {
         if (returnRequest.getStatus() != ReturnRequestStatus.INVALID) {
             throw new ConflictException(
                     "Chỉ chọn cách nhận lại hàng khi yêu cầu bị kết luận không hợp lệ.",
                     "RETURN_NOT_INVALID");
         }
-
+        ShipBackStatus shipBack = returnRequest.getShipBackStatus();
+        if (shipBack == ShipBackStatus.PAID || shipBack == ShipBackStatus.SHIPPING) {
+            throw new ConflictException(
+                    "Đã trả phí gửi lại, không thể đổi lựa chọn.", "RETURN_SHIP_BACK_IN_PROGRESS");
+        }
+        if (shipBack == ShipBackStatus.DELIVERED || returnRequest.getPickedUpAt() != null) {
+            throw new ConflictException("Người mua đã nhận lại hàng.", "RETURN_ALREADY_RESOLVED");
+        }
         if (returnRequest.getPickupDeadline() != null
                 && Instant.now().isAfter(returnRequest.getPickupDeadline())) {
             throw new ConflictException("Đã quá hạn nhận lại hàng trả.", "RETURN_PICKUP_EXPIRED");
         }
+        if (returnRequest.getResolvedAt() != null) {
+            throw new ConflictException("Yêu cầu trả hàng đã được xử lý xong.", "RETURN_ALREADY_RESOLVED");
+        }
+    }
 
-        returnRequest.setInvalidReturnChoice(request.getChoice());
-        returnRequestRepository.save(returnRequest);
+    private ShippingAddress requireBuyerAddress(Account buyer, UUID addressId) {
+        return shippingAddressRepository.findById(addressId)
+                .filter(a -> a.getMember().getId().equals(buyer.getId()))
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy địa chỉ nhận hàng."));
+    }
 
-        return toResponseWithPhotos(returnRequest);
+    static void clearUnpaidShipBackFields(ReturnRequest returnRequest) {
+        returnRequest.setShipBackStatus(null);
+        returnRequest.setShipBackFee(null);
+        returnRequest.setShipBackFeeDeadline(null);
+        returnRequest.setShipBackAddressId(null);
+        returnRequest.setShipBackRecipientName(null);
+        returnRequest.setShipBackPhone(null);
+        returnRequest.setShipBackAddressDetail(null);
+        returnRequest.setShipBackWardName(null);
+        returnRequest.setShipBackProvinceName(null);
+        returnRequest.setShipBackPaymentMethod(null);
+        returnRequest.setShipBackVnpTxnRef(null);
+        returnRequest.setShipBackVnpCreateDate(null);
     }
 
     @Override
@@ -656,7 +801,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .orElse(null);
 
         if (returnRequest == null) {
-            return false;
+            return applyShipBackGhnStatus(ghnReturnTrackingCode, ghnStatus);
         }
 
         String status = ghnStatus == null ? "" : ghnStatus.toLowerCase(Locale.ROOT);
@@ -677,6 +822,51 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
             log.info(">>>> Hang tra that lac, da hoan tien: returnRequestId={}, ghnStatus={}",
                     returnRequest.getId(), status);
+        }
+
+        return true;
+    }
+
+    // 1.7: Webhook GHN cho vận đơn gửi lại hàng trả không hợp lệ (chiều kho -> người mua)
+    private boolean applyShipBackGhnStatus(String trackingCode, String ghnStatus) {
+        ReturnRequest returnRequest = returnRequestRepository
+                .findByShipBackTrackingCode(trackingCode)
+                .orElse(null);
+        if (returnRequest == null) {
+            return false;
+        }
+
+        if (returnRequest.getStatus() != ReturnRequestStatus.INVALID
+                || returnRequest.getShipBackStatus() != ShipBackStatus.SHIPPING) {
+            return true;
+        }
+
+        String status = ghnStatus == null ? "" : ghnStatus.trim().toLowerCase(Locale.ROOT);
+        Instant now = Instant.now();
+
+        if ("delivered".equals(status)) {
+            returnRequest.setShipBackStatus(ShipBackStatus.DELIVERED);
+            returnRequest.setShipBackDeliveredAt(now);
+            returnRequest.setResolvedAt(now);
+            returnRequest.setResolutionNote("Đã gửi lại hàng cho người mua");
+            returnRequestRepository.save(returnRequest);
+
+            businessNotifications.returned(returnRequest, NotificationType.ORDER_UPDATE,
+                    "Đã giao lại hàng trả",
+                    "hàng trả đã được giao lại thành công · Mã GHN " + trackingCode + ".");
+
+        } else if ("returned".equals(status) || "return".equals(status)) {
+            // Giao thất bại, hàng hoàn về kho -> không hoàn phí, chỉ còn cách đến kho lấy (hạn mới 7 ngày)
+            returnRequest.setShipBackStatus(ShipBackStatus.FAILED);
+            returnRequest.setShipBackFailedAt(now);
+            returnRequest.setInvalidReturnChoice(InvalidReturnChoice.WAREHOUSE_PICKUP);
+            returnRequest.setPickupDeadline(now.plus(counterPickupDays(), ChronoUnit.DAYS));
+            returnRequestRepository.save(returnRequest);
+
+            businessNotifications.returned(returnRequest, NotificationType.ORDER_UPDATE,
+                    "Giao lại hàng trả không thành công",
+                    "hàng đã hoàn về kho. Vui lòng đến kho nhận lại trước hạn "
+                            + NotificationFormatting.deadline(returnRequest.getPickupDeadline()) + ".");
         }
 
         return true;
@@ -882,6 +1072,28 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .refundAmount(order.getRefundAmount())
                 .createdAt(returnRequest.getCreatedAt())
                 .resolvedAt(returnRequest.getResolvedAt())
+                .pickedUpAt(returnRequest.getPickedUpAt())
+                .shipBackStatus(returnRequest.getShipBackStatus() != null
+                        ? returnRequest.getShipBackStatus().name() : null)
+                .shipBackFee(returnRequest.getShipBackFee())
+                .shipBackFeeDeadline(returnRequest.getShipBackPaidAt() == null
+                        ? returnRequest.getShipBackFeeDeadline() : null)
+                .shipBackPaidAt(returnRequest.getShipBackPaidAt())
+                .shipBackPaymentMethod(returnRequest.getShipBackPaymentMethod() != null
+                        ? returnRequest.getShipBackPaymentMethod().name() : null)
+                .shipBackShipDeadline(returnRequest.getShipBackPaidAt() != null
+                        ? returnRequest.getShipBackPaidAt().plus(shipBackShipWithinDays(), ChronoUnit.DAYS) : null)
+                .shipBackTrackingCode(returnRequest.getShipBackTrackingCode())
+                .shipBackShippedAt(returnRequest.getShipBackShippedAt())
+                .shipBackDeliveredAt(returnRequest.getShipBackDeliveredAt())
+                .shipBackFailedAt(returnRequest.getShipBackFailedAt())
+                .shipBackAddressId(returnRequest.getShipBackAddressId() != null
+                        ? returnRequest.getShipBackAddressId().toString() : null)
+                .shipBackRecipientName(returnRequest.getShipBackRecipientName())
+                .shipBackPhone(returnRequest.getShipBackPhone())
+                .shipBackAddressDetail(returnRequest.getShipBackAddressDetail())
+                .shipBackWardName(returnRequest.getShipBackWardName())
+                .shipBackProvinceName(returnRequest.getShipBackProvinceName())
                 .buyerName(buyerName)
                 .buyerPhone(order.getShippingPhone())
                 .sellerName(sellerName)

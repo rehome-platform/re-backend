@@ -53,5 +53,6 @@ class AdminDashboardQueryRepositoryTest {
     void platformRevenueEntries_isValidJpql() {
         assertThatCode(() -> assertThat(repository.findPlatformRevenueEntries(from, to)).isEmpty())
                 .doesNotThrowAnyException();
+        assertThat(repository.sumReturnShipBackFeeRevenue(from, to)).isEqualByComparingTo(BigDecimal.ZERO);
     }
 }

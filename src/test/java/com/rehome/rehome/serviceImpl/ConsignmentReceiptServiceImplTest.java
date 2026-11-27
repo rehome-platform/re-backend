@@ -88,6 +88,10 @@ class ConsignmentReceiptServiceImplTest {
     @Mock
     private EndOfTermDecisionRepository endOfTermDecisionRepository;
 
+    // MỚI: getMyReceipt() nạp lịch sử thương lượng giá ký gửi lại khi biên nhận có reConsignDecision
+    @Mock
+    private com.rehome.rehome.repository.ReConsignNegotiationHistoryRepository negotiationHistoryRepository;
+
     @Spy
     private SystemConfigReader systemConfigReader = new DefaultConfigReader();
 
@@ -405,7 +409,8 @@ class ConsignmentReceiptServiceImplTest {
                 .build();
         EndOfTermDecision reConsignDecision = EndOfTermDecision.builder()
                 .id(UUID.randomUUID()).product(product)
-                .decision(EndOfTermChoice.RE_CONSIGN).newReceipt(newReceipt).build();
+                .decision(EndOfTermChoice.RE_CONSIGN).newReceipt(newReceipt)
+                .reConsignStatus(com.rehome.rehome.entity.enums.ReConsignStatus.PROPOSED).build();
 
         when(consignmentReceiptRepository.findByIdForUpdate(newReceipt.getId()))
                 .thenReturn(Optional.of(newReceipt));

@@ -1,6 +1,7 @@
 package com.rehome.rehome.repository;
 
 import com.rehome.rehome.entity.enums.EndOfTermChoice;
+import com.rehome.rehome.entity.enums.ReConsignStatus;
 import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -28,6 +29,28 @@ public interface EndOfTermDecisionRepository extends JpaRepository<EndOfTermDeci
             + "and d.newReceipt is null and p.warehouse.id = :warehouseId "
             + "order by d.decidedAt asc")
     List<EndOfTermDecision> findPendingPricingByWarehouse(@Param("warehouseId") UUID warehouseId);
+
+    // Quyết định RE_CONSIGN mà Member vừa đề xuất lại giá (COUNTER_OFFERED), chờ Moderator phản hồi
+    @Query("select d from EndOfTermDecision d join fetch d.product p join fetch d.newReceipt "
+            + "where d.reConsignStatus = com.rehome.rehome.entity.enums.ReConsignStatus.COUNTER_OFFERED "
+            + "and p.warehouse.id = :warehouseId order by d.counteredAt asc")
+    List<EndOfTermDecision> findCounterOfferedByWarehouse(@Param("warehouseId") UUID warehouseId);
+
+    // Job: PROPOSED đã quá proposalDeadline -> xử lý như DECLINE (EXPIRED)
+    List<EndOfTermDecision> findAllByReConsignStatusAndProposalDeadlineBefore(
+            ReConsignStatus reConsignStatus, Instant proposalDeadline);
+
+    // Job: nhắc Member trước khi hết hạn xác nhận/đề xuất lại, mỗi vòng chỉ nhắc 1 lần
+    @Query("select d from EndOfTermDecision d join fetch d.product p "
+            + "where d.reConsignStatus = com.rehome.rehome.entity.enums.ReConsignStatus.PROPOSED "
+            + "and d.proposalDeadline is not null and d.proposalDeadline <= :reminderBefore "
+            + "and d.proposalDeadline > :now and d.proposalReminderSentAt is null")
+    List<EndOfTermDecision> findDueForProposalReminder(
+            @Param("now") Instant now, @Param("reminderBefore") Instant reminderBefore);
+
+    // Job: COUNTER_OFFERED quá hạn phản hồi của Moderator - chỉ để log cảnh báo, không tự xử lý
+    List<EndOfTermDecision> findAllByReConsignStatusAndCounteredAtBefore(
+            ReConsignStatus reConsignStatus, Instant counteredAt);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select d from EndOfTermDecision d where d.id = :id")

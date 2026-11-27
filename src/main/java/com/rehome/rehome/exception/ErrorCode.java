@@ -166,6 +166,18 @@ public enum ErrorCode {
     RE_CONSIGN_NOT_REQUESTED(HttpStatus.CONFLICT, "Member chưa chọn ký gửi lại cho sản phẩm này."),
     RE_CONSIGN_TERMS_ALREADY_SET(HttpStatus.CONFLICT, "Giá và điều khoản ký gửi lại đã được chốt."),
     INVALID_FLOOR_PRICE(HttpStatus.BAD_REQUEST, "Giá sàn phải lớn hơn 0 và không vượt quá giá thỏa thuận."),
+    // Thương lượng giá ký gửi lại: counter-offer / decline / counter-response
+    RE_CONSIGN_NOT_PROPOSED(HttpStatus.CONFLICT,
+            "RE_CONSIGN_NOT_PROPOSED: không có đề xuất giá nào đang chờ bạn xác nhận hoặc phản hồi."),
+    RE_CONSIGN_PROPOSAL_EXPIRED(HttpStatus.CONFLICT,
+            "RE_CONSIGN_PROPOSAL_EXPIRED: đã quá hạn xác nhận đề xuất giá này."),
+    RE_CONSIGN_COUNTER_LIMIT(HttpStatus.CONFLICT,
+            "RE_CONSIGN_COUNTER_LIMIT: bạn đã dùng hết số lần được đề xuất lại giá."),
+    RE_CONSIGN_WAITING_MODERATOR(HttpStatus.CONFLICT,
+            "RE_CONSIGN_WAITING_MODERATOR: đang chờ ReHome phản hồi đề xuất giá của bạn, chưa thể xác nhận."),
+    RE_CONSIGN_NOT_COUNTERED(HttpStatus.CONFLICT,
+            "RE_CONSIGN_NOT_COUNTERED: không có đề xuất giá nào của Member đang chờ phản hồi."),
+    INVALID_PRICE(HttpStatus.BAD_REQUEST, "Giá đề xuất phải từ 10.000đ trở lên."),
     // API 40 - danh sách hàng trong kho
     ACCESS_TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "Access token đã hết hạn."),
     ACCESS_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "Access token không hợp lệ."),

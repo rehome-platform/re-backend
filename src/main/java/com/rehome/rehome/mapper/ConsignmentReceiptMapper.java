@@ -79,13 +79,23 @@ public final class ConsignmentReceiptMapper {
         return dto;
     }
 
-    // Thêm productId và previousPrice khi biên nhận sinh ra từ quyết định ký gửi lại
+    // Thêm productId, previousPrice và trạng thái thương lượng giá khi biên nhận sinh ra từ quyết
+    // định ký gửi lại. negotiationHistory KHÔNG được set ở đây (cần repository) - service layer tự
+    // gọi dto.setNegotiationHistory(...) sau khi gọi hàm này.
     public static ConsignmentReceiptResponse toResponse(ConsignmentReceipt r, String sku,
                                                         EndOfTermDecision reConsignDecision) {
         ConsignmentReceiptResponse dto = toResponse(r, sku);
         if (dto != null && reConsignDecision != null) {
             dto.setProductId(reConsignDecision.getProduct().getId());
             dto.setPreviousPrice(reConsignDecision.getProduct().getCurrentPrice());
+            dto.setReConsignStatus(reConsignDecision.getReConsignStatus());
+            dto.setProposalDeadline(reConsignDecision.getProposalDeadline());
+            dto.setProposalRound(reConsignDecision.getProposalRound());
+            dto.setCounterRoundsUsed(reConsignDecision.getCounterRoundsUsed());
+            dto.setMemberCounterPrice(reConsignDecision.getMemberCounterPrice());
+            dto.setMemberCounterNote(reConsignDecision.getMemberCounterNote());
+            dto.setModeratorResponse(reConsignDecision.getModeratorResponse());
+            dto.setModeratorResponseNote(reConsignDecision.getModeratorResponseNote());
         }
         return dto;
     }

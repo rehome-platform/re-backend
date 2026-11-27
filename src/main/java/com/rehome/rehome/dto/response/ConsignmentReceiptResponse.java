@@ -1,5 +1,9 @@
 package com.rehome.rehome.dto.response;
 
+import com.rehome.rehome.entity.enums.ReConsignCounterResponseAction;
+import com.rehome.rehome.entity.enums.ReConsignNegotiationAction;
+import com.rehome.rehome.entity.enums.ReConsignStatus;
+import com.rehome.rehome.entity.enums.Role;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -65,4 +69,29 @@ public class ConsignmentReceiptResponse {
     private Instant confirmedAt;  // null = chưa xác nhận
     // Không còn URL: tải PDF qua GET /consignment-receipts/{id}/pdf (cần JWT)
     private boolean pdfAvailable; // false cho tới khi xác nhận
+
+    // ===== Thương lượng giá ký gửi lại: chỉ có với biên nhận sinh từ EndOfTermDecision (RE_CONSIGN),
+    // còn lại (biên nhận ký gửi lần đầu) để null =====
+    private ReConsignStatus reConsignStatus;
+    private Instant proposalDeadline;
+    private Integer proposalRound;
+    private Integer counterRoundsUsed;
+    private Integer maxCounterRounds;
+    private BigDecimal memberCounterPrice;
+    private String memberCounterNote;
+    private ReConsignCounterResponseAction moderatorResponse;
+    private String moderatorResponseNote;
+    private List<NegotiationHistoryItem> negotiationHistory;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class NegotiationHistoryItem {
+        private Role actor;
+        private ReConsignNegotiationAction action;
+        private BigDecimal price;
+        private String note;
+        private Instant createdAt;
+    }
 }

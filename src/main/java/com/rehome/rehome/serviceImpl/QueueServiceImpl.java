@@ -497,6 +497,7 @@ public class QueueServiceImpl implements QueueService {
             case LEGAL_CHANGE -> NotificationTargetType.LEGAL_CHANGE;
             case VIOLATION_REPORT -> NotificationTargetType.VIOLATION_REPORT;
             case DONATION_PICKUP, DONATION_REASSIGN, DONATION_PREP -> NotificationTargetType.DONATION;
+            case RECONSIGN_COUNTER -> NotificationTargetType.CONSIGNMENT_RECEIPT;
         };
         String task = switch (type) {
             case FORM_REVIEW -> "Duyệt yêu cầu ký gửi";
@@ -511,6 +512,7 @@ public class QueueServiceImpl implements QueueService {
             case DONATION_PICKUP -> "Bàn giao lượt quyên góp";
             case DONATION_REASSIGN -> "Chuyển lượt quyên góp tạm giữ";
             case DONATION_PREP -> "Chuẩn bị món quyên góp";
+            case RECONSIGN_COUNTER -> "Phản hồi đề xuất giá ký gửi lại";
         };
         List<Account> moderators = warehouse == null
                 ? accountRepository.findByRole(Role.MODERATOR)

@@ -7,6 +7,8 @@ import com.rehome.rehome.dto.request.UpdateProductRequest;
 import com.rehome.rehome.dto.response.ProductSummaryResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.OrderStatus;
+import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.TryOnSlot;
 import com.rehome.rehome.entity.marketplace.*;
@@ -39,6 +41,7 @@ class ProductCategoryUpdateTest {
     @Mock CategoryRepository categories;
     @Mock OrderItemRepository orderItems;
     @Mock AuditLogger audit;
+    @Mock ItemWithdrawalRequestRepository withdrawals;
     @InjectMocks ProductServiceImpl service;
 
     Product product;
@@ -146,6 +149,56 @@ class ProductCategoryUpdateTest {
         assertError(ErrorCode.PRODUCT_UPDATE_CONFLICT,
                 new UpdateProductRequest("Name", List.of(), UUID.randomUUID()));
         verifyNoInteractions(categories, photos, audit);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = {"CANCELLED", "RETURNED"})
+    void historicalOrderDoesNotBlockUpdatingARelistedProduct(OrderStatus status) {
+        allowUpdate();
+        allowDetailResponse();
+        when(orderItems.findActiveByProductIds(List.of(product.getId())))
+                .thenReturn(List.of(OrderItem.builder().order(Order.builder().status(status).build()).build()));
+
+        var response = service.updateProduct(moderator, product.getId(), new UpdateProductRequest("Relisted", List.of()));
+
+        assertThat(response.getName()).isEqualTo("Relisted");
+        verify(products).save(product);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = {"CANCELLED", "RETURNED"}, mode = EnumSource.Mode.EXCLUDE)
+    void nonReturnedAndNonCancelledOrderStillBlocksUpdatingProduct(OrderStatus status) {
+        allowUpdate();
+        when(orderItems.findActiveByProductIds(List.of(product.getId())))
+                .thenReturn(List.of(OrderItem.builder().order(Order.builder().status(status).build()).build()));
+
+        assertError(ErrorCode.PRODUCT_UPDATE_CONFLICT, new UpdateProductRequest("Name", List.of()));
+        verifyNoInteractions(photos, audit);
+    }
+
+    @Test void oldReturnedOrderDoesNotHideANewActiveOrder() {
+        allowUpdate();
+        when(orderItems.findActiveByProductIds(List.of(product.getId())))
+                .thenReturn(List.of(
+                        OrderItem.builder().order(Order.builder().status(OrderStatus.RETURNED).build()).build(),
+                        OrderItem.builder().order(Order.builder().status(OrderStatus.PAID).build()).build()));
+
+        assertError(ErrorCode.PRODUCT_UPDATE_CONFLICT, new UpdateProductRequest("Name", List.of()));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ItemWithdrawalStatus.class, names = {"PENDING_APPROVAL", "PENDING_PICKUP"})
+    void warehouseProductWithActiveWithdrawalCannotBeEdited(ItemWithdrawalStatus status) {
+        product.setStatus(ProductStatus.WAREHOUSE);
+        allowUpdate();
+        when(withdrawals.existsByProduct_IdAndStatusIn(eq(product.getId()),
+                argThat(statuses -> statuses.contains(status))))
+                .thenReturn(true);
+
+        assertError(ErrorCode.PRODUCT_UPDATE_CONFLICT, new UpdateProductRequest("Changed", List.of()));
+
+        assertThat(product.getName()).isEqualTo("Old name");
+        verifyNoInteractions(categories, orderItems, photos, audit);
     }
 
     @Test void differentWarehouseStillBlocksCategoryChange() {

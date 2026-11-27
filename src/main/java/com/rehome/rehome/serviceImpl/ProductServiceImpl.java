@@ -20,6 +20,7 @@ import com.rehome.rehome.entity.enums.CampaignStatus;
 import com.rehome.rehome.entity.enums.DonationSource;
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.enums.Role;
@@ -68,7 +69,7 @@ public class ProductServiceImpl implements ProductService {
     private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
 
 
-    // Yêu cầu rút hàng còn sống (chờ duyệt hoặc đã duyệt, chờ lấy) - sản phẩm đang WITHDRAWN cả hai trường hợp
+    // Yêu cầu rút còn sống: sản phẩm ở WAREHOUSE, hoặc WITHDRAWN với dữ liệu cũ.
     private static final List<ItemWithdrawalStatus> ACTIVE_WITHDRAWAL_STATUSES =
             List.of(ItemWithdrawalStatus.PENDING_APPROVAL, ItemWithdrawalStatus.PENDING_PICKUP);
 
@@ -133,7 +134,10 @@ public class ProductServiceImpl implements ProductService {
             throw new AppException(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);
         }
         if ((product.getStatus() != ProductStatus.ON_SALE && product.getStatus() != ProductStatus.WAREHOUSE)
-                || !orderItemRepository.findActiveByProductIds(List.of(id)).isEmpty()) {
+                || (product.getStatus() == ProductStatus.WAREHOUSE
+                        && itemWithdrawalRequestRepository.existsByProduct_IdAndStatusIn(id, ACTIVE_WITHDRAWAL_STATUSES))
+                || orderItemRepository.findActiveByProductIds(List.of(id)).stream()
+                        .map(OrderItem::getOrder).anyMatch(ProductServiceImpl::blocksProductUpdate)) {
             throw new AppException(ErrorCode.PRODUCT_UPDATE_CONFLICT);
         }
 
@@ -164,6 +168,11 @@ public class ProductServiceImpl implements ProductService {
         productPhotoRepository.deleteAll(byUrl.values().stream().flatMap(java.util.Collection::stream).toList());
         productPhotoRepository.saveAll(photos);
         return getProductDetail(id, moderator.getId());
+    }
+
+    private static boolean blocksProductUpdate(Order order) {
+        return order == null || (order.getStatus() != OrderStatus.CANCELLED
+                && order.getStatus() != OrderStatus.RETURNED);
     }
 
     @Override
@@ -448,14 +457,23 @@ public class ProductServiceImpl implements ProductService {
         switch (previousStatus) {
             case ON_SALE -> caseType = "A";
             case WAREHOUSE -> {
-                decision = endOfTermDecisionRepository.findByProductIds(List.of(productId)).stream()
-                        .findFirst()
-                        .filter(d -> d.getDecision() == null)
-                        .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_DONATABLE));
-                if (!degradedItemCaseRepository.findPendingByProductIds(List.of(productId)).isEmpty()) {
-                    throw new AppException(ErrorCode.PRODUCT_NOT_DONATABLE);
+                activeWithdrawal = itemWithdrawalRequestRepository
+                        .findFirstByProduct_IdAndStatusIn(productId, ACTIVE_WITHDRAWAL_STATUSES).orElse(null);
+                if (activeWithdrawal != null) {
+                    if (activeWithdrawal.getStatus() == ItemWithdrawalStatus.PENDING_APPROVAL) {
+                        throw new AppException(ErrorCode.WITHDRAWAL_PENDING_APPROVAL);
+                    }
+                    caseType = "C1";
+                } else {
+                    decision = endOfTermDecisionRepository.findByProductIds(List.of(productId)).stream()
+                            .findFirst()
+                            .filter(d -> d.getDecision() == null)
+                            .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_DONATABLE));
+                    if (!degradedItemCaseRepository.findPendingByProductIds(List.of(productId)).isEmpty()) {
+                        throw new AppException(ErrorCode.PRODUCT_NOT_DONATABLE);
+                    }
+                    caseType = "B";
                 }
-                caseType = "B";
             }
             case WITHDRAWN -> {
                 activeWithdrawal = itemWithdrawalRequestRepository
@@ -712,8 +730,14 @@ public class ProductServiceImpl implements ProductService {
                 .orElse(null);
         UUID degradedCaseId = degradedItemCaseRepository.findPendingByProductIds(List.of(product.getId()))
                 .stream().findFirst().map(DegradedItemCase::getId).orElse(null);
+        ItemWithdrawalRequest activeWithdrawal = product.getStatus() == ProductStatus.WAREHOUSE
+                || product.getStatus() == ProductStatus.WITHDRAWN
+                ? itemWithdrawalRequestRepository.findFirstByProduct_IdAndStatusIn(
+                        product.getId(), ACTIVE_WITHDRAWAL_STATUSES).orElse(null) : null;
 
         return ProductSkuLookupResponse.builder()
+                .activeWithdrawalId(activeWithdrawal == null ? null : activeWithdrawal.getId())
+                .activeWithdrawalStatus(activeWithdrawal == null ? null : activeWithdrawal.getStatus())
                 .id(product.getId())
                 .name(product.getName())
                 .status(product.getStatus())
@@ -769,6 +793,7 @@ public class ProductServiceImpl implements ProductService {
                 account.getWarehouse().getId(), status, degradedOnly, pageable);
 
         Map<String, UUID> pendingReturns = pendingReturnRequests(result.getContent());
+        Map<String, ItemWithdrawalRequest> activeWithdrawals = activeWithdrawalsByProductId(result.getContent());
         List<String> productIds = result.getContent().stream().map(Product::getId).toList();
         Map<String, List<String>> photosByProductId = productIds.isEmpty() ? Map.of() : productPhotoRepository
                 .findByProduct_IdInOrderByDisplayOrderAscIdAsc(productIds).stream()
@@ -778,7 +803,10 @@ public class ProductServiceImpl implements ProductService {
         return PageResponse.from(result.map(p -> {
             List<String> photos = photosByProductId.getOrDefault(p.getId(), List.of());
             Category category = p.getCategory();
+            ItemWithdrawalRequest activeWithdrawal = activeWithdrawals.get(p.getId());
             return InventoryItemResponse.builder()
+                .activeWithdrawalId(activeWithdrawal == null ? null : activeWithdrawal.getId())
+                .activeWithdrawalStatus(activeWithdrawal == null ? null : activeWithdrawal.getStatus())
                 .id(p.getId())
                 .name(p.getName())
                 .thumbnailUrl(photos.isEmpty() ? null : photos.get(0))
@@ -795,6 +823,15 @@ public class ProductServiceImpl implements ProductService {
                 .pendingReturnRequestId(pendingReturns.get(p.getId()))
                 .build();
         }));
+    }
+
+    private Map<String, ItemWithdrawalRequest> activeWithdrawalsByProductId(List<Product> products) {
+        List<String> ids = products.stream()
+                .filter(p -> p.getStatus() == ProductStatus.WAREHOUSE || p.getStatus() == ProductStatus.WITHDRAWN)
+                .map(Product::getId).toList();
+        if (ids.isEmpty()) return Map.of();
+        return itemWithdrawalRequestRepository.findByProductIdsAndStatusIn(ids, ACTIVE_WITHDRAWAL_STATUSES).stream()
+                .collect(Collectors.toMap(w -> w.getProduct().getId(), w -> w, (first, second) -> first));
     }
 
     private Map<String, UUID> pendingReturnRequests(List<Product> products) {

@@ -308,11 +308,11 @@ class ItemWithdrawalRequestServiceImplTest {
     }
 
     @Test
-    @DisplayName("create: thành công -> sản phẩm ngừng bán ngay (ON_SALE -> WITHDRAWN)")
-    void create_success_withdrawsProductImmediately() {
+    @DisplayName("create: ngừng bán ngay nhưng hàng còn trong kho (ON_SALE -> WAREHOUSE)")
+    void create_success_keepsProductInWarehouseUntilHandover() {
         service.create(owner, request(PRODUCT_ID));
 
-        assertThat(product.getStatus()).isEqualTo(ProductStatus.WITHDRAWN);
+        assertThat(product.getStatus()).isEqualTo(ProductStatus.WAREHOUSE);
         verify(productRepository).save(product);
     }
 
@@ -448,6 +448,7 @@ class ItemWithdrawalRequestServiceImplTest {
     @DisplayName("approve: miễn phí -> PENDING_PICKUP, gắn moderator, đặt pickupDeadline +7 ngày, không có hạn trả phí")
     void approve_freeFee_setsPickupDeadlineOnly() {
         ItemWithdrawalRequest r = pendingApproval(BigDecimal.ZERO);
+        product.setStatus(ProductStatus.WAREHOUSE);
 
         Instant before = Instant.now();
         ItemWithdrawalResponse response = service.approve(moderator, withdrawalId);
@@ -461,6 +462,8 @@ class ItemWithdrawalRequestServiceImplTest {
                 .isBefore(Instant.now().plus(PICKUP_DEADLINE_DAYS, ChronoUnit.DAYS).plusSeconds(5));
         assertThat(r.getFeePaymentDeadline()).isNull();
         verify(itemWithdrawalRequestRepository).save(r);
+        assertThat(product.getStatus()).isEqualTo(ProductStatus.WAREHOUSE);
+        verify(productRepository, never()).save(product);
     }
 
     @Test
@@ -530,11 +533,12 @@ class ItemWithdrawalRequestServiceImplTest {
         assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.ITEM_WITHDRAWAL_NOT_PENDING_APPROVAL);
     }
 
-    @Test
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = ProductStatus.class, names = {"WAREHOUSE", "WITHDRAWN"})
     @DisplayName("reject: thành công -> REJECTED, lưu lý do, đóng việc trong hàng đợi, trả sản phẩm về ON_SALE")
-    void reject_success_relistsProduct() {
+    void reject_success_relistsProduct(ProductStatus previousStatus) {
         ItemWithdrawalRequest r = pendingApproval(new BigDecimal("50000"));
-        product.setStatus(ProductStatus.WITHDRAWN);
+        product.setStatus(previousStatus);
 
         ItemWithdrawalResponse response = service.reject(
                 moderator, withdrawalId, rejectRequest("Hàng không khớp mô tả"));

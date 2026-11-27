@@ -1,6 +1,7 @@
 package com.rehome.rehome.dto.response;
 
 import com.rehome.rehome.entity.enums.ConsignmentFormStatus;
+import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -39,6 +40,8 @@ public class MemberTasksResponse {
         private com.rehome.rehome.entity.enums.ModeratorResumeStep resumeStep;
         private String productSku;
         private com.rehome.rehome.entity.enums.ProductStatus productStatus;
+        private UUID activeWithdrawalId;
+        private ItemWithdrawalStatus activeWithdrawalStatus;
         private String displayStatus;
     }
 

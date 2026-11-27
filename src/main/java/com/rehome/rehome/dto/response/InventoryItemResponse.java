@@ -1,6 +1,7 @@
 package com.rehome.rehome.dto.response;
 
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.TryOnSlot;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -19,6 +20,8 @@ import java.util.UUID;
 @Builder
 public class InventoryItemResponse {
     private java.util.UUID pendingReturnRequestId;
+    private UUID activeWithdrawalId;
+    private ItemWithdrawalStatus activeWithdrawalStatus;
     private String id;
     private String name;
     private String thumbnailUrl;

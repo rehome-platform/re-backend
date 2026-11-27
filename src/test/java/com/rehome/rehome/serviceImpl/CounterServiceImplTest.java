@@ -424,6 +424,8 @@ class CounterServiceImplTest {
         assertThat(task.getConfirmedAt()).isEqualTo(receipt.getConfirmedAt());
         assertThat(task.getProductSku()).isEqualTo("SKU-ORIGINAL");
         assertThat(task.getProductStatus()).isEqualTo(ProductStatus.ON_SALE);
+        assertThat(task.getActiveWithdrawalId()).isNull();
+        assertThat(task.getActiveWithdrawalStatus()).isNull();
         assertThat(task.getDisplayStatus()).isEqualTo("ON_SALE");
         assertThat(task.getResumeStep()).isEqualTo(com.rehome.rehome.entity.enums.ModeratorResumeStep.COMPLETED);
         verify(consignmentFormRepository).findByMember_IdAndStatusInOrderByCreatedAtAsc(memberId,
@@ -440,6 +442,53 @@ class CounterServiceImplTest {
         task = service.getTasks(memberId).getPendingForms().get(0);
         assertThat(task.getReceiptId()).isNull();
         assertThat(task.getResumeStep()).isEqualTo(com.rehome.rehome.entity.enums.ModeratorResumeStep.INSPECTION);
+    }
+
+    @Test
+    void getTasks_batchesActiveWithdrawalsAndKeepsWarehouseWithoutWithdrawalDistinct() {
+        List<Product> products = List.of(
+                Product.builder().id("PENDING-APPROVAL").status(ProductStatus.WAREHOUSE).build(),
+                Product.builder().id("LEGACY-PICKUP").status(ProductStatus.WITHDRAWN).build(),
+                Product.builder().id("ON-SALE").status(ProductStatus.ON_SALE).build(),
+                Product.builder().id("END-OF-TERM").status(ProductStatus.WAREHOUSE).build());
+        var forms = new java.util.ArrayList<ConsignmentForm>();
+        var links = new java.util.ArrayList<com.rehome.rehome.repository.ProductRepository.FormProductId>();
+        for (Product product : products) {
+            var form = ConsignmentForm.builder().id(UUID.randomUUID()).status(ConsignmentFormStatus.INSPECTING).build();
+            forms.add(form);
+            var link = org.mockito.Mockito.mock(com.rehome.rehome.repository.ProductRepository.FormProductId.class);
+            when(link.getFormId()).thenReturn(form.getId());
+            when(link.getProductId()).thenReturn(product.getId());
+            links.add(link);
+        }
+        var approval = ItemWithdrawalRequest.builder().id(UUID.randomUUID()).product(products.get(0))
+                .status(ItemWithdrawalStatus.PENDING_APPROVAL).build();
+        var pickup = ItemWithdrawalRequest.builder().id(UUID.randomUUID()).product(products.get(1))
+                .status(ItemWithdrawalStatus.PENDING_PICKUP).build();
+        when(memberProfileRepository.existsById(memberId)).thenReturn(true);
+        when(consignmentFormRepository.findByMember_IdAndStatusInOrderByCreatedAtAsc(eq(memberId), any()))
+                .thenReturn(forms);
+        when(productRepository.findProductIdsByFormIds(any())).thenReturn(links);
+        when(productRepository.findAllById(any())).thenReturn(products);
+        when(itemWithdrawalRequestRepository.findByProductIdsAndStatusIn(any(), any()))
+                .thenReturn(List.of(approval, pickup));
+
+        var items = service.getTasks(memberId).getPendingForms();
+
+        assertThat(items.get(0).getActiveWithdrawalId()).isEqualTo(approval.getId());
+        assertThat(items.get(0).getActiveWithdrawalStatus()).isEqualTo(ItemWithdrawalStatus.PENDING_APPROVAL);
+        assertThat(items.get(1).getActiveWithdrawalId()).isEqualTo(pickup.getId());
+        assertThat(items.get(1).getActiveWithdrawalStatus()).isEqualTo(ItemWithdrawalStatus.PENDING_PICKUP);
+        assertThat(items.get(2).getActiveWithdrawalId()).isNull();
+        assertThat(items.get(2).getActiveWithdrawalStatus()).isNull();
+        assertThat(items.get(3).getProductStatus()).isEqualTo(ProductStatus.WAREHOUSE);
+        assertThat(items.get(3).getActiveWithdrawalId()).isNull();
+        assertThat(items.get(3).getActiveWithdrawalStatus()).isNull();
+        verify(itemWithdrawalRequestRepository).findByProductIdsAndStatusIn(
+                org.mockito.ArgumentMatchers.argThat(ids -> ids.size() == 3
+                        && ids.containsAll(List.of("PENDING-APPROVAL", "LEGACY-PICKUP", "END-OF-TERM"))),
+                eq(List.of(ItemWithdrawalStatus.PENDING_APPROVAL, ItemWithdrawalStatus.PENDING_PICKUP)));
+        verify(itemWithdrawalRequestRepository, never()).findFirstByProduct_IdAndStatusIn(any(), any());
     }
 
     @Test
@@ -641,13 +690,15 @@ class CounterServiceImplTest {
 
     private ItemWithdrawalRequest itemWithdrawalRequest(Account owner, ItemWithdrawalStatus status) {
         Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).name("Kho Quận 7").build();
-        // Sản phẩm đã WITHDRAWN từ lúc tạo yêu cầu (F-032 - ngừng bán ngay)
+        // Hàng đã ngừng bán nhưng vẫn trong kho cho tới lúc bàn giao.
         Product product = Product.builder()
                 .id(ITEM_WITHDRAWAL_PRODUCT_ID)
                 .member(owner)
                 .warehouse(warehouse)
-                .status(ProductStatus.WITHDRAWN)
+                .status(ProductStatus.WAREHOUSE)
                 .build();
+        lenient().when(productRepository.findByIdForUpdate(ITEM_WITHDRAWAL_PRODUCT_ID))
+                .thenReturn(Optional.of(product));
 
         return ItemWithdrawalRequest.builder()
                 .id(refId)
@@ -670,6 +721,9 @@ class CounterServiceImplTest {
         assertThat(withdrawal.getStatus()).isEqualTo(ItemWithdrawalStatus.COMPLETED);
         assertThat(withdrawal.getCompletedAt()).isNotNull();
         verify(itemWithdrawalRequestRepository).save(withdrawal);
+        assertThat(withdrawal.getProduct().getStatus()).isEqualTo(ProductStatus.WITHDRAWN);
+        verify(productRepository).findByIdForUpdate(ITEM_WITHDRAWAL_PRODUCT_ID);
+        verify(productRepository).save(withdrawal.getProduct());
 
         verify(queueService).dequeue(QueueType.WITHDRAWAL, refId.toString());
     }
@@ -692,6 +746,7 @@ class CounterServiceImplTest {
         assertThat(withdrawal.getFeePaymentDeadline()).isEqualTo(deadline);
         verify(itemWithdrawalRequestRepository, never()).save(any());
         verifyNoInteractions(queueService, auditLogger);
+        verifyNoInteractions(productRepository);
     }
 
     @Test
@@ -721,6 +776,32 @@ class CounterServiceImplTest {
 
         assertThat(withdrawal.getStatus()).isEqualTo(ItemWithdrawalStatus.COMPLETED);
         verify(queueService).dequeue(QueueType.WITHDRAWAL, refId.toString());
+    }
+
+    @Test
+    void handover_itemWithdrawal_legacyWithdrawnProductIsNotSavedAgain() {
+        ItemWithdrawalRequest withdrawal = itemWithdrawalRequest(member, ItemWithdrawalStatus.PENDING_PICKUP);
+        withdrawal.getProduct().setStatus(ProductStatus.WITHDRAWN);
+        when(itemWithdrawalRequestRepository.findById(refId)).thenReturn(Optional.of(withdrawal));
+
+        service.handover(moderator, request("ITEM_WITHDRAWAL", memberId, refId.toString()));
+
+        assertThat(withdrawal.getStatus()).isEqualTo(ItemWithdrawalStatus.COMPLETED);
+        verify(productRepository).findByIdForUpdate(ITEM_WITHDRAWAL_PRODUCT_ID);
+        verify(productRepository, never()).save(any());
+        verify(queueService).dequeue(QueueType.WITHDRAWAL, refId.toString());
+    }
+
+    @Test
+    void handover_itemWithdrawal_missingProductDoesNotDequeue() {
+        ItemWithdrawalRequest withdrawal = itemWithdrawalRequest(member, ItemWithdrawalStatus.PENDING_PICKUP);
+        when(itemWithdrawalRequestRepository.findById(refId)).thenReturn(Optional.of(withdrawal));
+        when(productRepository.findByIdForUpdate(ITEM_WITHDRAWAL_PRODUCT_ID)).thenReturn(Optional.empty());
+
+        assertErrorCode(() -> service.handover(moderator, request("ITEM_WITHDRAWAL", memberId, refId.toString())),
+                ErrorCode.PRODUCT_NOT_FOUND);
+
+        verifyNoInteractions(queueService, auditLogger);
     }
 
     @Test

@@ -145,10 +145,12 @@ class ItemWithdrawalAutoExpireServiceImplTest {
         assertThat(instantCaptor.getValue()).isBetween(before, after);
     }
 
-    @Test
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = ProductStatus.class, names = {"WAREHOUSE", "WITHDRAWN"})
     @DisplayName("quá hạn trả phí (chưa trả) -> EXPIRED, sản phẩm WITHDRAWN -> ON_SALE, " +
             "không chờ hết pickupDeadline 7 ngày")
-    void feePaymentOverdue_areClosedAndProductRelisted() {
+    void feePaymentOverdue_areClosedAndProductRelisted(ProductStatus previousStatus) {
+        product.setStatus(previousStatus);
         when(itemWithdrawalRequestRepository.findAllByStatusAndPickupDeadlineBefore(
                 eq(ItemWithdrawalStatus.PENDING_PICKUP), any(Instant.class))).thenReturn(List.of());
         ItemWithdrawalRequest feeOverdue = ItemWithdrawalRequest.builder().id(UUID.randomUUID())
@@ -171,6 +173,7 @@ class ItemWithdrawalAutoExpireServiceImplTest {
     @Test
     @DisplayName("quét cả hai mốc (hết hạn lấy hàng và hết hạn trả phí) trong một lần chạy")
     void scansBothPickupAndFeeDeadlines() {
+        product.setStatus(ProductStatus.WAREHOUSE);
         when(itemWithdrawalRequestRepository.findAllByStatusAndPickupDeadlineBefore(
                 eq(ItemWithdrawalStatus.PENDING_PICKUP), any(Instant.class))).thenReturn(List.of(expired1));
         when(itemWithdrawalRequestRepository.findAllByStatusAndFeePaymentOverdue(
@@ -180,6 +183,8 @@ class ItemWithdrawalAutoExpireServiceImplTest {
 
         assertThat(expired1.getStatus()).isEqualTo(ItemWithdrawalStatus.EXPIRED);
         assertThat(expired2.getStatus()).isEqualTo(ItemWithdrawalStatus.EXPIRED);
+        assertThat(product.getStatus()).isEqualTo(ProductStatus.ON_SALE);
+        assertThat(product2.getStatus()).isEqualTo(ProductStatus.ON_SALE);
         verify(itemWithdrawalRequestRepository, times(2)).save(any());
     }
 }

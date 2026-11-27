@@ -1696,11 +1696,12 @@ class ProductServiceImplTest {
         verify(endOfTermDecisionRepository).save(decision);
     }
 
-    @Test
-    @DisplayName("donate: WITHDRAWN với yêu cầu rút hàng PENDING_PICKUP -> huỷ yêu cầu, dequeue WITHDRAWAL")
-    void donate_withdrawnPendingPickup_cancelsWithdrawalAndDequeues() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = ProductStatus.class, names = {"WAREHOUSE", "WITHDRAWN"})
+    @DisplayName("donate: PENDING_PICKUP -> CONVERTED_TO_DONATION, hoàn phí và dequeue WITHDRAWAL")
+    void donate_pendingPickup_convertsWithdrawalAndDequeues(ProductStatus previousStatus) {
         Warehouse warehouse = Warehouse.builder().id(UUID.randomUUID()).build();
-        product.setStatus(ProductStatus.WITHDRAWN);
+        product.setStatus(previousStatus);
         product.setWarehouse(warehouse);
         stubFindProduct();
         stubDonationSaveAssignsId();
@@ -1720,12 +1721,15 @@ class ProductServiceImplTest {
         verify(itemWithdrawalRequestService).refundDonationFee(withdrawal);
         verify(queueService).dequeue(com.rehome.rehome.entity.enums.QueueType.WITHDRAWAL,
                 withdrawal.getId().toString());
+        assertEquals(ProductStatus.DONATED, product.getStatus());
+        verify(endOfTermDecisionRepository, never()).findByProductIds(any());
     }
 
-    @Test
-    @DisplayName("donate: WITHDRAWN với yêu cầu rút hàng PENDING_APPROVAL -> 409, không đổi gì")
-    void donate_withdrawnPendingApproval_throwsConflict() {
-        product.setStatus(ProductStatus.WITHDRAWN);
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = ProductStatus.class, names = {"WAREHOUSE", "WITHDRAWN"})
+    @DisplayName("donate: PENDING_APPROVAL -> 409, không đổi gì")
+    void donate_pendingApproval_throwsConflict(ProductStatus previousStatus) {
+        product.setStatus(previousStatus);
         product.setWarehouse(Warehouse.builder().id(UUID.randomUUID()).build());
         stubFindProduct();
 
@@ -1738,6 +1742,8 @@ class ProductServiceImplTest {
 
         assertError(ErrorCode.WITHDRAWAL_PENDING_APPROVAL, () -> service.donate(owner, PRODUCT_ID, donationRequest));
         verify(donationRepository, never()).save(any());
+        assertEquals(previousStatus, product.getStatus());
+        verify(itemWithdrawalRequestService, never()).refundDonationFee(any());
     }
 
     @Test

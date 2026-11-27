@@ -1,6 +1,7 @@
 package com.rehome.rehome.dto.response;
 
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.TryOnSlot;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -24,7 +25,9 @@ public class ProductSkuLookupResponse {
     private ProductStatus status;
 
     private String brandName;
+    private UUID categoryId;
     private String categoryName;
+    private TryOnSlot tryonSlot;
     private String size;
     private String conditionNote;
 

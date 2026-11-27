@@ -5,6 +5,7 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.Role;
+import com.rehome.rehome.entity.enums.TryOnSlot;
 import com.rehome.rehome.entity.marketplace.Brand;
 import com.rehome.rehome.entity.marketplace.Category;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
@@ -107,6 +108,8 @@ class ProductServiceImplInventoryTest {
                 .termStartedAt(Instant.now().minus(Duration.ofDays(5)))
                 .createdAt(createdAt)
                 .build();
+        product.getCategory().setId(UUID.randomUUID());
+        product.getCategory().setTryonSlot(TryOnSlot.TOP);
     }
 
     private Account moderatorOf(Warehouse w) {
@@ -133,6 +136,8 @@ class ProductServiceImplInventoryTest {
         assertEquals("Áo sơ mi Zara trắng", res.getName());
         assertEquals(ProductStatus.ON_SALE, res.getStatus());
         assertEquals("Zara", res.getBrandName());
+        assertEquals(product.getCategory().getId(), res.getCategoryId());
+        assertEquals(TryOnSlot.TOP, res.getTryonSlot());
         assertEquals("Áo sơ mi", res.getCategoryName());
         assertEquals("M", res.getSize());
         assertEquals("Còn mới 95%", res.getConditionNote());
@@ -283,6 +288,41 @@ class ProductServiceImplInventoryTest {
         assertEquals(SKU, item.getId());
         assertEquals("Áo sơ mi Zara trắng", item.getName());
         assertEquals(ProductStatus.ON_SALE, item.getStatus());
+        assertEquals(product.getCategory().getId(), item.getCategoryId());
+        assertEquals(product.getCategory().getName(), item.getCategoryName());
+        assertEquals(TryOnSlot.TOP, item.getTryonSlot());
+        assertNull(item.getThumbnailUrl());
+        assertEquals(List.of(), item.getPhotos());
+    }
+
+    @Test
+    void getInventory_batchesOrderedPhotosForTheWholePage() {
+        Product second = Product.builder().id("SECOND").name("Second")
+                .category(Category.builder().id(UUID.randomUUID()).name("Dress").tryonSlot(TryOnSlot.DRESS).build())
+                .consignmentReceipt(product.getConsignmentReceipt()).build();
+        Product third = Product.builder().id("NO-PHOTOS").name("Third")
+                .category(product.getCategory()).consignmentReceipt(product.getConsignmentReceipt()).build();
+        when(productRepository.findInventory(any(), any(), anyBoolean(), any()))
+                .thenReturn(new PageImpl<>(List.of(product, second, third)));
+        // Repository ordering interleaves products; preserve each product's own display order.
+        when(productPhotoRepository.findByProduct_IdInOrderByDisplayOrderAscIdAsc(List.of(SKU, "SECOND", "NO-PHOTOS")))
+                .thenReturn(List.of(
+                        ProductPhoto.builder().product(product).imageUrl("first.jpg").displayOrder(0).build(),
+                        ProductPhoto.builder().product(second).imageUrl("dress.jpg").displayOrder(0).build(),
+                        ProductPhoto.builder().product(product).imageUrl("zoom.jpg").displayOrder(1).build()));
+
+        var items = productService.getInventory(moderator, null, false, 0, 20).getContent();
+
+        assertEquals(List.of("first.jpg", "zoom.jpg"), items.get(0).getPhotos());
+        assertEquals("first.jpg", items.get(0).getThumbnailUrl());
+        assertEquals(List.of("dress.jpg"), items.get(1).getPhotos());
+        assertEquals("dress.jpg", items.get(1).getThumbnailUrl());
+        assertEquals(TryOnSlot.DRESS, items.get(1).getTryonSlot());
+        assertTrue(items.get(2).getPhotos().isEmpty());
+        assertNull(items.get(2).getThumbnailUrl());
+        verify(productPhotoRepository, times(1))
+                .findByProduct_IdInOrderByDisplayOrderAscIdAsc(List.of(SKU, "SECOND", "NO-PHOTOS"));
+        verifyNoMoreInteractions(productPhotoRepository);
     }
 
     @Test
@@ -305,6 +345,7 @@ class ProductServiceImplInventoryTest {
         Pageable pageable = captureInventoryPageable(null);
         assertEquals(0, pageable.getPageNumber());
         assertEquals(20, pageable.getPageSize());
+        verifyNoInteractions(productPhotoRepository);
     }
 
     @Test

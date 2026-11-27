@@ -76,6 +76,15 @@ public class LiveTryOnController {
         return ResponseEntity.ok(ApiResponse.success(liveTryOnService.getHistory(account, page, size)));
     }
 
+    @DeleteMapping("/sessions/{id}")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<Void>> deleteVideo(
+            @PathVariable UUID id, @AuthenticationPrincipal Account account) {
+        requireAccount(account);
+        liveTryOnService.deleteVideo(account, id);
+        return ResponseEntity.ok(ApiResponse.success(null, "Đã xoá video thử đồ"));
+    }
+
     // Mobile tự báo khi không có video (vd. mất kết nối giữa chừng) - chỉ để audit, không hoàn quota
     @PatchMapping("/sessions/{id}/started")
     @PreAuthorize("hasRole('MEMBER')")

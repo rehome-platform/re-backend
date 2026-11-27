@@ -1,6 +1,7 @@
 package com.rehome.rehome.dto.response;
 
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.TryOnSlot;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -8,6 +9,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.UUID;
 
 @Getter
 @Setter
@@ -18,6 +21,11 @@ public class InventoryItemResponse {
     private java.util.UUID pendingReturnRequestId;
     private String id;
     private String name;
+    private String thumbnailUrl;
+    private List<String> photos;
+    private UUID categoryId;
+    private String categoryName;
+    private TryOnSlot tryonSlot;
     private ProductStatus status;
     // Giá hai bên chốt lúc ký gửi (ConsignmentReceipt.agreedPrice)
     private BigDecimal agreedPrice;

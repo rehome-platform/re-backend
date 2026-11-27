@@ -41,6 +41,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
@@ -271,6 +273,45 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
                 .createdAt(s.getCreatedAt())
                 .completedAt(s.getCompletedAt())
                 .build()));
+    }
+
+    @Override
+    @Transactional
+    public void deleteVideo(Account account, UUID sessionId) {
+        LiveTryOnSession session = liveTryOnSessionRepository.findByIdAndMember_Id(sessionId, account.getId())
+                .orElseThrow(() -> new AppException(ErrorCode.TRYON_LIVE_SESSION_NOT_FOUND));
+        String videoUrl = session.getVideoUrl();
+        if (videoUrl == null) {
+            return;
+        }
+
+        // Preserve the session and firstFrameAt: deleting history must never refund usage.
+        session.setVideoUrl(null);
+        liveTryOnSessionRepository.save(session);
+
+        // A rolled-back delete must leave the playable file intact.
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    removeVideoFile(videoUrl, sessionId);
+                }
+            });
+        } else {
+            removeVideoFile(videoUrl, sessionId);
+        }
+    }
+
+    private void removeVideoFile(String videoUrl, UUID sessionId) {
+        String contentType = videoUrl.toLowerCase(Locale.ROOT).endsWith(".mp4") ? "video/mp4" : "video/webm";
+        try {
+            if (!fileStorageService.deleteByUrl(videoUrl, contentType)) {
+                log.warn("Live try-on video file not found: sessionId={}", sessionId);
+            }
+        } catch (RuntimeException e) {
+            log.warn("Could not delete live try-on video file: sessionId={}", sessionId, e);
+        }
     }
 
     private LiveTryOnSession findOwnStartedSession(Account account, UUID sessionId) {

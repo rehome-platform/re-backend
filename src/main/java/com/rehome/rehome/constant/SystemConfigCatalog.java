@@ -37,6 +37,9 @@ public final class SystemConfigCatalog {
             int_(DEGRADED_ITEM_DECISION_DAYS, 1, 365),
             int_(BRING_IN_DEADLINE_DAYS, 1, 90),
             int_(MAX_PENDING_FORMS_PER_MEMBER, 1, 50),
+            int_(RE_CONSIGN_CONFIRM_DAYS, 1, 30),
+            int_(RE_CONSIGN_MAX_COUNTER_ROUNDS, 0, 10),
+            int_(RE_CONSIGN_MODERATOR_RESPONSE_DAYS, 1, 30),
             int_(MAX_PRICE_CHANGES_PER_DAY, 1, 20),
             // Đơn hàng và trả hàng
             int_(ORDER_PAYMENT_TIMEOUT_MINUTES, 1, 1440),
@@ -93,6 +96,9 @@ public final class SystemConfigCatalog {
         m.put(DEGRADED_ITEM_DECISION_DAYS, String.valueOf(DEFAULT_DEGRADED_ITEM_DECISION_DAYS));
         m.put(BRING_IN_DEADLINE_DAYS, String.valueOf(DEFAULT_BRING_IN_DEADLINE_DAYS));
         m.put(MAX_PENDING_FORMS_PER_MEMBER, String.valueOf(DEFAULT_MAX_PENDING_FORMS_PER_MEMBER));
+        m.put(RE_CONSIGN_CONFIRM_DAYS, String.valueOf(DEFAULT_RE_CONSIGN_CONFIRM_DAYS));
+        m.put(RE_CONSIGN_MAX_COUNTER_ROUNDS, String.valueOf(DEFAULT_RE_CONSIGN_MAX_COUNTER_ROUNDS));
+        m.put(RE_CONSIGN_MODERATOR_RESPONSE_DAYS, String.valueOf(DEFAULT_RE_CONSIGN_MODERATOR_RESPONSE_DAYS));
         m.put(MAX_PRICE_CHANGES_PER_DAY, String.valueOf(DEFAULT_MAX_PRICE_CHANGES_PER_DAY));
         m.put(ORDER_PAYMENT_TIMEOUT_MINUTES, String.valueOf(DEFAULT_ORDER_PAYMENT_TIMEOUT_MINUTES));
         m.put(ORDER_AUTO_COMPLETE_DAYS, String.valueOf(DEFAULT_ORDER_AUTO_COMPLETE_DAYS));

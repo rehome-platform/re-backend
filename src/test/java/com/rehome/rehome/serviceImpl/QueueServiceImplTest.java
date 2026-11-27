@@ -104,6 +104,7 @@ class QueueServiceImplTest {
             case INSPECTION -> "Kiểm định món ký gửi";
             case PACKING -> "Đóng gói đơn hàng";
             case RETURN -> "Xử lý yêu cầu trả hàng";
+            case RETURN_SHIP_BACK -> "Tạo vận đơn gửi lại hàng trả";
             case WITHDRAWAL -> "Xử lý yêu cầu rút hàng";
             case ORG_VERIFICATION -> "Xác minh tổ chức";
             case LEGAL_CHANGE -> "Duyệt thay đổi thông tin pháp lý";

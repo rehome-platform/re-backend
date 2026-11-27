@@ -7,4 +7,6 @@ public interface ReturnRequestAutoExpireService {
 
     // F-071: đóng yêu cầu trả hàng không hợp lệ mà Member không đến nhận lại trong hạn
     void expireUncollectedInvalidReturns();
+
+    void expireOverdueShipBackPayments();
 }

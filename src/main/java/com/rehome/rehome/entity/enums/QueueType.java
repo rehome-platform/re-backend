@@ -13,5 +13,9 @@ public enum QueueType {
     // cần biết để đến lấy món, refId là id của Donation. Đóng ở DonationServiceImpl.handoverDonations.
     DONATION_PICKUP,
     DONATION_REASSIGN,
-    DONATION_PREP
+    DONATION_PREP,
+    // Người mua đã trả phí gửi lại hàng trả không hợp lệ - Moderator của kho cần tạo vận đơn GHN
+    // trong ship-back-ship-within-days ngày. refId là id ReturnRequest, đóng ở
+    // ReturnShipBackServiceImpl.ship.
+    RETURN_SHIP_BACK
 }

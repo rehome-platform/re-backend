@@ -92,7 +92,7 @@ class QueueServiceImplTest {
         var expected = switch (type) {
             case FORM_REVIEW, INSPECTION -> com.rehome.rehome.entity.enums.NotificationTargetType.CONSIGNMENT_FORM;
             case PACKING -> com.rehome.rehome.entity.enums.NotificationTargetType.ORDER;
-            case RETURN -> com.rehome.rehome.entity.enums.NotificationTargetType.RETURN_REQUEST;
+            case RETURN, RETURN_SHIP_BACK -> com.rehome.rehome.entity.enums.NotificationTargetType.RETURN_REQUEST;
             case WITHDRAWAL -> com.rehome.rehome.entity.enums.NotificationTargetType.WITHDRAWAL;
             case ORG_VERIFICATION -> com.rehome.rehome.entity.enums.NotificationTargetType.ORGANIZATION;
             case LEGAL_CHANGE -> com.rehome.rehome.entity.enums.NotificationTargetType.LEGAL_CHANGE;

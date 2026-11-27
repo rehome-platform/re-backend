@@ -9,6 +9,7 @@ import com.rehome.rehome.entity.marketplace.Donation;
 import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.marketplace.Order;
 import com.rehome.rehome.entity.marketplace.QueueItem;
+import com.rehome.rehome.entity.marketplace.ReturnRequest;
 import java.math.BigDecimal;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
@@ -108,6 +109,22 @@ public class QueueItemResponse {
         response.setOrderNo(order.getOrderNo());
         response.setTargetName(order.getOrderNo());
         response.setSubjectSubtitle(sellerName + " / " + buyerName);
+        return response;
+    }
+
+    public static QueueItemResponse fromReturnShipBack(
+            QueueItem q, ReturnRequest returnRequest, Order order, String buyerName) {
+        QueueItemResponse response = from(q);
+        String recipient = returnRequest.getShipBackRecipientName() != null
+                ? returnRequest.getShipBackRecipientName() : buyerName;
+        response.setOrderNo(order.getOrderNo());
+        response.setRecipientName(recipient);
+        response.setTargetName(order.getOrderNo());
+        response.setSubjectSubtitle(recipient);
+        response.setFeeCharged(returnRequest.getShipBackFee());
+        response.setFeePaid(returnRequest.getShipBackPaidAt() != null);
+        response.setStatus(returnRequest.getShipBackStatus() != null
+                ? returnRequest.getShipBackStatus().name() : null);
         return response;
     }
 

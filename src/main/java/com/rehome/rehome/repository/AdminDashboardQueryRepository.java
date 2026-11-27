@@ -39,11 +39,12 @@ public class AdminDashboardQueryRepository {
             OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.PACKED, OrderStatus.SHIPPING, OrderStatus.DELIVERED);
 
     // Các loại bút toán cấu thành doanh thu nền tảng (khớp sumCompletedCommission +
-    // sumWithdrawalFeeRevenue + sumMembershipRevenue). MEMBERSHIP_PURCHASE ở đây chỉ khớp dòng
-    // đối ứng phía PLATFORM (dương) nhờ walletType = PLATFORM lọc ở WHERE bên dưới - dòng Member
-    // âm (walletType = MEMBER) không lọt vào.
+    // sumWithdrawalFeeRevenue + sumReturnShipBackFeeRevenue + sumMembershipRevenue).
+    // MEMBERSHIP_PURCHASE ở đây chỉ khớp dòng đối ứng phía PLATFORM (dương) nhờ walletType = PLATFORM
+    // lọc ở WHERE bên dưới - dòng Member âm (walletType = MEMBER) không lọt vào.
     private static final List<WalletTransactionType> PLATFORM_REVENUE_TYPES = List.of(
             WalletTransactionType.COMMISSION_REVENUE, WalletTransactionType.WITHDRAWAL_FEE_REVENUE,
+            WalletTransactionType.RETURN_SHIP_BACK_FEE_REVENUE,
             WalletTransactionType.MEMBERSHIP_REVENUE, WalletTransactionType.MEMBERSHIP_PURCHASE);
 
     @PersistenceContext
@@ -92,6 +93,11 @@ public class AdminDashboardQueryRepository {
     // Phí rút hàng nền tảng thu: dòng PLATFORM WITHDRAWAL_FEE_REVENUE, ghi lúc phí được thanh toán
     public BigDecimal sumWithdrawalFeeRevenue(Instant from, Instant to) {
         return sumTransactions(WalletType.PLATFORM, WalletTransactionType.WITHDRAWAL_FEE_REVENUE, from, to);
+    }
+
+    // Phí gửi lại hàng trả không hợp lệ nền tảng thu: dòng PLATFORM RETURN_SHIP_BACK_FEE_REVENUE
+    public BigDecimal sumReturnShipBackFeeRevenue(Instant from, Instant to) {
+        return sumTransactions(WalletType.PLATFORM, WalletTransactionType.RETURN_SHIP_BACK_FEE_REVENUE, from, to);
     }
 
     // Doanh thu bán gói thành viên, gộp cả 2 cách trả:

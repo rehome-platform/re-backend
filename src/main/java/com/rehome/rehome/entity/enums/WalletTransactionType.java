@@ -21,5 +21,15 @@ public enum WalletTransactionType {
     // Chi phí khuyến mãi khi đơn có voucher hoàn tất (âm, bên PLATFORM). CHỈ để thống kê, không
     // đổi số dư quỹ - giống COMMISSION_REVENUE, nên cũng bị loại khỏi đối soát quỹ
     // (xem AdminReportQueryRepository.REVENUE_RECOGNITION_TYPES).
-    VOUCHER_DISCOUNT
+    VOUCHER_DISCOUNT,
+
+    // Người mua trả phí gửi lại hàng trả không hợp lệ bằng ví (âm, bên MEMBER) + dòng đối ứng
+    // cùng loại bên PLATFORM (dương). Cũng dùng cho dòng PLATFORM ghi tiền VNPay về muộn trước khi
+    // hoàn vào ví (xem ReturnShipBackServiceImpl.refundLateGatewayPayment).
+    RETURN_SHIP_BACK_FEE,
+
+    // Ghi nhận doanh thu phí gửi lại hàng trả (dương, bên PLATFORM), không đổi số dư quỹ, không có
+    // dòng Member đối ứng - giống WITHDRAWAL_FEE_REVENUE. Bị loại khỏi đối soát quỹ
+    // (AdminReportQueryRepository.REVENUE_RECOGNITION_TYPES).
+    RETURN_SHIP_BACK_FEE_REVENUE
 }

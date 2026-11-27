@@ -78,6 +78,9 @@ class VnPayServiceImplTest {
     @Mock
     private ItemWithdrawalRequestService itemWithdrawalRequestService;
 
+    @Mock
+    private com.rehome.rehome.service.ReturnShipBackService returnShipBackService;
+
     static final String TMN_CODE = "TMN12345";
     static final String HASH_SECRET = "hashSecretTest";
     static final String PAY_URL = "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html";

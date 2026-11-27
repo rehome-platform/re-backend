@@ -39,6 +39,9 @@ class ReturnRequestAutoExpireServiceImplTest {
     @Mock
     private QueueService queueService;
 
+    @Mock
+    private com.rehome.rehome.component.BusinessNotifications businessNotifications;
+
     ReturnRequest approved1;
     ReturnRequest approved2;
     ReturnRequest invalid1;
@@ -159,5 +162,72 @@ class ReturnRequestAutoExpireServiceImplTest {
 
         verify(returnRequestRepository, never())
                 .findAllByStatusAndPickupDeadlineBeforeAndResolvedAtIsNull(any(), any());
+    }
+
+    @Test
+    @DisplayName("expireUncollectedInvalidReturns: bỏ qua PAID, SHIPPING, DELIVERED nhưng vẫn đóng FAILED / null")
+    void expireUncollected_skipsPaidShippingDelivered() {
+        ReturnRequest paid = ReturnRequest.builder().id(UUID.randomUUID())
+                .status(ReturnRequestStatus.INVALID)
+                .shipBackStatus(com.rehome.rehome.entity.enums.ShipBackStatus.PAID)
+                .pickupDeadline(Instant.now().minusSeconds(60))
+                .build();
+        ReturnRequest shipping = ReturnRequest.builder().id(UUID.randomUUID())
+                .status(ReturnRequestStatus.INVALID)
+                .shipBackStatus(com.rehome.rehome.entity.enums.ShipBackStatus.SHIPPING)
+                .pickupDeadline(Instant.now().minusSeconds(60))
+                .build();
+        ReturnRequest failed = ReturnRequest.builder().id(UUID.randomUUID())
+                .status(ReturnRequestStatus.INVALID)
+                .shipBackStatus(com.rehome.rehome.entity.enums.ShipBackStatus.FAILED)
+                .pickupDeadline(Instant.now().minusSeconds(60))
+                .build();
+
+        when(returnRequestRepository.findAllByStatusAndPickupDeadlineBeforeAndResolvedAtIsNull(
+                eq(ReturnRequestStatus.INVALID), any(Instant.class)))
+                .thenReturn(List.of(paid, shipping, failed));
+
+        service.expireUncollectedInvalidReturns();
+
+        verify(returnRequestRepository, times(1)).save(failed);
+        assertThat(paid.getResolvedAt()).isNull();
+        assertThat(shipping.getResolvedAt()).isNull();
+        assertThat(failed.getResolvedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("expireOverdueShipBackPayments: quá hạn trả phí -> xoá lựa chọn, phí, địa chỉ và thông báo cho người mua")
+    void expireOverdueShipBackPayments_clearsSelectionAndNotifies() {
+        com.rehome.rehome.entity.marketplace.Order order = com.rehome.rehome.entity.marketplace.Order.builder()
+                .id(UUID.randomUUID())
+                .orderNo("ORD-001")
+                .build();
+        ReturnRequest overdue = ReturnRequest.builder()
+                .id(UUID.randomUUID())
+                .order(order)
+                .status(ReturnRequestStatus.INVALID)
+                .invalidReturnChoice(com.rehome.rehome.entity.enums.InvalidReturnChoice.SHIP_BACK)
+                .shipBackStatus(com.rehome.rehome.entity.enums.ShipBackStatus.AWAITING_PAYMENT)
+                .shipBackFee(new java.math.BigDecimal("25000"))
+                .shipBackFeeDeadline(Instant.now().minusSeconds(30))
+                .shipBackAddressId(UUID.randomUUID())
+                .shipBackRecipientName("Người mua")
+                .pickupDeadline(Instant.now().plus(3, ChronoUnit.DAYS))
+                .build();
+
+        when(returnRequestRepository.findAllByShipBackStatusAndShipBackFeeDeadlineBefore(
+                eq(com.rehome.rehome.entity.enums.ShipBackStatus.AWAITING_PAYMENT), any(Instant.class)))
+                .thenReturn(List.of(overdue));
+
+        service.expireOverdueShipBackPayments();
+
+        assertThat(overdue.getInvalidReturnChoice()).isNull();
+        assertThat(overdue.getShipBackStatus()).isNull();
+        assertThat(overdue.getShipBackFee()).isNull();
+        assertThat(overdue.getShipBackFeeDeadline()).isNull();
+        assertThat(overdue.getShipBackAddressId()).isNull();
+        assertThat(overdue.getShipBackRecipientName()).isNull();
+        verify(returnRequestRepository).save(overdue);
+        verify(businessNotifications).returned(eq(overdue), any(), any(), any());
     }
 }

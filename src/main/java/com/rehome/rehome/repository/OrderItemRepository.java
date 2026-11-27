@@ -52,6 +52,7 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
     JOIN FETCH oi.order o
     WHERE oi.product.id IN :ids
       AND o.status <> com.rehome.rehome.entity.enums.OrderStatus.CANCELLED
+      AND o.status <> com.rehome.rehome.entity.enums.OrderStatus.RETURNED
     """)
     List<OrderItem> findActiveByProductIds(@Param("ids") Collection<String> ids);
 

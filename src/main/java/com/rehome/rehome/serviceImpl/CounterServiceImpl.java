@@ -133,6 +133,11 @@ public class CounterServiceImpl implements CounterService {
                 .filter(r -> r.getStatus() == ItemWithdrawalStatus.PENDING_PICKUP)
                 .orElseThrow(() -> new AppException(ErrorCode.COUNTER_RECORD_NOT_FOUND));
 
+        if (withdrawal.getFeeCharged() != null && withdrawal.getFeeCharged().signum() > 0
+                && withdrawal.getFeePaidAt() == null) {
+            throw new AppException(ErrorCode.WITHDRAWAL_FEE_NOT_PAID);
+        }
+
         withdrawal.setStatus(ItemWithdrawalStatus.COMPLETED);
         withdrawal.setCompletedAt(Instant.now());
         itemWithdrawalRequestRepository.save(withdrawal);

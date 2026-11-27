@@ -136,9 +136,8 @@ public class ConversationServiceImpl implements ConversationService {
                 .collect(Collectors.toMap(row -> (UUID) row[0],
                         row -> new LastMessageInfo((String) row[1], (Instant) row[2], (UUID) row[3]),
                         (first, second) -> first));
-        Map<UUID, Long> unreadByConversationId = messageRepository
-                .countUnreadByConversationIds(conversationIds, viewer.getId()).stream()
-                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
+        Map<UUID, Long> unreadByConversationId = toCountMap(messageRepository
+                .countUnreadByConversationIds(conversationIds, viewer.getId()));
         Map<UUID, CounterpartDisplay> counterpartDisplays = resolveCounterpartDisplays(conversations, viewer.getRole());
         Map<UUID, MemberStats> memberStatsById = viewer.getRole() == Role.MODERATOR
                 ? resolveMemberStats(conversations)
@@ -149,7 +148,7 @@ public class ConversationServiceImpl implements ConversationService {
         return conversations.stream()
                 .sorted(Comparator.comparing(
                         (Conversation c) -> lastActivityAt(c, lastMessageByConversationId.get(c.getId())),
-                        Comparator.reverseOrder()))
+                        Comparator.nullsLast(Comparator.reverseOrder())))
                 .map(conversation -> {
                     UUID counterpartId = counterpartIdFor(conversation, viewer.getRole());
                     CounterpartDisplay display = counterpartDisplays.get(counterpartId);
@@ -167,7 +166,7 @@ public class ConversationServiceImpl implements ConversationService {
                                     .builder()
                                     .content(lastMessage.content())
                                     .createdAt(lastMessage.createdAt())
-                                    .senderId(lastMessage.senderId().toString())
+                                    .senderId(lastMessage.senderId() == null ? null : lastMessage.senderId().toString())
                                     .build())
                             .unreadCount(unreadByConversationId.getOrDefault(conversation.getId(), 0L))
                             .phone(stats == null ? null : stats.phone())
@@ -186,17 +185,18 @@ public class ConversationServiceImpl implements ConversationService {
     private Map<UUID, MemberStats> resolveMemberStats(List<Conversation> conversations) {
         List<UUID> memberIds = conversations.stream().map(c -> c.getMember().getId()).distinct().toList();
 
-        Map<UUID, String> phoneByMemberId = accountRepository.findAllById(memberIds).stream()
-                .collect(Collectors.toMap(Account::getId, Account::getPhone));
-        Map<UUID, Long> consignCountByMemberId = consignmentFormRepository.countActiveFormsByMemberIds(memberIds)
-                .stream()
-                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
-        Map<UUID, Long> shippingCountByMemberId = orderRepository
-                .countByBuyerIdsInAndStatusIn(memberIds, SHIPPING_ORDER_STATUSES).stream()
-                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
-        Map<UUID, Long> returnCountByMemberId = returnRequestRepository
-                .countByOrderBuyerIdsInAndStatusIn(memberIds, OPEN_RETURN_STATUSES).stream()
-                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
+        Map<UUID, String> phoneByMemberId = new HashMap<>();
+        for (Account account : accountRepository.findAllById(memberIds)) {
+            if (account.getPhone() != null) {
+                phoneByMemberId.put(account.getId(), account.getPhone());
+            }
+        }
+        Map<UUID, Long> consignCountByMemberId = toCountMap(
+                consignmentFormRepository.countActiveFormsByMemberIds(memberIds));
+        Map<UUID, Long> shippingCountByMemberId = toCountMap(orderRepository
+                .countByBuyerIdsInAndStatusIn(memberIds, SHIPPING_ORDER_STATUSES));
+        Map<UUID, Long> returnCountByMemberId = toCountMap(returnRequestRepository
+                .countByOrderBuyerIdsInAndStatusIn(memberIds, OPEN_RETURN_STATUSES));
 
         Map<UUID, MemberStats> result = new HashMap<>();
         for (UUID memberId : memberIds) {
@@ -205,6 +205,18 @@ public class ConversationServiceImpl implements ConversationService {
                     consignCountByMemberId.getOrDefault(memberId, 0L),
                     shippingCountByMemberId.getOrDefault(memberId, 0L),
                     returnCountByMemberId.getOrDefault(memberId, 0L)));
+        }
+        return result;
+    }
+
+    private static Map<UUID, Long> toCountMap(List<Object[]> rows) {
+        Map<UUID, Long> result = new HashMap<>();
+        if (rows != null) {
+            for (Object[] row : rows) {
+                if (row != null && row.length >= 2 && row[0] instanceof UUID id && row[1] instanceof Number count) {
+                    result.put(id, count.longValue());
+                }
+            }
         }
         return result;
     }

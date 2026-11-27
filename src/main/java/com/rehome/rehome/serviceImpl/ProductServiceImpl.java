@@ -20,6 +20,7 @@ import com.rehome.rehome.entity.enums.CampaignStatus;
 import com.rehome.rehome.entity.enums.DonationSource;
 import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.NotificationType;
+import com.rehome.rehome.entity.enums.OrderStatus;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.QueueType;
 import com.rehome.rehome.entity.enums.Role;
@@ -133,7 +134,8 @@ public class ProductServiceImpl implements ProductService {
             throw new AppException(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);
         }
         if ((product.getStatus() != ProductStatus.ON_SALE && product.getStatus() != ProductStatus.WAREHOUSE)
-                || !orderItemRepository.findActiveByProductIds(List.of(id)).isEmpty()) {
+                || orderItemRepository.findActiveByProductIds(List.of(id)).stream()
+                        .map(OrderItem::getOrder).anyMatch(ProductServiceImpl::blocksProductUpdate)) {
             throw new AppException(ErrorCode.PRODUCT_UPDATE_CONFLICT);
         }
 
@@ -164,6 +166,11 @@ public class ProductServiceImpl implements ProductService {
         productPhotoRepository.deleteAll(byUrl.values().stream().flatMap(java.util.Collection::stream).toList());
         productPhotoRepository.saveAll(photos);
         return getProductDetail(id, moderator.getId());
+    }
+
+    private static boolean blocksProductUpdate(Order order) {
+        return order == null || (order.getStatus() != OrderStatus.CANCELLED
+                && order.getStatus() != OrderStatus.RETURNED);
     }
 
     @Override

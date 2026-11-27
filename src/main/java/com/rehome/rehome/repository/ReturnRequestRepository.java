@@ -59,8 +59,8 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UU
             UUID warehouseId, List<ReturnRequestStatus> statuses, Pageable pageable);
 
     // Thống kê hộp thư Moderator: số yêu cầu trả hàng đang xử lý theo người mua, gom nhiều Member 1 query
-    @Query("select r.order.buyer.id, count(r) from ReturnRequest r "
-            + "where r.order.buyer.id in :buyerIds and r.status in :statuses group by r.order.buyer.id")
+    @Query("select o.buyer.id, count(r) from ReturnRequest r join r.order o "
+            + "where o.buyer.id in :buyerIds and r.status in :statuses group by o.buyer.id")
     List<Object[]> countByOrderBuyerIdsInAndStatusIn(@Param("buyerIds") Collection<UUID> buyerIds,
                                                      @Param("statuses") Collection<ReturnRequestStatus> statuses);
 

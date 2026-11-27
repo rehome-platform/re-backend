@@ -59,7 +59,9 @@ class SystemConfigCatalogTest {
                 .containsEntry("order_auto_complete_days", "3")
                 .containsEntry("return_request_window_days", "3")
                 .containsEntry("return_handover_carrier_days", "3")
-                .containsEntry("counter_pickup_days", "7");
+                .containsEntry("counter_pickup_days", "7")
+                .containsEntry("return_ship_back_fee_deadline_minutes", "30")
+                .containsEntry("return_ship_back_ship_within_days", "2");
         SystemConfigCatalog.defaults().keySet().stream()
                 .filter(k -> k.equals("end_of_term_decision_days") || k.equals("bring_in_deadline_days")
                         || k.equals("max_pending_forms_per_member") || k.equals("max_price_changes_per_day")

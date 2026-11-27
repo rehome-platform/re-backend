@@ -932,17 +932,21 @@ class CounterServiceImplTest {
     }
 
     @Test
-    @DisplayName("handover INVALID_RETURN_PICKUP: thành công -> pickedUpAt được set")
+    @DisplayName("handover INVALID_RETURN_PICKUP: thành công -> pickedUpAt, resolvedAt, resolutionNote được set và ghi audit log")
     void handover_invalidReturnPickup_success() {
         ReturnRequest returnRequest = returnRequest(member, ReturnRequestStatus.INVALID,
                 InvalidReturnChoice.WAREHOUSE_PICKUP, null);
         when(returnRequestRepository.findById(refId)).thenReturn(Optional.of(returnRequest));
         CounterHandoverRequest request = request("INVALID_RETURN_PICKUP", memberId, refId.toString());
 
-        service.handover(moderator, request);
+        service.handover(moderatorWithWarehouse, request);
 
         assertThat(returnRequest.getPickedUpAt()).isNotNull();
+        assertThat(returnRequest.getResolvedAt()).isNotNull();
+        assertThat(returnRequest.getResolutionNote()).isEqualTo("Người mua đã nhận lại hàng tại quầy");
         verify(returnRequestRepository).save(returnRequest);
+        verify(auditLogger).logWarehouseOp(eq(moderatorWithWarehouse), eq(moderatorWithWarehouse.getWarehouse()),
+                any(), eq("HANDOVER_INVALID_RETURN"), eq("RETURN_REQUEST"), eq(refId.toString()), eq("HANDED_OVER"), any());
     }
 
     @Test

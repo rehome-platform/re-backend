@@ -70,10 +70,39 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UU
             + "and r.order.warehouse = :warehouse")
     List<UUID> findPendingIdsByWarehouse(@Param("warehouse") Warehouse warehouse);
 
+    // Id các yêu cầu trả hàng INVALID đã trả phí gửi lại (PAID) thuộc kho này, dùng đồng bộ vào hàng đợi RETURN_SHIP_BACK
+    @Query("select r.id from ReturnRequest r "
+            + "where r.status = com.rehome.rehome.entity.enums.ReturnRequestStatus.INVALID "
+            + "and r.shipBackStatus = com.rehome.rehome.entity.enums.ShipBackStatus.PAID "
+            + "and r.order.warehouse = :warehouse")
+    List<UUID> findPaidShipBackIdsByWarehouse(@Param("warehouse") Warehouse warehouse);
+
     List<ReturnRequest> findAllByStatusAndHandoverDeadlineBefore(ReturnRequestStatus status, Instant deadline);
 
     List<ReturnRequest> findAllByStatusAndPickupDeadlineBeforeAndResolvedAtIsNull(
             ReturnRequestStatus status, Instant deadline);
+
+    // F-071: INVALID quá pickupDeadline mà chưa đóng, bỏ qua yêu cầu đã vào luồng gửi lại
+    // (shipBackStatus thuộc excludedShipBackStatuses - hàng đã/đang rời kho)
+    @Query("select r from ReturnRequest r where r.status = :status and r.pickupDeadline < :deadline "
+            + "and r.resolvedAt is null "
+            + "and (r.shipBackStatus is null or r.shipBackStatus not in :excludedShipBackStatuses)")
+    List<ReturnRequest> findUncollectedInvalidReturns(
+            @Param("status") ReturnRequestStatus status,
+            @Param("deadline") Instant deadline,
+            @Param("excludedShipBackStatuses") Collection<com.rehome.rehome.entity.enums.ShipBackStatus> excludedShipBackStatuses);
+
+    // Gửi lại hàng trả: AWAITING_PAYMENT quá hạn trả phí
+    List<ReturnRequest> findAllByShipBackStatusAndShipBackFeeDeadlineBefore(
+            com.rehome.rehome.entity.enums.ShipBackStatus shipBackStatus, Instant deadline);
+
+    // Webhook GHN chiều kho -> người mua (gửi lại hàng trả không hợp lệ)
+    Optional<ReturnRequest> findByShipBackTrackingCode(String shipBackTrackingCode);
+
+    // Giao dịch VNPay trả phí gửi lại hàng trả không hợp lệ (tiền tố RSB-)
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from ReturnRequest r where r.shipBackVnpTxnRef = :vnpTxnRef")
+    Optional<ReturnRequest> findByShipBackVnpTxnRefForUpdate(@Param("vnpTxnRef") String vnpTxnRef);
 
     // Member Tasks (API 27): trả hàng bị kết luận không hợp lệ, còn trong 7 ngày gần nhất
     @Query("select r from ReturnRequest r join fetch r.order o "

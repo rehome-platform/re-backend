@@ -39,6 +39,27 @@ public class ReturnRequestResponse {
 
     private Instant createdAt;
     private Instant resolvedAt;
+    // Thời điểm người mua nhận lại hàng trả không hợp lệ tại quầy
+    private Instant pickedUpAt;
+
+    // Gửi lại hàng trả không hợp lệ qua GHN (invalidReturnChoice = SHIP_BACK)
+    private String shipBackStatus;
+    private BigDecimal shipBackFee;
+    private Instant shipBackFeeDeadline;
+    private Instant shipBackPaidAt;
+    private String shipBackPaymentMethod;
+    // Hạn Moderator tạo vận đơn (shipBackPaidAt + return_ship_back_ship_within_days)
+    private Instant shipBackShipDeadline;
+    private String shipBackTrackingCode;
+    private Instant shipBackShippedAt;
+    private Instant shipBackDeliveredAt;
+    private Instant shipBackFailedAt;
+    private String shipBackAddressId;
+    private String shipBackRecipientName;
+    private String shipBackPhone;
+    private String shipBackAddressDetail;
+    private String shipBackWardName;
+    private String shipBackProvinceName;
 
     // Người mua / người bán (F-036, TH-04..TH-07) - để Moderator xem chi tiết lúc kiểm hàng
     private String buyerName;

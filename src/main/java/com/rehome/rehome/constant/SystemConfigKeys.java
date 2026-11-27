@@ -121,6 +121,14 @@ public final class SystemConfigKeys {
     public static final String COUNTER_PICKUP_DAYS = "counter_pickup_days";
     public static final int DEFAULT_COUNTER_PICKUP_DAYS = 7;
 
+    // Số phút người mua phải trả phí gửi lại hàng trả không hợp lệ (SHIP_BACK), quá hạn xoá lựa chọn
+    public static final String RETURN_SHIP_BACK_FEE_DEADLINE_MINUTES = "return_ship_back_fee_deadline_minutes";
+    public static final int DEFAULT_RETURN_SHIP_BACK_FEE_DEADLINE_MINUTES = 30;
+
+    // Số ngày Moderator phải tạo vận đơn gửi lại sau khi người mua trả phí
+    public static final String RETURN_SHIP_BACK_SHIP_WITHIN_DAYS = "return_ship_back_ship_within_days";
+    public static final int DEFAULT_RETURN_SHIP_BACK_SHIP_WITHIN_DAYS = 2;
+
     // ---- Gói thành viên VIP và voucher ----
     // Giá gói và hạn mức KHÔNG ở đây mà ở bảng membership_plans: mỗi hạng có một bộ giá trị riêng
     // nên đó là dữ liệu, không phải tham số toàn cục.

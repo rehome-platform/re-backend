@@ -96,7 +96,7 @@ public class CounterServiceImpl implements CounterService {
         switch (context) {
             case ITEM_WITHDRAWAL -> handoverItemWithdrawal(moderator, request.getAccountId(), refId);
             case END_OF_TERM_TAKE_BACK -> handoverEndOfTermTakeBack(moderator, request.getAccountId(), refId);
-            case INVALID_RETURN_PICKUP -> handoverInvalidReturnPickup(request.getAccountId(), refId);
+            case INVALID_RETURN_PICKUP -> handoverInvalidReturnPickup(moderator, request.getAccountId(), refId);
             case DEGRADED_ITEM_PICKUP -> handoverDegradedItemPickup(moderator, request.getAccountId(), refId);
         }
     }
@@ -169,7 +169,7 @@ public class CounterServiceImpl implements CounterService {
                 decision.getProduct().getId());
     }
 
-    private void handoverInvalidReturnPickup(UUID accountId, UUID refId) {
+    private void handoverInvalidReturnPickup(Account moderator, UUID accountId, UUID refId) {
         ReturnRequest returnRequest = returnRequestRepository.findById(refId)
                 .filter(r -> r.getOrder().getBuyer().getId().equals(accountId))
                 .filter(r -> r.getStatus() == ReturnRequestStatus.INVALID)
@@ -177,8 +177,23 @@ public class CounterServiceImpl implements CounterService {
                 .filter(r -> r.getPickedUpAt() == null)
                 .orElseThrow(() -> new AppException(ErrorCode.COUNTER_RECORD_NOT_FOUND));
 
-        returnRequest.setPickedUpAt(Instant.now());
+        Instant now = Instant.now();
+        returnRequest.setPickedUpAt(now);
+        returnRequest.setResolvedAt(now);
+        returnRequest.setResolutionNote("Người mua đã nhận lại hàng tại quầy");
         returnRequestRepository.save(returnRequest);
+
+        com.rehome.rehome.entity.marketplace.Warehouse warehouse = returnRequest.getOrder().getWarehouse() != null
+                ? returnRequest.getOrder().getWarehouse()
+                : (moderator == null ? null : moderator.getWarehouse());
+        if (warehouse != null) {
+            auditLogger.logWarehouseOp(moderator, warehouse, WarehouseAuditGroup.INVENTORY,
+                    "HANDOVER_INVALID_RETURN", "RETURN_REQUEST", returnRequest.getId().toString(), "HANDED_OVER",
+                    returnRequest.getOrder().getOrderNo());
+        } else {
+            auditLogger.logOperation(moderator, "HANDOVER_INVALID_RETURN", "RETURN_REQUEST",
+                    returnRequest.getId(), "HANDED_OVER");
+        }
     }
 
     private void handoverDegradedItemPickup(Account moderator, UUID accountId, UUID refId) {
@@ -380,7 +395,13 @@ public class CounterServiceImpl implements CounterService {
     // query cho cả lô để tránh N+1 (mỗi đơn ở hệ thống này chỉ có 1 kho/1 món - xem Order)
     private List<MemberTasksResponse.PendingInvalidReturnItem> buildPendingInvalidReturns(UUID accountId) {
         List<ReturnRequest> invalidReturns = returnRequestRepository
-                .findRecentInvalidByBuyerId(accountId, Instant.now().minus(7, ChronoUnit.DAYS));
+                .findRecentInvalidByBuyerId(accountId, Instant.now().minus(7, ChronoUnit.DAYS))
+                .stream()
+                .filter(r -> r.getPickedUpAt() == null && r.getResolvedAt() == null)
+                .filter(r -> r.getShipBackStatus() != ShipBackStatus.PAID
+                        && r.getShipBackStatus() != ShipBackStatus.SHIPPING
+                        && r.getShipBackStatus() != ShipBackStatus.DELIVERED)
+                .toList();
         if (invalidReturns.isEmpty()) {
             return List.of();
         }

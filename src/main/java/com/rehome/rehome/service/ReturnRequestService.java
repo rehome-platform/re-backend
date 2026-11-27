@@ -8,6 +8,7 @@ import com.rehome.rehome.dto.request.ResolveReturnRequestRequest;
 import com.rehome.rehome.dto.request.StartInspectionRequest;
 import com.rehome.rehome.dto.response.PageResponse;
 import com.rehome.rehome.dto.response.ReturnRequestResponse;
+import com.rehome.rehome.dto.response.ShipBackQuoteResponse;
 import com.rehome.rehome.entity.auth.Account;
 
 import java.util.UUID;
@@ -44,6 +45,9 @@ public interface ReturnRequestService {
 
     // API 88 (F-133) - Moderator chốt kết luận VALID/INVALID và hướng xử lý món hàng nếu VALID
     ReturnRequestResponse resolve(Account moderator, UUID id, ResolveReturnRequestRequest request);
+
+    // Báo phí gửi lại hàng trả không hợp lệ từ kho của đơn tới địa chỉ người mua chọn
+    ShipBackQuoteResponse getShipBackQuote(String email, UUID id, UUID addressId);
 
     // F-070 - Member chọn cách nhận lại hàng trả không hợp lệ
     ReturnRequestResponse chooseInvalidReturn(String email, UUID id, InvalidReturnChoiceRequest request);

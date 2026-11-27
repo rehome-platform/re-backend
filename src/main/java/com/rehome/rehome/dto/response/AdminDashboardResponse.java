@@ -21,13 +21,15 @@ public class AdminDashboardResponse {
     private final double avgServiceRating;
     // Tổng số dư các ví Member
     private final long walletBalanceHeld;
-    // Tổng mọi nguồn thu của nền tảng (= commissionRevenue + withdrawalFeeRevenue + membershipRevenue)
+    // Tổng mọi nguồn thu của nền tảng (= commissionRevenue + withdrawalFeeRevenue + returnShipBackFeeRevenue + membershipRevenue)
     private final long platformRevenue;
     // Cơ cấu nguồn thu của nền tảng, lọc theo [from, to) giống platformRevenue.
     // Hoa hồng = tổng giá chốt * tỷ lệ hoa hồng của các món thuộc đơn COMPLETED hoàn thành trong khoảng
     private final long commissionRevenue;
-    // Phí rút hàng Member đã trả (bút toán WITHDRAWAL_FEE thành công trong khoảng)
+    // Phí rút hàng Member đã trả (bút toán WITHDRAWAL_FEE_REVENUE thành công trong khoảng)
     private final long withdrawalFeeRevenue;
+    // Phí gửi lại hàng trả không hợp lệ Member đã trả (bút toán RETURN_SHIP_BACK_FEE_REVENUE trong khoảng)
+    private final long returnShipBackFeeRevenue;
     // Doanh thu bán gói thành viên (gộp cả trả bằng ví lẫn qua cổng thanh toán) trong khoảng
     private final long membershipRevenue;
     // Chi đền bù hàng xuống cấp (bút toán DEGRADED_COMPENSATION thành công trong khoảng); là khoản chi,

@@ -23,8 +23,7 @@ public interface ItemWithdrawalRequestRepository extends JpaRepository<ItemWithd
     // create(): một sản phẩm không được có 2 yêu cầu rút hàng còn sống (chờ duyệt hoặc chờ lấy) cùng lúc
     boolean existsByProduct_IdAndStatusIn(String productId, Collection<ItemWithdrawalStatus> statuses);
 
-    // POST /products/{id}/donate: sản phẩm đang WITHDRAWN thì luôn có đúng 1 yêu cầu rút hàng còn
-    // sống (PENDING_APPROVAL hoặc PENDING_PICKUP, xem create()) - lấy ra để chặn hoặc hủy nó
+    // Yêu cầu rút còn sống của sản phẩm WAREHOUSE (hoặc WITHDRAWN với dữ liệu cũ).
     Optional<ItemWithdrawalRequest> findFirstByProduct_IdAndStatusIn(
             String productId, Collection<ItemWithdrawalStatus> statuses);
 
@@ -63,7 +62,7 @@ public interface ItemWithdrawalRequestRepository extends JpaRepository<ItemWithd
             @Param("memberId") UUID memberId, @Param("status") ItemWithdrawalStatus status);
 
     // /products/mine: gắn yêu cầu đang chờ nhận hàng vào từng món, một query cho cả trang.
-    // PENDING_APPROVAL + PENDING_PICKUP vì cả hai đều đang giữ sản phẩm ở trạng thái WITHDRAWN -
+    // PENDING_APPROVAL + PENDING_PICKUP vì cả hai đang giữ hàng ở WAREHOUSE (dữ liệu cũ WITHDRAWN) -
     // create() đã chặn 2 yêu cầu còn sống cho cùng một món (xem ACTIVE_WITHDRAWAL_STATUSES)
     @Query("select r from ItemWithdrawalRequest r "
             + "where r.product.id in :productIds and r.status in :statuses")

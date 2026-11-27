@@ -157,7 +157,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         // F-032: "so that I can stop selling it" - sản phẩm ngừng bán ngay khi gửi yêu cầu, không
         // chờ tới lúc bàn giao (F-034) mới gỡ. Hàng vẫn nằm đúng vị trí kệ cho tới khi Member thật
         // sự đến lấy - ở đây chỉ đổi trạng thái niêm yết.
-        product.setStatus(ProductStatus.WITHDRAWN);
+        product.setStatus(ProductStatus.WAREHOUSE);
         productRepository.save(product);
 
         auditLogger.logOperation(account, "CREATE_WITHDRAWAL", "WITHDRAWAL", withdrawal.getId(), withdrawal.getStatus().name());
@@ -197,7 +197,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
     }
 
     // Moderator từ chối: PENDING_APPROVAL -> REJECTED (trạng thái cuối). Hàng chưa rời kho thật
-    // (chỉ WITHDRAWN niêm yết từ lúc tạo yêu cầu - F-032), nên trả sản phẩm lại ON_SALE ngay,
+    // (WAREHOUSE từ lúc tạo yêu cầu; WITHDRAWN với dữ liệu cũ), nên trả lại ON_SALE ngay,
     // giống cách ItemWithdrawalAutoExpireServiceImpl trả hàng khi hết hạn.
     @Override
     @Transactional
@@ -225,7 +225,7 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
 
         Product product = productRepository.findByIdForUpdate(withdrawal.getProduct().getId())
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
-        if (product.getStatus() == ProductStatus.WITHDRAWN) {
+        if (product.getStatus() == ProductStatus.WAREHOUSE || product.getStatus() == ProductStatus.WITHDRAWN) {
             product.setStatus(ProductStatus.ON_SALE);
             productRepository.save(product);
         }

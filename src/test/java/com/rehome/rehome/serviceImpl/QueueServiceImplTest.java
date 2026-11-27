@@ -99,8 +99,21 @@ class QueueServiceImplTest {
             case VIOLATION_REPORT -> com.rehome.rehome.entity.enums.NotificationTargetType.VIOLATION_REPORT;
             case DONATION_PICKUP, DONATION_REASSIGN, DONATION_PREP -> com.rehome.rehome.entity.enums.NotificationTargetType.DONATION;
         };
+        String expectedTask = switch (type) {
+            case FORM_REVIEW -> "Duyệt yêu cầu ký gửi";
+            case INSPECTION -> "Kiểm định món ký gửi";
+            case PACKING -> "Đóng gói đơn hàng";
+            case RETURN -> "Xử lý yêu cầu trả hàng";
+            case WITHDRAWAL -> "Xử lý yêu cầu rút hàng";
+            case ORG_VERIFICATION -> "Xác minh tổ chức";
+            case LEGAL_CHANGE -> "Duyệt thay đổi thông tin pháp lý";
+            case VIOLATION_REPORT -> "Xử lý báo cáo";
+            case DONATION_PICKUP -> "Bàn giao lượt quyên góp";
+            case DONATION_REASSIGN -> "Chuyển lượt quyên góp tạm giữ";
+            case DONATION_PREP -> "Chuẩn bị món quyên góp";
+        };
         verify(businessNotifications).send(eq(moderator), eq(com.rehome.rehome.entity.enums.NotificationType.QUEUE_TASK),
-                anyString(), contains(ref.toString()), eq(expected), eq(ref), eq(warehouseId));
+                anyString(), eq(expectedTask), eq(expected), eq(ref), eq(warehouseId));
         verify(accountRepository, never()).findByRole(any());
     }
 

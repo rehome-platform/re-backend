@@ -486,7 +486,7 @@ public class QueueServiceImpl implements QueueService {
                 : accountRepository.findByRoleAndWarehouse_Id(Role.MODERATOR, warehouse.getId());
         for (Account moderator : moderators) {
             businessNotifications.send(moderator, NotificationType.QUEUE_TASK, "Có việc mới cần xử lý",
-                    task + " · " + refId, target, targetId, warehouse == null ? null : warehouse.getId());
+                    task, target, targetId, warehouse == null ? null : warehouse.getId());
         }
     }
 

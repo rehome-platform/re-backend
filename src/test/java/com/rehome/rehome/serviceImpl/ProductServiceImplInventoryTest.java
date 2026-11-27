@@ -4,6 +4,7 @@ import com.rehome.rehome.dto.response.*;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.MemberProfile;
 import com.rehome.rehome.entity.enums.ProductStatus;
+import com.rehome.rehome.entity.enums.ItemWithdrawalStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.TryOnSlot;
 import com.rehome.rehome.entity.marketplace.Brand;
@@ -11,6 +12,7 @@ import com.rehome.rehome.entity.marketplace.Category;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Product;
 import com.rehome.rehome.entity.marketplace.ProductPhoto;
+import com.rehome.rehome.entity.marketplace.ItemWithdrawalRequest;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
@@ -19,6 +21,7 @@ import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import com.rehome.rehome.repository.ProductPhotoRepository;
 import com.rehome.rehome.repository.ProductRepository;
+import com.rehome.rehome.repository.ItemWithdrawalRequestRepository;
 import com.rehome.rehome.service.SkuLabelPdfService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -57,6 +60,7 @@ class ProductServiceImplInventoryTest {
     @Mock private SkuLabelPdfService skuLabelPdfService;
     @Mock private EndOfTermDecisionRepository endOfTermDecisionRepository;
     @Mock private DegradedItemCaseRepository degradedItemCaseRepository;
+    @Mock private ItemWithdrawalRequestRepository itemWithdrawalRequestRepository;
 
     // Các dependency còn lại của ProductServiceImpl không dùng trong test này, Mockito truyền null
     @Mock private com.rehome.rehome.component.FeaturedListingManager featuredListingManager;
@@ -226,6 +230,35 @@ class ProductServiceImplInventoryTest {
         assertEquals(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE, ex.getErrorCode());
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = ItemWithdrawalStatus.class,
+            names = {"PENDING_APPROVAL", "PENDING_PICKUP"})
+    void getBySku_includesActiveWithdrawalForWarehouseAndLegacyProducts(ItemWithdrawalStatus status) {
+        when(productRepository.findById(SKU)).thenReturn(Optional.of(product));
+        var withdrawal = ItemWithdrawalRequest.builder().id(UUID.randomUUID()).product(product).status(status).build();
+        when(itemWithdrawalRequestRepository.findFirstByProduct_IdAndStatusIn(SKU,
+                List.of(ItemWithdrawalStatus.PENDING_APPROVAL, ItemWithdrawalStatus.PENDING_PICKUP)))
+                .thenReturn(Optional.of(withdrawal));
+
+        for (ProductStatus productStatus : List.of(ProductStatus.WAREHOUSE, ProductStatus.WITHDRAWN)) {
+            product.setStatus(productStatus);
+            var response = productService.getBySku(moderator, SKU);
+            assertEquals(withdrawal.getId(), response.getActiveWithdrawalId());
+            assertEquals(status, response.getActiveWithdrawalStatus());
+        }
+    }
+
+    @Test
+    void getBySku_withoutActiveWithdrawalKeepsNewFieldsNull() {
+        product.setStatus(ProductStatus.WAREHOUSE);
+        when(productRepository.findById(SKU)).thenReturn(Optional.of(product));
+
+        var response = productService.getBySku(moderator, SKU);
+
+        assertNull(response.getActiveWithdrawalId());
+        assertNull(response.getActiveWithdrawalStatus());
+    }
+
     // ==================== API 39: getSkuLabel ====================
 
     @Test
@@ -296,6 +329,41 @@ class ProductServiceImplInventoryTest {
     }
 
     @Test
+    void getInventory_batchesWithdrawalsForWarehouseAndLegacyProductsOnly() {
+        product.setStatus(ProductStatus.WAREHOUSE);
+        Product legacy = Product.builder().id("LEGACY").name("Legacy").status(ProductStatus.WITHDRAWN)
+                .category(product.getCategory()).consignmentReceipt(product.getConsignmentReceipt()).build();
+        Product endOfTerm = Product.builder().id("END-OF-TERM").name("End of term").status(ProductStatus.WAREHOUSE)
+                .category(product.getCategory()).consignmentReceipt(product.getConsignmentReceipt()).build();
+        Product onSale = Product.builder().id("ON-SALE").name("On sale").status(ProductStatus.ON_SALE)
+                .category(product.getCategory()).consignmentReceipt(product.getConsignmentReceipt()).build();
+        var approval = ItemWithdrawalRequest.builder().id(UUID.randomUUID()).product(product)
+                .status(ItemWithdrawalStatus.PENDING_APPROVAL).build();
+        var pickup = ItemWithdrawalRequest.builder().id(UUID.randomUUID()).product(legacy)
+                .status(ItemWithdrawalStatus.PENDING_PICKUP).build();
+        when(productRepository.findInventory(any(), any(), anyBoolean(), any()))
+                .thenReturn(new PageImpl<>(List.of(product, legacy, endOfTerm, onSale)));
+        when(itemWithdrawalRequestRepository.findByProductIdsAndStatusIn(List.of(SKU, "LEGACY", "END-OF-TERM"),
+                List.of(ItemWithdrawalStatus.PENDING_APPROVAL, ItemWithdrawalStatus.PENDING_PICKUP)))
+                .thenReturn(List.of(approval, pickup));
+
+        var items = productService.getInventory(moderator, null, false, 0, 20).getContent();
+
+        assertEquals(approval.getId(), items.get(0).getActiveWithdrawalId());
+        assertEquals(ItemWithdrawalStatus.PENDING_APPROVAL, items.get(0).getActiveWithdrawalStatus());
+        assertEquals(pickup.getId(), items.get(1).getActiveWithdrawalId());
+        assertEquals(ItemWithdrawalStatus.PENDING_PICKUP, items.get(1).getActiveWithdrawalStatus());
+        assertNull(items.get(2).getActiveWithdrawalId());
+        assertNull(items.get(2).getActiveWithdrawalStatus());
+        assertNull(items.get(3).getActiveWithdrawalId());
+        assertNull(items.get(3).getActiveWithdrawalStatus());
+        verify(itemWithdrawalRequestRepository, times(1)).findByProductIdsAndStatusIn(
+                List.of(SKU, "LEGACY", "END-OF-TERM"),
+                List.of(ItemWithdrawalStatus.PENDING_APPROVAL, ItemWithdrawalStatus.PENDING_PICKUP));
+        verifyNoMoreInteractions(itemWithdrawalRequestRepository);
+    }
+
+    @Test
     void getInventory_batchesOrderedPhotosForTheWholePage() {
         Product second = Product.builder().id("SECOND").name("Second")
                 .category(Category.builder().id(UUID.randomUUID()).name("Dress").tryonSlot(TryOnSlot.DRESS).build())
@@ -346,6 +414,7 @@ class ProductServiceImplInventoryTest {
         assertEquals(0, pageable.getPageNumber());
         assertEquals(20, pageable.getPageSize());
         verifyNoInteractions(productPhotoRepository);
+        verifyNoInteractions(itemWithdrawalRequestRepository);
     }
 
     @Test

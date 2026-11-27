@@ -59,6 +59,7 @@ class ConsignmentReceiptReadAccessTest {
     @Mock AccountRepository accountRepository;
     @Mock ProductRepository productRepository;
     @Mock EndOfTermDecisionRepository endOfTermDecisionRepository;
+    @Mock com.rehome.rehome.repository.ReConsignNegotiationHistoryRepository negotiationHistoryRepository;
     @Mock SystemConfigReader systemConfigReader;
 
     @InjectMocks ConsignmentReceiptServiceImpl service;

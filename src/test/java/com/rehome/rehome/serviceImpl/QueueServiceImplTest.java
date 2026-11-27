@@ -98,6 +98,7 @@ class QueueServiceImplTest {
             case LEGAL_CHANGE -> com.rehome.rehome.entity.enums.NotificationTargetType.LEGAL_CHANGE;
             case VIOLATION_REPORT -> com.rehome.rehome.entity.enums.NotificationTargetType.VIOLATION_REPORT;
             case DONATION_PICKUP, DONATION_REASSIGN, DONATION_PREP -> com.rehome.rehome.entity.enums.NotificationTargetType.DONATION;
+            case RECONSIGN_COUNTER -> com.rehome.rehome.entity.enums.NotificationTargetType.CONSIGNMENT_RECEIPT;
         };
         String expectedTask = switch (type) {
             case FORM_REVIEW -> "Duyệt yêu cầu ký gửi";
@@ -112,6 +113,7 @@ class QueueServiceImplTest {
             case DONATION_PICKUP -> "Bàn giao lượt quyên góp";
             case DONATION_REASSIGN -> "Chuyển lượt quyên góp tạm giữ";
             case DONATION_PREP -> "Chuẩn bị món quyên góp";
+            case RECONSIGN_COUNTER -> "Phản hồi đề xuất giá ký gửi lại";
         };
         verify(businessNotifications).send(eq(moderator), eq(com.rehome.rehome.entity.enums.NotificationType.QUEUE_TASK),
                 anyString(), eq(expectedTask), eq(expected), eq(ref), eq(warehouseId));

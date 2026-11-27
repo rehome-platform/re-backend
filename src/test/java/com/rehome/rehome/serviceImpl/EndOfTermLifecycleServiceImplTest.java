@@ -1,13 +1,18 @@
 package com.rehome.rehome.serviceImpl;
 
+import com.rehome.rehome.component.BusinessNotifications;
 import com.rehome.rehome.entity.enums.EndOfTermChoice;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
 import com.rehome.rehome.entity.marketplace.Product;
+import com.rehome.rehome.repository.AccountRepository;
+import com.rehome.rehome.repository.ConsignmentReceiptRepository;
 import com.rehome.rehome.repository.EndOfTermDecisionRepository;
 import com.rehome.rehome.repository.ProductRepository;
+import com.rehome.rehome.repository.ReConsignNegotiationHistoryRepository;
 import com.rehome.rehome.service.EndOfTermDecisionService;
+import com.rehome.rehome.service.SystemConfigReader;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,6 +25,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -39,6 +45,11 @@ class EndOfTermLifecycleServiceImplTest {
     @Mock ProductRepository productRepository;
     @Mock EndOfTermDecisionRepository endOfTermDecisionRepository;
     @Mock EndOfTermDecisionService endOfTermDecisionService;
+    @Mock ConsignmentReceiptRepository consignmentReceiptRepository;
+    @Mock AccountRepository accountRepository;
+    @Mock BusinessNotifications businessNotifications;
+    @Mock SystemConfigReader systemConfigReader;
+    @Mock ReConsignNegotiationHistoryRepository negotiationHistoryRepository;
 
     @InjectMocks
     EndOfTermLifecycleServiceImpl service;
@@ -171,6 +182,66 @@ class EndOfTermLifecycleServiceImplTest {
     void markUnclaimed_none_doesNothing() {
         service.processTermsAndDeadlines();
 
+        verify(productRepository, never()).save(any());
+    }
+
+    // ==================== thương lượng giá ký gửi lại ====================
+
+    private EndOfTermDecision proposedDecision(Instant proposalDeadline, Instant reminderSentAt) {
+        Product product = Product.builder().id(PRODUCT_ID).status(ProductStatus.WAREHOUSE).build();
+        ConsignmentReceipt draft = ConsignmentReceipt.builder().id(UUID.randomUUID())
+                .agreedPrice(new BigDecimal("300000")).floorPrice(new BigDecimal("150000")).build();
+        return EndOfTermDecision.builder().id(UUID.randomUUID()).product(product)
+                .decision(com.rehome.rehome.entity.enums.EndOfTermChoice.RE_CONSIGN).newReceipt(draft)
+                .reConsignStatus(com.rehome.rehome.entity.enums.ReConsignStatus.PROPOSED)
+                .proposalDeadline(proposalDeadline).proposalReminderSentAt(reminderSentAt).build();
+    }
+
+    @Test
+    @DisplayName("nhắc Member trước khi hết hạn xác nhận giá ký gửi lại, chỉ nhắc 1 lần")
+    void remindReConsignProposals_dueSoon_sendsReminderOnce() {
+        EndOfTermDecision decision = proposedDecision(Instant.now().plus(12, ChronoUnit.HOURS), null);
+        when(endOfTermDecisionRepository.findDueForProposalReminder(any(), any())).thenReturn(List.of(decision));
+
+        service.processTermsAndDeadlines();
+
+        assertThat(decision.getProposalReminderSentAt()).isNotNull();
+        verify(endOfTermDecisionRepository).save(decision);
+    }
+
+    @Test
+    @DisplayName("quá proposalDeadline mà Member chưa xác nhận -> huỷ biên nhận nháp, chuyển TAKE_BACK/WITHDRAWN")
+    void expireReConsignProposals_pastDeadline_voidsDraftAndSetsTakeBack() {
+        EndOfTermDecision decision = proposedDecision(Instant.now().minus(1, ChronoUnit.HOURS), null);
+        when(endOfTermDecisionRepository.findAllByReConsignStatusAndProposalDeadlineBefore(
+                eq(com.rehome.rehome.entity.enums.ReConsignStatus.PROPOSED), any())).thenReturn(List.of(decision));
+
+        service.processTermsAndDeadlines();
+
+        assertThat(decision.getReConsignStatus()).isEqualTo(com.rehome.rehome.entity.enums.ReConsignStatus.EXPIRED);
+        assertThat(decision.getDecision()).isEqualTo(com.rehome.rehome.entity.enums.EndOfTermChoice.TAKE_BACK);
+        assertThat(decision.getNewReceipt().effectiveStatus())
+                .isEqualTo(com.rehome.rehome.entity.enums.ReceiptStatus.VOIDED);
+        assertThat(decision.getProduct().getStatus()).isEqualTo(ProductStatus.WITHDRAWN);
+        verify(consignmentReceiptRepository).save(decision.getNewReceipt());
+        verify(negotiationHistoryRepository).save(any());
+    }
+
+    @Test
+    @DisplayName("COUNTER_OFFERED quá hạn phản hồi của Moderator -> chỉ log, không tự xử lý")
+    void flagOverdueReConsignCounterOffers_overdue_doesNotMutateState() {
+        EndOfTermDecision decision = proposedDecision(Instant.now().plus(5, ChronoUnit.DAYS), null);
+        decision.setReConsignStatus(com.rehome.rehome.entity.enums.ReConsignStatus.COUNTER_OFFERED);
+        decision.setCounteredAt(Instant.now().minus(5, ChronoUnit.DAYS));
+        when(endOfTermDecisionRepository.findAllByReConsignStatusAndCounteredAtBefore(
+                eq(com.rehome.rehome.entity.enums.ReConsignStatus.COUNTER_OFFERED), any()))
+                .thenReturn(List.of(decision));
+
+        service.processTermsAndDeadlines();
+
+        assertThat(decision.getReConsignStatus())
+                .isEqualTo(com.rehome.rehome.entity.enums.ReConsignStatus.COUNTER_OFFERED);
+        verify(endOfTermDecisionRepository, never()).save(decision);
         verify(productRepository, never()).save(any());
     }
 }

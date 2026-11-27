@@ -2,12 +2,20 @@ package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.config.ConsignmentProperties;
 import com.rehome.rehome.dto.request.DecideEndOfTermRequest;
+import com.rehome.rehome.dto.request.ReConsignCounterOfferRequest;
+import com.rehome.rehome.dto.request.ReConsignCounterResponseRequest;
+import com.rehome.rehome.dto.request.ReConsignDeclineRequest;
 import com.rehome.rehome.dto.request.ReConsignTermsRequest;
 import com.rehome.rehome.dto.response.DecideEndOfTermResponse;
 import com.rehome.rehome.dto.response.PendingReConsignResponse;
+import com.rehome.rehome.dto.response.ReConsignCounterOfferResponse;
 import com.rehome.rehome.dto.response.ReConsignTermsResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.EndOfTermChoice;
+import com.rehome.rehome.entity.enums.QueueType;
+import com.rehome.rehome.entity.enums.ReConsignCounterResponseAction;
+import com.rehome.rehome.entity.enums.ReConsignStatus;
+import com.rehome.rehome.entity.enums.ReceiptStatus;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.EndOfTermDecision;
@@ -43,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -57,10 +66,14 @@ class EndOfTermReConsignTest {
     @Mock EndOfTermDecisionRepository decisionRepository;
     @Mock ProductRepository productRepository;
     @Mock ConsignmentReceiptRepository consignmentReceiptRepository;
+    @Mock com.rehome.rehome.repository.ReConsignNegotiationHistoryRepository negotiationHistoryRepository;
     @Spy ConsignmentProperties consignmentProperties = new ConsignmentProperties();
     @Mock SystemConfigReader systemConfigReader;
     @Mock com.rehome.rehome.component.AuditLogger auditLogger;
     @Mock com.rehome.rehome.component.ReceiptClauseRenderer receiptClauseRenderer;
+    @Mock com.rehome.rehome.service.QueueService queueService;
+    @Mock com.rehome.rehome.repository.AccountRepository accountRepository;
+    @Mock com.rehome.rehome.service.ContentModerationService contentModerationService;
 
     @InjectMocks EndOfTermDecisionServiceImpl service;
 
@@ -90,6 +103,11 @@ class EndOfTermReConsignTest {
             r.setId(UUID.randomUUID());
             return r;
         });
+        // Mặc định: như DB system_configs chưa có dòng nào -> luôn trả giá trị mặc định truyền vào
+        org.mockito.Mockito.lenient().when(systemConfigReader.getInt(any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenAnswer(inv -> inv.getArgument(1));
+        org.mockito.Mockito.lenient().when(systemConfigReader.getDecimal(any(), any()))
+                .thenAnswer(inv -> inv.getArgument(1));
     }
 
     private EndOfTermDecision decision(EndOfTermChoice choice, Instant deadline) {
@@ -113,6 +131,205 @@ class EndOfTermReConsignTest {
         ReConsignTermsRequest r = new ReConsignTermsRequest();
         r.setAgreedPrice(new BigDecimal(agreed));
         return r;
+    }
+
+    // Một đợt ký gửi lại đã được Moderator chốt giá lần đầu (PROPOSED), đang chờ Member xác nhận
+    // hoặc đề xuất lại, biên nhận nháp agreedPrice = 300000
+    private EndOfTermDecision proposedDecision(Instant proposalDeadline) {
+        ConsignmentReceipt draft = ConsignmentReceipt.builder().id(UUID.randomUUID())
+                .member(member).warehouse(khoA).agreedPrice(new BigDecimal("300000"))
+                .floorPrice(new BigDecimal("150000")).build();
+        EndOfTermDecision d = EndOfTermDecision.builder().id(UUID.randomUUID())
+                .product(product).decision(EndOfTermChoice.RE_CONSIGN).newReceipt(draft)
+                .reConsignStatus(ReConsignStatus.PROPOSED).proposalRound(1).counterRoundsUsed(0)
+                .proposalDeadline(proposalDeadline).build();
+        when(decisionRepository.findByIdForUpdate(d.getId())).thenReturn(Optional.of(d));
+        return d;
+    }
+
+    // ---------------------------------------------------------------- Member đề xuất lại giá (counter-offer)
+
+    @Test
+    void counterOffer_khiDangProposed_chuyenCounterOfferedVaDuaVaoHangDoiModerator() {
+        EndOfTermDecision d = proposedDecision(Instant.now().plus(5, ChronoUnit.DAYS));
+        ReConsignCounterOfferRequest req = new ReConsignCounterOfferRequest();
+        req.setPrice(new BigDecimal("350000"));
+        req.setNote("Mong ReHome xem xét lại");
+
+        ReConsignCounterOfferResponse res = service.counterOffer(member, d.getId(), req);
+
+        assertEquals(ReConsignStatus.COUNTER_OFFERED, d.getReConsignStatus());
+        assertEquals(0, new BigDecimal("350000").compareTo(d.getMemberCounterPrice()));
+        assertEquals(1, d.getCounterRoundsUsed());
+        assertEquals(ReConsignStatus.COUNTER_OFFERED, res.getReConsignStatus());
+        verify(queueService).enqueue(eq(QueueType.RECONSIGN_COUNTER), eq(d.getId().toString()), eq(khoA));
+        verify(negotiationHistoryRepository).save(any());
+    }
+
+    @Test
+    void counterOffer_khongPhaiChuSoHuu_biTuChoi() {
+        EndOfTermDecision d = proposedDecision(Instant.now().plus(5, ChronoUnit.DAYS));
+        Account other = Account.builder().id(UUID.randomUUID()).role(Role.MEMBER).build();
+        ReConsignCounterOfferRequest req = new ReConsignCounterOfferRequest();
+        req.setPrice(new BigDecimal("350000"));
+
+        AppException ex = assertThrows(AppException.class, () -> service.counterOffer(other, d.getId(), req));
+        assertEquals(ErrorCode.END_OF_TERM_DECISION_FORBIDDEN, ex.getErrorCode());
+    }
+
+    @Test
+    void counterOffer_khongOTrangThaiProposed_biTuChoi() {
+        EndOfTermDecision d = proposedDecision(Instant.now().plus(5, ChronoUnit.DAYS));
+        d.setReConsignStatus(ReConsignStatus.AWAITING_PRICE);
+        ReConsignCounterOfferRequest req = new ReConsignCounterOfferRequest();
+        req.setPrice(new BigDecimal("350000"));
+
+        AppException ex = assertThrows(AppException.class, () -> service.counterOffer(member, d.getId(), req));
+        assertEquals(ErrorCode.RE_CONSIGN_NOT_PROPOSED, ex.getErrorCode());
+    }
+
+    @Test
+    void counterOffer_quaHanDeXuat_biTuChoi() {
+        EndOfTermDecision d = proposedDecision(Instant.now().minus(1, ChronoUnit.HOURS));
+        ReConsignCounterOfferRequest req = new ReConsignCounterOfferRequest();
+        req.setPrice(new BigDecimal("350000"));
+
+        AppException ex = assertThrows(AppException.class, () -> service.counterOffer(member, d.getId(), req));
+        assertEquals(ErrorCode.RE_CONSIGN_PROPOSAL_EXPIRED, ex.getErrorCode());
+    }
+
+    @Test
+    void counterOffer_vuotSoLanToiDa_biTuChoi() {
+        EndOfTermDecision d = proposedDecision(Instant.now().plus(5, ChronoUnit.DAYS));
+        d.setCounterRoundsUsed(2);
+        ReConsignCounterOfferRequest req = new ReConsignCounterOfferRequest();
+        req.setPrice(new BigDecimal("350000"));
+
+        AppException ex = assertThrows(AppException.class, () -> service.counterOffer(member, d.getId(), req));
+        assertEquals(ErrorCode.RE_CONSIGN_COUNTER_LIMIT, ex.getErrorCode());
+    }
+
+    @Test
+    void counterOffer_giaDuoi10000_biTuChoi() {
+        EndOfTermDecision d = proposedDecision(Instant.now().plus(5, ChronoUnit.DAYS));
+        ReConsignCounterOfferRequest req = new ReConsignCounterOfferRequest();
+        req.setPrice(new BigDecimal("5000"));
+
+        AppException ex = assertThrows(AppException.class, () -> service.counterOffer(member, d.getId(), req));
+        assertEquals(ErrorCode.INVALID_PRICE, ex.getErrorCode());
+    }
+
+    // ---------------------------------------------------------------- Member từ chối (decline)
+
+    @Test
+    void decline_khiDangProposed_huyBienNhanNhapVaChuyenTakeBack() {
+        EndOfTermDecision d = proposedDecision(Instant.now().plus(5, ChronoUnit.DAYS));
+        ReConsignDeclineRequest req = new ReConsignDeclineRequest();
+        req.setReason("Giá chưa hợp lý");
+
+        DecideEndOfTermResponse res = service.decline(member, d.getId(), req);
+
+        assertEquals(EndOfTermChoice.TAKE_BACK, res.getDecision());
+        assertEquals(ReConsignStatus.DECLINED, d.getReConsignStatus());
+        assertEquals(EndOfTermChoice.TAKE_BACK, d.getDecision());
+        assertEquals(ReceiptStatus.VOIDED, d.getNewReceipt().effectiveStatus());
+        assertEquals(com.rehome.rehome.entity.enums.ProductStatus.WITHDRAWN, product.getStatus());
+        verify(queueService).dequeue(QueueType.RECONSIGN_COUNTER, d.getId().toString());
+        verify(negotiationHistoryRepository).save(any());
+    }
+
+    @Test
+    void decline_khiDangCounterOffered_vanDuocPhep() {
+        EndOfTermDecision d = proposedDecision(Instant.now().plus(5, ChronoUnit.DAYS));
+        d.setReConsignStatus(ReConsignStatus.COUNTER_OFFERED);
+
+        DecideEndOfTermResponse res = service.decline(member, d.getId(), new ReConsignDeclineRequest());
+
+        assertEquals(EndOfTermChoice.TAKE_BACK, res.getDecision());
+    }
+
+    @Test
+    void decline_saiTrangThai_biTuChoi() {
+        EndOfTermDecision d = proposedDecision(Instant.now().plus(5, ChronoUnit.DAYS));
+        d.setReConsignStatus(ReConsignStatus.AWAITING_PRICE);
+
+        AppException ex = assertThrows(AppException.class,
+                () -> service.decline(member, d.getId(), new ReConsignDeclineRequest()));
+        assertEquals(ErrorCode.RE_CONSIGN_NOT_PROPOSED, ex.getErrorCode());
+    }
+
+    // ---------------------------------------------------------------- Moderator phản hồi đề xuất (counter-response)
+
+    private EndOfTermDecision counterOfferedDecision() {
+        EndOfTermDecision d = proposedDecision(Instant.now().plus(5, ChronoUnit.DAYS));
+        d.setReConsignStatus(ReConsignStatus.COUNTER_OFFERED);
+        d.setMemberCounterPrice(new BigDecimal("350000"));
+        d.setMemberCounterNote("Mong ReHome xem xét lại");
+        d.setCounteredAt(Instant.now());
+        return d;
+    }
+
+    @Test
+    void counterResponse_accept_apDungDungGiaMemberDeXuat() {
+        EndOfTermDecision d = counterOfferedDecision();
+        ReConsignCounterResponseRequest req = new ReConsignCounterResponseRequest();
+        req.setAction(ReConsignCounterResponseAction.ACCEPT);
+
+        ReConsignTermsResponse res = service.counterResponse(moderatorKhoA, d.getId(), req);
+
+        assertEquals(0, new BigDecimal("350000").compareTo(d.getNewReceipt().getAgreedPrice()));
+        assertEquals(ReConsignStatus.PROPOSED, d.getReConsignStatus());
+        assertEquals(2, d.getProposalRound());
+        assertEquals(ReConsignCounterResponseAction.ACCEPT, d.getModeratorResponse());
+        assertEquals(res.getNewReceiptId(), d.getNewReceipt().getId());
+        verify(queueService).dequeue(QueueType.RECONSIGN_COUNTER, d.getId().toString());
+    }
+
+    @Test
+    void counterResponse_repropose_dungGiaModeratorDuaRa() {
+        EndOfTermDecision d = counterOfferedDecision();
+        ReConsignCounterResponseRequest req = new ReConsignCounterResponseRequest();
+        req.setAction(ReConsignCounterResponseAction.REPROPOSE);
+        req.setAgreedPrice(new BigDecimal("320000"));
+
+        service.counterResponse(moderatorKhoA, d.getId(), req);
+
+        assertEquals(0, new BigDecimal("320000").compareTo(d.getNewReceipt().getAgreedPrice()));
+    }
+
+    @Test
+    void counterResponse_keep_batBuocCoNote() {
+        EndOfTermDecision d = counterOfferedDecision();
+        ReConsignCounterResponseRequest req = new ReConsignCounterResponseRequest();
+        req.setAction(ReConsignCounterResponseAction.KEEP);
+
+        assertThrows(com.rehome.rehome.exception.BadRequestException.class,
+                () -> service.counterResponse(moderatorKhoA, d.getId(), req));
+    }
+
+    @Test
+    void counterResponse_keep_coNote_giuNguyenGiaCu() {
+        EndOfTermDecision d = counterOfferedDecision();
+        BigDecimal oldAgreed = d.getNewReceipt().getAgreedPrice();
+        ReConsignCounterResponseRequest req = new ReConsignCounterResponseRequest();
+        req.setAction(ReConsignCounterResponseAction.KEEP);
+        req.setNote("Giá sàn công ty không đổi được");
+
+        service.counterResponse(moderatorKhoA, d.getId(), req);
+
+        assertEquals(0, oldAgreed.compareTo(d.getNewReceipt().getAgreedPrice()));
+        assertEquals(ReConsignStatus.PROPOSED, d.getReConsignStatus());
+    }
+
+    @Test
+    void counterResponse_khongOTrangThaiCounterOffered_biTuChoi() {
+        EndOfTermDecision d = proposedDecision(Instant.now().plus(5, ChronoUnit.DAYS));
+        ReConsignCounterResponseRequest req = new ReConsignCounterResponseRequest();
+        req.setAction(ReConsignCounterResponseAction.ACCEPT);
+
+        AppException ex = assertThrows(AppException.class,
+                () -> service.counterResponse(moderatorKhoA, d.getId(), req));
+        assertEquals(ErrorCode.RE_CONSIGN_NOT_COUNTERED, ex.getErrorCode());
     }
 
     // ---------------------------------------------------------------- Member chọn

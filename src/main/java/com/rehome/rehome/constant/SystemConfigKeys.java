@@ -84,6 +84,22 @@ public final class SystemConfigKeys {
     public static final String BRING_IN_DEADLINE_DAYS = "bring_in_deadline_days";
     public static final int DEFAULT_BRING_IN_DEADLINE_DAYS = 7;
 
+    // ---- Thương lượng giá ký gửi lại cuối kỳ (negotiation RE_CONSIGN) ----
+
+    // Số ngày Member phải xác nhận hoặc đề xuất lại mỗi lần Moderator đề xuất giá, quá hạn thì
+    // coi như từ chối (chuyển TAKE_BACK)
+    public static final String RE_CONSIGN_CONFIRM_DAYS = "re_consign_confirm_days";
+    public static final int DEFAULT_RE_CONSIGN_CONFIRM_DAYS = 7;
+
+    // Số lần Member tối đa được đề xuất lại giá trong một đợt ký gửi lại
+    public static final String RE_CONSIGN_MAX_COUNTER_ROUNDS = "re_consign_max_counter_rounds";
+    public static final int DEFAULT_RE_CONSIGN_MAX_COUNTER_ROUNDS = 2;
+
+    // Số ngày Moderator nên phản hồi đề xuất giá của Member, quá hạn chỉ đánh dấu quá hạn trong
+    // hàng đợi chứ không tự xử lý
+    public static final String RE_CONSIGN_MODERATOR_RESPONSE_DAYS = "re_consign_moderator_response_days";
+    public static final int DEFAULT_RE_CONSIGN_MODERATOR_RESPONSE_DAYS = 2;
+
     // Số form ký gửi đang chờ duyệt tối đa của mỗi Member.
     //
     // ⚠️ KHÔNG còn là nguồn chính: hạn mức này giờ đọc theo GÓI THÀNH VIÊN

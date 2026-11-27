@@ -65,6 +65,7 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
     private final AccountRepository accountRepository;
     private final ProductRepository productRepository;
     private final EndOfTermDecisionRepository endOfTermDecisionRepository;
+    private final com.rehome.rehome.repository.ReConsignNegotiationHistoryRepository negotiationHistoryRepository;
     private final FeaturedListingManager featuredListingManager;
 
     private final SystemConfigReader systemConfigReader;
@@ -90,6 +91,21 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
                 .orElse(null);
 
         ConsignmentReceiptResponse response = ConsignmentReceiptMapper.toResponse(receipt, sku, reConsign);
+        if (reConsign != null) {
+            response.setMaxCounterRounds(systemConfigReader.getInt(
+                    SystemConfigKeys.RE_CONSIGN_MAX_COUNTER_ROUNDS,
+                    SystemConfigKeys.DEFAULT_RE_CONSIGN_MAX_COUNTER_ROUNDS));
+            response.setNegotiationHistory(negotiationHistoryRepository
+                    .findByDecision_IdOrderByCreatedAtAsc(reConsign.getId()).stream()
+                    .map(h -> ConsignmentReceiptResponse.NegotiationHistoryItem.builder()
+                            .actor(h.getActor())
+                            .action(h.getAction())
+                            .price(h.getPrice())
+                            .note(h.getNote())
+                            .createdAt(h.getCreatedAt())
+                            .build())
+                    .toList());
+        }
         consignmentReceiptRepository.findByPreviousReceipt_Id(id).ifPresent(next -> response.setReplacedByReceiptId(next.getId()));
         return response;
     }
@@ -120,6 +136,22 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
             throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_ALREADY_CONFIRMED);
         }
 
+        // F-030: biên nhận ký gửi lại (sinh từ setReConsignTerms/counter-response) chỉ xác nhận được
+        // khi Moderator đang chờ Member ở đúng đề xuất này (PROPOSED) và chưa quá proposalDeadline.
+        // COUNTER_OFFERED nghĩa là Member vừa đề xuất lại, bóng đang ở phía Moderator.
+        var reConsignDecision = endOfTermDecisionRepository.findByNewReceipt_Id(receipt.getId());
+        reConsignDecision.ifPresent(reConsign -> {
+            if (reConsign.getReConsignStatus() == com.rehome.rehome.entity.enums.ReConsignStatus.COUNTER_OFFERED) {
+                throw new AppException(ErrorCode.RE_CONSIGN_WAITING_MODERATOR);
+            }
+            if (reConsign.getReConsignStatus() != com.rehome.rehome.entity.enums.ReConsignStatus.PROPOSED) {
+                throw new AppException(ErrorCode.RE_CONSIGN_NOT_PROPOSED);
+            }
+            if (reConsign.getProposalDeadline() != null && Instant.now().isAfter(reConsign.getProposalDeadline())) {
+                throw new AppException(ErrorCode.RE_CONSIGN_PROPOSAL_EXPIRED);
+            }
+        });
+
         Instant now = Instant.now();
 
         // Set confirmedAt trước để PDF snapshot có đúng mốc xác nhận
@@ -137,8 +169,11 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         // F-030: biên nhận này là biên nhận ký gửi lại (được tạo ở setReConsignTerms) - sản phẩm
         // đã có SKU từ lần ký gửi đầu, chỉ cần đổi biên nhận/điều khoản và bán lại ngay, không phải
         // chờ Moderator nhập kho lại như lần ký gửi đầu tiên
-        var reConsignDecision = endOfTermDecisionRepository.findByNewReceipt_Id(receipt.getId());
-        reConsignDecision.ifPresent(reConsign -> activateReConsignedProduct(reConsign.getProduct(), receipt, now));
+        reConsignDecision.ifPresent(reConsign -> {
+            reConsign.setReConsignStatus(com.rehome.rehome.entity.enums.ReConsignStatus.CONFIRMED);
+            endOfTermDecisionRepository.save(reConsign);
+            activateReConsignedProduct(reConsign.getProduct(), receipt, now);
+        });
 
         // Biên nhận ký gửi lại thuộc nhóm tồn kho (CONFIRM_RECONSIGN); biên nhận lần đầu thuộc nhóm kiểm định
         if (reConsignDecision.isPresent()) {

@@ -1199,7 +1199,7 @@ class ReturnRequestServiceImplTest {
                             .provinceName("Hồ Chí Minh")
                             .build();
             when(shippingAddressRepository.findById(addrId)).thenReturn(Optional.of(addr));
-            when(ghnShippingFeeCalculator.calculate(any(), eq("Phường Bến Nghé"), eq("Hồ Chí Minh")))
+            when(ghnShippingFeeCalculator.calculate(any(), eq(addr)))
                     .thenReturn(new BigDecimal("32000"));
             when(systemConfigReader.getInt(eq(SystemConfigKeys.RETURN_SHIP_BACK_FEE_DEADLINE_MINUTES), anyInt()))
                     .thenReturn(30);
@@ -1282,7 +1282,7 @@ class ReturnRequestServiceImplTest {
                             .addressDetail("99 Trần Hưng Đạo").wardName("Phường Cầu Ông Lãnh").provinceName("Hồ Chí Minh")
                             .build();
             when(shippingAddressRepository.findById(addrId)).thenReturn(Optional.of(addr));
-            when(ghnShippingFeeCalculator.calculate(wh, "Phường Cầu Ông Lãnh", "Hồ Chí Minh"))
+            when(ghnShippingFeeCalculator.calculate(wh, addr))
                     .thenReturn(new BigDecimal("25000"));
 
             var quote = service.getShipBackQuote(EMAIL, RR_ID, addrId);

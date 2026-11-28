@@ -8,7 +8,9 @@ import java.util.UUID;
 import lombok.*;
 
 @Entity
-@Table(name = "messages")
+@Table(name = "messages", indexes = {
+        @Index(name = "idx_messages_conversation_sent", columnList = "conversation_id, sent_at")
+})
 @Getter
 @Setter
 @NoArgsConstructor

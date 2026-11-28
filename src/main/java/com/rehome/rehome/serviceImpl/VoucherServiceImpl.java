@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
+import com.rehome.rehome.client.ShippingFeeMemo;
 import com.rehome.rehome.component.VoucherCalculator;
 import com.rehome.rehome.dto.response.ApplicableVouchersResponse;
 import com.rehome.rehome.dto.response.MemberVoucherResponse;
@@ -181,6 +182,7 @@ public class VoucherServiceImpl implements VoucherService {
         }
 
         List<VoucherCalculator.OrderLine> lines = new ArrayList<>(ids.size());
+        ShippingFeeMemo shippingFees = new ShippingFeeMemo(ghnShippingFeeCalculator);
         for (Product product : productRepository.findAllById(ids)) {
             if (product.getStatus() != ProductStatus.ON_SALE) {
                 continue;
@@ -188,8 +190,7 @@ public class VoucherServiceImpl implements VoucherService {
             if (product.getMember().getId().equals(account.getId())) {
                 continue;
             }
-            BigDecimal shippingFee = ghnShippingFeeCalculator.calculate(
-                    product.getWarehouse(), address.getWardName(), address.getProvinceName());
+            BigDecimal shippingFee = shippingFees.calculate(product.getWarehouse(), address);
             lines.add(new VoucherCalculator.OrderLine(
                     product.getId(),
                     product.getCurrentPrice(),

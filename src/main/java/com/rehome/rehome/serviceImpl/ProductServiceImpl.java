@@ -3,6 +3,7 @@ package com.rehome.rehome.serviceImpl;
 import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
+import com.rehome.rehome.client.ShippingFeeQuoteCache;
 import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.component.FeaturedListingManager;
 import com.rehome.rehome.component.ProductListCache;
@@ -97,6 +98,8 @@ public class ProductServiceImpl implements ProductService {
     private final ProductListCache productListCache;
     private final com.rehome.rehome.service.ProductCatalogReader productCatalogReader;
 
+    private final ShippingFeeQuoteCache shippingFeePreviewCache = new ShippingFeeQuoteCache(Duration.ofMinutes(5));
+
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
@@ -113,8 +116,16 @@ public class ProductServiceImpl implements ProductService {
         }
 
         ProductListCache.Key key = new ProductListCache.Key(search, categoryId, brandId, priceMin, priceMax,
-                warehouseId, tryonSlot, Math.max(page, 0), Math.min(Math.max(size, 1), MAX_SIZE), viewerId);
-        return productListCache.getOrLoad(key, () -> productCatalogReader.load(key));
+                warehouseId, tryonSlot, Math.max(page, 0), Math.min(Math.max(size, 1), MAX_SIZE));
+        PageResponse<ProductListCache.Item> cached =
+                productListCache.getOrLoad(key, () -> productCatalogReader.load(key));
+        List<ProductSummaryResponse> content = cached.getContent().stream()
+                .map(item -> item.summary().toBuilder()
+                        .isMine(viewerId != null && viewerId.equals(item.memberId()))
+                        .build())
+                .toList();
+        return new PageResponse<>(content, cached.getPage(), cached.getSize(),
+                cached.getTotalElements(), cached.getTotalPages());
     }
 
 
@@ -173,7 +184,7 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public ProductDetailResponse getProductDetail(String id, UUID viewerId) {
-        Product product = productRepository.findById(id)
+        Product product = productRepository.findWithDetailsById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
         List<String> photos = productPhotoRepository.findByProduct_IdOrderByDisplayOrderAscIdAsc(id).stream()
@@ -577,7 +588,8 @@ public class ProductServiceImpl implements ProductService {
         }
 
         Warehouse warehouse = product.getWarehouse();
-        BigDecimal shippingFee = ghnShippingFeeCalculator.calculate(warehouse, wardName, provinceName);
+        BigDecimal shippingFee = shippingFeePreviewCache.calculate(
+                ghnShippingFeeCalculator, warehouse, wardName, provinceName);
 
         return ShippingFeePreviewResponse.builder()
                 .productId(product.getId())

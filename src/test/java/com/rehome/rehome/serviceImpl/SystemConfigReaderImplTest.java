@@ -8,12 +8,15 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -134,5 +137,64 @@ class SystemConfigReaderImplTest {
                 .hasMessageContaining("bad_key")
                 .hasMessageContaining("12,5%")
                 .hasCauseInstanceOf(NumberFormatException.class);
+    }
+
+    // ==================== cache ====================
+
+    @Test
+    @DisplayName("cache: đọc lại cùng key trong thời hạn cache -> không query DB lần nữa")
+    void repeatedRead_withinTtl_queriesDatabaseOnce() {
+        stubConfig("k", "5");
+
+        assertThat(reader.getInt("k", 1)).isEqualTo(5);
+        assertThat(reader.getInt("k", 1)).isEqualTo(5);
+        assertThat(reader.getDecimal("k", BigDecimal.ONE)).isEqualByComparingTo("5");
+
+        verify(systemConfigRepository, times(1)).findByKey("k");
+    }
+
+    @Test
+    @DisplayName("cache: key chưa có dòng -> mỗi nơi gọi vẫn nhận đúng defaultValue của mình")
+    void missingKey_isCached_andEachCallerGetsItsOwnDefault() {
+        when(systemConfigRepository.findByKey("missing")).thenReturn(Optional.empty());
+
+        assertThat(reader.getInt("missing", 1)).isEqualTo(1);
+        assertThat(reader.getInt("missing", 2)).isEqualTo(2);
+
+        verify(systemConfigRepository, times(1)).findByKey("missing");
+    }
+
+    @Test
+    @DisplayName("cache: evict -> lần đọc sau lấy giá trị mới từ DB")
+    void evict_forcesReloadOnNextRead() {
+        when(systemConfigRepository.findByKey("k")).thenReturn(
+                Optional.of(SystemConfig.builder().key("k").value("5").build()),
+                Optional.of(SystemConfig.builder().key("k").value("7").build()));
+
+        assertThat(reader.getInt("k", 1)).isEqualTo(5);
+        reader.evict("k");
+        assertThat(reader.getInt("k", 1)).isEqualTo(7);
+
+        verify(systemConfigRepository, times(2)).findByKey("k");
+    }
+
+    @Test
+    @DisplayName("cache: evict trong transaction -> xóa thêm lần nữa khi transaction kết thúc (commit hay rollback)")
+    void evict_insideTransaction_clearsAgainAfterCompletion() {
+        when(systemConfigRepository.findByKey("k")).thenReturn(
+                Optional.of(SystemConfig.builder().key("k").value("5").build()),
+                Optional.of(SystemConfig.builder().key("k").value("6").build()));
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            reader.evict("k");
+            assertThat(reader.getInt("k", 1)).isEqualTo(5);
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(s -> s.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        assertThat(reader.getInt("k", 1)).isEqualTo(6);
+        verify(systemConfigRepository, times(2)).findByKey("k");
     }
 }

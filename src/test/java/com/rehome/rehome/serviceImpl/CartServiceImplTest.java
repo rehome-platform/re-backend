@@ -432,7 +432,7 @@ class CartServiceImplTest {
                 .isInstanceOf(ConflictException.class)
                 .hasMessage("Giỏ hàng đang trống.");
 
-        verify(ghnShippingFeeCalculator, never()).calculate(any(), any(), any());
+        verify(ghnShippingFeeCalculator, never()).calculate(any(), any(ShippingAddress.class));
     }
 
     @Test
@@ -488,7 +488,7 @@ class CartServiceImplTest {
         when(cartRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(cart));
         when(cartItemRepository.findAllByCartIdWithProduct(cart.getId())).thenReturn(List.of(item1, item2));
 
-        when(ghnShippingFeeCalculator.calculate(eq(warehouse1), eq("Phường Bến Nghé"), eq("TP.HCM")))
+        when(ghnShippingFeeCalculator.calculate(eq(warehouse1), eq(address)))
                 .thenReturn(new BigDecimal("19500"));
 
         CheckoutPreviewResponse response = cartService.checkoutPreview(email, addressId.toString());
@@ -505,7 +505,7 @@ class CartServiceImplTest {
         assertThat(order.getShippingFee()).isEqualTo(new BigDecimal("19500"));
         assertThat(order.getTotal()).isEqualTo(new BigDecimal("239500"));
 
-        verify(ghnShippingFeeCalculator, never()).calculate(eq(warehouse2), any(), any());
+        verify(ghnShippingFeeCalculator, never()).calculate(eq(warehouse2), any(ShippingAddress.class));
     }
 
     @Test
@@ -543,7 +543,7 @@ class CartServiceImplTest {
         when(shippingAddressRepository.findById(addressId)).thenReturn(Optional.of(address));
         when(cartRepository.findByMember_Id(member.getId())).thenReturn(Optional.of(cart));
         when(cartItemRepository.findAllByCartIdWithProduct(cart.getId())).thenReturn(List.of(item1, item2));
-        when(ghnShippingFeeCalculator.calculate(eq(warehouse), eq("Phường Bến Nghé"), eq("TP.HCM")))
+        when(ghnShippingFeeCalculator.calculate(eq(warehouse), eq(address)))
                 .thenReturn(new BigDecimal("19500"));
 
         CheckoutPreviewResponse response = cartService.checkoutPreview(email, addressId.toString());

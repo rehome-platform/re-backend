@@ -13,6 +13,7 @@ import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.SystemConfigRepository;
 import com.rehome.rehome.service.SystemConfigAdminService;
+import com.rehome.rehome.service.SystemConfigReader;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +32,7 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
     private final SystemConfigRepository systemConfigRepository;
     private final AuditLogger auditLogger;
     private final ObjectMapper objectMapper;
+    private final SystemConfigReader systemConfigReader;
 
     @Override
     @Transactional(readOnly = true)
@@ -61,6 +63,7 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
         config.setValue(newValue);
         config.setUpdatedBy(admin);
         SystemConfig saved = systemConfigRepository.save(config);
+        systemConfigReader.evict(key);
 
         ObjectNode detail = objectMapper.createObjectNode();
         detail.putObject("before").put("value", oldValue);

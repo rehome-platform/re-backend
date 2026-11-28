@@ -460,7 +460,9 @@ class ProductServiceImplTest {
 
         Page mapped = callAndCapture(new BigDecimal("1"), new BigDecimal("2"), 2, 10);
 
-        List<?> content = mapped.getContent();
+        @SuppressWarnings("unchecked")
+        List<ProductSummaryResponse> content = ((List<com.rehome.rehome.component.ProductListCache.Item>)
+                mapped.getContent()).stream().map(com.rehome.rehome.component.ProductListCache.Item::summary).toList();
         assertThat(content).hasSize(2);
         assertThat(content.get(0))
                 .extracting("id", "name", "thumbnailUrl", "brandName", "categoryName",
@@ -474,6 +476,38 @@ class ProductServiceImplTest {
         assertThat(pageable.getValue().getPageNumber()).isEqualTo(2);
         assertThat(pageable.getValue().getPageSize()).isEqualTo(10);
         assertThat(pageable.getValue().getSort().isUnsorted()).isTrue();
+    }
+
+    @Test
+    void getProducts_sharesOneCacheKeyAcrossViewers_andComputesIsMinePerViewer() {
+        UUID ownerId = UUID.randomUUID();
+        ProductSummaryResponse cachedSummary = ProductSummaryResponse.builder()
+                .id("p1").name("Áo A").currentPrice(new BigDecimal("60000")).featured(true).build();
+        PageResponse<com.rehome.rehome.component.ProductListCache.Item> sharedPage = new PageResponse<>(
+                List.of(new com.rehome.rehome.component.ProductListCache.Item(cachedSummary, ownerId)), 0, 20, 1, 1);
+        doReturn(sharedPage).when(productListCache).getOrLoad(any(), any());
+
+        PageResponse<ProductSummaryResponse> asOwner =
+                service.getProducts(null, null, null, null, null, null, null, 0, 20, ownerId);
+        PageResponse<ProductSummaryResponse> asOtherMember =
+                service.getProducts(null, null, null, null, null, null, null, 0, 20, UUID.randomUUID());
+        PageResponse<ProductSummaryResponse> anonymous =
+                service.getProducts(null, null, null, null, null, null, null, 0, 20, null);
+
+        assertThat(asOwner.getContent().get(0).getIsMine()).isTrue();
+        assertThat(asOtherMember.getContent().get(0).getIsMine()).isFalse();
+        assertThat(anonymous.getContent().get(0).getIsMine()).isFalse();
+        assertThat(asOwner.getContent().get(0))
+                .extracting("id", "name", "currentPrice", "featured")
+                .containsExactly("p1", "Áo A", new BigDecimal("60000"), true);
+        assertThat(asOwner).extracting("page", "size", "totalElements", "totalPages")
+                .containsExactly(0, 20, 1L, 1);
+        assertThat(cachedSummary.getIsMine()).isNull();
+
+        ArgumentCaptor<com.rehome.rehome.component.ProductListCache.Key> keys =
+                ArgumentCaptor.forClass(com.rehome.rehome.component.ProductListCache.Key.class);
+        verify(productListCache, times(3)).getOrLoad(keys.capture(), any());
+        assertThat(keys.getAllValues()).containsOnly(keys.getAllValues().get(0));
     }
 
     @Test
@@ -526,7 +560,7 @@ class ProductServiceImplTest {
         when(p.getConditionNote()).thenReturn("Còn 90%");
         when(p.getWarehouse().getId()).thenReturn(warehouseId);
         when(p.getWarehouse().getName()).thenReturn("Kho Q7");
-        when(productRepository.findById("p1")).thenReturn(Optional.of(p));
+        when(productRepository.findWithDetailsById("p1")).thenReturn(Optional.of(p));
         ProductPhoto photoA = photo("p1", "a.jpg");
         ProductPhoto photoB = photo("p1", "b.jpg");
         when(productPhotoRepository.findByProduct_IdOrderByDisplayOrderAscIdAsc("p1"))
@@ -555,7 +589,7 @@ class ProductServiceImplTest {
     // Sửa: service đã ném AppException(PRODUCT_NOT_FOUND) thay vì IllegalArgumentException
     @Test
     void getProductDetail_notFound_throwsAppException() {
-        when(productRepository.findById("missing")).thenReturn(Optional.empty());
+        when(productRepository.findWithDetailsById("missing")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.getProductDetail("missing", null))
                 .isInstanceOf(AppException.class)
@@ -1047,7 +1081,7 @@ class ProductServiceImplTest {
         assertThat(receipt.getConsignmentForm().getBrand()).isSameAs(originalBrand);
         verify(categoryRepository).findById(correctedCategory.getId());
         verify(brandRepository).findById(correctedBrand.getId());
-        when(productRepository.findById(created.getId())).thenReturn(Optional.of(created));
+        when(productRepository.findWithDetailsById(created.getId())).thenReturn(Optional.of(created));
         ProductDetailResponse detail = service.getProductDetail(created.getId(), null);
         assertThat(detail.getCategoryId()).isEqualTo(correctedCategory.getId());
         assertThat(detail.getCategoryName()).isEqualTo("Quần");

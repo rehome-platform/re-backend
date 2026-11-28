@@ -1,6 +1,7 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
+import com.rehome.rehome.client.ShippingFeeMemo;
 import com.rehome.rehome.dto.request.AddCartItemRequest;
 import com.rehome.rehome.dto.response.CartItemDetailResponse;
 import com.rehome.rehome.dto.response.CartItemResponse;
@@ -234,12 +235,12 @@ public class CartServiceImpl implements CartService {
         }
 
         List<CheckoutPreviewOrderResponse> orders = new ArrayList<>();
+        ShippingFeeMemo shippingFees = new ShippingFeeMemo(ghnShippingFeeCalculator);
         for (Product product : availableProducts) {
             Warehouse warehouse = product.getWarehouse();
             BigDecimal subtotal = product.getCurrentPrice();
 
-            BigDecimal shippingFee = ghnShippingFeeCalculator.calculate(
-                    warehouse, shippingAddress.getWardName(), shippingAddress.getProvinceName());
+            BigDecimal shippingFee = shippingFees.calculate(warehouse, shippingAddress);
 
             orders.add(CheckoutPreviewOrderResponse.builder()
                     .warehouseId(warehouse.getId().toString())

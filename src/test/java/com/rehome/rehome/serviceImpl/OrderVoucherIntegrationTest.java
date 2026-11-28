@@ -561,7 +561,7 @@ class OrderVoucherIntegrationTest {
 
     private void stubProduct(Product product, String shippingFee) {
         when(productRepository.findByIdForUpdate(product.getId())).thenReturn(Optional.of(product));
-        when(ghnShippingFeeCalculator.calculate(eq(product.getWarehouse()), anyString(), anyString()))
+        when(ghnShippingFeeCalculator.calculate(eq(product.getWarehouse()), any(ShippingAddress.class)))
                 .thenReturn(new BigDecimal(shippingFee));
     }
 

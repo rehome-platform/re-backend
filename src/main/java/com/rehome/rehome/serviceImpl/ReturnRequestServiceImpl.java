@@ -647,8 +647,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         ShippingAddress address = requireBuyerAddress(buyer, effectiveAddressId);
         Warehouse warehouse = returnRequest.getOrder().getWarehouse();
-        BigDecimal fee = ghnShippingFeeCalculator.calculate(
-                warehouse, address.getWardName(), address.getProvinceName());
+        BigDecimal fee = ghnShippingFeeCalculator.calculate(warehouse, address);
 
         return ShipBackQuoteResponse.builder()
                 .fee(fee)
@@ -693,8 +692,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 throw new BadRequestException("addressId là bắt buộc khi chọn SHIP_BACK.");
             }
             ShippingAddress address = requireBuyerAddress(buyer, request.getAddressId());
-            BigDecimal fee = ghnShippingFeeCalculator.calculate(
-                    returnRequest.getOrder().getWarehouse(), address.getWardName(), address.getProvinceName());
+            BigDecimal fee = ghnShippingFeeCalculator.calculate(returnRequest.getOrder().getWarehouse(), address);
 
             clearUnpaidShipBackFields(returnRequest);
             returnRequest.setInvalidReturnChoice(InvalidReturnChoice.SHIP_BACK);

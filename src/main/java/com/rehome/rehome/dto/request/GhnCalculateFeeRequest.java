@@ -14,23 +14,19 @@ import lombok.NoArgsConstructor;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class GhnCalculateFeeRequest {
 
-    @JsonProperty("to_ward_name")
-    private String toWardName;
-    @JsonProperty("to_district_name")
-    private String toDistrictName;
-    @JsonProperty("to_province_name")
-    private String toProvinceName;
     @JsonProperty("is_new_to_address")
     private Boolean isNewToAddress;
+    @JsonProperty("to_ward_id_v2")
+    private Integer toWardIdV2;
+    @JsonProperty("to_address_v2")
+    private String toAddressV2;
 
-    @JsonProperty("from_ward_name")
-    private String fromWardName;
-    @JsonProperty("from_district_name")
-    private String fromDistrictName;
-    @JsonProperty("from_province_name")
-    private String fromProvinceName;
     @JsonProperty("is_new_from_address")
     private Boolean isNewFromAddress;
+    @JsonProperty("from_ward_id_v2")
+    private Integer fromWardIdV2;
+    @JsonProperty("from_address_v2")
+    private String fromAddressV2;
 
     private Integer weight;
     private Integer length;

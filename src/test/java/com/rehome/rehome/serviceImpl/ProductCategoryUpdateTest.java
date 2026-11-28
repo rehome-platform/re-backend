@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.component.ProductListCache;
 import com.rehome.rehome.dto.request.UpdateProductRequest;
-import com.rehome.rehome.dto.response.ProductSummaryResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.ProductStatus;
 import com.rehome.rehome.entity.enums.OrderStatus;
@@ -64,7 +63,7 @@ class ProductCategoryUpdateTest {
     }
 
     private void allowDetailResponse() {
-        when(products.findById(product.getId())).thenReturn(Optional.of(product));
+        when(products.findWithDetailsById(product.getId())).thenReturn(Optional.of(product));
     }
 
     @ParameterizedTest
@@ -230,16 +229,19 @@ class ProductCategoryUpdateTest {
         original.setTryonSlot(slot);
         when(products.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(product)));
-        var key = new ProductListCache.Key(null, null, null, null, null, null, null, 0, 20, null);
+        var key = new ProductListCache.Key(null, null, null, null, null, null, null, 0, 20);
 
-        var item = new ProductCatalogReader(products, photos).load(key).getContent().get(0);
+        var entry = new ProductCatalogReader(products, photos).load(key).getContent().get(0);
+        var item = entry.summary();
 
         assertThat(item.getCategoryId()).isEqualTo(original.getId());
         assertThat(item.getCategoryName()).isEqualTo(original.getName());
         assertThat(item.getTryonSlot()).isEqualTo(slot);
+        assertThat(entry.memberId()).isEqualTo(product.getMember().getId());
         var mapper = new ObjectMapper();
-        var cached = mapper.readValue(mapper.writeValueAsString(item), ProductSummaryResponse.class);
-        assertThat(cached.getCategoryId()).isEqualTo(original.getId());
-        assertThat(cached.getTryonSlot()).isEqualTo(slot);
+        var cached = mapper.readValue(mapper.writeValueAsString(entry), ProductListCache.Item.class);
+        assertThat(cached.summary().getCategoryId()).isEqualTo(original.getId());
+        assertThat(cached.summary().getTryonSlot()).isEqualTo(slot);
+        assertThat(cached.memberId()).isEqualTo(product.getMember().getId());
     }
 }

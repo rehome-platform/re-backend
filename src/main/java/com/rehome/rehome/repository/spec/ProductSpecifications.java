@@ -27,8 +27,6 @@ public class ProductSpecifications {
                         .when(active,
                                 cb.coalesce(root.<Integer>get("featuredRank"), 0))
                         .otherwise(0);
-                // Legacy/seeded products may have an active badge without a rank yet.
-                // They must still precede every non-featured product, across all pages.
                 query.orderBy(cb.desc(featured), cb.desc(rank), cb.desc(root.get("createdAt")), cb.desc(root.get("id")));
             }
             return null;
@@ -43,8 +41,6 @@ public class ProductSpecifications {
 
             predicates.add(cb.equal(root.get("status"), ProductStatus.ON_SALE));
 
-            // So trên cột đã bỏ dấu để "ao khoac" khớp "Áo khoác"; từ khóa cũng phải bỏ dấu
-            // để người gõ đủ dấu vẫn tìm được như cũ.
             if (search != null && !search.isBlank()) {
                 String keyword = VietnameseText.normalize(search).replace("!", "!!").replace("%", "!%").replace("_", "!_");
                 predicates.add(cb.like(root.get("nameNormalized"), "%" + keyword + "%", '!'));

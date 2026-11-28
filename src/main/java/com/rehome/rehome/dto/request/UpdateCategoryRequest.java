@@ -21,6 +21,5 @@ public class UpdateCategoryRequest {
     @NotNull(message = "tryonSlot phải là TOP, BOTTOM hoặc DRESS.")
     private TryOnSlot tryonSlot;
 
-    // null = giữ nguyên (dùng để ẩn/hiện danh mục)
     private CatalogStatus status;
 }

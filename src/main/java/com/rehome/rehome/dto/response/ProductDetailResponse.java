@@ -25,7 +25,6 @@ public class ProductDetailResponse {
     private String brandName;
     private UUID categoryId;
     private String categoryName;
-    // TOP / BOTTOM / DRESS lấy từ danh mục, để FE biết món vào slot nào khi mở phòng thử đồ
     private TryOnSlot tryonSlot;
     private String size;
     private String condition;
@@ -34,10 +33,7 @@ public class ProductDetailResponse {
     private UUID warehouseId;
     private String warehouseName;
     private List<String> photos;
-    // true = món này do chính người đang xem ký gửi, FE ẩn nút mua/thêm giỏ.
-    // Xem ghi chú kiểu Boolean ở ProductSummaryResponse.
     private Boolean isMine;
 
-    // Xem ghi chú ở ProductSummaryResponse.featured
     private boolean featured;
 }

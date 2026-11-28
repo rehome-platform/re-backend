@@ -56,12 +56,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-/**
- * Admin quản lý gói thành viên (màn W-01, W-02, W-03).
- *
- * <p>Mọi thao tác ghi đều ghi {@code AuditLog} - đây là nơi Admin đổi được giá và quyền lợi của
- * sản phẩm đang bán, nên phải truy được ai đổi gì lúc nào.
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -70,7 +64,6 @@ public class MembershipAdminServiceImpl implements MembershipAdminService {
 
     private static final int MIN_MAX_SECONDS = 5;
     private static final int MAX_MAX_SECONDS = 120;
-    // Khớp khoảng đang khai cho max_pending_forms_per_member ở SystemConfigCatalog
     private static final int MIN_PENDING_FORMS = 1;
     private static final int MAX_PENDING_FORMS = 50;
     private static final int MAX_GRANT_MONTHS = 24;
@@ -91,8 +84,6 @@ public class MembershipAdminServiceImpl implements MembershipAdminService {
     private final NotificationService notificationService;
     private final AuditLogger auditLogger;
     private final ObjectMapper objectMapper;
-
-    // ================================================================ §9.1 Quản lý gói
 
     @Override
     public List<AdminMembershipPlanResponse> getPlans() {
@@ -121,8 +112,6 @@ public class MembershipAdminServiceImpl implements MembershipAdminService {
         }
         plan.setDescription(request.getDescription());
 
-        // Dòng FREE không có giá: bỏ qua giá gửi lên và luôn ép 0 / null, để Admin sửa nhầm cũng
-        // không biến hạng mặc định thành hạng phải trả tiền.
         if (plan.getTier() == MembershipTier.FREE) {
             plan.setPricePerMonth(BigDecimal.ZERO);
             plan.setPricePerYear(null);
@@ -158,17 +147,6 @@ public class MembershipAdminServiceImpl implements MembershipAdminService {
         return toResponse(plan);
     }
 
-    /**
-     * Áp hạn mức mới cho các subscription đang {@code ACTIVE} - <b>chỉ theo hướng tăng</b> (§17 mục 15).
-     *
-     * <p>Giảm hạn mức chỉ áp từ kỳ gia hạn tiếp theo: người đã trả tiền cho mức cũ phải giữ mức cũ,
-     * nếu không thì Admin hạ số lượt là cắt quyền lợi của người đang dùng. Form W-01 bắt buộc hiện
-     * cảnh báo đúng nội dung này.
-     *
-     * <p>{@code null} ở plan = không giới hạn, nên luôn là "cao hơn" mọi con số.
-     * {@code featured_listing} thì áp ngay cả hai hướng: nó là bật/tắt, giữ nửa vời sẽ khiến
-     * danh sách sàn mâu thuẫn với bảng quyền lợi đang hiển thị.
-     */
     private int raiseActiveSnapshots(MembershipPlan plan) {
         List<MemberSubscription> actives = memberSubscriptionRepository
                 .findAllByTierAndStatus(plan.getTier(), SubscriptionStatus.ACTIVE);
@@ -204,7 +182,6 @@ public class MembershipAdminServiceImpl implements MembershipAdminService {
             if (!Objects.equals(plan.getFeaturedListing(), s.getFeaturedListing())) {
                 s.setFeaturedListing(plan.getFeaturedListing());
                 touched = true;
-                // Bật/tắt nhãn "Nổi bật" cho toàn bộ hàng của Member theo quyền lợi mới
                 memberSubscriptionRepository.save(s);
                 featuredListingManager.applyForSubscription(s);
             }
@@ -220,7 +197,6 @@ public class MembershipAdminServiceImpl implements MembershipAdminService {
         return changed;
     }
 
-    /** {@code null} = không giới hạn nên luôn cao hơn mọi con số; null so với null thì không đổi. */
     private static boolean isHigher(Integer planLimit, Integer currentLimit) {
         if (planLimit == null) {
             return currentLimit != null;
@@ -248,8 +224,6 @@ public class MembershipAdminServiceImpl implements MembershipAdminService {
         requireNonNegativeOrUnlimited(r.getAiTryonPerDay());
         requireNonNegativeOrUnlimited(r.getAiTryonPerMonth());
 
-        // Trần tháng phải >= hạn mức ngày khi cả hai đều có số, nếu không trần tháng vô nghĩa
-        // (chặn ngay từ lượt đầu của ngày đầu tháng)
         if (r.getLiveTryonPerDay() != null && r.getLiveTryonPerMonth() != null
                 && r.getLiveTryonPerDay() > r.getLiveTryonPerMonth()) {
             throw new AppException(ErrorCode.MEMBERSHIP_PLAN_INVALID);
@@ -323,8 +297,6 @@ public class MembershipAdminServiceImpl implements MembershipAdminService {
                 .updatedAt(p.getUpdatedAt())
                 .build();
     }
-
-    // ================================================================ §9.2 Quản lý thành viên VIP
 
     @Override
     public PageResponse<AdminMembershipSubscriptionResponse> searchSubscriptions(
@@ -444,8 +416,6 @@ public class MembershipAdminServiceImpl implements MembershipAdminService {
         return base;
     }
 
-    // ---- Tặng gói ----
-
     @Override
     @Transactional
     public AdminMembershipSubscriptionResponse grant(Account admin, GrantMembershipRequest request) {
@@ -471,8 +441,6 @@ public class MembershipAdminServiceImpl implements MembershipAdminService {
 
         MembershipPlan plan = membershipPlanRepository.findByTier(request.getTier())
                 .orElseThrow(() -> new AppException(ErrorCode.MEMBERSHIP_PLAN_NOT_FOUND));
-        // Cố ý KHÔNG kiểm tra plan.active/purchasable: Admin tặng được cả gói đã ngừng bán
-        // (ví dụ đền bù cho người từng dùng gói đó).
 
         MemberSubscription current = memberSubscriptionRepository
                 .findActiveByMemberIdForUpdate(member.getId())
@@ -504,11 +472,6 @@ public class MembershipAdminServiceImpl implements MembershipAdminService {
                 Instant.now());
     }
 
-    /**
-     * Cùng hai nhánh cộng dồn / thay thế như luồng mua ({@code MembershipServiceImpl.activate}),
-     * nhưng {@code price_paid = 0} và {@code granted_by_admin_id} khác null nên W-02 hiện nguồn
-     * "Admin tặng", và không ghi dòng {@code membership_payments} nào - không có tiền nào được thu.
-     */
     private MemberSubscription grantActivate(Account member, MembershipPlan plan, int months,
                                               MemberSubscription current, Account admin, String reason) {
         Instant now = Instant.now();
@@ -553,8 +516,6 @@ public class MembershipAdminServiceImpl implements MembershipAdminService {
         return fresh;
     }
 
-    // ---- Hủy gói ----
-
     @Override
     @Transactional
     public AdminMembershipSubscriptionResponse cancel(Account admin, UUID id, CancelMembershipRequest request) {
@@ -574,9 +535,6 @@ public class MembershipAdminServiceImpl implements MembershipAdminService {
         s.setCancelReason(request.getReason().trim());
         memberSubscriptionRepository.save(s);
 
-        // Tắt nhãn "Nổi bật" trên mọi món của Member - quyền lợi dừng ngay khi gói bị hủy.
-        // Voucher đã phát vẫn dùng được tới khi hết hạn của chính nó: thu hồi mã đã tặng là
-        // thay đổi hợp đồng với người mua, không phải việc của thao tác hủy gói.
         featuredListingManager.clearForMember(s.getMember().getId());
 
         notificationService.notify(s.getMember(), NotificationType.MEMBERSHIP_EVENT,

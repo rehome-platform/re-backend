@@ -7,9 +7,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-// Body cho POST /v2/shipping-order/fee - field snake_case theo đúng chuẩn GHN.
-// Dùng hệ địa chỉ mới (ward_name/province_name + is_new_*_address) giống GhnCreateOrderRequest,
-// vì GHN sandbox của shop này đã xác nhận nhận được hệ mới qua API Tạo đơn (F-127).
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

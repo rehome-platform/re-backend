@@ -64,7 +64,6 @@ public class AccountAdminServiceImpl implements AccountAdminService {
     private static final int MAX_PAGE_SIZE = 100;
 
     private static final String DEFAULT_SORT_PROPERTY = "createdAt";
-    // Chỉ cho sắp xếp theo các thuộc tính này: không đưa thẳng tham số của client vào Sort
     private static final Set<String> SORTABLE_PROPERTIES = Set.of("createdAt", "status");
 
     @Override
@@ -74,10 +73,7 @@ public class AccountAdminServiceImpl implements AccountAdminService {
                                                      String sortBy, String sortDir, int page, int size) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
-        // Từ khoá giống số điện thoại (+84 912 345 678, 0912-345-678...) được chuẩn hóa về 0912345678
-        // để khớp Account.phone; email/họ tên vẫn tìm bình thường
         String keyword = PhoneNumbers.toSearchKeyword(search == null ? "" : search.trim().toLowerCase(Locale.ROOT));
-        // Không dùng param null cho chuỗi (Postgres không suy ra được kiểu): "%" = khớp tất cả
         String pattern = "%" + keyword + "%";
         AdminDateRange range = AdminDateRange.optional(from, to);
 
@@ -95,8 +91,6 @@ public class AccountAdminServiceImpl implements AccountAdminService {
         return PageResponse.from(result.map(a -> toAdminResponse(a, members, moderators, organizations)));
     }
 
-    // sortBy/sortDir ngoài danh sách cho phép được đưa về mặc định (createdAt, desc).
-    // Sắp theo status có ít giá trị nên thêm createdAt giảm dần làm khoá phụ để các trang không bị lặp/sót dòng.
     static Sort buildSort(String sortBy, String sortDir) {
         String property = sortBy != null && SORTABLE_PROPERTIES.contains(sortBy.trim())
                 ? sortBy.trim() : DEFAULT_SORT_PROPERTY;
@@ -168,7 +162,6 @@ public class AccountAdminServiceImpl implements AccountAdminService {
             violationReportService.resolvePendingForBannedOrganization(admin, targetId);
         }
 
-        // Đá khỏi các phiên đang đăng nhập; access token còn hạn bị JwtAuthenticationFilter chặn
         refreshTokenService.revokeAllAccountTokens(target);
 
         ObjectNode detail = objectMapper.createObjectNode();

@@ -42,7 +42,6 @@ import java.util.stream.Collectors;
 public class AuditLogAdminServiceImpl implements AuditLogAdminService {
 
     static final int MAX_PAGE_SIZE = 100;
-    // Số tài khoản tối đa lấy ra khi khớp tên với từ khoá tìm kiếm
     static final int MAX_NAME_MATCHES = 100;
 
     private final AuditLogRepository auditLogRepository;
@@ -65,8 +64,6 @@ public class AuditLogAdminServiceImpl implements AuditLogAdminService {
         }
 
         String keyword = search == null || search.isBlank() ? null : search.trim().toLowerCase(Locale.ROOT);
-        // Tìm theo tên: tra trước id các tài khoản có họ tên/tên tổ chức khớp, rồi so với actor và targetId.
-        // Không có từ khoá thì không truy vấn thêm.
         List<UUID> matchedAccountIds = keyword == null
                 ? List.of()
                 : accountRepository.findIdsByProfileNameLike("%" + keyword + "%",
@@ -78,7 +75,6 @@ public class AuditLogAdminServiceImpl implements AuditLogAdminService {
                         mergeActionTypes(actionType, actionTypes), targetType, targetId, from, to),
                 pageable);
 
-        // Nạp actor theo lô cho cả trang (4 truy vấn cố định) thay vì từng dòng log
         Set<UUID> actorIds = logs.getContent().stream()
                 .filter(l -> l.getActorAccount() != null)
                 .map(l -> l.getActorAccount().getId())
@@ -117,7 +113,6 @@ public class AuditLogAdminServiceImpl implements AuditLogAdminService {
                 .build();
     }
 
-    // actionType (cũ, một giá trị) + actionTypes (mới, nhiều giá trị) -> một tập, bỏ giá trị rỗng/trùng
     private static Set<String> mergeActionTypes(String actionType, List<String> actionTypes) {
         Set<String> merged = new LinkedHashSet<>();
         if (actionType != null && !actionType.isBlank()) {
@@ -140,7 +135,6 @@ public class AuditLogAdminServiceImpl implements AuditLogAdminService {
                 .collect(Collectors.toMap(Account::getId, Function.identity()));
     }
 
-    // Họ tên Member/Moderator hoặc tên tổ chức; Admin không có profile nên không có tên
     private Map<UUID, String> loadNames(Collection<UUID> accountIds) {
         Map<UUID, String> names = new HashMap<>();
         if (accountIds.isEmpty()) {
@@ -152,7 +146,6 @@ public class AuditLogAdminServiceImpl implements AuditLogAdminService {
         for (ModeratorProfile m : moderatorProfileRepository.findAllById(accountIds)) {
             names.put(m.getAccountId(), m.getFullName());
         }
-        // Cùng thứ tự ưu tiên với AccountAdminServiceImpl: Member > Moderator > Tổ chức
         for (MemberProfile m : memberProfileRepository.findAllById(accountIds)) {
             names.put(m.getAccountId(), m.getFullName());
         }

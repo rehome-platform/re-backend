@@ -17,7 +17,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
-/** Keep the JDBC connection only while loading and mapping the catalogue, never while calling Redis. */
 @Service
 @RequiredArgsConstructor
 public class ProductCatalogReader {

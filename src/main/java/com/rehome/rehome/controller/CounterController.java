@@ -24,7 +24,6 @@ public class CounterController {
 
     private final CounterService counterService;
 
-    // API 26
     @PostMapping("/members/{accountId}/confirm-identity")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<Void>> confirmIdentity(
@@ -35,7 +34,6 @@ public class CounterController {
         return ResponseEntity.ok(ApiResponse.success(null, 200, "Đã xác nhận danh tính"));
     }
 
-    // API 72
     @PostMapping("/handover")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<Void>> handover(
@@ -45,7 +43,6 @@ public class CounterController {
         counterService.handover(moderator, request);
         return ResponseEntity.ok(ApiResponse.success(null, 200, "Đã bàn giao"));
     }
-    // API 25
     @PostMapping("/lookup")
     @PreAuthorize("hasRole('MODERATOR')")
     public ApiResponse<List<MemberLookupItemResponse>> lookup(
@@ -54,7 +51,6 @@ public class CounterController {
         return ApiResponse.success(counterService.lookup(moderator, request));
     }
 
-    // API 27
     @GetMapping("/members/{accountId}/tasks")
     public ApiResponse<MemberTasksResponse> tasks(@PathVariable UUID accountId) {
         return ApiResponse.success(counterService.getTasks(accountId));

@@ -15,6 +15,5 @@ public class OrderCancelResponse {
     private String id;
     private String status;
 
-    // null khi hủy đơn chưa thanh toán - không có tiền nào để hoàn
     private BigDecimal refundAmount;
 }

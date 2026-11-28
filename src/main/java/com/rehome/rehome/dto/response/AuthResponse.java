@@ -1,7 +1,6 @@
 package com.rehome.rehome.dto.response;
 
 import com.rehome.rehome.entity.enums.Role;
-import com.rehome.rehome.entity.enums.VerificationStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

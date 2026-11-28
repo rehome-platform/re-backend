@@ -9,7 +9,6 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
-// Body cho POST /v2/shipping-order/create - field snake_case theo đúng chuẩn GHN
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

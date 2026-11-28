@@ -16,6 +16,5 @@ public class UpdateBrandRequest {
     @Size(max = 255, message = "name tối đa 255 ký tự.")
     private String name;
 
-    // null = giữ nguyên (dùng để ẩn/hiện thương hiệu)
     private CatalogStatus status;
 }

@@ -19,9 +19,6 @@ public interface MemberProfileRepository extends JpaRepository<MemberProfile, UU
     List<MemberProfile> findByAccount_Phone(String phone);
     List<MemberProfile> findAllByAccount_IdIn(Collection<UUID> accountIds);
 
-    // Các lệnh dưới đây là UPDATE nguyên tử ở mức DB (điều kiện nằm trong WHERE) nên hai request
-    // đồng thời không thể cùng trừ quá số dư, không cần khóa dòng.
-
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update MemberProfile m set m.pointsBalance = m.pointsBalance + :points where m.accountId = :memberId")
     int addPoints(@Param("memberId") UUID memberId, @Param("points") int points);

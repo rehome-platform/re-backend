@@ -16,18 +16,6 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-/**
- * Áp nội dung {@code proposedChanges} của một yêu cầu đổi thông tin pháp lý (F-097)
- * vào hồ sơ tổ chức khi Moderator duyệt (F-140).
- *
- * <p>{@code proposedChanges} là JSON tự do do tổ chức gửi lên, nên ở đây là **whitelist**:
- * chỉ các trường pháp lý mà UC-51 nêu (tên, người đại diện, giấy tờ) cộng hai trường định danh
- * pháp lý khác (orgType, taxCode) được áp. Trường lạ thì BÁO LỖI chứ không bỏ qua im lặng —
- * bỏ qua im lặng nghĩa là Moderator bấm duyệt mà thứ tổ chức xin đổi lại không được áp.
- *
- * <p>Các trường thông tin thường (logo, mô tả, số điện thoại, giờ nhận) không đi đường này:
- * tổ chức tự sửa ngay qua API 117 (F-096).
- */
 @Component
 public class OrganizationLegalChangeMapper {
 
@@ -40,11 +28,6 @@ public class OrganizationLegalChangeMapper {
     private static final Set<String> ALLOWED_DOCUMENT_FIELDS =
             Set.of("docType", "docNumber", "issueDate", "issuingAuthority", "fileUrl");
 
-    /**
-     * @return true nếu nội dung được duyệt có kèm ảnh giấy tờ mới (ảnh CCCD hoặc tệp giấy tờ).
-     *         Service dùng tin này để đặt lại mốc giữ ảnh của F-139 — nếu không, ảnh vừa nộp
-     *         sẽ bị job dọn xóa ngay vì mốc {@code verifiedAt} là của lần xác minh trước.
-     */
     public boolean apply(JsonNode proposedChanges, OrganizationProfile profile) {
         requireKnownFields(proposedChanges, ALLOWED_FIELDS, "proposedChanges");
 
@@ -60,7 +43,6 @@ public class OrganizationLegalChangeMapper {
             applied = true;
         }
         if (proposedChanges.has("taxCode")) {
-            // Tổ chức không có mã số thuế vẫn được chấp nhận (OVERVIEW mục 9) nên cho phép bỏ trống
             profile.setTaxCode(blankToNull(proposedChanges.get("taxCode").asText(null)));
             applied = true;
         }
@@ -79,11 +61,6 @@ public class OrganizationLegalChangeMapper {
         return imagesReplaced;
     }
 
-    /**
-     * Kiểm cấu trúc {@code proposedChanges} ngay lúc tổ chức nộp yêu cầu (F-097), trước khi lưu —
-     * trường lạ phải báo lỗi ngay, không để chờ đến lúc Moderator duyệt ({@link #apply}) mới phát
-     * hiện, vì lúc đó yêu cầu đã lưu và tổ chức lại phải nộp lại từ đầu.
-     */
     public void validate(JsonNode proposedChanges) {
         requireKnownFields(proposedChanges, ALLOWED_FIELDS, "proposedChanges");
 
@@ -119,7 +96,6 @@ public class OrganizationLegalChangeMapper {
         }
     }
 
-    /** PATCH từng field: chỉ field có mặt trong JSON mới bị đổi, còn lại giữ nguyên. */
     private boolean applyRepresentative(JsonNode node, OrganizationProfile profile) {
         if (!node.isObject()) {
             throw new BadRequestException("representative phải là object.");
@@ -154,13 +130,6 @@ public class OrganizationLegalChangeMapper {
         return imagesReplaced;
     }
 
-    /**
-     * Thay toàn bộ danh sách giấy tờ, không merge: tổ chức xin đổi giấy tờ là nộp lại bộ mới,
-     * và không có id để đối chiếu từng giấy.
-     *
-     * <p>Phải clear() + addAll() trên chính list đang có, không setDocuments(listMới):
-     * list này có orphanRemoval nên Hibernate báo lỗi nếu bị thay bằng đối tượng khác.
-     */
     private boolean applyDocuments(JsonNode node, OrganizationProfile profile) {
         if (!node.isArray() || node.isEmpty()) {
             throw new BadRequestException("documents phải là mảng và có ít nhất một giấy tờ.");
@@ -213,10 +182,6 @@ public class OrganizationLegalChangeMapper {
         }
     }
 
-    /**
-     * Trường lạ là lỗi, không bỏ qua: tổ chức gõ sai tên trường (vd. "name" thay vì "legalName")
-     * mà vẫn duyệt được thì hồ sơ không đổi gì nhưng cả hai bên đều tưởng đã đổi.
-     */
     private void requireKnownFields(JsonNode node, Set<String> allowed, String where) {
         if (node == null || !node.isObject()) {
             throw new BadRequestException(where + " phải là object.");
@@ -255,15 +220,6 @@ public class OrganizationLegalChangeMapper {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
 
-    /**
-     * Tóm tắt các trường thực sự khác so với hồ sơ hiện tại, để hiển thị trên hàng đợi
-     * (GET /queues?type=LEGAL_CHANGE) trước khi Moderator duyệt.
-     *
-     * <p>Khác với {@link #apply}: đây chỉ đọc, không áp dụng, và không báo lỗi khi gặp cấu trúc
-     * lạ — proposedChanges của một yêu cầu đang PENDING có thể chưa từng được kiểm (việc kiểm
-     * nghiêm chỉ xảy ra lúc duyệt), nên hàng đợi vẫn phải hiển thị được, chỉ là bỏ qua phần không
-     * đọc được.
-     */
     public LegalChangeSummary summarize(JsonNode proposedChanges, OrganizationProfile profile) {
         List<String> labels = new ArrayList<>();
         List<String> oldValues = new ArrayList<>();
@@ -320,7 +276,6 @@ public class OrganizationLegalChangeMapper {
         }
     }
 
-    /** documents là thay toàn bộ danh sách, không có id để đối chiếu từng giấy, nên so sánh theo gộp loại giấy. */
     private void summarizeDocuments(JsonNode node, List<OrganizationDocument> current,
                                      List<String> labels, List<String> oldValues, List<String> newValues) {
         String oldDisplay = current == null ? "" : current.stream()
@@ -361,6 +316,5 @@ public class OrganizationLegalChangeMapper {
         return text == null ? null : text.trim();
     }
 
-    /** Kết quả đối chiếu proposedChanges với hồ sơ hiện tại, đã gộp thành 1 dòng cho hàng đợi. */
     public record LegalChangeSummary(String fieldChanged, String oldValue, String newValue) {}
 }

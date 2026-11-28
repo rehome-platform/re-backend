@@ -670,6 +670,9 @@ DECLARE
         'TY4', 'https://upload.wikimedia.org/wikipedia/commons/6/6f/Basic_trousers_for_men.jpg',
         'TY5', 'https://upload.wikimedia.org/wikipedia/commons/e/ec/Man_wearing_blue_denim_shirt_with_rolled_sleeves%2C_tan_chinos_1.jpg',
         'TY6', 'https://upload.wikimedia.org/wikipedia/commons/a/a8/Chino_pants_close-up_-_DSC02850.JPG',
+        -- TY7 dùng lại ảnh TY4 (hết ảnh riêng trong bộ TY1-6) - chỉ demo trạng thái, không
+        -- ảnh hưởng gì tới logic.
+        'TY7', 'https://upload.wikimedia.org/wikipedia/commons/6/6f/Basic_trousers_for_men.jpg',
         -- QUẦN KAKI (KA1-5, Wikimedia Commons)
         'KA1', 'https://upload.wikimedia.org/wikipedia/commons/7/77/Chino_Pant_Stack.jpg',
         'KA2', 'https://upload.wikimedia.org/wikipedia/commons/3/3e/Chino_pants.jpg',
@@ -844,12 +847,13 @@ FOR r IN
     ( 85, 'HCM-AT-000085',  'Áo thun Routine cổ tròn xanh rêu',        'Áo thun',  'Routine',          'M',  140000, 140000, 11,  3,    1, 'WITHDRAWN','TH12', NULL,  'Còn 90%, xin rút trong 7 ngày đầu kỳ nên miễn phí'),
     ( 86, 'HN-QT-000086',   'Quần tây Biluxury xanh đen',              'Quần tây', 'Biluxury',         '32', 260000, 260000, 11, 10,    1, 'ON_SALE', 'TY6', NULL,  'Còn 90%, vừa được đăng bán lại sau khi huỷ yêu cầu rút'),
 
-    -- 87,88,89,90: hết kỳ ký gửi (Điều 8.1/8.3, F-029) - 4 trạng thái của EndOfTermDecision
+    -- 87,88,89,90,100: hết kỳ ký gửi (Điều 8.1/8.3, F-029) - 4 trạng thái của EndOfTermDecision
     -- (không demo thêm "quá hạn không chọn gì -> tự UNCLAIMED": xem lý do ở bước 12.3).
     ( 87, 'HCM-QS-000087',  'Quần short Nike đen',                     'Quần short','Nike',            'M',  150000, 150000, 11, 92, NULL, 'WAREHOUSE','SH4', NULL, 'Còn 85%, hết kỳ, còn hạn chọn phương án'),
     ( 88, 'HN-D-000088',    'Đầm Mango công sở xám',                   'Đầm',      'Mango',            'M',  420000, 420000, 11,100, NULL, 'WITHDRAWN','DA8', NULL, 'Còn 85%, chọn lấy về, chưa ra kho nhận (còn hạn)'),
     ( 89, 'HCM-AK-000089',  'Áo khoác Zara dạ đen',                    'Áo khoác', 'Zara',             'L',  480000, 480000, 11,140, NULL, 'UNCLAIMED','KH9', NULL, 'Còn 85%, chọn lấy về nhưng quá hạn 30 ngày không tới nhận'),
     ( 90, 'HCM-AP-000090',  'Áo polo Routine xanh đen',                'Áo polo',  'Routine',          'M',  210000, 210000, 11, 95, NULL, 'WAREHOUSE','PL5', NULL, 'Còn 90%, xin ký gửi lại, chờ Moderator chốt giá mới'),
+    (100, 'HN-QT-000100',   'Quần tây Owen xám ống suông',             'Quần tây', 'Owen',             '31', 270000, 270000, 11, 91, NULL, 'WAREHOUSE','TY7', NULL, 'Còn 85%, vừa hết kỳ ký gửi, còn hạn 30 ngày chọn phương án'),
 
     -- 91-93: hàng xuống cấp phát hiện lúc kiểm kho (F-036, không qua yêu cầu trả hàng) -
     -- 3 trạng thái của DegradedItemCase.
@@ -1909,7 +1913,11 @@ INSERT INTO end_of_term_decisions (id, product_id, decision, new_receipt_id, dec
 -- job nào trong code thực sự tạo ra nó; không nhân bản thêm một dòng không có thật.)
 -- Member chọn KÝ GỬI LẠI, Moderator CHƯA chốt giá/điều khoản mới (new_receipt_id còn NULL)
 ('c4000000-0000-4000-8000-000000000010', 'HCM-AP-000090', 'RE_CONSIGN', NULL,
- now() - interval '2 days', now() + interval '25 days', NULL, 0);
+ now() - interval '2 days', now() + interval '25 days', NULL, 0),
+-- Chờ Member chọn, còn hạn - thêm một bản nữa khác item #87 (mới hết kỳ 1 ngày trước,
+-- khác kho/danh mục) để không chỉ có đúng 1 ca "chờ chọn" cho member1.
+('c4000000-0000-4000-8000-000000000011', 'HN-QT-000100', NULL, NULL, NULL,
+ now() - interval '1 day' + interval '30 days', NULL, 0);
 
 
 -- =============================================================================
@@ -2797,11 +2805,12 @@ SELECT setval('product_sku_seq',
 --      nâng hạng -> dòng REPLACED. Có 6 voucher (4 chưa dùng - 1 trong đó sắp hết hạn đã
 --      được nhắc, 1 đã dùng, 1 hết hạn), 2 địa chỉ giao hàng, giỏ hàng 2 món Ở 2 KHO KHÁC
 --      NHAU, 10 đơn hàng, 2 ảnh thử đồ.
---      ĐƯỢC GẮN THÊM MỌI MỐC THỜI GIAN CỦA HỆ THỐNG (sản phẩm #83-99, xem bước 7):
+--      ĐƯỢC GẮN THÊM MỌI MỐC THỜI GIAN CỦA HỆ THỐNG (sản phẩm #83-99 và #100, xem bước 7):
 --      kỳ ký gửi 2/3 đang chạy; rút hàng miễn phí (trong 7 ngày đầu kỳ) và có phí (ngoài
 --      cửa sổ, đã hết hạn trả phí nên bị huỷ sớm); 4 trạng thái hết kỳ ký gửi (Điều 8,
 --      gồm cả nhánh TAKE_BACK quá hạn 30 ngày không tới lấy -> vô thừa nhận, khác với
---      nhánh chọn lấy về còn trong hạn); 3 ca hàng xuống cấp mở trực tiếp lúc kiểm kho (chờ chọn/
+--      nhánh chọn lấy về còn trong hạn; riêng nhánh "chờ chọn, còn hạn" có 2 bản #87 và #100);
+--      3 ca hàng xuống cấp mở trực tiếp lúc kiểm kho (chờ chọn/
 --      quá hạn vô thừa nhận/đã nhận đền bù một phần); phiếu ký gửi còn hạn và đã quá hạn
 --      mang hàng tới kho; đơn mua CHỜ THANH TOÁN còn hạn và đã tự huỷ quá hạn; đơn mua
 --      ĐÃ GIAO còn hạn trả hàng và bị huỷ yêu cầu trả hàng do quá hạn gửi GHN; đơn mua bị
@@ -2852,27 +2861,28 @@ SELECT setval('product_sku_seq',
 --   2 kho (TP.HCM + Hà Nội)        18 danh mục       20 thương hiệu
 --   18 tài khoản (4 ORGANIZATION)   4 gói VIP         2 mẫu voucher + 6 luật theo hạng
 --   29 tham số hệ thống            6 từ khoá vi phạm
---   90 sản phẩm, trong đó 57 ĐANG BÁN:
+--   91 sản phẩm, trong đó 57 ĐANG BÁN:
 --        - 25 áo (tryon_slot = TOP)      áo thun, sơ mi, polo, len, hoodie, khoác,
 --                                        blazer, áo kiểu
 --        - 20 quần/chân váy (BOTTOM)     jeans, tây, kaki, short, jogger, chân váy
 --        - 12 đầm/váy liền/jumpsuit/áo dài (DRESS)
 --     (slot gắn theo DANH MỤC nên không bao giờ lệch: áo luôn là TOP, quần luôn là
 --      BOTTOM, đầm luôn là DRESS và mặc nguyên bộ)
---   17 sản phẩm #83-99 (đánh số từ 83 để không đụng form_no KG-000074..080 ở bước 14) của
---   member1 phủ đủ các mốc thời
---   gian còn lại của hệ thống (kỳ ký gửi 2/3, rút hàng miễn phí/có phí, 4 trạng thái hết
---   kỳ ký gửi, 3 ca hàng xuống cấp mở trực tiếp lúc kiểm kho, và member1 ở vai người mua
---   cho 6 đơn hàng #15-20) - xem chi tiết trong mục MEMBER ở trên và các chú thích tại
---   bước 7/10/11/12 trong file.
---   100 phiếu ký gửi (90 đã thành sản phẩm + 10 phiếu ở các trạng thái còn lại)
---   90 biên nhận ký gửi
+--   18 sản phẩm #83-99 và #100 (đánh số từ 83 để không đụng form_no KG-000074..080 ở bước
+--   14; #100 vì 74-82 đã dùng cho 7 phiếu chưa thành sản phẩm) của member1 phủ đủ các mốc
+--   thời gian còn lại của hệ thống (kỳ ký gửi 2/3, rút hàng miễn phí/có phí, 4 trạng thái
+--   hết kỳ ký gửi - #100 là một bản "chờ chọn" thứ hai bên cạnh #87, 3 ca hàng xuống cấp mở
+--   trực tiếp lúc kiểm kho, và member1 ở vai người mua cho 6 đơn hàng #15-20) - xem chi tiết
+--   trong mục MEMBER ở trên và các chú thích tại bước 7/10/11/12 trong file.
+--   101 phiếu ký gửi (91 đã thành sản phẩm + 10 phiếu ở các trạng thái còn lại)
+--   91 biên nhận ký gửi
 --   20 đơn hàng phủ đủ 8 trạng thái; 16 giao dịch cổng (VNPay); 5 sự kiện GHN
 --   8 yêu cầu trả hàng (LOST / VALID+xuống cấp / VALID+tiêu huỷ / chờ duyệt / 2 KHÔNG HỢP
 --   LỆ / APPROVED còn hạn+GHN / APPROVED quá hạn GHN tự huỷ)
 --   62 bút toán ví + quỹ; 5 yêu cầu rút tiền; 4 yêu cầu rút hàng
---   9 quyết định cuối kỳ (chờ chọn / ký gửi lại / lấy về / vô thừa nhận / tặng, cộng thêm
---   4 bản của member1 gồm nhánh TAKE_BACK quá hạn lấy hàng -> vô thừa nhận)
+--   10 quyết định cuối kỳ (chờ chọn / ký gửi lại / lấy về / vô thừa nhận / tặng, cộng thêm
+--   5 bản của member1 gồm nhánh TAKE_BACK quá hạn lấy hàng -> vô thừa nhận và 1 bản "chờ
+--   chọn" thứ hai ở #100)
 --   4 ca hàng xuống cấp (1 từ yêu cầu trả hàng + 3 mở trực tiếp lúc kiểm kho của member1)
 --   13 việc trong hàng đợi Moderator phủ 9 loại QueueType
 --   4 chiến dịch (org1, 1 đã hết hạn chờ tự đóng), 3 lô quyên góp, 3 bài viết, 4 bình luận,

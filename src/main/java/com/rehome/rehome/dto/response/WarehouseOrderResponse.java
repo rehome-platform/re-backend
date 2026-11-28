@@ -8,11 +8,6 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-/**
- * Một đơn đã bán thuộc kho moderator đang quản lý. Khác SoldOrderResponse (phía người
- * ký gửi): ở đây là TOÀN BỘ đơn của kho, không lọc theo người bán, và có thông tin người
- * nhận để moderator đóng gói/giao hàng - thứ SoldOrderResponse cố tình giấu.
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -31,7 +26,6 @@ public class WarehouseOrderResponse {
     private String buyerName;
     private String buyerPhone;
 
-    // Tiến độ quét SKU trước khi tạo vận đơn - xem packScan (API 69, F-127)
     private int scannedCount;
     private int totalCount;
     private String ghnTrackingCode;

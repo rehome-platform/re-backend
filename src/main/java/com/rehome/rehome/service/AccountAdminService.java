@@ -11,19 +11,11 @@ import java.util.UUID;
 
 public interface AccountAdminService {
 
-    /**
-     * API 135: tìm và xem tài khoản theo email / họ tên, lọc theo role, status và ngày tạo tài khoản
-     * (from/to dạng yyyy-MM-dd, gồm cả ngày to; bỏ trống cả hai = không lọc theo ngày).
-     * sortBy hỗ trợ createdAt (mặc định) và status; sortDir là asc hoặc desc (mặc định). Giá trị khác
-     * được đưa về mặc định thay vì báo lỗi.
-     */
     PageResponse<AdminAccountResponse> search(String search, Role role, AccountStatus status,
                                               String from, String to,
                                               String sortBy, String sortDir, int page, int size);
 
-    /** Khoá tài khoản kèm lý do, thu hồi toàn bộ refresh token. */
     AccountStatusResponse ban(Account admin, UUID targetId, String reason);
 
-    /** Mở khoá tài khoản, xoá lý do khoá. */
     AccountStatusResponse unban(Account admin, UUID targetId);
 }

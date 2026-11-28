@@ -16,11 +16,6 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
-/**
- * Refresh token được lưu ở DB dưới dạng UUID ngẫu nhiên (không phải JWT) để:
- * - Có thể revoke (thu hồi) bất kỳ lúc nào, ví dụ khi logout hoặc phát hiện bị đánh cắp.
- * - Không cần giải mã / verify chữ ký, chỉ cần tra DB.
- */
 @Service
 @RequiredArgsConstructor
 public class RefreshTokenServiceImpl implements RefreshTokenService {
@@ -58,7 +53,6 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
     public RefreshToken rotateRefreshToken(RefreshToken token) {
         verifyExpiration(token);
-        // Update only this session's locked row. Other devices' tokens remain valid.
         token.setToken(UUID.randomUUID().toString());
         token.setExpiryDate(Instant.now().plusMillis(refreshTokenExpirationMs));
         return refreshTokenRepository.save(token);

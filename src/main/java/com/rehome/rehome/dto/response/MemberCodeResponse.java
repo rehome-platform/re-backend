@@ -12,6 +12,5 @@ import lombok.NoArgsConstructor;
 public class MemberCodeResponse {
     private String memberCode;
 
-    // Chuỗi để app Member tự vẽ QR, backend không render ảnh
     private String qrPayload;
 }

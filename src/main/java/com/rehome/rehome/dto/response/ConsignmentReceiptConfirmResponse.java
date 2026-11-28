@@ -13,6 +13,5 @@ import java.util.UUID;
 public class ConsignmentReceiptConfirmResponse {
     private UUID id;
     private Instant confirmedAt;
-    // Không còn URL: tải PDF qua GET /consignment-receipts/{id}/pdf (cần JWT)
     private boolean pdfAvailable;
 }

@@ -40,60 +40,40 @@ public class MyProductResponse {
     private String warehouseName;
     private Short currentTerm;
     private Instant termStartedAt;
-    private Instant currentTermEndsAt;       // hết kỳ hiện tại (xem câu hỏi bên dưới)
-    private Instant endOfTermDeadline;       // hết kỳ cuối (ngày 90)
+    private Instant currentTermEndsAt;
+    private Instant endOfTermDeadline;
     private Instant lastPriceChangedAt;
-    private EndOfTermDecisionInfo endOfTermDecision;   // null khi chưa tới cuối kỳ
-    private OrderRef order;                            // null khi chưa bán
+    private EndOfTermDecisionInfo endOfTermDecision;
+    private OrderRef order;
 
-    // null khi món không có yêu cầu rút đang chờ nhận hàng (F-032)
     private WithdrawalRef withdrawalRequest;
-    // null khi món không có ca hàng xuống cấp đang chờ Member quyết định (F-036)
     private DegradedCaseRef degradedCase;
     private BigDecimal expectedPayout;
 
-    // Quyền lợi "ưu tiên hiển thị" của gói VIP: featured = featuredUntil > now().
-    // Trả cả mốc hết hạn để M-09 hiện banner "...đến {ngày hết hạn}".
-    // Hệ thống tự bật/tắt, KHÔNG có API cho Member bật/tắt từng món.
     private boolean featured;
     private Instant featuredUntil;
 
-    // Điều khoản kỳ ký gửi, lấy từ biên nhận của món (mục 22)
     private Integer termLengthDays;
     private Integer maxRenewals;
     private BigDecimal commissionRateTerm1;
     private BigDecimal commissionRateTerm2;
     private BigDecimal commissionRateTerm3;
 
-    // Biên nhận đang áp dụng: biên nhận ký gửi lại đã xác nhận nếu có, không thì biên nhận gốc (mục 24)
     private UUID receiptId;
 
-    // Snapshot trên biên nhận, để mobile tính trước phí rút (F-032) mà không cần gọi API biên nhận:
-    // trong freeWithdrawalWindowDays đầu kỳ (tính từ termStartedAt) thì rút miễn phí, sau đó tốn withdrawalFee
     private Integer freeWithdrawalWindowDays;
     private BigDecimal withdrawalFee;
 
-    // Chỉ có ở /mine/{id}, danh sách thì null và không xuất hiện trong JSON
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private List<PriceChange> priceChanges;
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private List<TermInfo> termHistory;
 
-    // newReceiptId: null = chờ Moderator chốt giá (khi decision = RE_CONSIGN) hoặc chưa chọn;
-    // có giá trị = biên nhận ký gửi lại đã sẵn sàng, chờ Member xác nhận
     public record EndOfTermDecisionInfo(UUID id, Instant deadline, EndOfTermChoice decision, UUID newReceiptId, Instant decidedAt, Instant takenBackAt, Instant pickupDeadline) {}
-    // payoutDueAt = mốc dự kiến tiền vào ví (deliveredAt + hạn trả hàng), payoutAt = đã trả lúc
-    // nào, null nếu chưa trả. App hiện "Tiền vào ví sau dd/MM HH:mm" dựa trên 2 mốc này.
-    // status/commissionRateApplied/orderedTerm/orderedAt: tiến trình đơn và hoa hồng đã chốt lúc đặt (mục 23)
     public record OrderRef(UUID id, String orderNo, OrderStatus status,
                            BigDecimal commissionRateApplied, Short orderedTerm, Instant orderedAt,
                            Instant payoutDueAt, Instant payoutAt) {}
-    // status luôn PENDING_PICKUP ở đây: chỉ gắn yêu cầu đang chờ Member đến kho nhận hàng
     public record WithdrawalRef(UUID id, String status, Instant pickupDeadline) {}
-    // status luôn PENDING_DECISION ở đây (chỉ gắn ca đang chờ quyết định); decisionDeadline = hạn
-    // 30 ngày (F-036), quá hạn tự chuyển vô thừa nhận. decision null cho tới khi Member quyết định
-    // (FULL_COMPENSATION / PARTIAL_WITH_ITEM_BACK) - trong thực tế luôn null ở record này vì chỉ
-    // ca PENDING mới được gắn.
     public record DegradedCaseRef(UUID id, String status, Instant decisionDeadline, String decision, Instant pickedUpAt) {}
     public record PriceChange(Instant changedAt, BigDecimal oldPrice, BigDecimal newPrice) {}
     public record TermInfo(int term, BigDecimal price, BigDecimal commissionRate) {}

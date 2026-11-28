@@ -15,9 +15,7 @@ import java.util.List;
 public class PayOrdersResponse {
     private List<PaidOrderResponse> orders;
 
-    // Tổng tiền đã trừ khỏi ví cho cả lô đơn
     private BigDecimal totalAmount;
 
-    // Số dư ví sau khi trừ, để FE cập nhật ngay không cần gọi lại GET /wallet/balance
     private BigDecimal walletBalance;
 }

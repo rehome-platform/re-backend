@@ -47,7 +47,6 @@ public class ModeratorAdminServiceImpl implements ModeratorAdminService {
 
     private static final int MAX_PAGE_SIZE = 100;
     private static final int TEMP_PASSWORD_LENGTH = 12;
-    // Bỏ các ký tự dễ nhầm (0/O, 1/l/I) vì Moderator phải gõ lại từ email
     private static final String PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -82,7 +81,6 @@ public class ModeratorAdminServiceImpl implements ModeratorAdminService {
                 .warehouse(warehouse)
                 .build());
 
-        // @MapsId lấy accountId từ account; moderatorCode do @GeneratedModeratorCode sinh khi insert
         ModeratorProfile profile = moderatorProfileRepository.saveAndFlush(ModeratorProfile.builder()
                 .account(account)
                 .fullName(fullName)
@@ -90,7 +88,6 @@ public class ModeratorAdminServiceImpl implements ModeratorAdminService {
                 .build());
 
         log.info("moderatorCode = {}", profile.getModeratorCode());
-        // Gửi trong transaction: gửi mail lỗi thì rollback, Admin tạo lại được (email chưa bị chiếm)
         otpEmailService.sendModeratorAccount(email, fullName, profile.getModeratorCode(), tempPassword);
 
         ObjectNode detail = objectMapper.createObjectNode();
@@ -110,7 +107,6 @@ public class ModeratorAdminServiceImpl implements ModeratorAdminService {
                                                      int page, int size) {
         PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
                 Sort.by(Sort.Direction.DESC, "createdAt"));
-        // Tìm kiếm + lọc kho + lọc trạng thái nằm chung một truy vấn, nên totalElements/phân trang tính sau khi lọc
         Page<Account> accounts = accountRepository.findAll(
                 AccountSpecifications.moderators(warehouseId, search, status), pageable);
 
@@ -120,7 +116,6 @@ public class ModeratorAdminServiceImpl implements ModeratorAdminService {
 
         return PageResponse.from(accounts.map(a -> {
             ModeratorProfile profile = profiles.get(a.getId());
-            // Ưu tiên accounts.warehouse_id, fallback moderator_profiles (giống AccountMeServiceImpl)
             Warehouse warehouse = a.getWarehouse() != null ? a.getWarehouse()
                     : (profile != null ? profile.getWarehouse() : null);
             return toResponse(a, profile, warehouse);
@@ -146,7 +141,6 @@ public class ModeratorAdminServiceImpl implements ModeratorAdminService {
             throw new AppException(ErrorCode.MODERATOR_SAME_WAREHOUSE);
         }
 
-        // Lần đầu được gán kho (chưa có kho cũ) thì cho qua; có kho cũ mà còn giữ việc thì chặn
         if (current != null && queueItemRepository.existsByClaimedBy_Id(moderatorId)) {
             throw new AppException(ErrorCode.MODERATOR_HAS_CLAIMED_TASK);
         }
@@ -166,7 +160,6 @@ public class ModeratorAdminServiceImpl implements ModeratorAdminService {
         return toResponse(moderator, profile, target);
     }
 
-    // Số điện thoại không bắt buộc; có gửi thì phải đúng dạng 0xxxxxxxxx và chưa thuộc tài khoản nào
     private String resolvePhone(String rawPhone) {
         String phone = PhoneNumbers.normalize(rawPhone);
         if (phone == null) {

@@ -15,23 +15,19 @@ import lombok.*;
 @AllArgsConstructor
 @Builder
 public class Follow {
-    // Khóa chính
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false)
     private UUID id;
 
-    // Người theo dõi
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "member_id", nullable = false)
     private Account member;
 
-    // Tổ chức được theo dõi; UNIQUE cùng member_id
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "organization_id", nullable = false)
     private OrganizationProfile organization;
 
-    // Thời điểm bắt đầu theo dõi
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

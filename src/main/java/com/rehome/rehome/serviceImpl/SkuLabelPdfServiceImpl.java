@@ -27,7 +27,6 @@ public class SkuLabelPdfServiceImpl implements SkuLabelPdfService {
     private static final String FONT_REGULAR = "/fonts/NotoSans-Regular.ttf";
     private static final String FONT_BOLD = "/fonts/NotoSans-Bold.ttf";
     private static final int MAX_NAME_LENGTH = 40;
-    // Tem 70x50mm (1mm = 2.835pt)
     private static final Rectangle LABEL_SIZE = new Rectangle(198.5f, 141.7f);
     private static final int QR_PIXELS = 300;
 
@@ -41,7 +40,6 @@ public class SkuLabelPdfServiceImpl implements SkuLabelPdfService {
         return render(product);
     }
 
-    // package-private để test riêng phần render
     byte[] render(Product p) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             BaseFont regular = loadBaseFont(FONT_REGULAR);
@@ -51,7 +49,6 @@ public class SkuLabelPdfServiceImpl implements SkuLabelPdfService {
             PdfWriter.getInstance(doc, out);
             doc.open();
 
-            // QR chứa SKU, Moderator quét ở API 41
             Image qr = Image.getInstance(qrPng(p.getId()));
             qr.scaleToFit(70, 70);
             qr.setAlignment(Element.ALIGN_CENTER);

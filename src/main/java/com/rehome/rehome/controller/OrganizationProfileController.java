@@ -52,7 +52,7 @@ public class OrganizationProfileController {
                 .body(ApiResponse.success(organizationService.registerOrganization(account.getId(), request), 201));
     }
 
-    @PutMapping("/me/registration")   // class có @RequestMapping("/organizations")
+    @PutMapping("/me/registration")
     @Operation(summary = "Tổ chức nộp lại hồ sơ đăng ký sau khi bị từ chối")
     public ResponseEntity<ApiResponse<OrganizationResubmitResponse>> resubmit(
             @AuthenticationPrincipal Account account,
@@ -203,8 +203,6 @@ public class OrganizationProfileController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
-    // Public (Guest xem được, F-082); Moderator được xem thêm cả tổ chức chưa VERIFIED
-    // (PENDING/REJECTED) vì cần tra cứu hồ sơ từ luồng duyệt/hộp thư trước khi tổ chức được xác minh.
     @GetMapping("/{id}")
     @PreAuthorize("permitAll()")
     @Operation(summary = "Xem hồ sơ của 1 tổ chức; VERIFIED thì ai cũng xem được, Moderator xem được mọi trạng thái (F-082)")
@@ -265,11 +263,6 @@ public class OrganizationProfileController {
         return ResponseEntity.ok(ApiResponse.success(null, 204));
     }
 
-    // ------------------------------------------------------------------
-    // F-139: ảnh giấy tờ pháp lý chỉ ra qua 3 endpoint dưới đây. API không trả URL storage
-    // nữa, server tự đọc byte rồi stream để kiểm quyền được từng request.
-    // ------------------------------------------------------------------
-
     @GetMapping("/{id}/legal-files/cccd-front")
     @PreAuthorize("hasAnyRole('MODERATOR','ORGANIZATION')")
     @Operation(summary = "Xem ảnh CCCD mặt trước của người đại diện (F-139)")
@@ -307,16 +300,10 @@ public class OrganizationProfileController {
                 .contentType(MediaType.parseMediaType(download.contentType()))
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         ContentDisposition.inline().filename(download.fileName()).build().toString())
-                // Ảnh giấy tờ không được nằm lại trong cache của proxy hay trình duyệt
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .contentLength(download.content().length)
                 .body(download.content());
     }
-
-    // ------------------------------------------------------------------
-    // API 131 (F-140): Moderator duyệt / từ chối yêu cầu đổi thông tin pháp lý.
-    // Hàng đợi để xem danh sách là GET /queues?type=LEGAL_CHANGE (API 28, đã có).
-    // ------------------------------------------------------------------
 
     @GetMapping("/legal-change-requests/{id}")
     @PreAuthorize("hasRole('MODERATOR')")
@@ -344,8 +331,6 @@ public class OrganizationProfileController {
     public ResponseEntity<ApiResponse<LegalChangeRequestResponse>> rejectLegalChange(
             @AuthenticationPrincipal Account account,
             @PathVariable UUID id,
-            // required = false: body rỗng cũng phải ra 400 "reason là bắt buộc" theo spec,
-            // chứ không ra lỗi parse JSON (handler đó trả shape ApiError khác)
             @RequestBody(required = false) RejectLegalChangeRequest request) {
         return ResponseEntity.ok(ApiResponse.success(
                 organizationService.rejectLegalChange(account, id, request),

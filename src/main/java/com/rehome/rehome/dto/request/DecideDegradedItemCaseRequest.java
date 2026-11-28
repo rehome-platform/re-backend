@@ -8,6 +8,5 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class DecideDegradedItemCaseRequest {
-    // FULL_COMPENSATION / PARTIAL_WITH_ITEM_BACK
     private String choice;
 }

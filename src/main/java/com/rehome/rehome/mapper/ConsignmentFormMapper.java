@@ -11,10 +11,8 @@ import com.rehome.rehome.entity.marketplace.ConsignmentReceipt;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 
 
 @Component
@@ -34,9 +32,6 @@ public class ConsignmentFormMapper {
         return response;
     }
 
-    /**
-     * Danh sach photo entity -> danh sach URL (dung cho API chi tiet neu can).
-     */
     public List<String> toPhotoUrls(List<ConsignmentFormPhoto> photos) {
         List<String> urls = new ArrayList<>();
         if (photos == null) {
@@ -59,10 +54,9 @@ public class ConsignmentFormMapper {
         form.setCondition(request.getCondition());
         form.setStatus(ConsignmentFormStatus.PENDING);
         form.setBringInDeadline(null);
-        return form;   // createdAt do @PrePersist lo
+        return form;
     }
 
-    // PUT: chỉ đổi các field Member được sửa, không đụng status/createdAt/warehouse
     public void applyUpdate(ConsignmentForm form, ConsignmentFormRequest request) {
         form.setProductName(request.getProductName());
         form.setDescription(request.getDescription());
@@ -78,7 +72,7 @@ public class ConsignmentFormMapper {
             ConsignmentFormPhoto photo = new ConsignmentFormPhoto();
             photo.setForm(form);
             photo.setImageUrl(photoUrls.get(i));
-            photo.setDisplayOrder(i);          // ảnh đầu tiên là ảnh đại diện
+            photo.setDisplayOrder(i);
             photos.add(photo);
         }
         return photos;
@@ -119,7 +113,6 @@ public class ConsignmentFormMapper {
                 .categoryName(form.getCategory().getName())
                 .brandId(form.getBrand().getId())
                 .brandName(form.getBrand().getName())
-                // null khi form còn là DRAFT
                 .warehouse(w == null ? null : ConsignmentFormDetailResponse.WarehouseInfo.builder()
                         .id(w.getId()).name(w.getName())
                         .address(w.getAddress()).openingHours(w.getOpeningHours())

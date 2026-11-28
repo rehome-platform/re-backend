@@ -17,7 +17,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
-// API dành riêng cho Moderator; API của Member (/consignment-forms) giữ nguyên
 @RestController
 @RequestMapping("/moderator/consignment-forms")
 @RequiredArgsConstructor

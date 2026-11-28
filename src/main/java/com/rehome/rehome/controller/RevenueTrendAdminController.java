@@ -13,8 +13,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-// Tách khỏi AdminDashboardController (/api/admin/dashboard) để không đụng API 147/148; hai controller không
-// trùng mapping. /api/admin/** đã được SecurityConfig giới hạn cho ADMIN; @PreAuthorize là lớp bảo vệ thứ hai
 @RestController
 @RequestMapping("/api/admin/dashboard/revenue-trend")
 @RequiredArgsConstructor

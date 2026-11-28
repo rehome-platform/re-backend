@@ -20,24 +20,12 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Repository;
 
-/**
- * Truy vấn thống kê gói thành viên và voucher cho màn W-05.
- *
- * <p>Viết thành repository riêng (giống {@code AdminReportQueryRepository}) vì toàn bộ là câu
- * aggregate nhiều bảng, không map được thành derived query của Spring Data.
- *
- * <p>Khoảng thời gian luôn là nửa mở {@code [from, to)} (xem {@code AdminDateRange}). Gom theo
- * tháng được làm <b>trong Java</b> chứ không bằng {@code date_trunc} của Postgres: test chạy trên
- * H2 nên hàm riêng của Postgres sẽ không chạy được, và số dòng payment trong một khoảng báo cáo là
- * nhỏ. Đổi lại phải nhớ quy đổi sang giờ VN ở tầng này.
- */
 @Repository
 public class MembershipStatsQueryRepository {
 
     @PersistenceContext
     private EntityManager em;
 
-    /** Một lần thu tiền mua gói: dùng để gom doanh thu theo tháng và theo hạng. */
     public record PaymentRow(Instant paidAt, MembershipTier tier, BigDecimal amount) {}
 
     public List<PaymentRow> successfulPayments(Instant from, Instant to) {
@@ -56,7 +44,6 @@ public class MembershipStatsQueryRepository {
                 .toList();
     }
 
-    /** Gom doanh thu theo (tháng giờ VN, hạng), giữ thứ tự tháng tăng dần. */
     public Map<String, Map<MembershipTier, BigDecimal>> revenueByMonthAndTier(List<PaymentRow> rows) {
         Map<String, Map<MembershipTier, BigDecimal>> byMonth = new LinkedHashMap<>();
         rows.stream()
@@ -71,7 +58,6 @@ public class MembershipStatsQueryRepository {
         return YearMonth.from(instant.atZone(VnTimeWindow.VN_ZONE)).toString();
     }
 
-    /** Subscription đang ACTIVE và còn hạn, theo hạng. Ảnh chụp hiện tại, không theo khoảng báo cáo. */
     public Map<MembershipTier, Long> activeCountByTier(Instant now) {
         Map<MembershipTier, Long> counts = new EnumMap<>(MembershipTier.class);
         for (Object[] row : em.createQuery("""
@@ -87,13 +73,6 @@ public class MembershipStatsQueryRepository {
         return counts;
     }
 
-    /**
-     * Gói hết hạn trong khoảng mà Member <b>không</b> có subscription nào bắt đầu sau đó.
-     *
-     * <p>"Không gia hạn" phải xét theo MEMBER, không theo dòng subscription: người đổi sang hạng
-     * khác vẫn là người còn ở lại, chỉ là dòng cũ chuyển {@code REPLACED}. Vì vậy điều kiện là
-     * "không có dòng nào của member này có {@code startedAt} muộn hơn".
-     */
     public long notRenewedCount(Instant from, Instant to) {
         Long count = em.createQuery("""
                         select count(s) from MemberSubscription s
@@ -114,13 +93,6 @@ public class MembershipStatsQueryRepository {
         return count == null ? 0L : count;
     }
 
-    /**
-     * Chi phí khuyến mãi đã thực sự chi trong khoảng, theo hạng của gói đã phát ra mã.
-     *
-     * <p>Lấy từ dòng sổ {@code VOUCHER_DISCOUNT} (ghi lúc đơn hoàn tất) chứ không từ mệnh giá mã
-     * đã phát: mã không ai dùng thì không tốn đồng nào. Dòng sổ mang số âm nên trả về số dương ở
-     * đây cho dễ đọc trên biểu đồ.
-     */
     public Map<MembershipTier, BigDecimal> voucherCostByTier(Instant from, Instant to) {
         Map<MembershipTier, BigDecimal> costs = new EnumMap<>(MembershipTier.class);
         for (Object[] row : em.createQuery("""
@@ -143,7 +115,6 @@ public class MembershipStatsQueryRepository {
         return costs;
     }
 
-    /** Tổng chi phí khuyến mãi trong khoảng, số dương. */
     public BigDecimal totalVoucherSpent(Instant from, Instant to) {
         BigDecimal sum = em.createQuery("""
                         select sum(t.amount) from WalletTransaction t
@@ -158,14 +129,6 @@ public class MembershipStatsQueryRepository {
         return sum == null ? BigDecimal.ZERO : sum.abs();
     }
 
-    /**
-     * Số lượt thử đồ đã dùng trong khoảng, theo hạng <b>đang có hiệu lực của Member tại thời điểm
-     * gọi API</b> - không phải hạng lúc dùng lượt đó.
-     *
-     * <p>Đánh đổi có chủ ý: lưu lại hạng tại từng lượt thử đồ sẽ phải thêm cột vào
-     * {@code live_tryon_sessions} / {@code try_on_images}, mà con số này chỉ dùng để Admin ước
-     * lượng chi phí AI theo hạng, không phải để đối soát tiền.
-     */
     public Map<MembershipTier, Long> liveTryOnUsageByTier(Instant from, Instant to, Instant now) {
         return tryOnUsageByTier("LiveTryOnSession", from, to, now);
     }
@@ -176,8 +139,6 @@ public class MembershipStatsQueryRepository {
 
     private Map<MembershipTier, Long> tryOnUsageByTier(String entityName, Instant from, Instant to,
                                                         Instant now) {
-        // entityName là hằng do chính class này truyền vào (hai giá trị cố định), không phải input
-        // của người dùng - nối chuỗi ở đây không mở đường cho injection.
         Map<MembershipTier, Long> usage = new EnumMap<>(MembershipTier.class);
         for (Object[] row : em.createQuery("""
                         select s.tier, count(e) from %s e
@@ -196,7 +157,6 @@ public class MembershipStatsQueryRepository {
         return usage;
     }
 
-    /** Số mã theo (mẫu, trạng thái), phát ra trong khoảng. */
     public record TemplateStatusCount(UUID templateId, MemberVoucherStatus status, long count) {}
 
     public List<TemplateStatusCount> voucherCountsByTemplate(Instant from, Instant to) {

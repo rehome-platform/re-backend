@@ -15,8 +15,6 @@ public class RateOrderRequest {
     @Size(max = 500, message = "comment tối đa 500 ký tự.")
     private String comment;
 
-    // Ảnh bằng chứng kèm đánh giá, phải là ảnh đã upload qua hệ thống (Cloudinary của hệ
-    // thống) — kiểm tra domain ở OrderServiceImpl.rateOrder, giống validateImageUrls của chat.
     @Size(max = 5, message = "imageUrls tối đa 5 ảnh.")
     private List<String> imageUrls;
 }

@@ -15,22 +15,18 @@ import org.hibernate.annotations.ColumnDefault;
 @AllArgsConstructor
 @Builder
 public class Category {
-    // Khóa chính danh mục
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false)
     private UUID id;
 
-    // Tên danh mục, ví dụ Áo khoác
     @Column(name = "name", nullable = false, length = 255)
     private String name;
 
-    // TOP / BOTTOM / DRESS — quyết định món vào slot Áo, Quần hay Đầm khi thử đồ AI
     @Enumerated(EnumType.STRING)
     @Column(name = "tryon_slot", nullable = false)
     private TryOnSlot tryonSlot;
 
-    // ACTIVE / HIDDEN — ẩn thì không nhận ký gửi mới, dữ liệu cũ vẫn giữ
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     @ColumnDefault("'ACTIVE'")

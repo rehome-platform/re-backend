@@ -9,9 +9,6 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-/**
- * Trang công khai của 1 tổ chức đã VERIFIED (F-082). Guest xem được, không cần token.
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -32,6 +29,6 @@ public class OrganizationPublicProfileResponse {
     private BigDecimal donationPointLongitude;
     private String donationPointReceivingHours;
 
-    @JsonProperty("isFollowing") // Jackson mặc định bỏ tiền tố "is" của getter boolean -> phải ép tên field tường minh
+    @JsonProperty("isFollowing")
     private boolean isFollowing;
 }

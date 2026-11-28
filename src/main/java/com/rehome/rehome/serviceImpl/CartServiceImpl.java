@@ -71,8 +71,6 @@ public class CartServiceImpl implements CartService {
             throw new ConflictException("Sản phẩm không còn để bán.", "PRODUCT_NOT_AVAILABLE");
         }
 
-        // Chặn ngay ở cửa vào giỏ, nên getCart/checkout-preview không cần thêm lý do mới:
-        // món của chính mình không bao giờ vào được giỏ (quyền sở hữu không chuyển tay).
         if (product.getMember().getId().equals(member.getId())) {
             throw new ConflictException(
                     "Bạn không thể mua món do chính mình ký gửi.", "CANNOT_BUY_OWN_PRODUCT");
@@ -235,8 +233,6 @@ public class CartServiceImpl implements CartService {
             availableProducts.add(product);
         }
 
-        // Mỗi sản phẩm là 1 đơn riêng (giống Shopee), kể cả khi nhiều món cùng kho -
-        // preview này phải khớp với cách createOrders thật sự tách đơn.
         List<CheckoutPreviewOrderResponse> orders = new ArrayList<>();
         for (Product product : availableProducts) {
             Warehouse warehouse = product.getWarehouse();

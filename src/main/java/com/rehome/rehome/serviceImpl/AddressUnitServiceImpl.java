@@ -24,7 +24,6 @@ import java.util.function.Supplier;
 @Slf4j
 public class AddressUnitServiceImpl implements AddressUnitService {
 
-    // GHN hiện có 34 tỉnh/thành và tối đa 168 phường/xã/tỉnh (TP.HCM) sau sáp nhập - 200 đủ lấy hết trong 1 lần gọi
     private static final int MAX_PAGE_SIZE = 200;
 
     private final GhnApi ghnApi;
@@ -94,8 +93,6 @@ public class AddressUnitServiceImpl implements AddressUnitService {
                 province.getId(), province.getName(), String.valueOf(ward.getId()), ward.getName());
     }
 
-    // GHN trả tên chuẩn ("Hồ Chí Minh") kèm extension_names ("tp.hồ chí minh", "ho chi minh"...).
-    // So khớp sau khi bỏ dấu câu và khoảng trắng để tên người dùng gõ ("TP. Hồ Chí Minh") vẫn nhận ra được.
     private static boolean matches(String canonicalName, List<String> extensionNames, String input) {
         String key = normalize(input);
         if (key.isEmpty()) {

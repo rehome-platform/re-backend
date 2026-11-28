@@ -8,9 +8,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ResolveReturnRequestRequest {
-    // VALID / INVALID
     private String resolution;
-    // RELIST / RETURN_TO_SELLER / DISCARD — bắt buộc khi resolution = VALID
     private String action;
     private String resolutionNote;
 }

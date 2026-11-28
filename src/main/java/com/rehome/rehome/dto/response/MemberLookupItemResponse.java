@@ -16,7 +16,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** API 25 - tra cứu Member tại quầy. Email trả nguyên văn (không mask) vì chỉ Moderator gọi được. */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -30,13 +29,9 @@ public class MemberLookupItemResponse {
 
     private String email;
     private String phone;
-    // Ngày tạo tài khoản
     private Instant joinedAt;
-    // Lần gần nhất Moderator xác nhận danh tính Member tại quầy (CounterIdentityConfirmation); null nếu chưa từng
     private Instant lastWarehouseVisit;
-    // Số lần bị xử lý vi phạm (đếm audit log BAN_ACCOUNT) + trạng thái khoá hiện tại
     private ViolationSummary violationSummary;
-    // Form ký gửi còn hiệu lực (PENDING / APPROVED / INSPECTING) tại kho của Moderator đang tra
     private List<ActiveConsignmentItem> activeConsignments;
 
     @Getter
@@ -45,12 +40,9 @@ public class MemberLookupItemResponse {
     @AllArgsConstructor
     @Builder
     public static class ViolationSummary {
-        // Số lần admin khoá tài khoản (số dòng audit log BAN_ACCOUNT của member)
         private long totalViolations;
         private Boolean isCurrentlyBanned;
-        // Chỉ có giá trị khi đang bị khoá
         private String banReason;
-        // Lần khoá gần nhất; null nếu chưa từng bị khoá
         private Instant lastViolationAt;
 
         public static ViolationSummary empty(Account account) {
@@ -95,7 +87,6 @@ public class MemberLookupItemResponse {
         }
     }
 
-    /** Chỉ phần thông tin hồ sơ; các phần tổng hợp để null. */
     public static MemberLookupItemResponse from(MemberProfile p) {
         return from(p, null, null, List.of());
     }

@@ -34,8 +34,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 
-// Điều 8 hợp đồng: kỳ ký gửi tự chạy mà không cần ai bấm gì - hết kỳ thì sang kỳ, hết 90 ngày
-// thì gỡ khỏi sàn và mở quyết định cho Member, TAKE_BACK không đến lấy quá hạn thì vô thừa nhận
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -50,7 +48,6 @@ public class EndOfTermLifecycleServiceImpl implements EndOfTermLifecycleService 
     private final SystemConfigReader systemConfigReader;
     private final ReConsignNegotiationHistoryRepository negotiationHistoryRepository;
 
-    // Điều 8.3: 30 ngày kể từ lúc chọn TAKE_BACK để đến kho nhận hàng, quá hạn thì vô thừa nhận
     @Value("${app.end-of-term.take-back-pickup-deadline-days}")
     private long takeBackPickupDeadlineDays;
 
@@ -67,8 +64,6 @@ public class EndOfTermLifecycleServiceImpl implements EndOfTermLifecycleService 
         flagOverdueReConsignCounterOffers(now);
     }
 
-    // F-029 (Điều 8): mỗi kỳ dài termLengthDays (snapshot trên biên nhận); còn kỳ để lên thì tăng
-    // currentTerm và dời lại termStartedAt, mốc tính cửa sổ rút hàng miễn phí 7 ngày đầu mỗi kỳ
     private void advanceTerms(Instant now) {
         for (Product product : productRepository.findOnSaleNotYetFinalTerm()) {
             ConsignmentReceipt receipt = product.getConsignmentReceipt();
@@ -86,8 +81,6 @@ public class EndOfTermLifecycleServiceImpl implements EndOfTermLifecycleService 
         }
     }
 
-    // Điều 8.1: hết 90 ngày (kỳ cuối, endOfTermDeadline đã tính sẵn lúc nhập kho/ký gửi lại) ->
-    // gỡ khỏi sàn ngay, mở EndOfTermDecision cho Member chọn TAKE_BACK/RE_CONSIGN trong 30 ngày
     private void openEndOfTermDecisions(Instant now) {
         for (Product product : productRepository
                 .findAllByStatusAndEndOfTermDeadlineBefore(ProductStatus.ON_SALE, now)) {
@@ -100,8 +93,6 @@ public class EndOfTermLifecycleServiceImpl implements EndOfTermLifecycleService 
         }
     }
 
-    // Điều 8.3: Member đã chọn TAKE_BACK nhưng quá takeBackPickupDeadlineDays kể từ ngày quyết
-    // định vẫn chưa đến kho nhận hàng (takenBackAt null) -> coi như từ bỏ quyền sở hữu
     private void markUnclaimedForOverdueTakeBack(Instant now) {
         Instant cutoff = now.minus(takeBackPickupDeadlineDays, ChronoUnit.DAYS);
 
@@ -118,8 +109,6 @@ public class EndOfTermLifecycleServiceImpl implements EndOfTermLifecycleService 
         }
     }
 
-    // Nhắc Member 1 ngày trước proposalDeadline của đề xuất giá ký gửi lại đang chờ xác nhận/đề
-    // xuất lại; mỗi vòng đề xuất chỉ nhắc 1 lần (proposalReminderSentAt reset mỗi vòng mới)
     private void remindReConsignProposals(Instant now) {
         Instant reminderBefore = now.plus(1, ChronoUnit.DAYS);
 
@@ -139,8 +128,6 @@ public class EndOfTermLifecycleServiceImpl implements EndOfTermLifecycleService 
         }
     }
 
-    // Quá proposalDeadline mà Member không xác nhận/đề xuất lại -> coi như từ chối (Điều 8.3 áp
-    // dụng y hệt decline của Member): huỷ biên nhận nháp, chuyển TAKE_BACK/WITHDRAWN
     private void expireReConsignProposals(Instant now) {
         for (EndOfTermDecision decision : endOfTermDecisionRepository
                 .findAllByReConsignStatusAndProposalDeadlineBefore(ReConsignStatus.PROPOSED, now)) {
@@ -181,9 +168,6 @@ public class EndOfTermLifecycleServiceImpl implements EndOfTermLifecycleService 
         }
     }
 
-    // COUNTER_OFFERED quá re_consign_moderator_response_days ngày - chỉ đánh dấu quá hạn (log cảnh
-    // báo để lên dashboard/CSKH theo dõi), KHÔNG tự xử lý: quyết định cuối cùng vẫn phải là của
-    // Moderator (ACCEPT/REPROPOSE/KEEP), không có phương án hợp lý nào để hệ thống tự chọn thay.
     private void flagOverdueReConsignCounterOffers(Instant now) {
         int responseDays = systemConfigReader.getInt(SystemConfigKeys.RE_CONSIGN_MODERATOR_RESPONSE_DAYS,
                 SystemConfigKeys.DEFAULT_RE_CONSIGN_MODERATOR_RESPONSE_DAYS);

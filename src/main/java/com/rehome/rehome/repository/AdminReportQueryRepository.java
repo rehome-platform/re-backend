@@ -23,28 +23,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Các câu truy vấn báo cáo của Admin: món đã bán theo kỳ, sổ quỹ nền tảng, đối soát quỹ, đăng ký tài khoản.
- * Khoảng thời gian luôn là [from, to), không bao giờ null (xem AdminDateRange). Bộ lọc tùy chọn khác
- * (term, type, role) được ghép vào JPQL khi có, không dùng "(:p is null or ...)" vì Postgres không suy được
- * kiểu của tham số null.
- */
 @Repository
 public class AdminReportQueryRepository {
 
     @PersistenceContext
     private EntityManager em;
 
-    // ==================== Món đã bán theo kỳ ====================
-
-    /** Một món đã bán trong đơn COMPLETED. */
     public record SoldItemRow(UUID orderItemId, String productId, String productName,
                               UUID orderId, String orderNo,
                               BigDecimal priceAtOrder, BigDecimal commissionRateApplied,
                               Short termApplied, Instant completedAt) {}
 
-    // Món thuộc đơn COMPLETED hoàn thành trong [from, to), cùng điều kiện với doanh thu bán / hoa hồng
-    // theo kỳ trên dashboard. term = null thì không lọc kỳ. Mới hoàn thành nhất xếp trước.
     public Page<SoldItemRow> findSoldItems(Instant from, Instant to, Short term, Pageable pageable) {
         String base = "from OrderItem oi join oi.order o join oi.product p "
                 + "where o.status = :status and o.completedAt >= :from and o.completedAt < :to"
@@ -75,8 +64,6 @@ public class AdminReportQueryRepository {
         return new PageImpl<>(rows, pageable, total);
     }
 
-    // Toàn bộ món đã bán trong [from, to), mọi kỳ, dùng cho xuất Excel (F-159) - không phân trang vì
-    // Admin cần đủ danh sách trong file, không phải xem từng trang trên web.
     public List<SoldItemRow> findAllSoldItems(Instant from, Instant to) {
         return em.createQuery(
                         "select oi.id, p.id, p.name, o.id, o.orderNo, oi.priceAtOrder, oi.commissionRateApplied, "
@@ -93,10 +80,6 @@ public class AdminReportQueryRepository {
                 .toList();
     }
 
-    // ==================== Sổ quỹ nền tảng ====================
-
-    // Dòng PLATFORM của sổ kép (mỗi dòng là đối ứng của một dòng ví Member), mới nhất trước.
-    // Nạp luôn dòng đối ứng, đơn và món liên quan để dựng response không phát sinh N+1.
     public Page<WalletTransaction> findPlatformLedger(Instant from, Instant to, WalletTransactionType type,
                                                       Pageable pageable) {
         String base = "from WalletTransaction t where t.walletType = :walletType "
@@ -130,7 +113,6 @@ public class AdminReportQueryRepository {
         return new PageImpl<>(rows, pageable, total);
     }
 
-    // Ví Member theo id ví, nạp luôn chủ ví: để gắn "tài khoản liên quan" cho các dòng sổ quỹ
     public Map<UUID, Wallet> findWalletsWithMember(Collection<UUID> walletIds) {
         Map<UUID, Wallet> result = new HashMap<>();
         if (walletIds.isEmpty()) {
@@ -143,8 +125,6 @@ public class AdminReportQueryRepository {
         return result;
     }
 
-    // ==================== Đối soát quỹ ====================
-
     public BigDecimal sumFundBalance() {
         return orZero(em.createQuery("select sum(f.balance) from PlatformFund f", BigDecimal.class)
                 .getSingleResult());
@@ -155,23 +135,13 @@ public class AdminReportQueryRepository {
                 .getSingleResult());
     }
 
-    // Dòng ghi nhận doanh thu nền tảng: chỉ đánh dấu phần tiền đã nằm sẵn trong quỹ là doanh thu, không đổi số dư
-    // quỹ và không có dòng Member đối ứng, nên phải loại khỏi tổng đối soát
     private static final List<WalletTransactionType> REVENUE_RECOGNITION_TYPES = List.of(
             WalletTransactionType.COMMISSION_REVENUE,
             WalletTransactionType.WITHDRAWAL_FEE_REVENUE,
             WalletTransactionType.RETURN_SHIP_BACK_FEE_REVENUE,
-            // Doanh thu bán gói khi tiền đến từ VNPay: 1 dòng PLATFORM dương, không có dòng
-            // Member đối ứng và không đổi số dư quỹ (xem MembershipServiceImpl.recordMembershipRevenue).
-            // Mua gói bằng VÍ thì KHÔNG đi qua loại này - dòng đối ứng bên quỹ mang type
-            // MEMBERSHIP_PURCHASE nên vẫn được tính vào đối soát, đúng vì tiền thật có chuyển trong hệ thống.
             WalletTransactionType.MEMBERSHIP_REVENUE,
-            // Chi phí khuyến mãi voucher: dòng PLATFORM âm, chỉ để thống kê, phần giảm chưa bao giờ
-            // vào quỹ (xem OrderServiceImpl.recordPlatformPromotionCost).
             WalletTransactionType.VOUCHER_DISCOUNT);
 
-    // Tổng các bút toán thành công của một loại ví; tiền vào dương, tiền ra âm.
-    // Không tính các dòng ghi nhận doanh thu (xem REVENUE_RECOGNITION_TYPES)
     public BigDecimal sumSuccessfulTransactions(WalletType walletType) {
         return orZero(em.createQuery("select sum(t.amount) from WalletTransaction t "
                         + "where t.walletType = :walletType and t.status = :status "
@@ -182,7 +152,6 @@ public class AdminReportQueryRepository {
                 .getSingleResult());
     }
 
-    // Bút toán Member thành công mà chưa có dòng đối ứng nào ở quỹ trỏ về nó
     public long countMemberTransactionsWithoutCounterpart() {
         return em.createQuery("select count(t) from WalletTransaction t "
                         + "where t.walletType = :walletType and t.status = :status "
@@ -193,7 +162,6 @@ public class AdminReportQueryRepository {
                 .getSingleResult();
     }
 
-    // Cặp đối ứng không triệt tiêu nhau (số tiền hai dòng cộng lại khác 0)
     public long countUnbalancedCounterpartPairs() {
         return em.createQuery("select count(t) from WalletTransaction t join t.counterpartTransaction c "
                         + "where t.walletType = :walletType and t.amount + c.amount <> 0", Long.class)
@@ -201,11 +169,6 @@ public class AdminReportQueryRepository {
                 .getSingleResult();
     }
 
-    // ==================== Đăng ký tài khoản ====================
-
-    // Thời điểm tạo của các tài khoản đăng ký trong [from, to); role = null thì lấy mọi vai trò.
-    // Việc chia ngày/tuần/tháng theo giờ VN làm ở service (JPQL không có hàm cắt ngày theo múi giờ dùng chung
-    // được cho cả Postgres và H2 của test).
     public List<Instant> findAccountCreatedAt(Instant from, Instant to, Role role) {
         TypedQuery<Instant> query = em.createQuery("select a.createdAt from Account a "
                 + "where a.createdAt >= :from and a.createdAt < :to"
@@ -218,9 +181,6 @@ public class AdminReportQueryRepository {
         return query.getResultList();
     }
 
-    // Tổng tài khoản mới trong [from, to); role = null thì lấy mọi vai trò. Dùng khi chỉ cần một con
-    // số tổng (ví dụ xuất Excel) - không qua AccountGrowthService vì hàm đó còn chia theo kỳ để vẽ
-    // chart và có trần 366 điểm, không hợp cho khoảng thời gian dài (ví dụ "Toàn thời gian").
     public long countAccountsCreated(Instant from, Instant to, Role role) {
         TypedQuery<Long> query = em.createQuery("select count(a) from Account a "
                 + "where a.createdAt >= :from and a.createdAt < :to"

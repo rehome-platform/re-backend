@@ -32,7 +32,6 @@ public class AccountMeServiceImpl implements AccountMeService {
 
         if (account.getRole() == Role.MODERATOR) {
             profile = moderatorProfileRepository.findById(accountId).orElse(null);
-            // Ưu tiên accounts.warehouse_id (giống getManagedWarehouses), fallback sang moderator_profiles
             warehouse = account.getWarehouse() != null
                     ? account.getWarehouse()
                     : (profile != null ? profile.getWarehouse() : null);

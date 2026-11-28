@@ -22,7 +22,7 @@ public class ApiResponse<T> {
     @Builder.Default
     private int statusCode = 200;
 
-    @JsonInclude(JsonInclude.Include.NON_NULL) // thành công thì không có field code
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private String code;
 
     @Builder.Default
@@ -74,7 +74,6 @@ public class ApiResponse<T> {
                 .build();
     }
 
-    // MỚI: lỗi có code để FE điều hướng màn hình
     public static <T> ApiResponse<T> error(ErrorCode ec) {
         return ApiResponse.<T>builder()
                 .result(null)

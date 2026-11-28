@@ -9,7 +9,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** Một dòng giao dịch mua gói trong màn thanh toán gói của Admin. */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -23,10 +22,8 @@ public class AdminMembershipPaymentResponse {
     private String tier;
     private BigDecimal amount;
     private String method;
-    // PENDING / SUCCESS / FAILED (giá trị của PaymentStatus)
     private String status;
     private Instant createdAt;
-    // null khi chưa thanh toán xong
     private Instant paidAt;
 
     public static AdminMembershipPaymentResponse from(MembershipPayment p, String memberName) {

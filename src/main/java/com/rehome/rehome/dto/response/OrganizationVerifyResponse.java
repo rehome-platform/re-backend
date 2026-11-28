@@ -8,9 +8,6 @@ import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 
-/**
- * Kết luận xác minh tổ chức của Moderator (F-138).
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

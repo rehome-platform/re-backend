@@ -2,8 +2,6 @@ package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.util.NotificationFormatting;
 
-import com.rehome.rehome.entity.enums.NotificationType;
-import com.rehome.rehome.entity.enums.NotificationTargetType;
 
 import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
@@ -72,8 +70,6 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
 
-    // ---------------------------------------------------------------- Member
-
     @Override
     @Transactional
     public ConsignmentFormResponse create(ConsignmentFormRequest request, Account account) {
@@ -83,13 +79,11 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
             throw new AppException(ErrorCode.NOT_MEMBER_CREATE_FORM);
         }
 
-        // Thiếu id/ảnh phải trả 400, không để findById(null) ném lỗi thành 500
         validateCreateContent(request);
 
-        // Khoá dòng Member rồi đếm, để hai request song song không cùng lọt qua giới hạn
         lockMember(account);
         if (pendingCount(account) >= maxPendingForms(account)) {
-            throw new AppException(ErrorCode.TOO_MANY_PENDING_FORMS);                             // 409
+            throw new AppException(ErrorCode.TOO_MANY_PENDING_FORMS);
         }
 
         ConsignmentForm cf = consignmentFormMapper.toEntity(request);
@@ -129,10 +123,7 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
                 account.getId(), ConsignmentFormStatus.DRAFT, pageable)
                 : consignmentFormRepository.findByMemberIdAndStatus(account.getId(), status, pageable);
 
-        // Một query lấy ảnh đầu của cả trang, tránh N+1
         Map<UUID, String> thumbnails = loadThumbnails(result.getContent());
-        // Biên nhận mới nhất của từng form, để mobile biết form nào đang chờ xác nhận biên nhận
-        // (vẫn INSPECTING) hoặc đã xác nhận (ẩn khỏi "đang xử lý", trùng với sản phẩm trong kho)
         Map<UUID, ConsignmentReceipt> latestReceipts = loadLatestReceipts(result.getContent());
 
         Map<UUID, String> productIds = result.isEmpty() ? Map.of()
@@ -145,7 +136,6 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
                 f -> consignmentFormMapper.toListItem(f, thumbnails.get(f.getId()), latestReceipts.get(f.getId()),
                         productIds.get(f.getId()))));
 
-        // pendingCount + maxPending để mobile hiện "3/5 form chờ"
         return ConsignmentFormPageResponse.builder()
                 .content(p.getContent())
                 .page(p.getPage())
@@ -168,7 +158,6 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         return buildDetail(form);
     }
 
-    // PUT /consignment-forms/{id}: chỉ khi PENDING, không đổi kho
     @Override
     @Transactional
     public ConsignmentFormDetailResponse update(UUID id, ConsignmentFormRequest request, Account account) {
@@ -178,23 +167,20 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
             throw new AppException(ErrorCode.NOT_MEMBER_ACCOUNT);
         }
 
-        // applyUpdate ghi đè thẳng các cột NOT NULL, nên body phải đủ như POST
         validateDraftContent(request);
 
-        // Khóa dòng để không đè lên lúc Moderator đang duyệt/từ chối
         ConsignmentForm form = consignmentFormRepository.findByIdForUpdate(id)
-                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));      // 404
+                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));
 
         if (!form.getMember().getId().equals(account.getId())) {
-            throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);                         // 403
+            throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
         }
         if (form.getStatus() != ConsignmentFormStatus.PENDING) {
-            throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_PENDING);                       // 409
+            throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_PENDING);
         }
 
         consignmentFormMapper.applyUpdate(form, request);
 
-        // Không đổi kho: bỏ qua warehouseId trong body
         if (request.getCategoryId() != null
                 && !request.getCategoryId().equals(form.getCategory().getId())) {
             form.setCategory(categoryRepository.findById(request.getCategoryId())
@@ -206,7 +192,6 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
                     .orElseThrow(() -> new AppException(ErrorCode.BRAND_NOT_FOUND)));
         }
 
-        // photoUrls null hoặc rỗng = giữ ảnh cũ; có giá trị = thay toàn bộ
         if (request.getPhotoUrls() != null && !request.getPhotoUrls().isEmpty()) {
             photoRepository.deleteByForm_Id(id);
             photoRepository.saveAll(consignmentFormMapper.toPhotoEntities(form, request.getPhotoUrls()));
@@ -216,9 +201,6 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         return buildDetail(form);
     }
 
-    // ------------------------------------------------------- Nháp ("Tủ đồ")
-
-    // POST /consignment-forms/drafts: chưa cần kho, không tính vào giới hạn chờ duyệt
     @Override
     @Transactional
     public ConsignmentFormDetailResponse createDraft(ConsignmentFormRequest request, Account account) {
@@ -235,14 +217,12 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         cf.setBrand(brandRepository.findById(request.getBrandId())
                 .orElseThrow(() -> new AppException(ErrorCode.BRAND_NOT_FOUND)));
         cf.setMember(account);
-        // warehouse và formNo để trống tới lúc gửi
 
         cf = consignmentFormRepository.save(cf);
         photoRepository.saveAll(consignmentFormMapper.toPhotoEntities(cf, request.getPhotoUrls()));
         return buildDetail(cf);
     }
 
-    // PUT /consignment-forms/drafts/{id}: bỏ qua warehouseId trong body
     @Override
     @Transactional
     public ConsignmentFormDetailResponse updateDraft(UUID id, ConsignmentFormRequest request, Account account) {
@@ -264,7 +244,6 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
                     .orElseThrow(() -> new AppException(ErrorCode.BRAND_NOT_FOUND)));
         }
 
-        // photoUrls null hoặc rỗng = giữ ảnh cũ; có giá trị = thay toàn bộ
         if (request.getPhotoUrls() != null && !request.getPhotoUrls().isEmpty()) {
             photoRepository.deleteByForm_Id(id);
             photoRepository.saveAll(consignmentFormMapper.toPhotoEntities(form, request.getPhotoUrls()));
@@ -274,7 +253,6 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         return buildDetail(form);
     }
 
-    // DELETE /consignment-forms/drafts/{id}: xoá hẳn nháp và ảnh
     @Override
     @Transactional
     public void deleteDraft(UUID id, Account account) {
@@ -286,7 +264,6 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         consignmentFormRepository.delete(form);
     }
 
-    // POST /consignment-forms/submit: DRAFT -> PENDING, trả kết quả từng món
     @Override
     @Transactional
     public SubmitConsignmentFormsResponse submitDrafts(SubmitConsignmentFormsRequest request, Account account) {
@@ -304,7 +281,6 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         List<SubmitConsignmentFormsResponse.Result> results = new ArrayList<>();
         int success = 0;
 
-        // LinkedHashSet: bỏ id trùng nhưng giữ thứ tự Member đã chọn
         for (UUID formId : new LinkedHashSet<>(request.getFormIds())) {
             ConsignmentForm form = consignmentFormRepository.findByIdForUpdate(formId).orElse(null);
 
@@ -358,17 +334,15 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
                 .build();
     }
 
-    // ------------------------------------------------------------- Moderator
-
     @Override
     @Transactional
     public ConsignmentFormResponse approve(UUID id, Account moderator) {
         ConsignmentForm form = consignmentFormRepository.findByIdForUpdate(id)
-                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));   // 404
+                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));
         assertModeratorOwnsWarehouse(moderator, form);
 
         if (form.getStatus() != ConsignmentFormStatus.PENDING) {
-            throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_PENDING);                    // 409
+            throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_PENDING);
         }
 
         form.setStatus(ConsignmentFormStatus.APPROVED);
@@ -387,11 +361,11 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     @Transactional
     public void startInspection(UUID id, Account moderator) {
         ConsignmentForm form = consignmentFormRepository.findByIdForUpdate(id)
-                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));   // 404
+                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));
         assertModeratorOwnsWarehouse(moderator, form);
 
         if (form.getStatus() != ConsignmentFormStatus.APPROVED) {
-            throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_APPROVED);                   // 409
+            throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_APPROVED);
         }
 
         form.setStatus(ConsignmentFormStatus.INSPECTING);
@@ -404,11 +378,11 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     @Transactional
     public ConsignmentFormStatusResponse reject(UUID id, RejectConsignmentFormRequest request, Account moderator) {
         ConsignmentForm form = consignmentFormRepository.findByIdForUpdate(id)
-                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));   // 404
+                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));
         assertModeratorOwnsWarehouse(moderator, form);
 
         if (form.getStatus() != ConsignmentFormStatus.PENDING) {
-            throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_PENDING);                    // 409
+            throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_PENDING);
         }
 
         form.setStatus(ConsignmentFormStatus.REJECTED);
@@ -426,11 +400,11 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
     @Transactional
     public ConsignmentFormStatusResponse returnOnsite(UUID id, ReturnOnsiteRequest request, Account moderator) {
         ConsignmentForm form = consignmentFormRepository.findByIdForUpdate(id)
-                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));   // 404
+                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));
         assertModeratorOwnsWarehouse(moderator, form);
 
         if (form.getStatus() != ConsignmentFormStatus.INSPECTING) {
-            throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_INSPECTING);                 // 409
+            throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_INSPECTING);
         }
 
         form.setStatus(ConsignmentFormStatus.REJECTED);
@@ -444,42 +418,35 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         return new ConsignmentFormStatusResponse(form.getId(), form.getStatus());
     }
 
-    // --------------------------------------------------------------- helpers
-
-    // Log nhóm INSPECTION; gọi trong transaction của thao tác nên lỗi/rollback thì không còn log
     private void logForm(Account moderator, ConsignmentForm form, String action, String result) {
         auditLogger.logWarehouseOp(moderator, form.getWarehouse(), WarehouseAuditGroup.INSPECTION, action,
                 "CONSIGNMENT_FORM", form.getId().toString(), result, form.getFormNo());
     }
 
-    // Moderator chỉ thao tác trên form thuộc kho mình phụ trách
     private void assertModeratorOwnsWarehouse(Account moderator, ConsignmentForm form) {
         if (moderator == null || moderator.getWarehouse() == null) {
-            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);                          // 403
+            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);
         }
         Warehouse formWarehouse = form.getWarehouse();
         if (formWarehouse == null
                 || !formWarehouse.getId().equals(moderator.getWarehouse().getId())) {
-            throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);                      // 403
+            throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
         }
     }
 
-    // Quyền đọc form: Member chỉ form của mình; Moderator form thuộc kho mình (không gồm nháp);
-    // Admin đọc mọi form
     private void authorizeRead(Account account, ConsignmentForm form) {
         switch (account.getRole()) {
             case ADMIN -> {
-                // được đọc theo quyền quản trị
             }
             case MODERATOR -> {
                 if (form.getStatus() == ConsignmentFormStatus.DRAFT) {
-                    throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);              // 403
+                    throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
                 }
                 assertModeratorOwnsWarehouse(account, form);
             }
             case MEMBER -> {
                 if (!form.getMember().getId().equals(account.getId())) {
-                    throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);              // 403
+                    throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
                 }
             }
             default -> throw new AppException(ErrorCode.NOT_MEMBER_ACCOUNT);
@@ -491,25 +458,10 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
                 .orElseThrow(() -> new AppException(ErrorCode.ACCOUNT_NOT_FOUND));
     }
 
-    /**
-     * Số form PENDING tối đa của một Member - <b>đọc theo GÓI THÀNH VIÊN</b>
-     * ({@code membership_plans.max_pending_consignment_forms}, Admin sửa ở màn W-01):
-     * FREE 5 -> SILVER 10 -> GOLD 15 -> DIAMOND 30.
-     *
-     * <p>Trước đây đọc {@code system_configs.max_pending_forms_per_member} và áp chung cho mọi
-     * Member. Key đó <b>giữ lại làm giá trị dự phòng duy nhất</b> cho trường hợp không resolve được
-     * gói (bảng {@code membership_plans} chưa seed) - xem {@code MembershipQuotaResolver.FALLBACK}
-     * và ghi chú ở {@code SystemConfigKeys.MAX_PENDING_FORMS_PER_MEMBER}. Nguồn thắng là GÓI;
-     * sửa key kia sẽ không đổi hạn mức của Member nào resolve được gói.
-     *
-     * <p>Có 3 nơi gọi và cả 3 đều phải đi qua đây: lúc tạo form, lúc dựng {@code maxPending} cho
-     * API danh sách (mobile hiển thị "3/5 form"), và lúc gửi hàng loạt form nháp.
-     */
     private int maxPendingForms(Account account) {
         return membershipQuotaResolver.resolve(account.getId()).maxPendingConsignmentForms();
     }
 
-    // Số ngày Member phải mang đồ đến kho sau khi form được duyệt, Admin chỉnh được trong system_configs
     private int bringInDeadlineDays() {
         return systemConfigReader.getInt(SystemConfigKeys.BRING_IN_DEADLINE_DAYS,
                 SystemConfigKeys.DEFAULT_BRING_IN_DEADLINE_DAYS);
@@ -521,17 +473,16 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
 
     private ConsignmentForm loadOwnDraftForUpdate(UUID id, Account account) {
         ConsignmentForm form = consignmentFormRepository.findByIdForUpdate(id)
-                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));      // 404
+                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));
         if (!form.getMember().getId().equals(account.getId())) {
-            throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);                         // 403
+            throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
         }
         if (form.getStatus() != ConsignmentFormStatus.DRAFT) {
-            throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_DRAFT);                         // 409
+            throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_DRAFT);
         }
         return form;
     }
 
-    // POST /consignment-forms: như nháp nhưng bắt buộc có kho và ít nhất 1 ảnh
     private void validateCreateContent(ConsignmentFormRequest request) {
         validateDraftContent(request);
         if (request.getWarehouseId() == null) {
@@ -542,7 +493,6 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         }
     }
 
-    // Nháp chỉ được thiếu kho; các cột còn lại của bảng đều NOT NULL nên vẫn phải đủ
     private void validateDraftContent(ConsignmentFormRequest request) {
         if (request.getCategoryId() == null) {
             throw new AppException(ErrorCode.CATEGORY_ID_REQUIRED);
@@ -561,7 +511,6 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
         }
     }
 
-    // Ảnh đầu tiên (theo displayOrder) của mỗi form, lấy bằng một query cho cả trang
     private Map<UUID, String> loadThumbnails(List<ConsignmentForm> forms) {
         if (forms.isEmpty()) {
             return Map.of();
@@ -574,14 +523,10 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
                         (first, second) -> first));
     }
 
-    // Cùng một quy tắc "biên nhận mới nhất" với buildDetail/ModeratorConsignmentFormServiceImpl:
-    // createdAt lớn nhất, hòa thì id lớn hơn - để danh sách và chi tiết luôn khớp nhau
     private static final Comparator<ConsignmentReceipt> NEWER_RECEIPT = Comparator
             .comparing(ConsignmentReceipt::getCreatedAt, Comparator.nullsFirst(Comparator.naturalOrder()))
             .thenComparing(ConsignmentReceipt::getId, Comparator.nullsFirst(Comparator.naturalOrder()));
 
-    // Biên nhận mới nhất của mỗi form (1 form có thể có nhiều biên nhận do ký gửi lại),
-    // lấy bằng một query cho cả trang
     private Map<UUID, ConsignmentReceipt> loadLatestReceipts(List<ConsignmentForm> forms) {
         if (forms.isEmpty()) {
             return Map.of();
@@ -594,7 +539,6 @@ public class ConsignmentFormServiceImpl implements ConsignmentFormService {
                         (a, b) -> NEWER_RECEIPT.compare(a, b) >= 0 ? a : b));
     }
 
-    // Phải gọi trong transaction vì đọc các quan hệ lazy của form
     private ConsignmentFormDetailResponse buildDetail(ConsignmentForm form) {
         List<String> photoUrls = consignmentFormMapper.toPhotoUrls(
                 photoRepository.findByForm_IdOrderByDisplayOrderAscIdAsc(form.getId()));

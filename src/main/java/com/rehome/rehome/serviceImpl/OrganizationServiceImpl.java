@@ -25,7 +25,6 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.OrganizationLegalChangeRequest;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.auth.OrganizationRepresentative;
-import com.rehome.rehome.entity.marketplace.Campaign;
 import com.rehome.rehome.entity.marketplace.Follow;
 import com.rehome.rehome.entity.auth.OrganizationDocument;
 import com.rehome.rehome.entity.enums.CampaignStatus;
@@ -123,8 +122,8 @@ public class OrganizationServiceImpl implements OrganizationService {
         }
 
         OrganizationProfile organization = organizationProfileMapper.toEntity(request);
-        organization.setContactEmail(email);              // lưu bản đã chuẩn hóa
-        organization.setAccount(account);                 // account giờ là managed
+        organization.setContactEmail(email);
+        organization.setAccount(account);
         organization.setVerificationStatus(VerificationStatus.PENDING);
         organization.setSubmittedAt(Instant.now());
 
@@ -164,9 +163,6 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Override
     @Transactional(readOnly = true)
     public OrganizationProfileResponse getMyProfile(UUID accountId) {
-        // OrganizationProfile dùng @MapsId nên accountId chính là khóa chính
-        // Hạn mức và số chiến dịch đang chạy dùng đúng nguồn với lúc tạo chiến dịch (CampaignServiceImpl),
-        // nên số app hiện "2/3" khớp với lúc bị chặn CAMPAIGN_LIMIT_REACHED
         return organizationProfileRepository.findById(accountId)
                 .map(p -> OrganizationProfileResponse.from(
                         p,
@@ -348,9 +344,6 @@ public class OrganizationServiceImpl implements OrganizationService {
         OrganizationProfile profile = organizationProfileRepository.findById(accountId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND));
 
-        // PATCH: bỏ trống field nào thì giữ nguyên giá trị cũ. description/contactPhone/
-        // donationPointReceivingHours là NOT NULL nên không cho ghi đè bằng chuỗi rỗng.
-        // displayName khác legalName (pháp lý, đi qua F-097) nên sửa thẳng ở đây được (OP-02)
         if (StringUtils.hasText(request.getDisplayName())) {
             profile.setDisplayName(request.getDisplayName());
         }
@@ -386,10 +379,8 @@ public class OrganizationServiceImpl implements OrganizationService {
         if (proposedChanges == null || proposedChanges.isNull() || proposedChanges.isEmpty()) {
             throw new BadRequestException("proposedChanges là bắt buộc.");
         }
-        // Kiểm trường lạ ngay lúc nộp, không để tới lúc Moderator duyệt mới phát hiện
         organizationLegalChangeMapper.validate(proposedChanges);
 
-        // Wireframe OP-05: mỗi lần chỉ 1 yêu cầu đang chờ duyệt
         if (organizationLegalChangeRequestRepository.existsByOrganization_AccountIdAndStatus(
                 accountId, LegalChangeRequestStatus.PENDING)) {
             throw new AppException(ErrorCode.LEGAL_CHANGE_REQUEST_ALREADY_PENDING);
@@ -404,8 +395,6 @@ public class OrganizationServiceImpl implements OrganizationService {
                 .build();
         organizationLegalChangeRequestRepository.save(legalChangeRequest);
 
-        // Vào hàng đợi để Moderator duyệt (API 132); refId là id của chính yêu cầu vì mỗi
-        // lần xin đổi là một việc riêng cần xem xét
         queueService.enqueue(QueueType.LEGAL_CHANGE, legalChangeRequest.getId().toString(), null);
 
         return LegalChangeRequestResponse.builder()
@@ -448,7 +437,6 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Override
     @Transactional(readOnly = true)
     public OrganizationVerificationResponse getVerificationDetail(UUID organizationId) {
-        // OrganizationProfile dùng @MapsId nên organizationId chính là khóa chính
         return organizationProfileRepository.findById(organizationId)
                 .map(OrganizationVerificationResponse::from)
                 .orElseThrow(() -> new IllegalArgumentException(ORGANIZATION_NOT_FOUND));
@@ -460,7 +448,6 @@ public class OrganizationServiceImpl implements OrganizationService {
         OrganizationProfile profile = organizationProfileRepository.findById(organizationId)
                 .orElseThrow(() -> new IllegalArgumentException(ORGANIZATION_NOT_FOUND));
 
-        // Duyệt lại hồ sơ đã VERIFIED thì giữ nguyên người và mốc đã kết luận trước đó
         if (profile.getVerificationStatus() == VerificationStatus.VERIFIED) {
             return toVerifyResponse(profile);
         }
@@ -473,7 +460,6 @@ public class OrganizationServiceImpl implements OrganizationService {
         profile.setRejectionReason(null);
         organizationProfileRepository.save(profile);
 
-        // Đóng việc trong hàng đợi để Moderator khác không nhận lại hồ sơ này
         queueService.dequeue(QueueType.ORG_VERIFICATION, organizationId.toString());
 
         notificationService.notify(
@@ -503,9 +489,6 @@ public class OrganizationServiceImpl implements OrganizationService {
         applyDocumentDecisions(profile, request.getDocuments());
 
         Instant now = Instant.now();
-        // verifiedBy/verifiedAt là "ai kết luận, lúc nào" nên từ chối cũng đóng dấu; rejectedAt
-        // tách riêng vì verifiedAt sẽ bị ghi đè ở lần xác minh/nộp lại kế tiếp (mobile cần mốc
-        // từ chối ổn định để hiển thị lịch sử)
         profile.setVerificationStatus(VerificationStatus.REJECTED);
         profile.setRejectionReason(request.getReason());
         profile.setVerifiedBy(moderator);
@@ -513,7 +496,6 @@ public class OrganizationServiceImpl implements OrganizationService {
         profile.setRejectedAt(now);
         organizationProfileRepository.save(profile);
 
-        // Việc đã kết luận; tổ chức nộp lại (F-003) sẽ tự enqueue lại
         queueService.dequeue(QueueType.ORG_VERIFICATION, organizationId.toString());
 
         notificationService.notify(
@@ -534,10 +516,6 @@ public class OrganizationServiceImpl implements OrganizationService {
                 .build();
     }
 
-    /**
-     * Chấm từng giấy tờ đạt/chưa đạt khi từ chối hồ sơ, để tổ chức biết đúng giấy tờ nào
-     * cần sửa thay vì chỉ có 1 lý do chung cho cả hồ sơ.
-     */
     private void applyDocumentDecisions(OrganizationProfile profile,
                                         List<RejectOrganizationRequest.DocumentDecision> decisions) {
         if (decisions == null || decisions.isEmpty()) {
@@ -566,7 +544,6 @@ public class OrganizationServiceImpl implements OrganizationService {
         boolean imagesReplaced = organizationLegalChangeMapper.apply(
                 changeRequest.getProposedChanges(), profile);
 
-        // Mã số thuế là định danh duy nhất giữa các tổ chức, đổi sang mã của tổ chức khác thì chặn
         if (StringUtils.hasText(profile.getTaxCode())
                 && organizationProfileRepository.existsByTaxCodeAndAccountIdNot(
                 profile.getTaxCode(), profile.getAccountId())) {
@@ -575,8 +552,6 @@ public class OrganizationServiceImpl implements OrganizationService {
 
         Instant now = Instant.now();
         if (imagesReplaced) {
-            // F-139 tính thời hạn giữ ảnh từ verifiedAt. Không đặt lại mốc thì ảnh giấy tờ vừa
-            // nộp sẽ bị job dọn xóa ngay, vì mốc đang là của lần xác minh trước.
             profile.setVerifiedBy(moderator);
             profile.setVerifiedAt(now);
         }
@@ -612,7 +587,6 @@ public class OrganizationServiceImpl implements OrganizationService {
 
         OrganizationLegalChangeRequest changeRequest = requirePendingRequest(requestId);
 
-        // Hồ sơ không bị đụng tới: tổ chức vẫn giữ thông tin pháp lý cũ đã được xác minh
         changeRequest.setStatus(LegalChangeRequestStatus.REJECTED);
         changeRequest.setRejectReason(request.getReason());
         changeRequest.setReviewedBy(moderator);
@@ -634,10 +608,6 @@ public class OrganizationServiceImpl implements OrganizationService {
         return toLegalChangeResponse(changeRequest);
     }
 
-    /**
-     * Yêu cầu đã kết luận thì không duyệt/từ chối lại được — nếu không, bấm hai lần sẽ áp
-     * proposedChanges lần nữa lên hồ sơ (lúc này có thể đã đổi tiếp bằng yêu cầu khác).
-     */
     private OrganizationLegalChangeRequest requirePendingRequest(UUID requestId) {
         OrganizationLegalChangeRequest changeRequest = organizationLegalChangeRequestRepository
                 .findById(requestId)
@@ -658,11 +628,6 @@ public class OrganizationServiceImpl implements OrganizationService {
                 .build();
     }
 
-    /**
-     * Phần checklist (F-137) mà server kiểm được từ dữ liệu: đủ số giấy tờ theo loại tổ chức
-     * và có ảnh CCCD người đại diện để đối chiếu tên. Các bước phán đoán của con người
-     * (gọi điện, tra mã số thuế, soi ảnh) thì FE chặn trước khi cho bấm Xác thực.
-     */
     private void requireCompleteDossier(OrganizationProfile profile) {
         boolean hasLegalFile = profile.getDocuments() != null && profile.getDocuments().stream()
                 .anyMatch(doc -> doc != null && StringUtils.hasText(doc.getFileUrl()));

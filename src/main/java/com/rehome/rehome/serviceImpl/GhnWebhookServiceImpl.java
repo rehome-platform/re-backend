@@ -2,8 +2,6 @@ package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.util.NotificationFormatting;
 
-import com.rehome.rehome.entity.enums.NotificationType;
-import com.rehome.rehome.entity.enums.NotificationTargetType;
 
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.GhnWebhookPayload;
@@ -31,7 +29,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.Locale;
 import java.util.Set;
 
-// API 71 (F-128) - đồng bộ trạng thái GHN vào Order + lịch sử OrderTrackingEvent, và tự hủy đơn khi vận chuyển lỗi (F-062)
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -39,7 +36,6 @@ public class GhnWebhookServiceImpl implements GhnWebhookService {
     private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
 
 
-    // Các trạng thái "kết thúc" của GHN mà không phải giao thành công -> coi là vận chuyển lỗi, tự hủy đơn + hoàn tiền
     private static final Set<String> TERMINAL_FAILURE_STATUSES = Set.of(
             "cancel", "exception", "lost", "damage", "scrap", "returned");
 
@@ -59,7 +55,6 @@ public class GhnWebhookServiceImpl implements GhnWebhookService {
 
         Order order = orderRepository.findByGhnTrackingCode(payload.getOrderCode()).orElse(null);
 
-        // Không khớp vận đơn chiều giao thì thử vận đơn chiều trả hàng (F-068/F-136)
         if (order == null) {
             boolean handledAsReturn = returnRequestService.applyGhnReturnStatus(
                     payload.getOrderCode(), payload.getStatus(), payload.getReason());
@@ -93,8 +88,6 @@ public class GhnWebhookServiceImpl implements GhnWebhookService {
         if ("delivered".equals(status)) {
             if (order.getStatus() == OrderStatus.SHIPPING) {
                 order.setStatus(OrderStatus.DELIVERED);
-                // Đọc config tại thời điểm giao và chốt vào đơn: admin đổi cấu hình sau đó
-                // không làm lệch hạn của đơn đã giao, và app đếm ngược theo đúng giá trị đã lưu.
                 int autoCompleteDays = systemConfigReader.getInt(
                         SystemConfigKeys.ORDER_AUTO_COMPLETE_DAYS,
                         SystemConfigKeys.DEFAULT_ORDER_AUTO_COMPLETE_DAYS);
@@ -112,8 +105,6 @@ public class GhnWebhookServiceImpl implements GhnWebhookService {
             String reason = StringUtils.hasText(payload.getReason()) ? payload.getReason() : status;
             orderService.cancelOrderForCarrierFailure(order.getId(), reason);
         }
-        // Các trạng thái trung gian (ready_to_pick, picking, storing, transporting, delivering, ...)
-        // chỉ cần ghi vào OrderTrackingEvent phía trên, không đổi Order.status.
     }
 
     private Instant parseTime(String time) {

@@ -7,9 +7,6 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
-/**
- * Bài viết sau khi sửa (F-105/OB-03).
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

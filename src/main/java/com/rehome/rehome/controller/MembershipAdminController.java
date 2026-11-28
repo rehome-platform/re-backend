@@ -32,11 +32,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * Admin - cấu hình gói thành viên (W-01) và quản lý thành viên VIP (W-02, W-03).
- *
- * <p>Không có DELETE cho gói: subscription cũ vẫn trỏ vào plan. Ngừng bán = {@code active: false}.
- */
 @RestController
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor
@@ -46,8 +41,6 @@ public class MembershipAdminController {
 
     private final MembershipAdminService membershipAdminService;
     private final MembershipStatsService membershipStatsService;
-
-    // ---------------------------------------------------------------- Gói (W-01)
 
     @GetMapping("/membership-plans")
     @Operation(summary = "4 gói kèm activeSubscriberCount. Mọi ô đều sửa được, kể cả giá tháng/năm")
@@ -71,8 +64,6 @@ public class MembershipAdminController {
         return ResponseEntity.ok(ApiResponse.success(
                 membershipAdminService.updatePlan(admin, id, request), "OK"));
     }
-
-    // ---------------------------------------------------------------- Thành viên VIP (W-02, W-03)
 
     @GetMapping("/membership-subscriptions")
     @Operation(summary = "Danh sách thành viên VIP, lọc theo hạng/trạng thái/email-tên/sắp hết hạn")
@@ -102,8 +93,6 @@ public class MembershipAdminController {
         return ResponseEntity.status(201).body(ApiResponse.success(
                 membershipAdminService.grant(admin, request), 201, "Đã tặng gói thành viên"));
     }
-
-    // ---------------------------------------------------------------- Thống kê (W-05)
 
     @GetMapping("/membership-stats")
     @Operation(summary = "Doanh thu gói theo tháng/hạng, số VIP đang hoạt động, mua mới và không gia hạn. "

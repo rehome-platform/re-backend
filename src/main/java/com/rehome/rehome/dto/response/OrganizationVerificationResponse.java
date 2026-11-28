@@ -15,11 +15,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Hồ sơ xác minh tổ chức cho Moderator (F-137).
- * Checklist đổi theo orgType và theo việc tổ chức có mã số thuế hay không —
- * nguồn quy tắc: docs/OVERVIEW.md mục 9 "Xác minh tổ chức".
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -42,10 +37,6 @@ public class OrganizationVerificationResponse {
         private String fullName;
         private String position;
         private String cccdNumber;
-        // Ảnh CCCD chỉ Moderator xem được (OVERVIEW mục 9), dùng để đối chiếu tên với giấy phép.
-        // F-139: KHÔNG phải URL storage mà là đường dẫn endpoint có kiểm quyền
-        // (/api/organizations/{id}/legal-files/cccd-front) — FE phải gọi kèm header
-        // Authorization. null nếu ảnh đã bị job xóa sau khi hết thời hạn giữ.
         private String cccdFrontUrl;
         private String cccdBackUrl;
     }
@@ -55,15 +46,12 @@ public class OrganizationVerificationResponse {
     @AllArgsConstructor
     @Builder
     public static class DocumentInfo {
-        // Để FE gửi lại khi từ chối hồ sơ, chấm accepted cho đúng giấy tờ (API reject, F-138)
         private String id;
         private String docType;
         private String docNumber;
         private LocalDate issueDate;
         private String issuingAuthority;
-        // F-139: đường dẫn endpoint có kiểm quyền, không phải URL storage; null nếu đã hết hạn giữ
         private String fileUrl;
-        // Kết luận của Moderator cho riêng giấy tờ này ở lần từ chối gần nhất; null = chưa chấm
         private Boolean accepted;
     }
 
@@ -110,36 +98,23 @@ public class OrganizationVerificationResponse {
                 .build();
     }
 
-    /**
-     * Giấy tờ bắt buộc theo loại tổ chức (OVERVIEW mục 9, bảng "Các loại tổ chức được chấp nhận
-     * và giấy tờ tương ứng") rồi cộng các bước kiểm chứng chung.
-     */
     private static List<ChecklistItem> buildChecklist(String rawOrgType, boolean hasTaxCode) {
         List<ChecklistItem> checklist = new ArrayList<>(documentItemsFor(rawOrgType));
 
-        // Bước 3: kiểm ảnh giấy tờ
         checklist.add(required("Ảnh giấy tờ còn hiệu lực, rõ nét, có ngày cấp và dấu, tên khớp thông tin đã khai"));
-        // Bước 4 + yêu cầu nộp ảnh CCCD của người đại diện
         checklist.add(required("Tên trên CCCD của người đại diện khớp tên trên giấy phép"));
-        // Bước 1: bắt buộc khi tổ chức có mã số thuế; không có thì không tra được
         checklist.add(new ChecklistItem(
                 "Đối chiếu tên, địa chỉ, tình trạng hoạt động theo mã số thuế trên tracuunnt.gdt.gov.vn",
                 hasTaxCode));
-        // Bước 5: khi không có mã số thuế thì trọng số dồn sang gọi điện xác nhận
         checklist.add(new ChecklistItem(
                 "Gọi điện hoặc gửi email tới số và địa chỉ công khai của tổ chức để xác nhận đúng họ nộp hồ sơ",
                 !hasTaxCode));
-        // Bước 7: tham khảo, không bắt buộc
         checklist.add(new ChecklistItem(
                 "Tìm tên tổ chức trên báo chí và mạng xã hội xem có dấu hiệu lừa đảo", false));
 
         return checklist;
     }
 
-    /**
-     * Các mục hướng dẫn đối chiếu theo loại tổ chức; nhiều mục có thể nằm chung trong một file.
-     * Điều kiện có đủ tệp hồ sơ để xác minh được kiểm tra riêng tại service.
-     */
     private static List<ChecklistItem> documentItemsFor(String rawOrgType) {
         OrganizationType orgType = parseOrgType(rawOrgType);
         if (orgType == null) {
@@ -165,7 +140,6 @@ public class OrganizationVerificationResponse {
         };
     }
 
-    // orgType lưu dạng String nên mã lạ vẫn phải ra được checklist chung
     private static OrganizationType parseOrgType(String rawOrgType) {
         if (!StringUtils.hasText(rawOrgType)) {
             return null;

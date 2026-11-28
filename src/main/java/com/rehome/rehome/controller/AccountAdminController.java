@@ -20,7 +20,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
 
-// /api/admin/** đã được SecurityConfig giới hạn cho ADMIN; @PreAuthorize là lớp bảo vệ thứ hai
 @RestController
 @RequestMapping("/api/admin/accounts")
 @RequiredArgsConstructor
@@ -36,12 +35,9 @@ public class AccountAdminController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) Role role,
             @RequestParam(required = false) AccountStatus status,
-            // Lọc theo ngày tạo tài khoản, yyyy-MM-dd, gồm cả ngày to; bỏ trống cả hai = không lọc
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
-            // createdAt (mặc định) hoặc status
             @RequestParam(defaultValue = "createdAt") String sortBy,
-            // desc (mặc định) hoặc asc
             @RequestParam(defaultValue = "desc") String sortDir,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {

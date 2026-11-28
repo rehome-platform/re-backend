@@ -6,7 +6,6 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-// Payload GHN POST về theo "Callback trạng thái đơn" - field PascalCase theo đúng chuẩn GHN
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -34,7 +33,6 @@ public class GhnWebhookPayload {
     @JsonProperty("Time")
     private String time;
 
-    // Kho GHN đang giữ kiện hàng ở thời điểm bắn sự kiện, dùng làm "location" trên màn theo dõi
     @JsonProperty("Warehouse")
     private String warehouse;
 }

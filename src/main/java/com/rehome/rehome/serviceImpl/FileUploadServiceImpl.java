@@ -21,7 +21,6 @@ public class FileUploadServiceImpl implements FileUploadService {
 
     private static final String PDF = "application/pdf";
 
-    /** MIME type được phép -> phần mở rộng dùng khi lưu */
     private static final Map<String, String> ALLOWED_TYPES = Map.of(
             "image/jpeg", "jpg",
             "image/png", "png",
@@ -66,7 +65,6 @@ public class FileUploadServiceImpl implements FileUploadService {
             throw new AppException(ErrorCode.TOO_MANY_FILES);
         }
 
-        // Validate + đọc hết vào RAM trước khi upload, để không lưu nửa vời rồi mới báo lỗi
         List<byte[]> contents = new ArrayList<>(files.size());
         for (MultipartFile file : files) {
             contents.add(read(file, folder));
@@ -79,11 +77,6 @@ public class FileUploadServiceImpl implements FileUploadService {
         return uploaded;
     }
 
-    // ------------------------------------------------------------------
-    // Validate
-    // ------------------------------------------------------------------
-
-    /** Kiểm tra toàn bộ điều kiện rồi trả về nội dung file. */
     private byte[] read(MultipartFile file, UploadFolder folder) {
         if (file == null || file.isEmpty()) {
             throw new AppException(ErrorCode.FILE_EMPTY);
@@ -107,7 +100,6 @@ public class FileUploadServiceImpl implements FileUploadService {
             throw new AppException(ErrorCode.FILE_UPLOAD_FAILED);
         }
 
-        // Content-Type do client khai báo nên không tin được - đối chiếu với magic bytes
         if (!matchesMagicBytes(content, contentType)) {
             throw new AppException(ErrorCode.FILE_CONTENT_MISMATCH);
         }
@@ -116,7 +108,6 @@ public class FileUploadServiceImpl implements FileUploadService {
 
     private UploadedFileResponse store(MultipartFile file, UploadFolder folder, byte[] content) {
         String contentType = normalizeContentType(file.getContentType());
-        // Tên file do client đặt không dùng làm path (tránh path traversal và trùng tên) -> UUID
         String path = folder.getPath() + "/" + UUID.randomUUID() + "." + ALLOWED_TYPES.get(contentType);
         String url = fileStorageService.store(path, content, contentType);
 
@@ -128,7 +119,6 @@ public class FileUploadServiceImpl implements FileUploadService {
                 .build();
     }
 
-    /** Bỏ phần "; charset=..." và chuẩn hóa về chữ thường. */
     private String normalizeContentType(String contentType) {
         if (contentType == null) {
             return "";
@@ -142,7 +132,6 @@ public class FileUploadServiceImpl implements FileUploadService {
         return switch (contentType) {
             case "image/jpeg" -> startsWith(content, MAGIC_JPEG, 0);
             case "image/png" -> startsWith(content, MAGIC_PNG, 0);
-            // WebP = container RIFF: "RIFF" + 4 byte độ dài + "WEBP"
             case "image/webp" -> startsWith(content, "RIFF".getBytes(StandardCharsets.US_ASCII), 0)
                     && startsWith(content, "WEBP".getBytes(StandardCharsets.US_ASCII), 8);
             case PDF -> startsWith(content, MAGIC_PDF, 0);

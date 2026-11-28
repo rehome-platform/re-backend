@@ -10,8 +10,5 @@ import java.util.UUID;
 public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     Optional<Payment> findByOrder_Id(UUID orderId);
 
-    // Trả về danh sách chứ không phải Optional: một giao dịch cổng thanh toán có thể phủ nhiều đơn,
-    // mỗi đơn một dòng payments chung mã giao dịch.
-
     List<Payment> findAllByVnpTxnRef(String vnpTxnRef);
 }

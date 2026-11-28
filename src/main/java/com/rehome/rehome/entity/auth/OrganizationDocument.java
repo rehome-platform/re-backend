@@ -13,41 +13,30 @@ import lombok.*;
 @AllArgsConstructor
 @Builder
 public class OrganizationDocument {
-    // Khóa chính
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false)
     private UUID id;
 
-    // Tổ chức đã nộp giấy tờ này
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "organization_id", nullable = false)
     private OrganizationProfile organization;
 
-    // Loại giấy tờ, ví dụ giấy phép thành lập, điều lệ
     @Column(name = "doc_type", nullable = false, length = 255)
     private String docType;
 
-    // Số giấy tờ; quyết định nội bộ thường không có số
     @Column(name = "doc_number", nullable = true, length = 255)
     private String docNumber;
 
-    // Ngày cấp ghi trên giấy
     @Column(name = "issue_date", nullable = true)
     private LocalDate issueDate;
 
-    // Cơ quan đã cấp giấy
     @Column(name = "issuing_authority", nullable = true, length = 255)
     private String issuingAuthority;
 
-    // Tệp ảnh hoặc PDF, chỉ Moderator xem được.
-    // Nullable vì F-139 xóa ảnh sau thời hạn nhưng vẫn giữ bản ghi đã kiểm;
-    // xem scripts/2026-11-01_organization_documents_file_url_nullable.sql
     @Column(name = "file_url", nullable = true, length = 2048)
     private String fileUrl;
 
-    // Kết luận của Moderator cho riêng giấy tờ này khi từ chối hồ sơ.
-    // null = chưa được chấm (hồ sơ mới nộp hoặc đang chờ xét), true/false = đạt / chưa đạt.
     @Column(name = "accepted", nullable = true)
     private Boolean accepted;
 }

@@ -5,9 +5,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Bài viết vừa đăng (F-104).
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

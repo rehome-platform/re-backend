@@ -7,7 +7,6 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
-// Shape chung của các API master-data GHN: { code, message, data: [...] }
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

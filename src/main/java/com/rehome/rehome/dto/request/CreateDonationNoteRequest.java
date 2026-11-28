@@ -8,7 +8,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class CreateDonationNoteRequest {
-    // Có thể bỏ trống khi tổ chức nhận đồ ngoài chiến dịch nào
     private String campaignId;
 
     private String donorName;

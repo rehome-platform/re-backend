@@ -7,7 +7,6 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 
-// GET /return-requests/{id}/ship-back-quote - báo phí gửi lại hàng trả không hợp lệ
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -21,6 +20,5 @@ public class ShipBackQuoteResponse {
     private String wardName;
     private String provinceName;
     private String warehouseName;
-    // Số phút người mua có để trả phí sau khi chọn SHIP_BACK
     private Integer feeDeadlineMinutes;
 }

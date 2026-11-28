@@ -16,12 +16,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-/**
- * Admin - nội dung các Điều khoản dạng đoạn văn của biên nhận ký gửi (Điều 4–7, 9, 10 hiện tại).
- *
- * <p>Sửa/xoá/tắt ở đây chỉ áp dụng cho biên nhận được tạo MỚI sau đó — biên nhận đã tạo trước
- * giữ nguyên bản đã snapshot lúc tạo.
- */
 @RestController
 @RequestMapping("/api/admin/receipt-clause-templates")
 @RequiredArgsConstructor

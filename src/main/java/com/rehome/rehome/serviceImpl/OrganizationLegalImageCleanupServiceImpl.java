@@ -20,8 +20,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
-// F-139: hồ sơ đã duyệt quá thời hạn giữ ảnh -> xóa file trên storage và bỏ URL trong DB.
-// Bản ghi giấy tờ vẫn giữ lại (doc_type, số, ngày cấp, cơ quan cấp) để còn dấu vết đã kiểm gì.
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -92,10 +90,6 @@ public class OrganizationLegalImageCleanupServiceImpl implements OrganizationLeg
         return deleted;
     }
 
-    /**
-     * Xóa file trên storage. Lỗi hoặc không tìm thấy thì chỉ ghi log rồi vẫn bỏ URL trong DB:
-     * mục tiêu F-139 là không còn truy cập được tài liệu, nên để sót URL còn tệ hơn.
-     */
     private void removeFile(String url, OrganizationProfile profile) {
         try {
             if (!fileStorageService.deleteByUrl(url, contentTypeOf(url))) {
@@ -108,7 +102,6 @@ public class OrganizationLegalImageCleanupServiceImpl implements OrganizationLeg
         }
     }
 
-    /** PDF cũng nằm trong giấy tờ tổ chức; đuôi .pdf quyết định resource_type trên Cloudinary. */
     private static String contentTypeOf(String url) {
         return url.toLowerCase().endsWith(".pdf") ? "application/pdf" : IMAGE_CONTENT_TYPE;
     }

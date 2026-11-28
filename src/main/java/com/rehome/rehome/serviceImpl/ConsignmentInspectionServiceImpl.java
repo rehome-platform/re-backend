@@ -1,7 +1,5 @@
 package com.rehome.rehome.serviceImpl;
 
-import com.rehome.rehome.entity.enums.NotificationType;
-import com.rehome.rehome.entity.enums.NotificationTargetType;
 
 import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.entity.enums.WarehouseAuditGroup;
@@ -70,7 +68,6 @@ public class ConsignmentInspectionServiceImpl implements ConsignmentInspectionSe
                 ? req.getTermLengthDays()
                 : (previous != null ? previous.getTermLengthDays() : systemConfigReader.getInt(TERM_LENGTH_DAYS, DEFAULT_TERM_LENGTH_DAYS));
 
-        // Các giá trị snapshot: đọc config tại thời điểm tạo phiếu, đổi config sau không ảnh hưởng phiếu này
         ConsignmentReceipt receipt = ConsignmentReceipt.builder()
                 .receiptNo(receiptNoGenerator.next())
                 .consignmentForm(form)
@@ -101,7 +98,6 @@ public class ConsignmentInspectionServiceImpl implements ConsignmentInspectionSe
         ConsignmentReceipt saved = consignmentReceiptRepository.save(receipt);
         businessNotifications.receipt(saved);
 
-        // Việc kiểm định này đã xong, đóng trong hàng đợi
         queueService.dequeue(QueueType.INSPECTION, formId.toString());
 
         auditLogger.logWarehouseOp(moderator, form.getWarehouse(), WarehouseAuditGroup.INSPECTION,
@@ -129,7 +125,6 @@ public class ConsignmentInspectionServiceImpl implements ConsignmentInspectionSe
         return moderator.getWarehouse();
     }
 
-    // Khóa dòng form để 2 Moderator không xử lý cùng lúc; form kho khác coi như không tồn tại
     private ConsignmentForm loadFormInWarehouse(UUID formId, Warehouse warehouse) {
         ConsignmentForm form = consignmentFormRepository.findByIdForUpdate(formId)
                 .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));

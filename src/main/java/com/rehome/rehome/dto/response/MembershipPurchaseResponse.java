@@ -11,7 +11,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-// GET /memberships/me/history - một dòng = một lần trả tiền mua/gia hạn gói
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

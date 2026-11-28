@@ -7,8 +7,6 @@ import com.rehome.rehome.dto.response.ConsignmentReceiptConfirmResponse;
 import com.rehome.rehome.dto.response.ConsignmentReceiptResponse;
 import com.rehome.rehome.dto.response.PdfDownload;
 import com.rehome.rehome.entity.auth.Account;
-import com.rehome.rehome.repository.ConsignmentFormRepository;
-import com.rehome.rehome.service.ConsignmentFormService;
 import com.rehome.rehome.service.ConsignmentReceiptService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -44,10 +42,6 @@ public class ConsignmentReceiptController {
                 "Xác nhận ký gửi thành công, sản phẩm đã lên sàn");
     }
 
-    /**
-     * F-023: tải PDF biên nhận. Trả binary chứ không trả URL - biên nhận là hợp đồng,
-     * quyền xem phải do BE quyết mỗi lần tải, không phải do ai đang giữ cái link.
-     */
     @GetMapping("/{id}/pdf")
     @PreAuthorize("hasAnyRole('MEMBER','MODERATOR','ADMIN')")
     public ResponseEntity<byte[]> getReceiptPdf(

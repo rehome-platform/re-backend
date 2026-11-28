@@ -58,10 +58,6 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
         return new DashboardExport("dashboard_report_" + range.fromDate().format(MONTH_FORMAT) + ".xlsx", content);
     }
 
-    // Đếm tài khoản theo vai trò là giá trị hiện tại (giống 3 thẻ ở tab Người dùng); tài khoản mới đếm
-    // trong đúng khoảng xuất bằng 1 query count trực tiếp, không qua AccountGrowthService.growth() vì
-    // hàm đó có trần 366 điểm theo kỳ (phục vụ vẽ chart) và sẽ báo lỗi 400 với khoảng quá dài, ví dụ
-    // "Toàn thời gian".
     private UsersExportData usersExportData(Instant from, Instant to) {
         long newAccounts = reportRepository.countAccountsCreated(from, to, null);
         return new UsersExportData(
@@ -71,8 +67,6 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 newAccounts);
     }
 
-    // Doanh thu, số đơn, điểm đánh giá, doanh thu nền tảng lọc theo [from, to);
-    // tồn kho, số dư ví, quỹ và việc quá hạn luôn là giá trị hiện tại
     private AdminDashboardResponse snapshot(Instant from, Instant to) {
         int overdueHours = systemConfigReader.getInt(
                 SystemConfigKeys.OVERDUE_TASK_HOURS, SystemConfigKeys.DEFAULT_OVERDUE_TASK_HOURS);
@@ -80,7 +74,6 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
 
         Double rating = queryRepository.avgServiceRating(from, to);
 
-        // Doanh thu bán / hoa hồng theo kỳ 1-3 (món không thuộc kỳ 1-3 vẫn được tính vào tổng)
         List<AdminDashboardQueryRepository.TermSales> termSales = queryRepository.sumCompletedSalesByTerm(from, to);
         Map<Short, Long> stockByTerm = queryRepository.countStockedProductsByTerm();
 
@@ -91,8 +84,6 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .mapToLong(AdminDashboardQueryRepository.TermSales::itemCount)
                 .sum();
 
-        // Cơ cấu nguồn thu: hoa hồng + phí rút hàng + phí gửi lại hàng trả + gói thành viên là doanh thu nền tảng;
-        // đền bù là khoản chi riêng, không trừ vào đây
         long commissionRevenue = toLong(queryRepository.sumCompletedCommission(from, to));
         long withdrawalFeeRevenue = toLong(queryRepository.sumWithdrawalFeeRevenue(from, to));
         long returnShipBackFeeRevenue = toLong(queryRepository.sumReturnShipBackFeeRevenue(from, to));
@@ -131,7 +122,6 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .build();
     }
 
-    // Khóa theo tên enum (ON_SALE, RESERVED, ...) để FE tự gắn nhãn; giữ nguyên thứ tự repository trả về
     private static Map<String, Long> stockByStatusName(Map<ProductStatus, Long> byStatus) {
         Map<String, Long> result = new LinkedHashMap<>();
         byStatus.forEach((status, count) -> result.put(status.name(), count));
@@ -150,7 +140,6 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
-    // (platformRevenue / totalSalesRevenue) * 100; chưa có doanh thu bán thì 0 để tránh chia cho 0
     static double netProfitMarginPercent(BigDecimal platformRevenue, BigDecimal totalSalesRevenue) {
         if (totalSalesRevenue.signum() <= 0) {
             return 0.0;

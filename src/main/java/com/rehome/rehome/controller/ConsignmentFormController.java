@@ -26,7 +26,6 @@ public class ConsignmentFormController {
 
     private final ConsignmentFormService consignmentFormService;
 
-    // API 15 - POST /consignment-forms (Role: Member)
     @PostMapping
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<ConsignmentFormResponse>> create(
@@ -43,8 +42,6 @@ public class ConsignmentFormController {
 
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
     }
-
-    // ---- Nháp ký gửi ("Tủ đồ") ----
 
     @PostMapping("/drafts")
     @PreAuthorize("hasRole('MEMBER')")
@@ -122,7 +119,6 @@ public class ConsignmentFormController {
             @PathVariable UUID id,
             @AuthenticationPrincipal Account account) {
         consignmentFormService.startInspection(id, account);
-        // Cách 1 (khuyên dùng): HTTP 200, body giữ statusCode 204 theo spec
         return ResponseEntity.ok(ApiResponse.success(null, 204, "Đã bắt đầu kiểm định"));
     }
 

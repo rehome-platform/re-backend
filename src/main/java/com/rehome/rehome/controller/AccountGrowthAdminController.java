@@ -14,8 +14,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-// Tách khỏi AccountAdminController (/api/admin/accounts) cho gọn; hai controller không trùng mapping.
-// /api/admin/** đã được SecurityConfig giới hạn cho ADMIN; @PreAuthorize là lớp bảo vệ thứ hai
 @RestController
 @RequestMapping("/api/admin/accounts/growth")
 @RequiredArgsConstructor

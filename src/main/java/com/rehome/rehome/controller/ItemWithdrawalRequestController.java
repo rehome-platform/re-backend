@@ -35,7 +35,6 @@ public class ItemWithdrawalRequestController {
 
     private final ItemWithdrawalRequestService itemWithdrawalRequestService;
 
-    // API 90 (F-032)
     @PostMapping
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<ItemWithdrawalResponse>> create(
@@ -47,7 +46,6 @@ public class ItemWithdrawalRequestController {
         return ResponseEntity.ok(ApiResponse.success(result, HttpStatus.CREATED.value(), "Đã tạo yêu cầu rút hàng"));
     }
 
-    // API 91 (F-033)
     @PostMapping("/{id}/pay-fee")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<PayItemWithdrawalFeeResponse>> payFee(
@@ -59,13 +57,11 @@ public class ItemWithdrawalRequestController {
         PayItemWithdrawalFeeResponse result = itemWithdrawalRequestService.payFee(
                 account, id, request, clientIp(httpRequest));
 
-        // Còn phải trả qua cổng VNPay thì chỉ có payUrl, chưa có gì để báo "đã thanh toán"
         String message = StringUtils.hasText(result.getPayUrl()) ? "" : "Đã thanh toán phí rút hàng";
 
         return ResponseEntity.ok(ApiResponse.success(result, message));
     }
 
-    // Moderator của kho giữ sản phẩm duyệt yêu cầu rút hàng
     @PostMapping("/{id}/approve")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<ItemWithdrawalResponse>> approve(
@@ -76,7 +72,6 @@ public class ItemWithdrawalRequestController {
         return ResponseEntity.ok(ApiResponse.success(result, 200, "Đã duyệt yêu cầu rút hàng"));
     }
 
-    // Moderator từ chối, bắt buộc có lý do
     @PostMapping("/{id}/reject")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<ItemWithdrawalResponse>> reject(
@@ -96,7 +91,6 @@ public class ItemWithdrawalRequestController {
         return request.getRemoteAddr();
     }
 
-    // Chi tiết một yêu cầu rút hàng của chính Member
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<ItemWithdrawalDetailResponse>> getMine(
@@ -107,7 +101,6 @@ public class ItemWithdrawalRequestController {
                 itemWithdrawalRequestService.getMine(account, id)));
     }
 
-    // Danh sách yêu cầu rút hàng của chính Member; status rỗng = tất cả
     @GetMapping
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<List<ItemWithdrawalDetailResponse>>> listMine(

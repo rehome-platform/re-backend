@@ -14,6 +14,5 @@ public class RedeemPointsRequest {
     @NotNull(message = "type là bắt buộc.")
     private PointRedeemType type;
 
-    // Số lượt muốn đổi, 1..100 (kiểm ở PointsServiceImpl để trả đúng mã lỗi)
     private int quantity;
 }

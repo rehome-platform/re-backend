@@ -16,7 +16,6 @@ public class CounterHandoverRequest {
     @NotNull(message = "accountId không được để trống")
     private UUID accountId;
 
-    // ITEM_WITHDRAWAL / END_OF_TERM_TAKE_BACK / INVALID_RETURN_PICKUP — parse thủ công để trả đúng message khi sai
     @NotBlank(message = "context không được để trống")
     private String context;
 

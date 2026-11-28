@@ -11,7 +11,6 @@ import lombok.*;
 @NoArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class QueryVnPayResponse {
-    // "00" = truy vấn thành công; khác "00" là lỗi ở chính request truy vấn (không phải trạng thái giao dịch)
     @JsonProperty("vnp_ResponseId")
     private String responseId;
 
@@ -51,7 +50,6 @@ public class QueryVnPayResponse {
     @JsonProperty("vnp_TransactionType")
     private String transactionType;
 
-    // Trạng thái thật của giao dịch: "00" thành công, "01" đang chờ, "02" thất bại
     @JsonProperty("vnp_TransactionStatus")
     private String transactionStatus;
 

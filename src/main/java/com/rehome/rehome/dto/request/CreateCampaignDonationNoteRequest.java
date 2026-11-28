@@ -5,10 +5,6 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * OC-08: tổ chức ghi note khi nhận quyên góp tại địa chỉ riêng, gắn với 1 chiến dịch cụ thể
- * (campaignId lấy từ path, không nằm trong body).
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

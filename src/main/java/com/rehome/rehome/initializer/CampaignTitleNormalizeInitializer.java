@@ -13,9 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-// Điền title_normalized cho chiến dịch đã có trước khi cột này ra đời: ddl-auto chỉ thêm cột
-// với giá trị null, mà null thì không khớp LIKE nào nên chiến dịch cũ sẽ biến mất khỏi kết quả
-// tìm kiếm GET /campaigns?search=.
 @Slf4j
 @Component
 @Order(103)
@@ -34,8 +31,6 @@ public class CampaignTitleNormalizeInitializer implements ApplicationRunner {
             return;
         }
 
-        // Gán tay thay vì dựa vào @PreUpdate: entity không đổi gì thì Hibernate không phát UPDATE
-        // và callback sẽ không chạy.
         for (Campaign campaign : pending) {
             campaign.setTitleNormalized(VietnameseText.normalize(campaign.getTitle()));
         }

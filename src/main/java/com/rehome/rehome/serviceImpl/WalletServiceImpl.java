@@ -170,7 +170,6 @@ public class WalletServiceImpl implements WalletService {
         Account member = accountRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
 
-        // Chưa có ví thì chưa từng rút lần nào
         long usedToday = walletRepository.findByMember_Id(member.getId())
                 .map(wallet -> countPayoutsToday(wallet.getId()))
                 .orElse(0L);
@@ -182,8 +181,6 @@ public class WalletServiceImpl implements WalletService {
                 .build();
     }
 
-    // Phải dùng chung với createPayoutRequest: nếu hai chỗ cắt mốc "hôm nay" khác nhau thì màn rút
-    // tiền sẽ báo còn lượt trong khi API tạo yêu cầu lại trả DAILY_PAYOUT_LIMIT_REACHED.
     private long countPayoutsToday(UUID walletId) {
         Instant startOfDay = LocalDate.now(ZoneOffset.UTC).atStartOfDay(ZoneOffset.UTC).toInstant();
         Instant endOfDay = startOfDay.plusSeconds(24 * 60 * 60);
@@ -246,12 +243,10 @@ public class WalletServiceImpl implements WalletService {
         return toPayoutResponse(payoutRequest);
     }
 
-    // Giả lập chi tiền: chạy đồng bộ ngay trong cùng transaction với tạo yêu cầu, không có hàng đợi/delay
     private void simulatePayout(PayoutRequest payoutRequest, Wallet wallet) {
         BigDecimal amount = payoutRequest.getAmount();
 
         if (consumeForcedPayoutFailure()) {
-            // Tiền chưa thực sự rời ví, chỉ nhả lại số dư đã khóa lúc tạo yêu cầu
             wallet.setLockedBalance(wallet.getLockedBalance().subtract(amount));
             walletRepository.save(wallet);
 
@@ -283,8 +278,6 @@ public class WalletServiceImpl implements WalletService {
         payoutRequest.setProcessedAt(Instant.now());
     }
 
-    // Cờ Admin cấu hình để ép lần rút tiền kế tiếp thất bại (demo luồng FAILED); tự tắt lại sau khi dùng
-    // một lần, để không ảnh hưởng các yêu cầu rút tiền thật phát sinh sau đó.
     private boolean consumeForcedPayoutFailure() {
         return systemConfigRepository.findByKey(CONFIG_FORCE_PAYOUT_FAILURE)
                 .filter(config -> Boolean.parseBoolean(config.getValue()))
@@ -313,7 +306,6 @@ public class WalletServiceImpl implements WalletService {
                 .orElseGet(() -> PlatformFund.builder().build());
     }
 
-    // F-039: mỗi bút toán ví Member phải có một bút toán đối ứng ở quỹ nền tảng, ngược dấu, để sổ sách luôn cân
     private void recordPlatformCounterpart(WalletTransaction memberTransaction) {
         PlatformFund fund = getOrCreatePlatformFund();
         BigDecimal counterpartAmount = memberTransaction.getAmount().negate();

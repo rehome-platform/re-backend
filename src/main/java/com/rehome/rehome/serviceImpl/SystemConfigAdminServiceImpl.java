@@ -38,7 +38,6 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
         Map<String, SystemConfig> stored = systemConfigRepository.findAll().stream()
                 .collect(Collectors.toMap(SystemConfig::getKey, Function.identity(), (a, b) -> a));
 
-        // Chỉ liệt kê key trong catalog (Admin được chỉnh), không lộ các key nội bộ như force_payout_failure
         return SystemConfigCatalog.defaults().entrySet().stream()
                 .map(e -> SystemConfigItemResponse.of(
                         SystemConfigCatalog.find(e.getKey()).orElseThrow(),
@@ -55,7 +54,6 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
 
         String newValue = normalize(spec, rawValue);
 
-        // Key chưa có dòng trong DB thì đang chạy bằng giá trị mặc định trong code: tạo dòng mới
         Optional<SystemConfig> existing = systemConfigRepository.findByKey(key);
         String oldValue = existing.map(SystemConfig::getValue).orElse(null);
 
@@ -72,7 +70,6 @@ public class SystemConfigAdminServiceImpl implements SystemConfigAdminService {
         return SystemConfigResponse.from(saved);
     }
 
-    // Trả về chuỗi chuẩn hóa để lưu; sai kiểu hoặc ngoài khoảng cho phép thì 422
     private String normalize(Spec spec, String raw) {
         if (raw == null || raw.isBlank()) {
             throw new AppException(ErrorCode.CONFIG_VALUE_INVALID);

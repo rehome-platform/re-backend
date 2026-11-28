@@ -8,7 +8,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-// GET /api/admin/receipt-clause-templates - danh sách điều khoản dạng đoạn văn của biên nhận ký gửi
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

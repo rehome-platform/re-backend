@@ -8,14 +8,12 @@ import java.util.UUID;
 
 public interface ReceiptClauseTemplateAdminService {
 
-    // Danh sách điều khoản dạng đoạn văn, sắp theo displayOrder
     List<ReceiptClauseTemplateResponse> list();
 
     ReceiptClauseTemplateResponse create(Account admin, ReceiptClauseTemplateRequest request);
 
     ReceiptClauseTemplateResponse update(Account admin, UUID id, ReceiptClauseTemplateRequest request);
 
-    // Không có FK nào trỏ vào template (biên nhận chỉ snapshot JSON), nên xoá được thật
     void delete(Account admin, UUID id);
 
     ReceiptClauseTemplateResponse toggle(Account admin, UUID id);

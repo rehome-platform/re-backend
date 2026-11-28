@@ -4,7 +4,6 @@ import jakarta.persistence.*;
 import java.time.Instant;
 import lombok.*;
 
-/** Public mannequin result, independent of any member's private collection. */
 @Entity
 @Table(name = "try_on_shared_assets")
 @Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor

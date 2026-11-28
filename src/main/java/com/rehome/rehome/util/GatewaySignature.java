@@ -11,24 +11,10 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.util.StringUtils;
 
-/**
- * Chữ ký và query string của VNPay (HMAC-SHA512).
- *
- * <p>Công thức này trước đây bị copy ở {@code VnPayServiceImpl} và
- * {@code ItemWithdrawalRequestServiceImpl} (ba bản giống nhau, copy để tránh phụ thuộc vòng giữa
- * các service). Luồng mua gói thành viên là nơi thứ tư cần nó, nên tách ra đây thay vì copy tiếp.
- * Hai service cũ cố ý chưa đổi sang dùng util này - đổi chúng là refactor riêng, không gộp vào
- * tính năng gói VIP để diff còn đọc được.
- */
 public final class GatewaySignature {
 
     private GatewaySignature() {}
 
-    /**
-     * Sắp xếp field theo tên, bỏ field rỗng, nối {@code key=value} (value url-encode) bằng
-     * {@code &}. Đây vừa là chuỗi để tính {@code vnp_SecureHash}, vừa là query string gửi lên
-     * VNPay - tính một lần dùng cả hai nên chữ ký luôn khớp chuỗi thật được gửi đi.
-     */
     public static String hashAllFields(Map<String, String> fields) {
         List<String> fieldNames = new ArrayList<>(fields.keySet());
         Collections.sort(fieldNames);
@@ -51,10 +37,6 @@ public final class GatewaySignature {
         }
     }
 
-    public static String hmacSHA256(String key, String data) {
-        return hmac("HmacSHA256", key, data);
-    }
-
     public static String hmacSHA512(String key, String data) {
         return hmac("HmacSHA512", key, data);
     }
@@ -65,8 +47,6 @@ public final class GatewaySignature {
             mac.init(new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), algorithm));
             return toHex(mac.doFinal(data.getBytes(StandardCharsets.UTF_8)));
         } catch (Exception e) {
-            // Thuật toán và key đều cố định nên lỗi ở đây là lỗi cấu hình, không phải lỗi dữ liệu
-            // người dùng - để IllegalStateException nổi lên thành 500 thay vì âm thầm trả chữ ký rỗng.
             throw new IllegalStateException("Không thể tạo chữ ký " + algorithm, e);
         }
     }

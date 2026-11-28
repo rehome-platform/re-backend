@@ -14,10 +14,6 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.stereotype.Component;
 
-/**
- * Trả 401 theo format ApiResponse khi request chưa xác thực
- * (không có token, token sai hoặc hết hạn).
- */
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
@@ -28,7 +24,6 @@ public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
     public void commence(HttpServletRequest request,
                          HttpServletResponse response,
                          AuthenticationException ex) throws IOException {
-        // Filter đã ghi lý do (token hết hạn / không hợp lệ) thì trả đúng mã đó, mobile dựa vào để refresh
         Object reason = request.getAttribute(JwtAuthenticationFilter.AUTH_ERROR_ATTRIBUTE);
         ErrorCode ec = reason instanceof ErrorCode code ? code : ErrorCode.UNAUTHORIZED;
 

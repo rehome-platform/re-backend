@@ -11,20 +11,15 @@ import java.util.UUID;
 
 public interface TryOnService {
 
-    // F-072..F-079 (API 97): sinh ảnh thử đồ bằng AI rồi lưu vào bộ sưu tập, chỉ lưu khi sinh thành công
     TryOnImageResponse createImage(Account account, CreateTryOnImageRequest request);
 
-    // F-080: bộ sưu tập ảnh thử đồ của Member, mới nhất trước
     PageResponse<TryOnImageResponse> getCollection(Account account, int page, int size);
 
-    // API 96 (F-075): gợi ý món còn thiếu cho slot TOP/BOTTOM, chỉ ON_SALE; rỗng thì FE tự mở GET /products (F-076)
     List<TryOnSuggestionResponse> getOutfitSuggestions(String productId, Double latitude, Double longitude);
 
     List<TryOnSuggestionResponse> getSuggestions(String slot, String excludeProductId);
 
-    // GET /tryon/images/{id}: xem 1 ảnh trong bộ sưu tập, chỉ chủ ảnh được xem
     TryOnImageResponse getImage(Account account, UUID imageId);
 
-    // F-081: xóa ảnh khỏi bộ sưu tập, chỉ chủ ảnh được xóa
     void deleteImage(Account account, UUID imageId);
 }

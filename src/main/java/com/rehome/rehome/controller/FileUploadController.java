@@ -16,10 +16,6 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-/**
- * Upload ảnh/PDF, trả về URL để FE gắn vào imageUrl/fileUrl của các entity.
- * Đặt ở /uploads chứ không phải /files vì /files/** là nơi serve file tĩnh ở local.
- */
 @RestController
 @RequestMapping("/uploads")
 @RequiredArgsConstructor

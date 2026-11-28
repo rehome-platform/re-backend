@@ -36,7 +36,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiResponse<?>> handleIllegalArgument(IllegalArgumentException ex, HttpServletRequest req) {
-        ex.printStackTrace(); // tạm thời
+        ex.printStackTrace();
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ApiResponse.error(404, ex.getMessage()));
     }
@@ -93,8 +93,6 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(GhnException.class)
     public ResponseEntity<ApiResponse<?>> handleGhn(GhnException ex, HttpServletRequest req) {
-        // Theo đúng shape response của API 70 trong docs/ghnapi.md: không có field "code" riêng,
-        // mã lỗi đã nằm trong message (tiền tố "GHN_ERROR:")
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .body(ApiResponse.error(502, ex.getMessage()));
     }
@@ -112,7 +110,6 @@ public class GlobalExceptionHandler {
                 .body(new ApiResponse<>(ex.getResult(), false, ec.getStatus().value(), ec.name(), ec.getDefaultMessage()));
     }
 
-    // Lưới an toàn cho race condition: hai request cùng qua bước kiểm tra existsByPhone rồi cùng insert
     @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
     public ResponseEntity<Object> handleDataIntegrity(
             org.springframework.dao.DataIntegrityViolationException ex, HttpServletRequest req) {
@@ -122,14 +119,12 @@ public class GlobalExceptionHandler {
             ErrorCode ec = ErrorCode.PHONE_TAKEN;
             return ResponseEntity.status(ec.getStatus()).body(ApiResponse.error(ec));
         }
-        // CHECK / NOT NULL: lỗi dữ liệu hoặc schema lệch với code (vd giá trị enum mới chưa có trong CHECK của DB).
-        // Trả lỗi có mã để app hiện đúng nguyên nhân thay vì 500 chung; tên constraint chỉ ghi log, không lộ ra response.
         if (lowerDetail.contains("violates check constraint") || lowerDetail.contains("violates not-null constraint")) {
             log.error("Vi phạm ràng buộc DB ({}): {}", req.getRequestURI(), detail, ex);
             ErrorCode ec = ErrorCode.DATA_CONSTRAINT_VIOLATION;
             return ResponseEntity.status(ec.getStatus()).body(ApiResponse.error(ec));
         }
-        ex.printStackTrace(); // tạm thời để debug, giống handler Exception chung bên dưới
+        ex.printStackTrace();
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
                 ApiError.builder()
                         .timestamp(Instant.now())
@@ -150,7 +145,6 @@ public class GlobalExceptionHandler {
             org.springframework.web.multipart.MaxUploadSizeExceededException ex,
             HttpServletRequest req) {
 
-        // Spring chặn ở tầng multipart trước khi vào controller nên không qua FileUploadService
         ErrorCode ec = ErrorCode.FILE_TOO_LARGE;
         return ResponseEntity.status(ec.getStatus()).body(ApiResponse.error(ec));
     }
@@ -169,7 +163,6 @@ public class GlobalExceptionHandler {
             org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ex,
             HttpServletRequest req) {
 
-        // Sai giá trị enum/UUID trong query param -> lỗi của client, không phải 500
         String message = "Giá trị của '" + ex.getName() + "' không hợp lệ.";
         Class<?> required = ex.getRequiredType();
         if (required != null && required.isEnum()) {
@@ -184,7 +177,6 @@ public class GlobalExceptionHandler {
         String message = ex.getBindingResult().getFieldErrors().stream()
                 .map(f -> f.getField() + ": " + f.getDefaultMessage())
                 .collect(Collectors.joining("; "));
-        // Cùng shape ApiResponse với AppException/BadRequestException để mobile chỉ xử lý một format
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error(400, message));
     }
@@ -203,8 +195,6 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ApiResponse<?>> handleAccessDeniedException(AccessDeniedException ex, HttpServletRequest req) {
-        // @PreAuthorize ném lỗi này ngay trong controller nên không tới JwtAuthenticationEntryPoint.
-        // Chưa đăng nhập (không token / token hỏng) phải là 401, chỉ đã đăng nhập mà sai quyền mới là 403.
         org.springframework.security.core.Authentication auth =
                 org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
         if (auth == null

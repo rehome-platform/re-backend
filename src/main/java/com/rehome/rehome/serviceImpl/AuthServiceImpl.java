@@ -16,11 +16,9 @@ import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.marketplace.Wallet;
 import com.rehome.rehome.exception.*;
 
-import com.rehome.rehome.mapper.OrganizationProfileMapper;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 
-import com.rehome.rehome.repository.OrganizationProfileRepository;
 import com.rehome.rehome.repository.WalletRepository;
 import com.rehome.rehome.security.GoogleTokenVerifier;
 import com.rehome.rehome.security.JwtService;
@@ -56,14 +54,10 @@ public class AuthServiceImpl implements AuthService {
     private final RefreshTokenService refreshTokenService;
     private final OtpService otpService;
     private final MemberProfileRepository memberProfileRepository;
-    private final OrganizationProfileRepository organizationProfileRepository;
-    private final OrganizationProfileMapper organizationProfileMapper;
     private final GoogleTokenVerifier googleTokenVerifier;
     private final WalletRepository walletRepository;
     private final ContentModerationService moderation;
     private final OtpRateLimiter otpRateLimiter;
-
-    // ==================== REGISTER ====================
 
     @Transactional
     @Override
@@ -74,7 +68,6 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     @Override
     public OtpResponse registerMember(RegisterRequest request, String clientIp) {
-        // No account exists yet: evaluate the name without recording an actor audit.
         moderation.evaluate(request.getFullName());
         if (accountRepository.existsByEmail(request.getEmail())) {
             throw new AppException(ErrorCode.EMAIL_ALREADY_EXISTS);
@@ -154,18 +147,13 @@ public class AuthServiceImpl implements AuthService {
         );
     }
 
-    // Rỗng/chỉ khoảng trắng -> null. Nếu không, hai tài khoản cùng để trống sẽ đụng ràng buộc unique của phone,
-    // và existsByPhone(null) của Spring Data thành "phone is null" nên báo trùng sai.
     private String normalizePhone(String phone) {
         return StringUtils.hasText(phone) ? phone.trim() : null;
     }
 
-    // 403 ACCOUNT_BANNED kèm lý do khoá trong result
     private AppException bannedException(Account account) {
         return new AppException(ErrorCode.ACCOUNT_BANNED, new AccountBannedResult(account.getBanReason()));
     }
-
-    // ==================== LOGIN ====================
 
     @Override
     public AuthResponse login(LoginRequest request) {
@@ -177,7 +165,7 @@ public class AuthServiceImpl implements AuthService {
                             request.getPassword()
                     )
             );
-        } catch (DisabledException e) {              // phải catch trước AuthenticationException
+        } catch (DisabledException e) {
             throw accountRepository.findByEmail(request.getEmail())
                     .map(this::bannedException)
                     .orElseGet(() -> new AppException(ErrorCode.ACCOUNT_BANNED));
@@ -210,7 +198,6 @@ public class AuthServiceImpl implements AuthService {
         Account account = accountRepository.findByEmail(info.email()).orElse(null);
 
         if (account == null) {
-            // Tài khoản mới
             account = accountRepository.saveAndFlush(Account.builder()
                     .email(info.email())
                     .googleId(info.googleId())
@@ -227,7 +214,6 @@ public class AuthServiceImpl implements AuthService {
             walletRepository.save(Wallet.builder().member(account).build());
 
         } else {
-            // Tài khoản đã tồn tại
             if (account.getStatus() != AccountStatus.ACTIVE) {
                 throw bannedException(account);
             }
@@ -239,7 +225,6 @@ public class AuthServiceImpl implements AuthService {
             }
 
             if (!account.isEmailVerified()) {
-                // Xóa mật khẩu cũ để người đăng ký giả mạo trước đó không dùng được nữa
                 account.setPasswordHash(null);
                 account.setEmailVerified(true);
                 refreshTokenService.revokeAllAccountTokens(account);
@@ -250,8 +235,6 @@ public class AuthServiceImpl implements AuthService {
 
         return generateAuthResponse(account);
     }
-
-    // ==================== REFRESH TOKEN ====================
 
     @Transactional
     @Override
@@ -284,8 +267,6 @@ public class AuthServiceImpl implements AuthService {
                 .build();
     }
 
-    // ==================== LOGOUT ====================
-
     @Transactional
     @Override
     public void logout(String email) {
@@ -296,8 +277,6 @@ public class AuthServiceImpl implements AuthService {
 
         refreshTokenService.deleteByAccount(account);
     }
-
-    // ==================== GENERATE AUTH RESPONSE ====================
 
     private AuthResponse generateAuthResponse(Account account) {
 

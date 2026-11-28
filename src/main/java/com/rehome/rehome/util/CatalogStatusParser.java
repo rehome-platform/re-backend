@@ -10,14 +10,13 @@ public final class CatalogStatusParser {
 
     private CatalogStatusParser() {}
 
-    // Không truyền status thì mặc định ACTIVE. Chỉ Moderator mới xem được HIDDEN.
     public static CatalogStatus parse(String raw, Account account) {
         CatalogStatus status = CatalogStatus.ACTIVE;
         if (raw != null && !raw.isBlank()) {
             try {
                 status = CatalogStatus.valueOf(raw.trim().toUpperCase());
             } catch (IllegalArgumentException e) {
-                throw new AppException(ErrorCode.INVALID_STATUS);          // 400
+                throw new AppException(ErrorCode.INVALID_STATUS);
             }
         }
         boolean isModerator = account != null && account.getRole() == Role.MODERATOR;

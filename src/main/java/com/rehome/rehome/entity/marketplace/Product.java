@@ -13,7 +13,11 @@ import org.hibernate.annotations.ColumnDefault;
 import org.springframework.data.domain.Persistable;
 
 @Entity
-@Table(name = "products")
+@Table(name = "products", indexes = {
+        @Index(name = "idx_products_status", columnList = "status"),
+        @Index(name = "idx_products_member_status", columnList = "member_id, status"),
+        @Index(name = "idx_products_warehouse_status", columnList = "warehouse_id, status")
+})
 @Getter
 @Setter
 @NoArgsConstructor

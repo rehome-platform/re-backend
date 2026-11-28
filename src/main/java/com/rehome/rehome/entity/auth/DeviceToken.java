@@ -7,7 +7,9 @@ import java.util.UUID;
 import lombok.*;
 
 @Entity
-@Table(name = "device_tokens")
+@Table(name = "device_tokens", indexes = {
+        @Index(name = "idx_device_tokens_account", columnList = "account_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor

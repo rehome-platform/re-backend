@@ -15,7 +15,9 @@ import lombok.*;
 import org.hibernate.annotations.ColumnDefault;
 
 @Entity
-@Table(name = "return_requests")
+@Table(name = "return_requests", indexes = {
+        @Index(name = "idx_return_requests_order", columnList = "order_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor

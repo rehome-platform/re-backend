@@ -105,7 +105,7 @@ class VoucherServiceImplTest {
 
         when(shippingAddressRepository.findById(address.getId())).thenReturn(Optional.of(address));
         when(productRepository.findAllById(any())).thenReturn(List.of(product400k));
-        when(ghnShippingFeeCalculator.calculate(any(), anyString(), anyString()))
+        when(ghnShippingFeeCalculator.calculate(any(), any(ShippingAddress.class)))
                 .thenReturn(new BigDecimal("30000"));
     }
 
@@ -156,7 +156,7 @@ class VoucherServiceImplTest {
     @DisplayName("Mã ship gặp đơn miễn phí ship: đủ điều kiện hình thức nhưng không giảm được gì "
             + "-> applicable = false kèm lý do, không phải ném lỗi")
     void voucherThatCannotDiscountAnything_isMarkedNotApplicable() {
-        when(ghnShippingFeeCalculator.calculate(any(), anyString(), anyString()))
+        when(ghnShippingFeeCalculator.calculate(any(), any(ShippingAddress.class)))
                 .thenReturn(BigDecimal.ZERO);
         MemberVoucher ship = voucher("SHIP-DDD444", VoucherType.SHIPPING,
                 VoucherDiscountKind.FIXED, "15000", null, "0");

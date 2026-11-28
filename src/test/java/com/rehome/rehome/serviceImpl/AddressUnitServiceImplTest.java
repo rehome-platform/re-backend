@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -147,5 +148,32 @@ class AddressUnitServiceImplTest {
         assertThatThrownBy(() -> addressUnitService.resolveNewUnit("Hồ Chí Minh", "Phường Bến Thành"))
                 .isInstanceOf(GhnException.class)
                 .hasMessageContaining("GHN_ERROR");
+    }
+
+    @Test
+    void provincesAndWards_areFetchedFromGhnOnce_thenServedFromCache() {
+        stubProvinces(hoChiMinh());
+        stubWards(HCM_ID, benThanh());
+
+        assertThat(addressUnitService.getProvinces()).extracting("name").containsExactly("Hồ Chí Minh");
+        assertThat(addressUnitService.getProvinces()).extracting("name").containsExactly("Hồ Chí Minh");
+        assertThat(addressUnitService.getWards(HCM_ID)).extracting("name").containsExactly("Phường Bến Thành");
+        assertThat(addressUnitService.resolveNewUnit("Hồ Chí Minh", "Phường Bến Thành").wardName())
+                .isEqualTo("Phường Bến Thành");
+
+        verify(ghnApi, times(1)).getProvinces(eq(TOKEN), eq(SHOP_ID), anyInt(), anyInt());
+        verify(ghnApi, times(1)).getWards(eq(TOKEN), eq(SHOP_ID), eq(HCM_ID), anyInt(), anyInt());
+    }
+
+    @Test
+    void failedGhnCall_isNotCached_soTheNextRequestAsksGhnAgain() {
+        when(ghnApi.getProvinces(eq(TOKEN), eq(SHOP_ID), anyInt(), anyInt()))
+                .thenThrow(new RuntimeException("503 Service Unavailable"))
+                .thenReturn(new GhnMasterDataResponse<>(200, "Success", List.of(hoChiMinh())));
+
+        assertThatThrownBy(() -> addressUnitService.getProvinces()).isInstanceOf(GhnException.class);
+        assertThat(addressUnitService.getProvinces()).extracting("name").containsExactly("Hồ Chí Minh");
+
+        verify(ghnApi, times(2)).getProvinces(eq(TOKEN), eq(SHOP_ID), anyInt(), anyInt());
     }
 }

@@ -10,7 +10,10 @@ import lombok.*;
 import org.hibernate.annotations.ColumnDefault;
 
 @Entity
-@Table(name = "notifications")
+@Table(name = "notifications", indexes = {
+        @Index(name = "idx_notifications_recipient_created", columnList = "recipient_account_id, created_at"),
+        @Index(name = "idx_notifications_recipient_read", columnList = "recipient_account_id, is_read")
+})
 @Getter
 @Setter
 @NoArgsConstructor

@@ -12,6 +12,7 @@ import com.rehome.rehome.entity.marketplace.SystemConfig;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.SystemConfigRepository;
+import com.rehome.rehome.service.SystemConfigReader;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,7 @@ class SystemConfigAdminServiceImplTest {
 
     @Mock private SystemConfigRepository systemConfigRepository;
     @Mock private AuditLogger auditLogger;
+    @Mock private SystemConfigReader systemConfigReader;
     @Spy private ObjectMapper objectMapper = new ObjectMapper();
 
     @InjectMocks private SystemConfigAdminServiceImpl service;
@@ -122,6 +124,7 @@ class SystemConfigAdminServiceImplTest {
         assertThat(response.getValue()).isEqualTo("100000");
         verify(auditLogger).log(eq(admin), eq("UPDATE_CONFIG"), eq("SYSTEM_CONFIG"),
                 eq(SystemConfigKeys.MIN_PAYOUT_AMOUNT), any(JsonNode.class));
+        verify(systemConfigReader).evict(SystemConfigKeys.MIN_PAYOUT_AMOUNT);
     }
 
     @Test
@@ -143,6 +146,7 @@ class SystemConfigAdminServiceImplTest {
 
         assertEquals(ErrorCode.CONFIG_VALUE_INVALID, ex.getErrorCode());
         verify(systemConfigRepository, never()).save(any());
+        verify(systemConfigReader, never()).evict(any());
     }
 
     @Test

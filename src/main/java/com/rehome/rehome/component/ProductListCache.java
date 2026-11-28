@@ -27,19 +27,22 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Component
 @Slf4j
 public class ProductListCache {
-    private static final String PREFIX = "rehome:products:v1:";
-    private static final String GENERATION_KEY = PREFIX + "generation";
-    private static final TypeReference<PageResponse<ProductSummaryResponse>> PAGE_TYPE = new TypeReference<>() {};
+    private static final String GENERATION_KEY = "rehome:products:v1:generation";
+    private static final String PAGE_PREFIX = "rehome:products:v2:";
+    private static final TypeReference<PageResponse<Item>> PAGE_TYPE = new TypeReference<>() {};
     private final StringRedisTemplate redis;
     private final ObjectMapper mapper;
     private final boolean enabled;
     private final Duration ttl;
-    private final ConcurrentHashMap<String, CompletableFuture<PageResponse<ProductSummaryResponse>>> inFlight = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CompletableFuture<PageResponse<Item>>> inFlight = new ConcurrentHashMap<>();
     private final AtomicLong localGeneration = new AtomicLong();
+
+    public record Item(ProductSummaryResponse summary, UUID memberId) {
+    }
 
     public record Key(String search, UUID categoryId, UUID brandId, BigDecimal priceMin,
                       BigDecimal priceMax, UUID warehouseId, TryOnSlot tryonSlot,
-                      int page, int size, UUID viewerId) {
+                      int page, int size) {
         public Key {
             search = com.rehome.rehome.util.VietnameseText.normalize(search);
             if (search != null && search.isBlank()) search = null;
@@ -57,8 +60,7 @@ public class ProductListCache {
         this.ttl = DurationStyle.detectAndParse(ttl);
     }
 
-    public PageResponse<ProductSummaryResponse> getOrLoad(Key request,
-            Supplier<PageResponse<ProductSummaryResponse>> loader) {
+    public PageResponse<Item> getOrLoad(Key request, Supplier<PageResponse<Item>> loader) {
         if (!enabled || ttl.isZero() || ttl.isNegative()) return loader.get();
         String key = null;
         String digest;
@@ -71,14 +73,14 @@ public class ProductListCache {
         }
         try {
             String generation = redis.opsForValue().get(GENERATION_KEY);
-            key = PREFIX + (generation == null ? "0" : generation) + ":" + digest;
+            key = PAGE_PREFIX + (generation == null ? "0" : generation) + ":" + digest;
         } catch (Exception ex) {
             key = null;
             log.warn("Product cache read failed; loading database ({})", ex.getClass().getSimpleName());
         }
 
         String flightKey = epoch + ":" + (key == null ? "offline:" + digest : key);
-        var pending = new CompletableFuture<PageResponse<ProductSummaryResponse>>();
+        var pending = new CompletableFuture<PageResponse<Item>>();
         var existing = inFlight.putIfAbsent(flightKey, pending);
         if (existing != null) {
             try {
@@ -101,8 +103,7 @@ public class ProductListCache {
         }
     }
 
-    private PageResponse<ProductSummaryResponse> readPageOrLoad(String key,
-            Supplier<PageResponse<ProductSummaryResponse>> loader) {
+    private PageResponse<Item> readPageOrLoad(String key, Supplier<PageResponse<Item>> loader) {
         if (key != null) {
             try {
                 String cached = redis.opsForValue().get(key);
@@ -113,7 +114,7 @@ public class ProductListCache {
             }
         }
 
-        PageResponse<ProductSummaryResponse> result = loader.get();
+        PageResponse<Item> result = loader.get();
         if (key != null) {
             try {
                 redis.opsForValue().set(key, mapper.writeValueAsString(result), ttl);

@@ -7,7 +7,10 @@ import lombok.*;
 import org.hibernate.annotations.ColumnDefault;
 
 @Entity
-@Table(name = "order_items")
+@Table(name = "order_items", indexes = {
+        @Index(name = "idx_order_items_order", columnList = "order_id"),
+        @Index(name = "idx_order_items_product", columnList = "product_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor

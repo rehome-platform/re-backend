@@ -2767,8 +2767,9 @@ SELECT setval('product_sku_seq',
 -- =============================================================================
 -- 20. TUỲ CHỌN - ĐIỀN MÃ GHN (province_id của Hà Nội, ward_code của phường/xã)
 -- =============================================================================
--- Hai cột này nullable và không tham gia tạo vận đơn (GHN hệ 2 cấp đi theo TÊN), nên
--- bỏ trống vẫn chạy đủ. Muốn đầy đủ thì lấy mã thật rồi bỏ comment và sửa số:
+-- Hai cột này nullable. Tạo vận đơn GHN (hệ 2 cấp) đi theo TÊN; tính phí ship thì cần mã phường mới
+-- (ward_code = _id của GHN), nhưng khi ward_code trống backend tự tra mã từ tên phường/tỉnh qua danh mục
+-- GHN, nên bỏ trống vẫn chạy đủ. Muốn đầy đủ thì lấy mã thật rồi bỏ comment và sửa số:
 --   GET /address-units/provinces             -> tìm dòng name = "Hà Nội", lấy code
 --   GET /address-units/wards?provinceId=...  -> lấy code của từng phường/xã
 --

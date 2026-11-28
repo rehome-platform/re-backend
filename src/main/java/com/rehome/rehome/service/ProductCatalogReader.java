@@ -24,7 +24,7 @@ public class ProductCatalogReader {
     private final ProductPhotoRepository productPhotoRepository;
 
     @org.springframework.transaction.annotation.Transactional(readOnly = true)
-    public PageResponse<ProductSummaryResponse> load(ProductListCache.Key key) {
+    public PageResponse<ProductListCache.Item> load(ProductListCache.Key key) {
         PageRequest pageable = PageRequest.of(key.page(), key.size());
 
         Page<Product> result = productRepository.findAll(
@@ -43,21 +43,22 @@ public class ProductCatalogReader {
                         (first, second) -> first
                 ));
 
-        Page<ProductSummaryResponse> mapped = result.map(product -> ProductSummaryResponse.builder()
-                .id(product.getId())
-                .name(product.getName())
-                .thumbnailUrl(thumbnailByProductId.get(product.getId()))
-                .brandName(product.getBrand().getName())
-                .categoryId(product.getCategory().getId())
-                .categoryName(product.getCategory().getName())
-                .tryonSlot(product.getCategory().getTryonSlot())
-                .size(product.getSize())
-                .condition(product.getConditionNote())
-                .originalPrice(product.getConsignmentReceipt().getAgreedPrice())
-                .currentPrice(product.getCurrentPrice())
-                .isMine(key.viewerId() != null && key.viewerId().equals(product.getMember().getId()))
-                .featured(FeaturedListingManager.isFeatured(product))
-                .build());
+        Page<ProductListCache.Item> mapped = result.map(product -> new ProductListCache.Item(
+                ProductSummaryResponse.builder()
+                        .id(product.getId())
+                        .name(product.getName())
+                        .thumbnailUrl(thumbnailByProductId.get(product.getId()))
+                        .brandName(product.getBrand().getName())
+                        .categoryId(product.getCategory().getId())
+                        .categoryName(product.getCategory().getName())
+                        .tryonSlot(product.getCategory().getTryonSlot())
+                        .size(product.getSize())
+                        .condition(product.getConditionNote())
+                        .originalPrice(product.getConsignmentReceipt().getAgreedPrice())
+                        .currentPrice(product.getCurrentPrice())
+                        .featured(FeaturedListingManager.isFeatured(product))
+                        .build(),
+                product.getMember() == null ? null : product.getMember().getId()));
 
         return PageResponse.from(mapped);
     }

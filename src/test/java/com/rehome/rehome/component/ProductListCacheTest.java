@@ -44,14 +44,16 @@ class ProductListCacheTest {
                 .when(values).set(anyString(), anyString());
     }
 
-    @Test void equivalentSearchAndPricesShareKeyWithoutSharingViewer() {
+    static final UUID OWNER = UUID.fromString("11111111-2222-3333-4444-555555555555");
+
+    @Test void equivalentSearchAndPricesShareKey() {
         var first = new ProductListCache.Key(" ÁO ", null, null, new BigDecimal("150000.00"), null,
-                null, null, 0, 20, null);
+                null, null, 0, 20);
         var same = new ProductListCache.Key("ao", null, null, new BigDecimal("150000"), null,
-                null, null, 0, 20, null);
+                null, null, 0, 20);
         assertThat(first).isEqualTo(same);
         assertThat(first).isNotEqualTo(new ProductListCache.Key("ao", null, null,
-                new BigDecimal("150000"), null, null, null, 0, 20, UUID.randomUUID()));
+                new BigDecimal("150000"), null, null, null, 1, 20));
     }
 
     @AfterEach void cleanup() {
@@ -60,67 +62,67 @@ class ProductListCacheTest {
         TransactionSynchronizationManager.setActualTransactionActive(false);
     }
 
-    ProductListCache.Key key(UUID viewer) {
-        return new ProductListCache.Key(null, null, null, null, null, null, null, 0, 20, viewer);
+    ProductListCache.Key key() {
+        return new ProductListCache.Key(null, null, null, null, null, null, null, 0, 20);
     }
 
-    PageResponse<ProductSummaryResponse> page(boolean mine) {
-        return new PageResponse<>(List.of(ProductSummaryResponse.builder().id("SKU-1")
-                .currentPrice(new BigDecimal("150000.00")).isMine(mine).featured(true).build()), 0, 20, 1, 1);
+    PageResponse<ProductListCache.Item> page(boolean variant) {
+        return new PageResponse<>(List.of(new ProductListCache.Item(ProductSummaryResponse.builder()
+                .id(variant ? "SKU-2" : "SKU-1").currentPrice(new BigDecimal("150000.00")).featured(true).build(),
+                OWNER)), 0, 20, 1, 1);
     }
 
     @Test void repeatedRequestUsesTypedJsonCacheAndPreservesResponse() {
         AtomicInteger calls = new AtomicInteger();
-        var request = key(UUID.randomUUID());
+        var request = key();
         var expected = page(true);
         cache.getOrLoad(request, () -> { calls.incrementAndGet(); return expected; });
         var cached = cache.getOrLoad(request, () -> { throw new AssertionError("Cache should hit"); });
         assertThat(cached).usingRecursiveComparison().isEqualTo(expected);
+        assertThat(cached.getContent().get(0).memberId()).isEqualTo(OWNER);
         assertThat(calls.get()).isEqualTo(1);
-        verify(values).set(startsWith("rehome:products:v1:"), anyString(), eq(Duration.ofSeconds(30)));
+        verify(values).set(startsWith("rehome:products:v2:"), anyString(), eq(Duration.ofSeconds(30)));
     }
 
-    @Test void everyFilterPaginationAndViewerHasAnIndependentKey() {
+    @Test void everyFilterAndPaginationHasAnIndependentKey() {
         List<ProductListCache.Key> requests = new ArrayList<>();
-        requests.add(key(null));
-        requests.add(key(UUID.randomUUID()));
-        requests.add(new ProductListCache.Key("shirt", null, null, null, null, null, null, 0, 20, null));
-        requests.add(new ProductListCache.Key(null, UUID.randomUUID(), null, null, null, null, null, 0, 20, null));
-        requests.add(new ProductListCache.Key(null, null, UUID.randomUUID(), null, null, null, null, 0, 20, null));
-        requests.add(new ProductListCache.Key(null, null, null, BigDecimal.ONE, null, null, null, 0, 20, null));
-        requests.add(new ProductListCache.Key(null, null, null, null, BigDecimal.TEN, null, null, 0, 20, null));
-        requests.add(new ProductListCache.Key(null, null, null, null, null, UUID.randomUUID(), null, 0, 20, null));
-        requests.add(new ProductListCache.Key(null, null, null, null, null, null, TryOnSlot.TOP, 0, 20, null));
-        requests.add(new ProductListCache.Key(null, null, null, null, null, null, null, 1, 20, null));
-        requests.add(new ProductListCache.Key(null, null, null, null, null, null, null, 0, 10, null));
-        requests.forEach(request -> cache.getOrLoad(request, () -> page(request.viewerId() != null)));
+        requests.add(key());
+        requests.add(new ProductListCache.Key("shirt", null, null, null, null, null, null, 0, 20));
+        requests.add(new ProductListCache.Key(null, UUID.randomUUID(), null, null, null, null, null, 0, 20));
+        requests.add(new ProductListCache.Key(null, null, UUID.randomUUID(), null, null, null, null, 0, 20));
+        requests.add(new ProductListCache.Key(null, null, null, BigDecimal.ONE, null, null, null, 0, 20));
+        requests.add(new ProductListCache.Key(null, null, null, null, BigDecimal.TEN, null, null, 0, 20));
+        requests.add(new ProductListCache.Key(null, null, null, null, null, UUID.randomUUID(), null, 0, 20));
+        requests.add(new ProductListCache.Key(null, null, null, null, null, null, TryOnSlot.TOP, 0, 20));
+        requests.add(new ProductListCache.Key(null, null, null, null, null, null, null, 1, 20));
+        requests.add(new ProductListCache.Key(null, null, null, null, null, null, null, 0, 10));
+        requests.forEach(request -> cache.getOrLoad(request, () -> page(false)));
         assertThat(stored).hasSize(requests.size());
-        var anonymous = cache.getOrLoad(key(null), () -> { throw new AssertionError(); });
-        assertThat(anonymous.getContent().get(0).getIsMine()).isFalse();
+        assertThat(cache.getOrLoad(key(), () -> { throw new AssertionError(); })).isEqualTo(page(false));
     }
 
     @Test void failedOrUnavailableRedisDoesNotBreakDatabaseResponse() {
         when(values.get(anyString())).thenThrow(new RedisConnectionFailureException("offline"));
         AtomicInteger loads = new AtomicInteger();
-        assertThat(cache.getOrLoad(key(null), () -> { loads.incrementAndGet(); return page(false); }))
+        assertThat(cache.getOrLoad(key(), () -> { loads.incrementAndGet(); return page(false); }))
                 .isEqualTo(page(false));
         assertThat(loads.get()).isEqualTo(1);
         verify(values, never()).set(anyString(), anyString(), any(Duration.class));
     }
 
     @Test void corruptJsonAndFailedCacheWriteAreNonFatal() {
-        cache.getOrLoad(key(null), () -> page(false));
+        cache.getOrLoad(key(), () -> page(false));
         stored.replaceAll((k, v) -> "not-json");
-        assertThat(cache.getOrLoad(key(null), () -> page(true))).isEqualTo(page(true));
+        assertThat(cache.getOrLoad(key(), () -> page(true))).isEqualTo(page(true));
         stored.clear();
         doThrow(new RedisConnectionFailureException("offline")).when(values)
                 .set(anyString(), anyString(), any(Duration.class));
-        assertThat(cache.getOrLoad(key(null), () -> page(false))).isEqualTo(page(false));
+        assertThat(cache.getOrLoad(key(), () -> page(false))).isEqualTo(page(false));
     }
 
     @Test void applicationFailureIsNotCachedOrRetried() {
         AtomicInteger calls = new AtomicInteger();
-        assertThatThrownBy(() -> cache.getOrLoad(key(null), () -> {
+        assertThatThrownBy(() -> cache.getOrLoad(key(), () -> {
             calls.incrementAndGet(); throw new IllegalStateException("database");
         })).hasMessage("database");
         assertThat(calls.get()).isEqualTo(1);
@@ -128,32 +130,32 @@ class ProductListCacheTest {
     }
 
     @Test void rollbackKeepsCacheAndCommitInvalidatesOnlyOnce() {
-        cache.getOrLoad(key(null), () -> page(false));
+        cache.getOrLoad(key(), () -> page(false));
         TransactionSynchronizationManager.initSynchronization();
         TransactionSynchronizationManager.setActualTransactionActive(true);
         cache.invalidateAfterCommit();
         TransactionSynchronizationManager.getSynchronizations().forEach(s ->
                 s.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
         TransactionSynchronizationManager.clearSynchronization();
-        assertThat(cache.getOrLoad(key(null), () -> { throw new AssertionError(); })).isEqualTo(page(false));
+        assertThat(cache.getOrLoad(key(), () -> { throw new AssertionError(); })).isEqualTo(page(false));
 
         TransactionSynchronizationManager.initSynchronization();
         cache.invalidateAfterCommit();
         cache.invalidateAfterCommit();
         assertThat(TransactionSynchronizationManager.getSynchronizations()).hasSize(1);
         TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
-        assertThat(cache.getOrLoad(key(null), () -> page(true))).isEqualTo(page(true));
+        assertThat(cache.getOrLoad(key(), () -> page(true))).isEqualTo(page(true));
         verify(values, times(1)).set(eq("rehome:products:v1:generation"), anyString());
     }
 
     @Test void olderInFlightReadCannotRepopulateCurrentGeneration() {
-        cache.getOrLoad(key(null), () -> { cache.invalidateAfterCommit(); return page(false); });
-        assertThat(cache.getOrLoad(key(null), () -> page(true))).isEqualTo(page(true));
+        cache.getOrLoad(key(), () -> { cache.invalidateAfterCommit(); return page(false); });
+        assertThat(cache.getOrLoad(key(), () -> page(true))).isEqualTo(page(true));
     }
 
     @Test void disabledCacheDoesNotUseRedisAndInvalidationFailureIsNonFatal() {
         var disabled = new ProductListCache(redis, new ObjectMapper(), false, "30s");
-        disabled.getOrLoad(key(null), () -> page(false));
+        disabled.getOrLoad(key(), () -> page(false));
         disabled.invalidateAfterCommit();
         verifyNoInteractions(redis);
         doThrow(new RedisConnectionFailureException("offline")).when(values).set(anyString(), anyString());
@@ -168,7 +170,7 @@ class ProductListCacheTest {
         var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
         AtomicInteger calls = new AtomicInteger();
         try {
-            var leader = executor.submit(() -> cache.getOrLoad(key(null), () -> {
+            var leader = executor.submit(() -> cache.getOrLoad(key(), () -> {
                 calls.incrementAndGet(); entered.countDown();
                 try { if (!release.await(5, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("timeout"); }
                 catch (InterruptedException ex) { throw new RuntimeException(ex); }
@@ -177,7 +179,7 @@ class ProductListCacheTest {
             assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
             var follower = executor.submit(() -> {
                 followerThread.set(Thread.currentThread());
-                return cache.getOrLoad(key(null), () -> { calls.incrementAndGet(); return page(true); });
+                return cache.getOrLoad(key(), () -> { calls.incrementAndGet(); return page(true); });
             });
             org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(3)).until(() ->
                     followerThread.get() != null && followerThread.get().getState() == Thread.State.WAITING);
@@ -193,7 +195,7 @@ class ProductListCacheTest {
         var release = new java.util.concurrent.CountDownLatch(1);
         var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
         try {
-            var old = executor.submit(() -> cache.getOrLoad(key(null), () -> {
+            var old = executor.submit(() -> cache.getOrLoad(key(), () -> {
                 entered.countDown();
                 try { if (!release.await(5, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("timeout"); }
                 catch (InterruptedException ex) { throw new RuntimeException(ex); }
@@ -201,7 +203,7 @@ class ProductListCacheTest {
             }));
             assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
             cache.invalidateAfterCommit();
-            var fresh = executor.submit(() -> cache.getOrLoad(key(null), () -> page(true)));
+            var fresh = executor.submit(() -> cache.getOrLoad(key(), () -> page(true)));
             assertThat(fresh.get(3, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo(page(true));
             release.countDown();
             old.get(5, java.util.concurrent.TimeUnit.SECONDS);
@@ -215,7 +217,7 @@ class ProductListCacheTest {
         var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
         var failure = new com.rehome.rehome.exception.AppException(com.rehome.rehome.exception.ErrorCode.PRODUCT_NOT_FOUND);
         try {
-            var leader = executor.submit(() -> cache.getOrLoad(key(null), () -> {
+            var leader = executor.submit(() -> cache.getOrLoad(key(), () -> {
                 entered.countDown();
                 try { if (!release.await(5, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("timeout"); }
                 catch (InterruptedException ex) { throw new RuntimeException(ex); }
@@ -224,14 +226,14 @@ class ProductListCacheTest {
             assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
             var follower = executor.submit(() -> {
                 followerThread.set(Thread.currentThread());
-                return cache.getOrLoad(key(null), () -> { throw new AssertionError("Duplicate database load"); });
+                return cache.getOrLoad(key(), () -> { throw new AssertionError("Duplicate database load"); });
             });
             org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(3)).until(() ->
                     followerThread.get() != null && followerThread.get().getState() == Thread.State.WAITING);
             release.countDown();
             assertThatThrownBy(() -> leader.get(5, java.util.concurrent.TimeUnit.SECONDS)).hasCause(failure);
             assertThatThrownBy(() -> follower.get(5, java.util.concurrent.TimeUnit.SECONDS)).hasCause(failure);
-            assertThat(cache.getOrLoad(key(null), () -> page(false))).isEqualTo(page(false));
+            assertThat(cache.getOrLoad(key(), () -> page(false))).isEqualTo(page(false));
         } finally { release.countDown(); executor.shutdownNow(); }
     }
 }

@@ -1371,6 +1371,14 @@ Tính phí vận chuyển cho một tuyến và kiện hàng trước khi tạo 
 | coupon | String | Tùy chọn | Mã giảm giá |
 | items | Object\[\] | Tùy chọn | Danh sách sản phẩm — cùng cấu trúc [Tạo đơn](https://developer.ghn.dev/vi/docs/order/create); dùng cho hàng nặng |
 
+> **Địa chỉ hệ mới 2 cấp (sau 01/07/2025) — ReHome dùng cách này.** Khác với Tạo đơn (đi theo TÊN), Tính phí
+> **không nhận tên** phường/tỉnh mà nhận **mã**: `is_new_to_address: true` + `to_ward_id_v2` (Int, `_id` từ
+> [Lấy Phường/Xã (Mới)](https://developer.ghn.dev/vi/docs/master-data/get-ward-new)) + `to_address_v2` (String,
+> địa chỉ đầy đủ); bên gửi tương tự `is_new_from_address` + `from_ward_id_v2` + `from_address_v2`. Khi đó
+> `to_district_id`/`to_ward_code` không cần. Gửi tên thay vì mã sẽ lỗi `mã phường mới không tồn tại: 0`;
+> bỏ trống bên gửi sẽ lỗi `SHOP_INFO_ERROR` nếu shop chưa khai địa chỉ trên GHN. Đã kiểm tra trên Staging
+> ngày 29/11/2026 (ví dụ kho HCM Phường Tân Mỹ `1003535` → Phường Sài Gòn `1003506`: `total = 20900`).
+
 ## [Ví dụ Request](https://developer.ghn.dev/vi/docs/order/calculate-fee#vi-du-request)
 
 bashSao chép  

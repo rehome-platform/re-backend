@@ -15,8 +15,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 @Service
@@ -25,8 +28,11 @@ import java.util.function.Supplier;
 public class AddressUnitServiceImpl implements AddressUnitService {
 
     private static final int MAX_PAGE_SIZE = 200;
+    private static final long MASTER_DATA_CACHE_TTL_NANOS = Duration.ofHours(12).toNanos();
+    private static final String PROVINCES_CACHE_KEY = "provinces";
 
     private final GhnApi ghnApi;
+    private final Map<String, CachedMasterData> masterDataCache = new ConcurrentHashMap<>();
 
     @Value("${ghn.token}")
     private String ghnToken;
@@ -36,8 +42,8 @@ public class AddressUnitServiceImpl implements AddressUnitService {
 
     @Override
     public List<AddressUnitResponse> getProvinces() {
-        GhnMasterDataResponse<GhnNewProvince> response =
-                call(() -> ghnApi.getProvinces(ghnToken, ghnShopId, 0, MAX_PAGE_SIZE), "danh sách tỉnh/thành");
+        GhnMasterDataResponse<GhnNewProvince> response = cachedCall(PROVINCES_CACHE_KEY,
+                () -> ghnApi.getProvinces(ghnToken, ghnShopId, 0, MAX_PAGE_SIZE), "danh sách tỉnh/thành");
 
         return response.getData().stream()
                 .map(p -> AddressUnitResponse.builder()
@@ -49,8 +55,8 @@ public class AddressUnitServiceImpl implements AddressUnitService {
 
     @Override
     public List<AddressUnitResponse> getWards(int provinceId) {
-        GhnMasterDataResponse<GhnNewWard> response =
-                call(() -> ghnApi.getWards(ghnToken, ghnShopId, provinceId, 0, MAX_PAGE_SIZE), "danh sách phường/xã");
+        GhnMasterDataResponse<GhnNewWard> response = cachedCall(wardsCacheKey(provinceId),
+                () -> ghnApi.getWards(ghnToken, ghnShopId, provinceId, 0, MAX_PAGE_SIZE), "danh sách phường/xã");
 
         return response.getData().stream()
                 .map(w -> AddressUnitResponse.builder()
@@ -69,8 +75,8 @@ public class AddressUnitServiceImpl implements AddressUnitService {
             throw new BadRequestException("wardName là bắt buộc.");
         }
 
-        GhnMasterDataResponse<GhnNewProvince> provinces =
-                call(() -> ghnApi.getProvinces(ghnToken, ghnShopId, 0, MAX_PAGE_SIZE), "danh sách tỉnh/thành");
+        GhnMasterDataResponse<GhnNewProvince> provinces = cachedCall(PROVINCES_CACHE_KEY,
+                () -> ghnApi.getProvinces(ghnToken, ghnShopId, 0, MAX_PAGE_SIZE), "danh sách tỉnh/thành");
 
         GhnNewProvince province = provinces.getData().stream()
                 .filter(p -> matches(p.getName(), p.getExtensionNames(), provinceName))
@@ -78,7 +84,7 @@ public class AddressUnitServiceImpl implements AddressUnitService {
                 .orElseThrow(() -> new BadRequestException(
                         "provinceName \"" + provinceName + "\" không có trong danh mục tỉnh/thành của GHN."));
 
-        GhnMasterDataResponse<GhnNewWard> wards = call(
+        GhnMasterDataResponse<GhnNewWard> wards = cachedCall(wardsCacheKey(province.getId()),
                 () -> ghnApi.getWards(ghnToken, ghnShopId, province.getId(), 0, MAX_PAGE_SIZE),
                 "danh sách phường/xã");
 
@@ -116,6 +122,27 @@ public class AddressUnitServiceImpl implements AddressUnitService {
             }
         }
         return normalized.toString();
+    }
+
+    private static String wardsCacheKey(Integer provinceId) {
+        return "wards:" + provinceId;
+    }
+
+    private <T> GhnMasterDataResponse<T> cachedCall(String cacheKey, Supplier<GhnMasterDataResponse<T>> ghnCall,
+                                                    String what) {
+        long now = System.nanoTime();
+        CachedMasterData cached = masterDataCache.get(cacheKey);
+        if (cached != null && now - cached.loadedAtNanos() < MASTER_DATA_CACHE_TTL_NANOS) {
+            @SuppressWarnings("unchecked")
+            GhnMasterDataResponse<T> response = (GhnMasterDataResponse<T>) cached.response();
+            return response;
+        }
+        GhnMasterDataResponse<T> response = call(ghnCall, what);
+        masterDataCache.put(cacheKey, new CachedMasterData(response, now));
+        return response;
+    }
+
+    private record CachedMasterData(GhnMasterDataResponse<?> response, long loadedAtNanos) {
     }
 
     private <T> GhnMasterDataResponse<T> call(Supplier<GhnMasterDataResponse<T>> ghnCall, String what) {

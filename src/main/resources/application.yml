@@ -61,11 +61,24 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    # Log SQL mặc định TẮT (in SQL ra console làm chậm hệ thống khi đông người).
+    # Cần debug thì bật bằng biến môi trường: SHOW_SQL=true, FORMAT_SQL=true, SQL_LOG_LEVEL=DEBUG
+    show-sql: ${SHOW_SQL:false}
     properties:
       hibernate:
-        format_sql: true
+        format_sql: ${FORMAT_SQL:false}
         dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  # ==================== FEIGN - TIMEOUT GỌI GHN ====================
+  # Chỉ áp dụng cho Feign client "ghn" (VNPay giữ nguyên). Mặc định của Feign là 10s kết nối / 60s chờ
+  # phản hồi. Mọi lệnh tạo vận đơn GHN đều gửi client_order_code cố định nên timeout không thể sinh vận đơn trùng.
+  cloud:
+    openfeign:
+      client:
+        config:
+          ghn:
+            connect-timeout: ${GHN_CONNECT_TIMEOUT_MS:5000}
+            read-timeout: ${GHN_READ_TIMEOUT_MS:15000}
 
 # ==================== EMAIL - BREVO REST API ====================
 brevo:
@@ -88,6 +101,11 @@ app:
       ttl: ${PRODUCTS_CACHE_TTL:30s}
   ghn:
     fallback-on-error: ${GHN_FALLBACK_ON_ERROR:true}
+  # Timeout cho RestClient tạo từ RestClient.Builder của Spring - hiện chỉ có Brevo (gửi email OTP).
+  # TryOnAiClient và DecartVtonClient tự đặt timeout riêng nên không bị ảnh hưởng.
+  rest-client:
+    connect-timeout: ${REST_CLIENT_CONNECT_TIMEOUT:5s}
+    read-timeout: ${REST_CLIENT_READ_TIMEOUT:15s}
   # Các initializer TỰ SEED dữ liệu mẫu (tài khoản, kho, danh mục, thương hiệu, gói thành viên,
   # mẫu voucher, tham số hệ thống, sản phẩm demo). Mặc định TẮT: toàn bộ dữ liệu demo giờ nằm
   # trong scripts/seed_demo_full.sql, chạy file đó là có đủ. Bật lại bằng APP_INITIALIZER_SEED=true
@@ -126,7 +144,8 @@ app:
     access-token-expiration-ms: 900000
     refresh-token-expiration-ms: 604800000
 
-  # Order checkout - chưa tích hợp GHN tính phí thật, tạm phí ship cố định (F-054 để sau)
+  # Phí ship lấy từ GHN (GhnShippingFeeCalculator). shipping-fee là phí DỰ PHÒNG, chỉ dùng khi không tính được
+  # phí thật: GHN lỗi/timeout, thiếu GHN_TOKEN/GHN_SHOP_ID, không tra được mã phường, hoặc kho dùng địa chỉ cũ.
   order:
     shipping-fee: 25000
     # Hạn thanh toán đơn đã chuyển sang system_configs (order_payment_timeout_minutes)
@@ -196,7 +215,7 @@ app:
 # ==================== LOGGING ====================
 logging:
   level:
-    org.hibernate.SQL: DEBUG
+    org.hibernate.SQL: ${SQL_LOG_LEVEL:INFO}
     org.hibernate.engine.jdbc.spi.SqlExceptionHelper: DEBUG
 
 google:

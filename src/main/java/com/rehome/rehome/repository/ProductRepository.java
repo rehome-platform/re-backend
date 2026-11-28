@@ -49,6 +49,9 @@ public interface ProductRepository extends JpaRepository<Product, String>, JpaSp
     List<Product> findWithCategoryByIdIn(Collection<String> ids);
 
     @EntityGraph(attributePaths = {"brand", "category", "warehouse", "consignmentReceipt"})
+    Optional<Product> findWithDetailsById(String id);
+
+    @EntityGraph(attributePaths = {"brand", "category", "warehouse", "consignmentReceipt"})
     @Query("""
         SELECT p FROM Product p
         WHERE p.status = com.rehome.rehome.entity.enums.ProductStatus.ON_SALE

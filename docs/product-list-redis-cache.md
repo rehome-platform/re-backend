@@ -18,11 +18,15 @@ Set `PRODUCTS_CACHE_ENABLED=false` to bypass reads, writes and invalidation.
 A zero/negative TTL also disables caching. TTL accepts Spring Boot durations such
 as `30s` or `1m`.
 
-Keys use the prefix `rehome:products:v1:` and a SHA-256 hash of all filters,
-normalized page/size, and viewer ID. Anonymous viewers have a separate key. Cached
-JSON contains only `PageResponse<ProductSummaryResponse>`, never JPA entities;
-`isMine`, featured flags and pagination metadata retain the API's current format.
-Invalid price ranges are rejected before accessing Redis.
+Page keys use the prefix `rehome:products:v2:` and a SHA-256 hash of all filters and
+normalized page/size. The viewer is **not** part of the key: anonymous and logged-in
+viewers share the same cached page. Cached JSON contains only
+`PageResponse<ProductListCache.Item>` (each item is the `ProductSummaryResponse` plus the
+seller's `memberId`), never JPA entities. `isMine` is computed per request in
+`ProductServiceImpl.getProducts` from that `memberId` and is never stored; `memberId`
+stays in Redis and is never returned by the API. Featured flags and pagination metadata
+retain the API's current format. The generation token keeps its original key
+`rehome:products:v1:generation`. Invalid price ranges are rejected before accessing Redis.
 
 Writes through Product, ProductPhoto, Brand, Category and ConsignmentReceipt
 repositories invalidate the catalog after successful transaction commit. This
@@ -43,7 +47,8 @@ bypass repository mutators likewise become visible within the TTL. Run scripts
 against the intended environment and allow the TTL to elapse before checking.
 
 Manual verification: call the same list twice and observe no catalog SQL on the
-second request; change filter/page/viewer and verify separate results; update a
+second request; change filter/page and verify separate results; list as the seller
+and as another member and verify only the seller sees `isMine=true`; update a
 price or reserve a product and verify the next list reflects the committed change;
 stop Redis and verify the list still loads from the database.
 
@@ -54,10 +59,11 @@ Performance changes after the 25 November load test:
   transaction for database queries and DTO mapping only. A cache hit does not
   acquire a JDBC connection for catalogue loading. JWT account lookup is separate
   and remains unchanged, including current account-status checks.
-- In-flight requests for the same viewer/filter/page/generation share one page
-  read and, on miss, one DB load within a JVM. Redis generation is still checked
-  per request; this is not a persistent local cache. No coalescing occurs across
-  different viewers or Redis generations. Original application exceptions are
+- In-flight requests for the same filter/page/generation share one page read and,
+  on miss, one DB load within a JVM, across viewers (the cached page holds no
+  viewer-specific data). Redis generation is still checked per request; this is not
+  a persistent local cache. No coalescing occurs across different Redis
+  generations. Original application exceptions are
   propagated to waiters; completed/failed flights are removed so retries work.
 - When Redis generation lookup fails, overlapping identical DB fallbacks are
   coalesced using the request hash and a local invalidation epoch. Disabled cache

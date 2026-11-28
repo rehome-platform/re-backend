@@ -7,6 +7,7 @@ import com.rehome.rehome.entity.enums.NotificationType;
 import com.rehome.rehome.client.GhnApi;
 import com.rehome.rehome.component.VoucherCalculator;
 import com.rehome.rehome.client.GhnShippingFeeCalculator;
+import com.rehome.rehome.client.ShippingFeeMemo;
 import com.rehome.rehome.dto.request.CreateOrderRequest;
 import com.rehome.rehome.dto.request.GhnCreateOrderRequest;
 import com.rehome.rehome.dto.request.GhnOrderItem;
@@ -261,10 +262,9 @@ public class OrderServiceImpl implements OrderService {
         Instant paymentDeadline = Instant.now().plus(paymentTimeoutMinutes, ChronoUnit.MINUTES);
 
         List<BigDecimal> shippingFees = new ArrayList<>(lockedProducts.size());
+        ShippingFeeMemo shippingFeeMemo = new ShippingFeeMemo(ghnShippingFeeCalculator);
         for (Product product : lockedProducts) {
-            shippingFees.add(ghnShippingFeeCalculator.calculate(
-                    product.getWarehouse(), shippingAddress.getWardName(),
-                    shippingAddress.getProvinceName()));
+            shippingFees.add(shippingFeeMemo.calculate(product.getWarehouse(), shippingAddress));
         }
 
         VoucherApplication voucherApplication =
@@ -882,8 +882,7 @@ public class OrderServiceImpl implements OrderService {
             throw new BadRequestException("Địa chỉ chưa có đầy đủ thông tin phường/xã, tỉnh/thành.");
         }
 
-        BigDecimal newFee = ghnShippingFeeCalculator.calculate(
-                order.getWarehouse(), newAddress.getWardName(), newAddress.getProvinceName());
+        BigDecimal newFee = ghnShippingFeeCalculator.calculate(order.getWarehouse(), newAddress);
         BigDecimal oldFee = order.getShippingFee();
 
         BigDecimal refundedAmount = BigDecimal.ZERO;

@@ -14,7 +14,10 @@ import lombok.*;
 import org.hibernate.annotations.ColumnDefault;
 
 @Entity
-@Table(name = "orders")
+@Table(name = "orders", indexes = {
+        @Index(name = "idx_orders_buyer_status", columnList = "buyer_id, status"),
+        @Index(name = "idx_orders_status_payment_deadline", columnList = "status, payment_deadline")
+})
 @Getter
 @Setter
 @NoArgsConstructor

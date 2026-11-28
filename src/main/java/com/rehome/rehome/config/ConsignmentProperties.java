@@ -13,7 +13,6 @@ import java.math.BigDecimal;
 @Setter
 public class ConsignmentProperties {
     private int bringInDeadlineDays = 7;
-    // Số yêu cầu PENDING tối đa mỗi Member được có cùng lúc (không tính DRAFT)
     private int maxPendingForms = 5;
     private int termLengthDays = 30;
     private int maxRenewals = 2;
@@ -23,5 +22,5 @@ public class ConsignmentProperties {
     private BigDecimal commissionRateTerm3 = new BigDecimal("0.20");
     private BigDecimal degradedCompensationRate = new BigDecimal("0.50");
     private BigDecimal floorPriceRate = new BigDecimal("0.50");
-    private BigDecimal withdrawalFee = new BigDecimal("20000"); // SỐ NÀY MÌNH ĐOÁN, xem lưu ý
+    private BigDecimal withdrawalFee = new BigDecimal("20000");
 }

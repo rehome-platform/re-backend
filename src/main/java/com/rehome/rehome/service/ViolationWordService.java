@@ -11,7 +11,6 @@ import java.util.UUID;
 
 public interface ViolationWordService {
 
-    /** Tìm theo từ khóa (không phân biệt hoa thường), lọc nhóm / mức độ / trạng thái; mới nhất trước. */
     PageResponse<ViolationWordResponse> search(String keyword, ViolationWordCategory category,
                                                ViolationWordSeverity severity, Boolean isActive,
                                                int page, int size);
@@ -22,6 +21,5 @@ public interface ViolationWordService {
 
     void delete(Account admin, UUID id);
 
-    /** Đảo trạng thái bật/tắt. */
     ViolationWordResponse toggle(Account admin, UUID id);
 }

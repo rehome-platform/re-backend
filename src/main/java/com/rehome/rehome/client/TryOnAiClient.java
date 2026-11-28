@@ -24,32 +24,13 @@ import org.springframework.web.client.RestClient;
 import java.time.Duration;
 import java.util.regex.Pattern;
 
-/**
- * Client gọi AI server (CatVTON + AutoMasker, FastAPI) để sinh ảnh thử đồ - F-078.
- *
- * <p>Luồng một lần sinh ảnh:
- * <ol>
- *   <li>{@code POST /try-on/preset} (áo + quần) hoặc {@code POST /try-on/preset/dress} (đầm), multipart,
- *       người mẫu male/female nằm sẵn trên AI server. Chạy ĐỒNG BỘ, vài chục giây.</li>
- *   <li>Tải bytes ảnh kết quả qua {@code GET /results/{id}/result.png} (kèm API key). Backend tự lưu ảnh
- *       vào storage của mình, KHÔNG dùng {@code result_url} (link Cloudinary của AI) vì F-081 xóa ảnh bằng
- *       {@code deleteByUrl}, mà storage chỉ nhận URL do chính nó sinh ra.</li>
- *   <li>Nếu AI đã tự upload bản của nó ({@code result_url != null}) thì {@code DELETE /history/{id}} để
- *       không giữ ảnh của Member ở hai nơi. Bước này best-effort, lỗi chỉ ghi log.</li>
- * </ol>
- *
- * <p>Mọi lỗi (chưa cấu hình, timeout, 409 GPU bận, 422 mask lỗi, 500 model lỗi, response sai...) đều thành
- * {@link ErrorCode#TRYON_GENERATION_FAILED} (502).
- */
 @Slf4j
 @Component
 public class TryOnAiClient implements TryOnImageGenerator {
 
-    // Cùng regex với AI server (JOB_RE trong api.py): chỉ nhận id do AI sinh, không ghép chuỗi lạ vào URL
     private static final Pattern JOB_ID = Pattern.compile("^[0-9a-f]{32}$");
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    // null khi chưa cấu hình tryon.ai.base-url / tryon.ai.api-key -> mọi lần gọi trả 502
     private final RestClient client;
 
     @Autowired
@@ -64,7 +45,6 @@ public class TryOnAiClient implements TryOnImageGenerator {
             this.client = null;
             return;
         }
-        // Read timeout phải đủ dài: AI chạy đồng bộ nhiều bước diffusion
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(Duration.ofSeconds(connectTimeoutSeconds));
         factory.setReadTimeout(Duration.ofSeconds(readTimeoutSeconds));
@@ -75,7 +55,6 @@ public class TryOnAiClient implements TryOnImageGenerator {
                 .build();
     }
 
-    // Dùng cho test: truyền RestClient đã gắn MockRestServiceServer
     TryOnAiClient(RestClient client) {
         this.client = client;
     }
@@ -91,7 +70,6 @@ public class TryOnAiClient implements TryOnImageGenerator {
 
     @Override
     public byte[] generateDress(TryOnModelType modelType, byte[] dressImage) {
-        // AI chỉ có mẫu nữ cho đầm; service đã chặn trước, đây là lớp phòng thủ
         if (modelType != TryOnModelType.FEMALE) {
             throw new AppException(ErrorCode.DRESS_NOT_SUPPORTED_FOR_MALE);
         }
@@ -100,8 +78,6 @@ public class TryOnAiClient implements TryOnImageGenerator {
         body.add("dress", filePart("dress.png", dressImage));
         return generate("/try-on/preset/dress", body);
     }
-
-    // ---------------------------------------------------------------- nội bộ
 
     private byte[] generate(String path, MultiValueMap<String, Object> body) {
         if (client == null) {
@@ -144,12 +120,11 @@ public class TryOnAiClient implements TryOnImageGenerator {
         } catch (AppException e) {
             throw e;
         } catch (RuntimeException | JsonProcessingException e) {
-            log.error(">>>> Sinh anh thu do that bai ({})", path, e);   // e là tham số cuối để in stack trace
+            log.error(">>>> Sinh anh thu do that bai ({})", path, e);
             throw failed();
         }
     }
 
-    // Best-effort: ảnh đã nằm trong storage của backend, bản trên AI chỉ là dư thừa
     private void removeAiHistory(String jobId) {
         try {
             client.delete().uri("/history/{id}", jobId).retrieve().toBodilessEntity();
@@ -162,7 +137,6 @@ public class TryOnAiClient implements TryOnImageGenerator {
         return modelType == TryOnModelType.MALE ? "male" : "female";
     }
 
-    // Part có filename để FastAPI nhận là UploadFile; MIME để octet-stream vì không biết chắc định dạng gốc
     private static HttpEntity<ByteArrayResource> filePart(String filename, byte[] content) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);

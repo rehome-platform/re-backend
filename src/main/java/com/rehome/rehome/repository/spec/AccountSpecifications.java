@@ -21,11 +21,6 @@ public class AccountSpecifications {
 
     private AccountSpecifications() {}
 
-    /**
-     * API 139: danh sách Moderator. Mọi điều kiện được gộp vào một truy vấn nên lọc xong mới phân trang.
-     * Tham số null/rỗng thì bỏ qua điều kiện đó. search khớp (chứa, không phân biệt hoa thường)
-     * email, số điện thoại hoặc họ tên Moderator.
-     */
     public static Specification<Account> moderators(UUID warehouseId, String search, AccountStatus status) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
@@ -55,7 +50,6 @@ public class AccountSpecifications {
         };
     }
 
-    // Ký tự % và _ người dùng gõ vào phải được hiểu là chữ thường, không phải wildcard
     static String escapeLike(String value) {
         return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }

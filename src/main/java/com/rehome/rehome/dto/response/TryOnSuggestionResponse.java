@@ -8,7 +8,6 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.util.UUID;
 
-// API 96 - GET /tryon/suggestions: món gợi ý để ghép đủ outfit
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

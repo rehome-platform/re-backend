@@ -6,13 +6,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * GET /tryon/quota - hạn mức phối đồ AI (ảnh tĩnh) theo gói, tính theo NGÀY, reset 00:00 giờ VN.
- *
- * <p>Đếm số <b>lượt sinh ảnh</b> trong ngày, không đếm số ảnh đang còn trong bộ sưu tập: Member
- * xóa ảnh <b>không</b> được hoàn lượt. Nên ghi rõ điều này ở dialog xác nhận xóa ảnh (M-06) để
- * tránh hiểu nhầm.
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -27,9 +20,7 @@ public class AiTryOnQuotaResponse {
     private Integer limitPerMonth;
     private long usedThisMonth;
     private Integer remainingThisMonth;
-    // true cả khi hết quota gói mà còn lượt thưởng (bonusCredits > 0)
     private boolean canGenerate;
-    // Lượt mua bằng điểm còn lại, chỉ bị trừ khi quota gói đã hết
     private int bonusCredits;
     private MembershipTier upsellTier;
 }

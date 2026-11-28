@@ -2,8 +2,6 @@ package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.util.NotificationFormatting;
 
-import com.rehome.rehome.entity.enums.NotificationType;
-import com.rehome.rehome.entity.enums.NotificationTargetType;
 
 import com.rehome.rehome.entity.enums.CancelReason;
 import com.rehome.rehome.entity.enums.MemberVoucherStatus;
@@ -28,7 +26,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-// Tách riêng để @Transactional đi qua Spring proxy (gọi nội bộ cùng class thì không có tác dụng)
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -68,23 +65,11 @@ public class OrderCancelExecutor {
         orderRepository.save(order);
         auditLogger.logSystemOperation("AUTO_CANCEL_ORDER", "ORDER", orderId, "CANCELLED", "SCHEDULER");
 
-        // Quá hạn thanh toán: chưa thu tiền và người mua không có lỗi -> trả mã về ví (§12.4)
         releaseVoucher(order);
 
         log.info(">>>> Tu huy don hang qua han thanh toan: orderNo={}", order.getOrderNo());
     }
 
-    /**
-     * Trả voucher về {@code UNUSED} - <b>chỉ khi MỌI đơn mang mã đó đều đã hủy</b>. Một mã áp cho
-     * cả lần thanh toán và có thể trải trên nhiều đơn: còn một đơn chưa hủy thì mã vẫn {@code USED},
-     * và phần giảm của đơn bị hủy KHÔNG được chuyển sang đơn còn lại.
-     *
-     * <p>Mã đã hết hạn tại thời điểm trả thì đặt {@code EXPIRED} thay vì {@code UNUSED}.
-     *
-     * <p>Logic này trùng {@code OrderServiceImpl.releaseVoucherIfAllOrdersCancelled} nhưng cố ý
-     * không gọi sang đó: executor này chạy {@code REQUIRES_NEW} trong job tự hủy, gọi vào
-     * OrderService sẽ kéo cả bean đồ sộ đó vào một transaction mới và tạo phụ thuộc vòng.
-     */
     private void releaseVoucher(Order cancelledOrder) {
         MemberVoucher voucher = cancelledOrder.getVoucher();
         if (voucher == null) {

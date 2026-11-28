@@ -24,7 +24,6 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
     List<OrderItem> findOutfitPreferenceHistory(@Param("memberId") UUID memberId,
             org.springframework.data.domain.Pageable pageable);
 
-    // API 144: hàng đã bán (SOLD) nhưng đơn còn PAID/PACKING thì hàng vẫn ở kho chờ đóng gói
     @Query("select count(oi) from OrderItem oi join oi.order o join oi.product p "
             + "where p.warehouse.id = :warehouseId "
             + "and p.status = com.rehome.rehome.entity.enums.ProductStatus.SOLD "
@@ -56,8 +55,6 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
     """)
     List<OrderItem> findActiveByProductIds(@Param("ids") Collection<String> ids);
 
-    // Chỉ các món của :sellerId trong các đơn đã cho. Lọc theo người bán ngay trong query
-    // là điều giữ cho API "đơn đã bán" không lộ hàng của người ký gửi khác trong cùng đơn.
     @Query("select oi from OrderItem oi " +
             "join fetch oi.product p " +
             "where oi.order.id in :orderIds and p.member.id = :sellerId " +

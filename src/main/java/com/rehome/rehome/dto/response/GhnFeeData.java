@@ -5,8 +5,6 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-// Chỉ map field cần dùng (total); các phụ phí khác GHN trả về (insurance_fee, cod_fee, ...)
-// bị bỏ qua vì chưa có nhu cầu hiển thị riêng.
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

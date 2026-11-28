@@ -83,8 +83,6 @@ public class NotificationServiceImpl implements NotificationService {
         notificationRepository.save(notification);
         messagingTemplate.convertAndSendToUser(
                 recipientAccount.getEmail(), NOTIFICATION_QUEUE, toResponse(notification));
-        // WebSocket chỉ tới được nếu app đang mở kết nối; push FCM thêm đường tới khi app đã
-        // tắt/background. NoopPushNotificationServiceImpl không làm gì nếu chưa cấu hình Firebase.
         pushNotificationService.send(recipientAccount, title, body, pushData(notification));
     }
 

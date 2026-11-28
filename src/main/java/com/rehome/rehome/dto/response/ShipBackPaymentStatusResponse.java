@@ -8,7 +8,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-// Kết quả đồng bộ trạng thái thanh toán phí gửi lại hàng trả không hợp lệ (app hỏi lại khi quay về từ VNPay)
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

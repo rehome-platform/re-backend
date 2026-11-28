@@ -6,7 +6,6 @@ import lombok.Getter;
 public class AppException extends RuntimeException {
     private final ErrorCode errorCode;
 
-    // Dữ liệu kèm theo lỗi, đưa vào "result" của response; null với hầu hết lỗi
     private final Object result;
 
     public AppException(ErrorCode errorCode) {

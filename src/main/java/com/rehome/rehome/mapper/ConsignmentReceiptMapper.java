@@ -62,7 +62,6 @@ public final class ConsignmentReceiptMapper {
         return items;
     }
 
-    // Bản đầy đủ cho màn xác nhận biên nhận; phải gọi trong transaction vì đọc quan hệ lazy
     public static ConsignmentReceiptResponse toResponse(ConsignmentReceipt r, String sku) {
         ConsignmentReceiptResponse dto = toResponse(r);
         if (dto == null) {
@@ -79,9 +78,6 @@ public final class ConsignmentReceiptMapper {
         return dto;
     }
 
-    // Thêm productId, previousPrice và trạng thái thương lượng giá khi biên nhận sinh ra từ quyết
-    // định ký gửi lại. negotiationHistory KHÔNG được set ở đây (cần repository) - service layer tự
-    // gọi dto.setNegotiationHistory(...) sau khi gọi hàm này.
     public static ConsignmentReceiptResponse toResponse(ConsignmentReceipt r, String sku,
                                                         EndOfTermDecision reConsignDecision) {
         ConsignmentReceiptResponse dto = toResponse(r, sku);

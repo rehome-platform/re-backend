@@ -8,9 +8,6 @@ import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 
-/**
- * Kết luận từ chối hồ sơ tổ chức (F-138).
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

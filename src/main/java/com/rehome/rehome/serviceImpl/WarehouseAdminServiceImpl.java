@@ -33,13 +33,10 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class WarehouseAdminServiceImpl implements WarehouseAdminService {
 
-    // Hàng còn nằm trong kho thì không được ẩn kho (API 144)
     static final List<ProductStatus> STOCK_STATUSES = List.of(
             ProductStatus.ON_SALE, ProductStatus.RESERVED, ProductStatus.UNCLAIMED,
             ProductStatus.PLATFORM_OWNED, ProductStatus.RETURNED, ProductStatus.WAREHOUSE);
-    // Hàng SOLD nhưng đơn chưa giao đi: vẫn ở kho chờ đóng gói
     static final List<OrderStatus> OPEN_ORDER_STATUSES = List.of(OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.PACKED);
-    // Phiếu ký gửi chưa xong tại kho
     static final List<ConsignmentFormStatus> OPEN_FORM_STATUSES = List.of(
             ConsignmentFormStatus.PENDING, ConsignmentFormStatus.APPROVED, ConsignmentFormStatus.INSPECTING);
 
@@ -80,7 +77,6 @@ public class WarehouseAdminServiceImpl implements WarehouseAdminService {
                 .provinceName(request.getProvinceName().trim())
                 .provinceId(request.getProvinceId())
                 .wardCode(request.getWardCode().trim())
-                // Kho luôn khai theo hành chính 2 cấp (sau 01/07/2025, không còn quận/huyện)
                 .isNewAddress(true)
                 .latitude(request.getLatitude())
                 .longitude(request.getLongitude())
@@ -109,14 +105,12 @@ public class WarehouseAdminServiceImpl implements WarehouseAdminService {
         ObjectNode detail = objectMapper.createObjectNode();
         detail.set("before", snapshot(warehouse));
 
-        // Mã kho (code) giữ nguyên khi đổi tên: code đã in/đi vào dữ liệu cũ
         warehouse.setName(name);
         warehouse.setAddress(request.getAddress().trim());
         warehouse.setWardName(request.getWardName().trim());
         warehouse.setProvinceName(request.getProvinceName().trim());
         warehouse.setProvinceId(request.getProvinceId());
         warehouse.setWardCode(request.getWardCode().trim());
-        // Hệ 2 cấp không có quận/huyện: xóa giá trị cũ của hệ 3 cấp để khỏi lệch với isNewAddress
         warehouse.setDistrictName(null);
         warehouse.setIsNewAddress(true);
         warehouse.setLatitude(request.getLatitude());
@@ -175,8 +169,6 @@ public class WarehouseAdminServiceImpl implements WarehouseAdminService {
         return toResponse(saved, loadStats());
     }
 
-    // Số liệu của mọi kho trong 3 query gom nhóm; STOCK_STATUSES / OPEN_ORDER_STATUSES là định nghĩa
-    // chung với API 144 (ẩn kho) nên số hiển thị khớp với điều kiện chặn ẩn kho
     private Stats loadStats() {
         return new Stats(
                 warehouseStatsRepository.countActiveModeratorsByWarehouse(),

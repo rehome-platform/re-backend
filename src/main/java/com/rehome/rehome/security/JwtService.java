@@ -15,11 +15,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
 
-/**
- * Chịu trách nhiệm sinh, đọc và validate access token (JWT).
- * Refresh token KHÔNG được sinh ở đây - refresh token là 1 UUID lưu trong DB (xem RefreshTokenService)
- * để có thể thu hồi (revoke) bất cứ lúc nào.
- */
 @Service
 public class JwtService {
 

@@ -17,11 +17,8 @@ public interface VoucherTemplateRepository extends JpaRepository<VoucherTemplate
     @EntityGraph(attributePaths = {"tierRules"})
     Optional<VoucherTemplate> findWithTierRulesById(UUID id);
 
-    // Job phát voucher: chỉ mẫu đang bật mới phát mã mới
     @EntityGraph(attributePaths = {"tierRules"})
     List<VoucherTemplate> findAllByActiveTrue();
-
-    boolean existsByType(com.rehome.rehome.entity.enums.VoucherType type);
 
     boolean existsByName(String name);
 }

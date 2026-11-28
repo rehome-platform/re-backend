@@ -116,7 +116,6 @@ public class DonationServiceImpl implements DonationService {
                 .build();
         donationRepository.save(donation);
 
-        // Báo cho tổ chức sở hữu chiến dịch, kèm deep-link mở đúng màn chờ lấy của kho này (OC-07)
         notificationService.notify(
                 campaign.getOrganization().getAccount(),
                 NotificationType.DONATION_RECORDED,
@@ -127,7 +126,6 @@ public class DonationServiceImpl implements DonationService {
                 campaign.getId(),
                 warehouse.getId());
 
-        // Ghi nhận trực tiếp (DIRECT) không có món ký gửi nên không cần tra ảnh
         auditLogger.logOperation(moderator, "RECORD_DONATION", "DONATION", donation.getId(), "PENDING_PICKUP");
         return toResponse(donation, resolveModeratorCode(moderator.getId()), Map.of());
     }
@@ -161,7 +159,6 @@ public class DonationServiceImpl implements DonationService {
         return donations.stream().map(d -> toResponse(d, moderatorProfiles, photoByProductId)).toList();
     }
 
-    // F-163: chiến dịch được chọn phải có nhận đồ tại chính kho đang ghi nhận, nếu không coi như không tồn tại
     private Campaign requireCampaignServingWarehouse(Warehouse warehouse, String rawCampaignId) {
         if (!StringUtils.hasText(rawCampaignId)) {
             throw new BadRequestException("Vui lòng chọn chiến dịch.");
@@ -183,8 +180,6 @@ public class DonationServiceImpl implements DonationService {
         return campaign;
     }
 
-    // Chiến dịch bị Moderator ẩn do vi phạm thì không nhận thêm lượt quyên góp mới nào nữa, dù
-    // ghi nhận tại kho (recordDonation) hay tự ghi note (createDonationNote/createCampaignDonationNote)
     private void requireNotHidden(Campaign campaign) {
         if (campaign.getStatus() == CampaignStatus.HIDDEN) {
             throw new ConflictException(
@@ -220,12 +215,9 @@ public class DonationServiceImpl implements DonationService {
 
         Warehouse warehouse = requireOwnWarehouse(moderator, warehouseId, ORGANIZATION_OR_WAREHOUSE_NOT_FOUND);
         OrganizationProfile organization = requireVerifiedOrganization(request.getOrganizationId());
-        // Chiến dịch bàn giao phải thuộc đúng tổ chức đến nhận, tránh bàn giao nhầm cho tổ chức khác
         Campaign campaign = requireOwnCampaign(organization.getAccountId(), request.getCampaignId());
 
         List<Donation> donations = donationRepository.findByIdInAndWarehouse_Id(donationIds, warehouseId);
-        // Thiếu id nào (không tồn tại hoặc thuộc kho khác), có lượt không còn chờ lấy, hoặc có lượt
-        // thuộc chiến dịch khác -> không bàn giao gì cả (không bàn giao từng phần)
         if (donations.size() != donationIds.size()
                 || donations.stream().anyMatch(d -> d.getStatus() != DonationStatus.PENDING_PICKUP)
                 || donations.stream().anyMatch(d -> d.getCampaign() == null
@@ -444,7 +436,6 @@ public class DonationServiceImpl implements DonationService {
         }
     }
 
-    // Chỉ tổ chức đã VERIFIED mới được nhận đồ quyên góp
     private OrganizationProfile requireVerifiedOrganization(String rawOrganizationId) {
         if (!StringUtils.hasText(rawOrganizationId)) {
             throw new IllegalArgumentException(ORGANIZATION_OR_WAREHOUSE_NOT_FOUND);
@@ -472,8 +463,6 @@ public class DonationServiceImpl implements DonationService {
                 Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
                 Sort.by(Sort.Direction.DESC, "createdAt"));
 
-        // PENDING_PICKUP luôn thuộc "pool chung" nên lọc theo status là chọn 1 nửa của phạm vi:
-        // đang chờ lấy (mọi kho) hoặc lịch sử đã nhận của chính tổ chức này
         Page<Donation> donations;
         if (status == null) {
             donations = donationRepository.findVisibleForOrganization(
@@ -499,7 +488,6 @@ public class DonationServiceImpl implements DonationService {
 
         OrganizationProfile organization = organizationProfileRepository.findById(organizationAccountId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND));
-        // campaignId để trống nghĩa là nhận đồ ngoài chiến dịch nào
         Campaign campaign = resolveOwnCampaign(organizationAccountId, request.getCampaignId());
         if (campaign != null) {
             requireNotHidden(campaign);
@@ -516,7 +504,6 @@ public class DonationServiceImpl implements DonationService {
 
         OrganizationProfile organization = organizationProfileRepository.findById(organizationAccountId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND));
-        // OC-08: khác F-167 ở chỗ campaignId bắt buộc (lấy từ path) và phải thuộc đúng tổ chức này
         Campaign campaign = campaignRepository.findById(campaignId)
                 .filter(c -> c.getOrganization().getAccountId().equals(organizationAccountId))
                 .orElseThrow(() -> new IllegalArgumentException(CAMPAIGN_NOT_FOUND));
@@ -529,7 +516,6 @@ public class DonationServiceImpl implements DonationService {
     @Transactional(readOnly = true)
     public PageResponse<DonationNoteResponse> listCampaignDonationNotes(UUID organizationAccountId, UUID campaignId,
                                                                           int page, int size) {
-        // Phải xem được cả khi chiến dịch đã CLOSED nên không lọc theo status ở đây
         Campaign campaign = campaignRepository.findById(campaignId)
                 .orElseThrow(() -> new IllegalArgumentException(CAMPAIGN_NOT_FOUND));
         if (!campaign.getOrganization().getAccountId().equals(organizationAccountId)) {
@@ -541,8 +527,6 @@ public class DonationServiceImpl implements DonationService {
         return PageResponse.from(notes.map(DonationServiceImpl::toNoteResponse));
     }
 
-    // Chưa có tên người quyên góp mà cũng không tích ẩn danh thì không hợp lệ, dùng chung
-    // cho cả F-167 và OC-08
     private boolean requireDonorNameOrAnonymous(Boolean isAnonymousFlag, String donorName) {
         boolean anonymous = Boolean.TRUE.equals(isAnonymousFlag);
         if (!anonymous && !StringUtils.hasText(donorName)) {
@@ -557,7 +541,6 @@ public class DonationServiceImpl implements DonationService {
         DonationNote donationNote = DonationNote.builder()
                 .organization(organization)
                 .campaign(campaign)
-                // Ẩn danh thì không lưu tên, giống F-163
                 .donorName(anonymous ? null : donorName)
                 .isAnonymous(anonymous)
                 .note(note)
@@ -580,7 +563,6 @@ public class DonationServiceImpl implements DonationService {
                 .build();
     }
 
-    // Chiến dịch của tổ chức khác thì coi như không tìm thấy
     private Campaign resolveOwnCampaign(UUID organizationAccountId, String rawCampaignId) {
         if (!StringUtils.hasText(rawCampaignId)) {
             return null;
@@ -596,9 +578,6 @@ public class DonationServiceImpl implements DonationService {
                 .orElseThrow(() -> new IllegalArgumentException(CAMPAIGN_NOT_FOUND));
     }
 
-    // F-165: giống resolveOwnCampaign nhưng campaignId là bắt buộc khi bàn giao. Không chặn HIDDEN
-    // ở đây: bàn giao là trả hàng ĐÃ ghi nhận trước đó cho tổ chức, khác "ghi nhận quyên góp mới"
-    // (recordDonation/createDonationNote/createCampaignDonationNote) - chặn ở đây sẽ kẹt hàng tại kho.
     private Campaign requireOwnCampaign(UUID organizationAccountId, String rawCampaignId) {
         if (!StringUtils.hasText(rawCampaignId)) {
             throw new IllegalArgumentException(CAMPAIGN_NOT_FOUND);
@@ -606,15 +585,12 @@ public class DonationServiceImpl implements DonationService {
         return resolveOwnCampaign(organizationAccountId, rawCampaignId);
     }
 
-    // F-166: chỉ tổ chức đã xác minh mới xem được danh sách quyên góp
     private void requireVerifiedOrganizationAccount(UUID organizationAccountId) {
         organizationProfileRepository.findById(organizationAccountId)
                 .filter(o -> o.getVerificationStatus() == VerificationStatus.VERIFIED)
                 .orElseThrow(() -> new ForbiddenException("Bạn không có quyền truy cập."));
     }
 
-    // Moderator thuộc đúng 1 kho; kho khác thì coi như không tồn tại (giống QueueServiceImpl).
-    // notFoundMessage khác nhau giữa các API nên truyền vào thay vì hằng số chung.
     private Warehouse requireOwnWarehouse(Account moderator, UUID warehouseId, String notFoundMessage) {
         Warehouse warehouse = warehouseRepository.findById(warehouseId)
                 .orElseThrow(() -> new IllegalArgumentException(notFoundMessage));
@@ -628,8 +604,6 @@ public class DonationServiceImpl implements DonationService {
         return warehouse;
     }
 
-    // Ảnh đại diện (displayOrder nhỏ nhất) của các món ký gửi được quyên góp, tra 1 query cho cả lô
-    // để không phát sinh N+1. Chỉ lượt CONSIGNED_ITEM mới trả product nên chỉ tra cho các lượt đó.
     private Map<String, String> loadFirstPhotoUrls(List<Donation> donations) {
         Set<String> productIds = donations.stream()
                 .filter(d -> d.getSource() == DonationSource.CONSIGNED_ITEM && d.getProduct() != null)
@@ -683,7 +657,6 @@ public class DonationServiceImpl implements DonationService {
                 .handedOverToOrganizationName(recipient == null ? null : recipient.getDisplayName())
                 .productId(product == null ? null : product.getId())
                 .productName(product == null ? null : product.getName())
-                // product chỉ trả khi source = CONSIGNED_ITEM (lượt DIRECT luôn null)
                 .product(donation.getSource() == DonationSource.CONSIGNED_ITEM && product != null
                         ? DonationProductResponse.builder()
                                 .id(product.getId())

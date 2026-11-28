@@ -45,18 +45,6 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
-/**
- * F-xxx: thử đồ AI real-time qua camera (Decart Lucy VTON).
- *
- * <p><b>Hạn mức lấy theo GÓI THÀNH VIÊN</b> ({@link MembershipQuotaResolver}): số lượt/ngày và số
- * giây/lượt đều đọc từ snapshot trên subscription ACTIVE, hoặc từ hạng FREE nếu Member chưa mua gói.
- * {@code tryon.live.daily-limit} không còn được dùng; {@code tryon.live.max-session-seconds} chỉ
- * còn là SÀN kỹ thuật (Decart yêu cầu tối thiểu 10 giây), không phải hạn mức nghiệp vụ.
- *
- * <p>Quota bị trừ ngay lúc mint client token ({@link #startSession}), KHÔNG đợi mobile xác nhận đã
- * kết nối camera thành công - đây là checkpoint server-side duy nhất chặn được chi phí thật trước
- * khi phát sinh (xem {@link DecartVtonClient}). Hệ quả: lỗi mạng ngay sau khi start vẫn mất 1 lượt.
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -87,8 +75,6 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
     @Value("${tryon.live.max-video-size-bytes:8388608}")
     private long maxVideoSizeBytes;
 
-    // ================================================================ GET /tryon/live/quota
-
     @Override
     @Transactional(readOnly = true)
     public LiveTryOnQuotaResponse getQuota(Account account) {
@@ -110,29 +96,20 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
                 .build();
     }
 
-    // ================================================================ POST /tryon/live/sessions
-
-    // Cố ý KHÔNG bọc toàn bộ method trong @Transactional: bước mint token là gọi mạng ra Decart,
-    // không được giữ DB connection trong lúc chờ. quotaGuard.reserve() tự mở transaction ngắn riêng.
     @Override
     public LiveTryOnSessionResponse startSession(Account account, StartLiveTryOnRequest request) {
         Product product = productRepository.findWithCategoryByIdIn(List.of(request.getProductId()))
                 .stream().findFirst()
-                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));                   // 404
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
         if (product.getStatus() != ProductStatus.ON_SALE) {
-            throw new AppException(ErrorCode.TRYON_PRODUCT_NOT_AVAILABLE);                           // 409
+            throw new AppException(ErrorCode.TRYON_PRODUCT_NOT_AVAILABLE);
         }
         String garmentImageUrl = resolveGarmentImageUrl(product);
         String prompt = buildPrompt(product);
 
-        // Thời lượng mỗi phiên lấy theo GÓI của Member, không còn dùng tryon.live.max-session-seconds.
-        // Decart tự cắt phiên phía server họ sau đúng N giây, nên đây là chốt chặn chi phí thật.
-        // Kẹp sàn theo cấu hình (Decart yêu cầu tối thiểu 10 giây) để Admin cấu hình sai không
-        // sinh ra phiên 1 giây vô dụng hoặc bị Decart từ chối.
         int sessionSeconds = Math.max(
                 quotaGuard.usage(account.getId()).quota().liveTryonMaxSeconds(), maxSessionSeconds);
 
-        // Reserve a session before requesting a token. Usage is charged when the first frame is confirmed.
         LiveTryOnSession session = quotaGuard.reserve(account, product, modelId);
 
         DecartVtonClient.TokenResult token;
@@ -152,13 +129,10 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
                 .garmentImageUrl(garmentImageUrl)
                 .prompt(prompt)
                 .maxDurationSeconds(sessionSeconds)
-                // null = không giới hạn, mobile hiện "Không giới hạn" thay vì con số
                 .remainingToday(remainingToday)
                 .build();
     }
 
-    // Mint Decart thất bại nhưng quota đã trừ ở quotaGuard.reserve(): đánh dấu FAILED để audit,
-    // best-effort - lỗi ở đây chỉ ghi log, không được che mất lỗi TRYON_LIVE_TOKEN_FAILED gốc.
     private void markFailed(UUID sessionId) {
         try {
             liveTryOnSessionRepository.findById(sessionId).ifPresent(s -> {
@@ -179,10 +153,9 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
                 .findFirst()
                 .or(() -> photos.stream().findFirst())
                 .map(ProductPhoto::getImageUrl)
-                .orElseThrow(() -> new AppException(ErrorCode.TRYON_PRODUCT_NOT_AVAILABLE));          // 409: thiếu ảnh
+                .orElseThrow(() -> new AppException(ErrorCode.TRYON_PRODUCT_NOT_AVAILABLE));
     }
 
-    // Prompt tiếng Anh theo đúng pattern Decart khuyến nghị ("Substitute the current X with...")
     private String buildPrompt(Product product) {
         TryOnSlot slot = product.getCategory() == null ? null : product.getCategory().getTryonSlot();
         String name = product.getName();
@@ -198,8 +171,6 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
                 .formatted(name);
     }
 
-    // ================================================================ PATCH /tryon/live/sessions/{id}/complete
-
     @Override
     public void confirmFirstFrame(Account account, UUID sessionId) {
         quotaGuard.confirmFirstFrame(account, sessionId);
@@ -214,8 +185,6 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
         session.setCompletedAt(Instant.now());
         liveTryOnSessionRepository.save(session);
     }
-
-    // ================================================================ POST /tryon/live/sessions/{id}/video
 
     @Override
     @Transactional
@@ -236,8 +205,6 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
         return LiveTryOnSessionVideoResponse.builder().videoUrl(videoUrl).build();
     }
 
-    // ================================================================ GET /tryon/live/sessions
-
     @Override
     @Transactional(readOnly = true)
     public PageResponse<LiveTryOnHistoryItemResponse> getHistory(Account account, int page, int size) {
@@ -248,7 +215,6 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
         Page<LiveTryOnSession> result = liveTryOnSessionRepository
                 .findByMember_IdAndStatusAndVideoUrlIsNotNull(account.getId(), LiveTryOnStatus.COMPLETED, pageable);
 
-        // Ảnh đại diện của mọi món trong trang lấy bằng một query, tránh N+1
         List<String> productIds = result.getContent().stream()
                 .map(s -> s.getProduct().getId())
                 .distinct()
@@ -285,11 +251,9 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
             return;
         }
 
-        // Preserve the session and firstFrameAt: deleting history must never refund usage.
         session.setVideoUrl(null);
         liveTryOnSessionRepository.save(session);
 
-        // A rolled-back delete must leave the playable file intact.
         if (TransactionSynchronizationManager.isActualTransactionActive()
                 && TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -316,9 +280,9 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
 
     private LiveTryOnSession findOwnStartedSession(Account account, UUID sessionId) {
         LiveTryOnSession session = liveTryOnSessionRepository.findByIdAndMember_Id(sessionId, account.getId())
-                .orElseThrow(() -> new AppException(ErrorCode.TRYON_LIVE_SESSION_NOT_FOUND));        // 404
+                .orElseThrow(() -> new AppException(ErrorCode.TRYON_LIVE_SESSION_NOT_FOUND));
         if (session.getStatus() != LiveTryOnStatus.STARTED) {
-            throw new AppException(ErrorCode.TRYON_LIVE_SESSION_ALREADY_FINISHED);                   // 409
+            throw new AppException(ErrorCode.TRYON_LIVE_SESSION_ALREADY_FINISHED);
         }
         return session;
     }
@@ -350,7 +314,6 @@ public class LiveTryOnServiceImpl implements LiveTryOnService {
         if ("video/webm".equals(contentType)) {
             return startsWith(content, MAGIC_WEBM, 0);
         }
-        // mp4: 4 byte độ dài box rồi tới "ftyp" ở offset 4 (bỏ qua giá trị 4 byte đầu)
         return content.length >= 8 && startsWith(content, MAGIC_MP4_FTYP, 4);
     }
 

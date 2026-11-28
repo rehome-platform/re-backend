@@ -11,7 +11,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-// GET /api/admin/voucher-templates - mẫu voucher kèm rule theo hạng (màn W-04)
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -28,7 +27,6 @@ public class VoucherTemplateResponse {
     private BigDecimal minOrderAmount;
     private Integer validDays;
     private Boolean active;
-    // Chip hiển thị ở bảng W-04, ví dụ "SILVER ×2 · GOLD ×4 · DIAMOND ×6"
     @Builder.Default
     private List<TierRule> tierRules = List.of();
     private Instant updatedAt;

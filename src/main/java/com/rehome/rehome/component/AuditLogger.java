@@ -13,10 +13,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * F-161: điểm ghi audit log dùng chung cho các API phase 7.
- * Gọi trong cùng transaction với thao tác nghiệp vụ nên rollback thì log cũng mất theo.
- */
 @Component
 @RequiredArgsConstructor
 public class AuditLogger {
@@ -66,13 +62,6 @@ public class AuditLogger {
                 .build());
     }
 
-    /**
-     * Log thao tác nghiệp vụ kho, hiện ở GET /moderator/warehouse-history. Luôn lưu đủ kho, nhóm, đối tượng,
-     * người làm, hành động và kết quả.
-     *
-     * <p>{@code Propagation.MANDATORY}: bắt buộc chạy trong transaction của nghiệp vụ, để thao tác thất bại
-     * (rollback) không để lại log và không ai ghi log "chay" ngoài transaction.
-     */
     @Transactional(propagation = Propagation.MANDATORY)
     public void logWarehouse(Account actor, Warehouse warehouse, WarehouseAuditGroup group, String actionType,
                              String targetType, String targetId, String result, JsonNode detail) {
@@ -80,7 +69,6 @@ public class AuditLogger {
                 result, detail);
     }
 
-    /** Như logWarehouse nhưng detail chỉ gồm nhãn hiển thị (mã đơn / SKU / số form) cho màn lịch sử kho. */
     @Transactional(propagation = Propagation.MANDATORY)
     public void logWarehouseOp(Account actor, Warehouse warehouse, WarehouseAuditGroup group, String actionType,
                                String targetType, String targetId, String result, String label) {

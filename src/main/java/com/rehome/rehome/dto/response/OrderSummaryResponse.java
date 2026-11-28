@@ -19,7 +19,6 @@ public class OrderSummaryResponse {
     private Instant createdAt;
     private Instant expectedDeliveryDate;
     private BigDecimal refundAmount;
-    // Yêu cầu trả hàng gần nhất của đơn, null nếu chưa từng tạo
     private String returnRequestId;
     private BigDecimal totalAmount;
     private String warehouseName;
@@ -29,7 +28,6 @@ public class OrderSummaryResponse {
     private Instant paymentDeadline;
     private Instant deliveredAt;
     private Instant autoCompleteDeadline;
-    // Hạn cuối còn được gửi yêu cầu trả hàng, null khi đơn chưa giao
     private Instant returnDeadline;
     private Short serviceRating;
 }

@@ -27,7 +27,6 @@ public interface MembershipPaymentRepository extends JpaRepository<MembershipPay
     @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "subscription")
     Optional<MembershipPayment> findByIdAndMember_Id(UUID id, UUID memberId);
 
-    // Lịch sử mua gói của Member: mỗi lần mua là một dòng, mới nhất trước
     @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"subscription", "subscription.plan"})
     org.springframework.data.domain.Page<MembershipPayment> findAllByMember_IdOrderByCreatedAtDesc(
             UUID memberId, org.springframework.data.domain.Pageable pageable);

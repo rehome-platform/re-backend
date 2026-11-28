@@ -16,7 +16,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Confirms live try-on usage when the member receives the first frame. */
 @Component
 @RequiredArgsConstructor
 public class LiveTryOnQuotaGuard {
@@ -29,7 +28,6 @@ public class LiveTryOnQuotaGuard {
     @org.springframework.beans.factory.annotation.Value("${tryon.live.max-unconfirmed-per-day:5}")
     private int maxUnconfirmedPerDay = 5;
 
-    /** Ảnh chụp hạn mức + số đã dùng của một account, đủ để dựng response GET /tryon/live/quota. */
     public record Usage(
             EffectiveQuota quota,
             long usedToday,
@@ -44,13 +42,11 @@ public class LiveTryOnQuotaGuard {
             return MembershipQuotaResolver.remaining(quota.liveTryonPerMonth(), usedThisMonth);
         }
 
-        // Còn quota của gói: false khi hết lượt ngày HOẶC hết lượt tháng (nếu có trần tháng)
         public boolean withinPlanQuota() {
             return !MembershipQuotaResolver.exhausted(quota.liveTryonPerDay(), usedToday)
                     && !MembershipQuotaResolver.exhausted(quota.liveTryonPerMonth(), usedThisMonth);
         }
 
-        // Hết quota gói vẫn bắt đầu được nếu còn lượt thưởng mua bằng điểm
         public boolean canStart() {
             return withinPlanQuota() || bonusCredits > 0;
         }
@@ -72,7 +68,6 @@ public class LiveTryOnQuotaGuard {
         return liveTryOnSessionRepository.countByMember_IdAndFirstFrameAtGreaterThanEqualAndFirstFrameAtLessThan(memberId, w.from(), w.to());
     }
 
-    /** Hạng thấp nhất có hạn mức real-time cao hơn hạng hiện tại; null = đã cao nhất. */
     public com.rehome.rehome.entity.enums.MembershipTier upsellTier(EffectiveQuota quota) {
         return quotaResolver.findUpsellTier(quota.tier(), quota.liveTryonPerDay(),
                 MembershipPlan::getLiveTryonPerDay);

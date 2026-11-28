@@ -1,7 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.entity.enums.NotificationType;
-import com.rehome.rehome.entity.enums.NotificationTargetType;
 
 import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.component.ReceiptClauseRenderer;
@@ -77,7 +76,6 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
     @Override
     @Transactional
     public EndOfTermDecision createDecision(Product product, Instant now) {
-        // Chống tạo trùng: sản phẩm đã có quyết định đang chờ thì dùng lại
         return decisionRepository.findFirstByProduct_IdAndDecisionIsNullOrderByDeadlineDesc(product.getId())
                 .orElseGet(() -> {
                     int days = systemConfigReader.getInt(SystemConfigKeys.END_OF_TERM_DECISION_DAYS,
@@ -106,39 +104,34 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
 
         EndOfTermChoice choice = request.getDecision();
         if (choice != EndOfTermChoice.TAKE_BACK && choice != EndOfTermChoice.RE_CONSIGN) {
-            throw new AppException(ErrorCode.INVALID_DECISION);                                        // 400
+            throw new AppException(ErrorCode.INVALID_DECISION);
         }
 
-        // Khóa dòng để chống bấm đồng thời
         EndOfTermDecision decision = decisionRepository.findByIdForUpdate(decisionId)
-                .orElseThrow(() -> new AppException(ErrorCode.END_OF_TERM_DECISION_NOT_FOUND));       // 404
+                .orElseThrow(() -> new AppException(ErrorCode.END_OF_TERM_DECISION_NOT_FOUND));
 
         Product product = decision.getProduct();
 
         if (!product.getMember().getId().equals(account.getId())) {
-            throw new AppException(ErrorCode.END_OF_TERM_DECISION_FORBIDDEN);                          // 403
+            throw new AppException(ErrorCode.END_OF_TERM_DECISION_FORBIDDEN);
         }
 
-        // Job đã đánh dấu vô thừa nhận
         if (decision.getDecision() == EndOfTermChoice.UNCLAIMED) {
-            throw new AppException(ErrorCode.DECISION_EXPIRED);                                        // 409
+            throw new AppException(ErrorCode.DECISION_EXPIRED);
         }
         if (decision.getDecision() != null) {
-            throw new AppException(ErrorCode.END_OF_TERM_DECISION_ALREADY_DECIDED);                    // 409
+            throw new AppException(ErrorCode.END_OF_TERM_DECISION_ALREADY_DECIDED);
         }
 
         Instant now = Instant.now();
-        // Quá hạn nhưng job chưa kịp chạy
         if (now.isAfter(decision.getDeadline())) {
-            throw new AppException(ErrorCode.DECISION_EXPIRED);                                        // 409
+            throw new AppException(ErrorCode.DECISION_EXPIRED);
         }
 
         if (choice == EndOfTermChoice.TAKE_BACK) {
             product.setStatus(ProductStatus.WITHDRAWN);
             productRepository.save(product);
         } else {
-            // RE_CONSIGN: chưa tạo biên nhận. Moderator chốt giá và điều khoản ở setReConsignTerms,
-            // lúc đó biên nhận mới mới được tạo và chờ Member xác nhận.
             decision.setReConsignStatus(ReConsignStatus.AWAITING_PRICE);
         }
 
@@ -206,21 +199,19 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
                                                     ReConsignTermsRequest request) {
         requireWarehouse(moderator);
 
-        // Khóa dòng để hai Moderator không cùng chốt một yêu cầu (tránh tạo 2 biên nhận)
         EndOfTermDecision decision = decisionRepository.findByIdForUpdate(decisionId)
-                .orElseThrow(() -> new AppException(ErrorCode.END_OF_TERM_DECISION_NOT_FOUND));       // 404
+                .orElseThrow(() -> new AppException(ErrorCode.END_OF_TERM_DECISION_NOT_FOUND));
 
         Product product = decision.getProduct();
 
-        // Chỉ Moderator của kho đang giữ hàng
         if (!product.getWarehouse().getId().equals(moderator.getWarehouse().getId())) {
-            throw new AppException(ErrorCode.END_OF_TERM_DECISION_FORBIDDEN);                          // 403
+            throw new AppException(ErrorCode.END_OF_TERM_DECISION_FORBIDDEN);
         }
         if (decision.getDecision() != EndOfTermChoice.RE_CONSIGN) {
-            throw new AppException(ErrorCode.RE_CONSIGN_NOT_REQUESTED);                                // 409
+            throw new AppException(ErrorCode.RE_CONSIGN_NOT_REQUESTED);
         }
         if (decision.getNewReceipt() != null) {
-            throw new AppException(ErrorCode.RE_CONSIGN_TERMS_ALREADY_SET);                            // 409
+            throw new AppException(ErrorCode.RE_CONSIGN_TERMS_ALREADY_SET);
         }
 
         ConsignmentProperties cfg = consignmentProperties;
@@ -231,10 +222,9 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
                 ? request.getFloorPrice().setScale(2, RoundingMode.HALF_UP)
                 : agreedPrice.multiply(cfg.getFloorPriceRate()).setScale(2, RoundingMode.HALF_UP);
         if (floorPrice.signum() <= 0 || floorPrice.compareTo(agreedPrice) > 0) {
-            throw new AppException(ErrorCode.INVALID_FLOOR_PRICE);                                     // 400
+            throw new AppException(ErrorCode.INVALID_FLOOR_PRICE);
         }
 
-        // Giá và điều khoản lấy từ Moderator, không sao chép từ biên nhận cũ; chưa xác nhận, chưa có PDF
         ConsignmentReceipt newReceiptDraft = ConsignmentReceipt.builder()
                 .receiptNo(generateReceiptNo())
                 .consignmentForm(old.getConsignmentForm())
@@ -356,7 +346,6 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
         decision.setReConsignStatus(ReConsignStatus.DECLINED);
         decision.setDeclinedAt(now);
         decision.setDeclineReason(request.getReason());
-        // Điều 8.3: coi như TAKE_BACK để job 30-ngày-đến-lấy-hàng áp dụng y hệt
         decision.setDecision(EndOfTermChoice.TAKE_BACK);
         decision.setDecidedAt(now);
         decisionRepository.save(decision);
@@ -460,9 +449,6 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
         return new ReConsignTermsResponse(decision.getId(), draft.getId());
     }
 
-    // Huỷ biên nhận nháp (PROPOSED/COUNTER_OFFERED, confirmedAt vẫn null) khi Member từ chối hoặc
-    // quá hạn - không dùng ConsignmentReceiptService.voidReceipt() vì hàm đó chỉ cho huỷ biên nhận
-    // đã CONFIRMED, và cố tình chặn huỷ biên nhận ký gửi lại (RECEIPT_HAS_PRODUCT).
     private void voidDraftReceipt(ConsignmentReceipt draft, String reason, Instant now) {
         if (draft == null) return;
         draft.setStatus(com.rehome.rehome.entity.enums.ReceiptStatus.VOIDED);
@@ -491,7 +477,7 @@ public class EndOfTermDecisionServiceImpl implements EndOfTermDecisionService {
 
     private void requireWarehouse(Account moderator) {
         if (moderator == null || moderator.getWarehouse() == null) {
-            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);                                  // 403
+            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);
         }
     }
 

@@ -13,8 +13,6 @@ public class ViolationWordSpecifications {
 
     private ViolationWordSpecifications() {}
 
-    // Tham số null (hoặc keyword rỗng) thì bỏ qua điều kiện đó. Dùng Specification thay vì
-    // "(:p is null or ...)" vì Postgres không suy được kiểu của tham số null.
     public static Specification<ViolationWord> filter(String keyword,
                                                       ViolationWordCategory category,
                                                       ViolationWordSeverity severity,

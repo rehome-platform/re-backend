@@ -9,9 +9,6 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * 1 dòng trong danh sách bài viết của tổ chức, kèm số tương tác (F-107/OB-01).
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -26,17 +23,12 @@ public class MyPostResponse {
     private long likeCount;
     private long commentCount;
 
-    // Số báo cáo vi phạm đang chờ xử lý (PENDING) nhắm vào bài này
     private long reportCount;
 
-    // Chính tổ chức đang gọi /me/posts đã thích bài này chưa
     @JsonProperty("likedByMe")
     private boolean likedByMe;
 
-    // Trạng thái bài viết: VISIBLE / REMOVED - để FE hiển thị badge gỡ bài ngay trên list (F-107)
     private String status;
 
-    // Lý do Moderator gỡ bài (status = REMOVED); luôn là tổ chức sở hữu nên không cần che
-    // như PostDetailResponse (CommunityPostServiceImpl.getDetail)
     private String removalReason;
 }

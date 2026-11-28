@@ -32,13 +32,11 @@ public class SecurityConfig {
 
     private final UserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
-    private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint; // chưa đăng nhập -> 401
-    private final JwtAccessDeniedHandler jwtAccessDeniedHandler;           // sai quyền -> 403
+    private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
+    private final JwtAccessDeniedHandler jwtAccessDeniedHandler;
 
     private static final String[] PUBLIC_ENDPOINTS = {
             "/health",
-            // Handshake WebSocket/SockJS: xác thực JWT ở STOMP CONNECT frame
-            // (WebSocketAuthChannelInterceptor), không phải ở request HTTP handshake này.
             "/ws/**",
             "/ws-sockjs/**",
             "/api/auth/**",
@@ -63,29 +61,16 @@ public class SecurityConfig {
                         .authenticationEntryPoint(jwtAuthenticationEntryPoint)
                         .accessDeniedHandler(jwtAccessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
-                        // Rule hẹp phải đứng TRƯỚC PUBLIC_ENDPOINTS (chứa /api/auth/**)
                         .requestMatchers(HttpMethod.POST,
                                 "/api/auth/password/change",
                                 "/api/auth/logout").authenticated()
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/warehouses").permitAll()
-                        // Bảng giá gói thành viên: khách chưa đăng nhập cũng phải xem được để
-                        // quyết định có đăng ký hay không (màn M-01 mở từ trang giới thiệu).
-                        // Rule hẹp này phải đứng TRƯỚC /memberships/** (mọi API khác cần MEMBER).
                         .requestMatchers(HttpMethod.GET, "/memberships/plans").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
-                        // F-139: giấy tờ pháp lý tổ chức từng được lưu ở storage và serve công khai
-                        // tại /files/organization-documents/**. Giờ chúng nằm trong DB và chỉ ra qua
-                        // GET /api/organizations/{id}/legal-files/{fileId}; chặn hẳn đường cũ để file
-                        // còn sót lại trên đĩa dev không mở được bằng link.
-                        // Phải đứng TRƯỚC rule /files/** (permitAll).
                         .requestMatchers("/files/organization-documents/**").denyAll()
-                        // File tĩnh ở local: thẻ <img>/<a> của FE không gửi được header JWT.
-                        // Chỉ GET, còn upload đi qua /uploads (phải đăng nhập).
                         .requestMatchers(HttpMethod.GET, "/files/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/organizations/register/account").permitAll()
-                        // Giữ hành vi cũ cho các path literal trước khi mở public /api/organizations/{id} (F-082) -
-                        // {id} khớp cả "following" nếu đứng sau, nên rule hẹp này phải đứng TRƯỚC
                         .requestMatchers(HttpMethod.GET, "/api/organizations/me", "/api/organizations/options")
                         .authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/organizations/following").authenticated()
@@ -100,19 +85,11 @@ public class SecurityConfig {
                                 "/products/detail/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/campaigns", "/campaigns/{id}").permitAll()
                         .requestMatchers(HttpMethod.GET, "/posts", "/posts/{id}", "/posts/{id}/comments").permitAll()
-                        // API kho gần nhất (F-015) chỉ dành cho Member
-                        // MỚI: API kho gần nhất (F-015) chỉ dành cho Member
-                        // API 142/143: alias đường dẫn ngắn tạo/sửa kho (ADMIN); phải đứng TRƯỚC rule /warehouses/** (MEMBER)
                         .requestMatchers(HttpMethod.POST, "/warehouses").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/warehouses/{id}").hasRole("ADMIN")
                         .requestMatchers("/warehouses/moderator").hasRole("MODERATOR")
-                        // Chiến dịch đang nhận đồ tại 1 kho cụ thể: chỉ MODERATOR (màn ghi nhận quyên góp)
-                        // và MEMBER (chọn chiến dịch khi quyên góp món ký gửi). Phải đứng TRƯỚC rule
-                        // /warehouses/** (hasRole MEMBER) để Moderator không bị 403.
                         .requestMatchers(HttpMethod.GET, "/warehouses/{id}/campaigns")
                                 .hasAnyRole("MODERATOR", "MEMBER")
-                        // Phải đứng TRƯỚC rule /warehouses/** (hasRole MEMBER) để Moderator không bị 403
-                        // (F-163/F-164/F-165). Liệt kê cả 2 pattern: "{id}/donations" không khớp sub-path.
                         .requestMatchers("/warehouses/{id}/donations",
                                 "/warehouses/{id}/donations/**").hasRole("MODERATOR")
                         .requestMatchers("/warehouses/**").hasRole("MEMBER")
@@ -145,7 +122,6 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        // Trong thực tế nên khai báo rõ domain frontend thay vì "*"
         configuration.setAllowedOriginPatterns(List.of("*"));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));

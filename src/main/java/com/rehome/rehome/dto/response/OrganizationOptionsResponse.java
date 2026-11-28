@@ -8,7 +8,6 @@ import lombok.Getter;
 import java.util.Arrays;
 import java.util.List;
 
-/** Các lựa chọn cho form đăng ký tổ chức: loại tổ chức và phạm vi hoạt động. */
 @Getter
 @AllArgsConstructor
 public class OrganizationOptionsResponse {

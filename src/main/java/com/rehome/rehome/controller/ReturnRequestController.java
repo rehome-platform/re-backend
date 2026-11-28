@@ -34,7 +34,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
-// Flow trả hàng F-067 -> F-071 (Member) và F-131/F-132 (Moderator)
 @RestController
 @RequestMapping("/return-requests")
 @RequiredArgsConstructor
@@ -43,7 +42,6 @@ public class ReturnRequestController {
     private final ReturnRequestService returnRequestService;
     private final ReturnShipBackService returnShipBackService;
 
-    // F-067
     @PostMapping
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> create(
@@ -82,7 +80,6 @@ public class ReturnRequestController {
                 returnRequestService.getMyReturnRequest(email, id)));
     }
 
-    // F-068 - Member xác nhận đã bàn giao hàng cho GHN
     @PostMapping("/{id}/handover")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> confirmHandover(
@@ -95,7 +92,6 @@ public class ReturnRequestController {
         return ResponseEntity.ok(ApiResponse.success(result, "Đã ghi nhận bàn giao cho GHN"));
     }
 
-    // Báo phí gửi lại hàng trả không hợp lệ qua GHN
     @GetMapping("/{id}/ship-back-quote")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<ShipBackQuoteResponse>> getShipBackQuote(
@@ -109,7 +105,6 @@ public class ReturnRequestController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
-    // F-070 (API 82) - Member chọn cách nhận lại hàng trả không hợp lệ
     @PostMapping("/{id}/invalid-choice")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> chooseInvalidReturn(
@@ -123,7 +118,6 @@ public class ReturnRequestController {
         return ResponseEntity.ok(ApiResponse.success(result, "Đã ghi nhận lựa chọn"));
     }
 
-    // Member trả phí gửi lại hàng trả không hợp lệ (WALLET hoặc VNPAY)
     @PostMapping("/{id}/ship-back/pay")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<PayShipBackFeeResponse>> payShipBackFee(
@@ -139,7 +133,6 @@ public class ReturnRequestController {
         return ResponseEntity.ok(ApiResponse.success(result, message));
     }
 
-    // Đồng bộ trạng thái thanh toán phí gửi lại hàng (app hỏi lại khi quay về từ VNPay)
     @GetMapping("/{id}/ship-back/payment-status")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<ShipBackPaymentStatusResponse>> getShipBackPaymentStatus(
@@ -150,7 +143,6 @@ public class ReturnRequestController {
         return ResponseEntity.ok(ApiResponse.success(returnShipBackService.syncPaymentStatus(email, id)));
     }
 
-    // Moderator của kho tạo vận đơn GHN chiều kho -> người mua sau khi người mua đã trả phí gửi lại
     @PostMapping("/{id}/ship-back/ship")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> shipInvalidReturn(
@@ -161,7 +153,6 @@ public class ReturnRequestController {
         return ResponseEntity.ok(ApiResponse.success(result, "Đã tạo vận đơn gửi lại hàng trả"));
     }
 
-    // Hàng đợi xử lý của Moderator, giới hạn theo kho moderator phụ trách (không thấy chéo kho)
     @GetMapping("/queue")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<PageResponse<ReturnRequestResponse>>> getQueue(
@@ -182,7 +173,6 @@ public class ReturnRequestController {
                 returnRequestService.getDetailForModerator(id)));
     }
 
-    // F-131 - duyệt và tạo vận đơn GHN chiều trả
     @PostMapping("/{id}/approve")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> approve(@AuthenticationPrincipal Account moderator,
@@ -204,7 +194,6 @@ public class ReturnRequestController {
         return ResponseEntity.ok(ApiResponse.success(result, "Đã từ chối yêu cầu trả hàng"));
     }
 
-    // F-132 (API 85) - nhận hàng về kho, ghi nhận tình trạng và bắt đầu kiểm
     @PostMapping("/{id}/inspect")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> startInspection(
@@ -216,7 +205,6 @@ public class ReturnRequestController {
         return ResponseEntity.ok(ApiResponse.success(result, "Đã ghi nhận kết quả kiểm tra"));
     }
 
-    // API 88 (F-133) - chốt kết luận VALID/INVALID và hướng xử lý món hàng nếu VALID
     @PostMapping("/{id}/resolve")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> resolve(
@@ -229,7 +217,6 @@ public class ReturnRequestController {
         return ResponseEntity.ok(ApiResponse.success(result, "Đã xử lý yêu cầu trả hàng"));
     }
 
-    // API 89 (F-136) - Moderator tự tay đánh dấu hàng trả thất lạc, hoàn tiền người mua
     @PostMapping("/{id}/item-action")
     @PreAuthorize("hasRole('MODERATOR')")
     public ApiResponse<ReturnRequestResponse> applyItemAction(@AuthenticationPrincipal Account moderator,

@@ -14,23 +14,19 @@ import lombok.*;
 @AllArgsConstructor
 @Builder
 public class PostLike {
-    // Khóa chính
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false)
     private UUID id;
 
-    // Bài được thích
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "post_id", nullable = false)
     private CommunityPost post;
 
-    // Người thích; UNIQUE cùng post_id, mỗi người thích 1 lần
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "member_id", nullable = false)
     private Account member;
 
-    // Thời điểm thích
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

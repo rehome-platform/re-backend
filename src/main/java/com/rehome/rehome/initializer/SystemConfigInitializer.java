@@ -16,11 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
 
-/**
- * Seed các tham số cấu hình mặc định vào system_configs để Admin thấy/sửa được ngay (F-157).
- * Chỉ tạo key CHƯA có dòng; không bao giờ ghi đè giá trị Admin đã sửa.
- * Chạy sau UserInitializer (@Order(0)) vì updated_by bắt buộc trỏ tới một tài khoản Admin.
- */
 @Slf4j
 @Component
 @Order(1)

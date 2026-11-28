@@ -41,7 +41,6 @@ public class ProductSkuLookupResponse {
     private Short currentTerm;
     private Integer daysIntoTerm;
 
-    // Snapshot điều khoản ký gửi lấy từ ConsignmentReceipt của sản phẩm
     private Integer termLengthDays;
     private BigDecimal commissionRateTerm1;
     private BigDecimal commissionRateTerm2;
@@ -54,8 +53,6 @@ public class ProductSkuLookupResponse {
     private Instant stockInDate;
     private List<String> photos;
 
-    // Quyết định hết hạn 3 kỳ đang chờ Member chọn (F-029); null = chưa tới cuối kỳ hoặc đã quyết định xong
     private UUID decisionId;
-    // Ca xử lý hàng xuống cấp đang chờ Member quyết định (F-036); null = không có ca nào đang mở
     private UUID degradedCaseId;
 }

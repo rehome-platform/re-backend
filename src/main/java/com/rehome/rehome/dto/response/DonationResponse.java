@@ -10,9 +10,6 @@ import lombok.NoArgsConstructor;
 import java.util.List;
 import java.time.Instant;
 
-/**
- * Lượt quyên góp vừa được ghi nhận tại điểm ký gửi (F-163).
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -25,7 +22,7 @@ public class DonationResponse {
     private String campaignTitle;
     private String donorName;
 
-    @JsonProperty("isAnonymous") // Jackson mặc định bỏ tiền tố "is" của getter boolean -> phải ép tên field tường minh
+    @JsonProperty("isAnonymous")
     private boolean isAnonymous;
 
     private String note;
@@ -33,23 +30,17 @@ public class DonationResponse {
     private List<String> photoUrls = List.of();
     private String status;
 
-    // DIRECT | CONSIGNED_ITEM (xem DonationSource)
     private String source;
 
-    // Mã nhân viên Moderator đã ghi nhận lượt quyên góp này (ModeratorProfile.moderatorCode)
     private String recordedBy;
 
-    // Tổ chức sở hữu chiến dịch
     private String organizationId;
     private String organizationName;
     private String handedOverToOrganizationName;
 
-    // Sản phẩm ký gửi gốc nếu lượt quyên góp này đến từ POST /products/{id}/donate; null với
-    // lượt ghi nhận trực tiếp tại quầy (F-163)
     private String productId;
     private String productName;
 
-    // Chỉ trả khi source = CONSIGNED_ITEM; null với lượt DIRECT
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private DonationProductResponse product;
 

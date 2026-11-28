@@ -3,19 +3,16 @@ import com.rehome.rehome.dto.marketplace.response.WarehouseResponse;
 import com.rehome.rehome.dto.response.MyWarehouseResponse;
 import com.rehome.rehome.dto.response.WarehouseNearestResponse;
 import com.rehome.rehome.entity.auth.Account;
-import com.rehome.rehome.entity.auth.ModeratorProfile;
 import com.rehome.rehome.entity.enums.CatalogStatus;
 import com.rehome.rehome.entity.marketplace.Warehouse;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.AccountRepository;
-import com.rehome.rehome.repository.ModeratorProfileRepository;
 import com.rehome.rehome.repository.WarehouseRepository;
 import com.rehome.rehome.service.WarehouseService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Comparator;
 import java.util.List;
@@ -83,17 +80,10 @@ public class WarehouseServiceImpl implements WarehouseService {
 
         Warehouse warehouse = account.getWarehouse();
         if (warehouse == null) {
-            // account không phải moderator, hoặc chưa được gán kho
             throw new AppException(ErrorCode.MODERATOR_NOT_FOUND);
         }
 
         return List.of(MyWarehouseResponse.from(warehouse));
     }
 
-//    Code này dùng khi tạo warehouse thủ công
-//    // Khi tạo Warehouse
-//    String code = CodeGenerator.makeUnique(
-//            CodeGenerator.fromName(request.getName(), "kho"),
-//            warehouseRepository::existsByCode);
-//warehouse.setCode(code);
 }

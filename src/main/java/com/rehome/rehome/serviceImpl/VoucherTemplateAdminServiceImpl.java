@@ -29,19 +29,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-/**
- * Admin quản lý mẫu voucher (màn W-04).
- *
- * <h2>Luật bắt buộc không được nới</h2>
- * {@code type = ORDER_DISCOUNT} <b>phải</b> là {@code PERCENT}. Lý do nằm ở nghiệp vụ, không phải
- * ở form: mức giảm của voucher giảm đơn bị chặn bởi hoa hồng nền tảng thu được theo kỳ ký gửi hiện
- * tại của món (kỳ 1 = 10%, kỳ 2 = 15%, kỳ 3 = 20%). Một mã FIXED 50.000đ áp lên món kỳ 1 giá
- * 200.000đ sẽ vượt hoa hồng 20.000đ và nền tảng lỗ trên đơn đó. Dùng PERCENT thì mức giảm tự co
- * theo giá hàng, và {@code VoucherCalculator} vẫn chặn thêm một lớp bằng trần hoa hồng.
- *
- * <p>{@code FIXED} chỉ dùng cho {@code SHIPPING}: phí ship là tiền trả cho GHN, không liên quan
- * hoa hồng, và trần tự nhiên của nó là chính phí ship thật của đơn.
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -88,8 +75,6 @@ public class VoucherTemplateAdminServiceImpl implements VoucherTemplateAdminServ
         apply(template, request);
         voucherTemplateRepository.save(template);
 
-        // Mã đã phát KHÔNG đổi theo: MemberVoucher snapshot luật từ template lúc phát, nên sửa ở
-        // đây chỉ ảnh hưởng mã phát từ lúc này trở đi. Đây là chủ ý.
         audit(admin, template, "UPDATE");
         return toResponse(template);
     }
@@ -118,25 +103,20 @@ public class VoucherTemplateAdminServiceImpl implements VoucherTemplateAdminServ
         return toResponse(template);
     }
 
-    // ================================================================ Validate
-
     private void validate(VoucherTemplateRequest r) {
         if (r == null || !StringUtils.hasText(r.getName())
                 || r.getType() == null || r.getDiscountKind() == null || r.getDiscountValue() == null) {
             throw new AppException(ErrorCode.VOUCHER_TEMPLATE_INVALID);
         }
 
-        // Luật cốt lõi - xem javadoc của class
         if (r.getType() == VoucherType.ORDER_DISCOUNT && r.getDiscountKind() != VoucherDiscountKind.PERCENT) {
             throw new AppException(ErrorCode.VOUCHER_TEMPLATE_INVALID);
         }
 
         if (r.getDiscountKind() == VoucherDiscountKind.PERCENT) {
-            // (0, 1] - 0.10 = 10%. Trên 1 nghĩa là giảm hơn 100% giá hàng.
             if (r.getDiscountValue().signum() <= 0 || r.getDiscountValue().compareTo(BigDecimal.ONE) > 0) {
                 throw new AppException(ErrorCode.VOUCHER_TEMPLATE_INVALID);
             }
-            // PERCENT không có trần là mã không chặn được: đơn 10 triệu giảm 10% = 1 triệu
             if (r.getMaxDiscountAmount() == null || r.getMaxDiscountAmount().signum() <= 0) {
                 throw new AppException(ErrorCode.VOUCHER_TEMPLATE_INVALID);
             }
@@ -172,28 +152,18 @@ public class VoucherTemplateAdminServiceImpl implements VoucherTemplateAdminServ
         return r.getTierRules() == null ? List.of() : r.getTierRules();
     }
 
-    // ================================================================ Map
-
     private void apply(VoucherTemplate template, VoucherTemplateRequest r) {
         template.setName(r.getName().trim());
         template.setDescription(r.getDescription());
         template.setType(r.getType());
         template.setDiscountKind(r.getDiscountKind());
         template.setDiscountValue(r.getDiscountValue());
-        // FIXED không có trần riêng: trần của nó là phí ship thật của đơn
         template.setMaxDiscountAmount(
                 r.getDiscountKind() == VoucherDiscountKind.PERCENT ? r.getMaxDiscountAmount() : null);
         template.setMinOrderAmount(r.getMinOrderAmount() == null ? BigDecimal.ZERO : r.getMinOrderAmount());
         template.setValidDays(r.getValidDays());
         template.setActive(r.getActive() == null || r.getActive());
 
-        // PUT thay thế toàn bộ rule: hạng không có trong danh sách là hạng không còn nhận mẫu này.
-        //
-        // Cố ý KHÔNG xoá-hết-rồi-thêm-lại (clear() + add() trên cùng collection): với hạng vẫn còn
-        // trong danh sách mới, Hibernate có thể insert dòng mới (cùng unique (voucher_template_id,
-        // tier)) TRƯỚC KHI delete dòng cũ được flush trong cùng transaction, vỡ unique constraint
-        // "uk_voucher_template_tier" dù trạng thái cuối cùng là hợp lệ. Thay vào đó: hạng đã có thì
-        // sửa tại chỗ (không đụng DB), hạng mới thì thêm, hạng không còn trong danh sách mới thì xoá.
         Map<MembershipTier, VoucherTemplateTierRule> existing = new EnumMap<>(MembershipTier.class);
         for (VoucherTemplateTierRule rule : template.getTierRules()) {
             existing.put(rule.getTier(), rule);

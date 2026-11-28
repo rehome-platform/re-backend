@@ -21,9 +21,8 @@ public class GoogleTokenVerifier {
 
     private final GoogleIdTokenVerifier verifier;
 
-    // google.client-id có thể chứa nhiều client ID, cách nhau dấu phẩy (web, android, ios…)
     public GoogleTokenVerifier(@Value("${google.client-id}") String clientIds) {
-        log.info("[Google] audience = '{}'", clientIds); // dấu nháy để thấy khoảng trắng thừa
+        log.info("[Google] audience = '{}'", clientIds);
         this.verifier = new GoogleIdTokenVerifier.Builder(
                 new NetHttpTransport(), GsonFactory.getDefaultInstance())
                 .setAudience(Arrays.stream(clientIds.split(",")).map(String::trim).toList())

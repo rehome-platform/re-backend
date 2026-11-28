@@ -6,8 +6,6 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import org.springframework.stereotype.Component;
 
-// Sinh số biên nhận dạng KG-2026-000123. Số thứ tự lấy từ sequence receipt_no_seq (PostgreSQL),
-// nên không bị trùng khi nhiều Moderator tạo phiếu cùng lúc. Phải chạy SQL tạo sequence trước.
 @Component
 public class ReceiptNoGenerator {
 

@@ -11,14 +11,6 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Seed 6 điều khoản dạng đoạn văn, nguyên văn từ bản hardcode cũ ở mobile
- * ({@code receiptTerms.js} — lúc đó là Điều 4, 5, 6, 7, 9, 10), chỉ đổi số liệu sang placeholder
- * để Admin chỉnh được từ đây, và dịch số theo cách đánh số mới (Điều 1–4 cố định trong code,
- * nên 6 điều này giờ là Điều 5–10).
- *
- * <p>Chỉ tạo khi bảng rỗng, nên Admin sửa/xoá rồi thì restart không dựng lại.
- */
 @Slf4j
 @Component
 @Order(2)
@@ -35,8 +27,6 @@ public class ReceiptClauseTemplateInitializer implements CommandLineRunner {
             return;
         }
 
-        // Điều 1–4 (Hàng hoá / Giá & hoa hồng / Thời hạn / Vô thừa nhận) cố định trong code,
-        // không nằm trong bảng này -> 6 điều Admin quản lý tiếp tục từ Điều 5
         List<ReceiptClauseTemplate> seed = List.of(
                 clause(1, "ĐIỀU 5 — GIẢM GIÁ",
                         "Sau khi xác nhận, bạn chỉ được giảm giá bán, mỗi ngày tối đa 1 lần và không "

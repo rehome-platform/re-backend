@@ -22,24 +22,6 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Component;
 
-/**
- * Chạy trên inbound channel của STOMP (mọi frame client gửi lên), xử lý 2 việc JwtAuthenticationFilter
- * làm cho REST nhưng WebSocket cần làm riêng vì không đi qua Spring Security filter chain theo
- * từng request HTTP - 1 kết nối WebSocket sống xuyên suốt nhiều frame STOMP khác nhau:
- *
- * <ol>
- *   <li>CONNECT - xác thực JWT lấy từ STOMP header "Authorization" (client không set được header
- *       HTTP tùy ý lúc mở WebSocket/SockJS nên JWT phải nằm trong frame STOMP, không phải header
- *       handshake). Set {@code accessor.setUser(...)} nếu hợp lệ - Principal này được dùng suốt đời
- *       session để Spring định tuyến {@code /user/queue/**} và để nơi khác đọc quyền.</li>
- *   <li>SUBSCRIBE - với các topic theo hội thoại ({@code /topic/conversations.{id}}), chặn nếu
- *       người kết nối không phải participant của hội thoại đó, cùng điều kiện với
- *       {@code ConversationServiceImpl.requireParticipant} dùng cho REST.</li>
- * </ol>
- *
- * <p>Throw exception ở đây làm Spring gửi 1 frame ERROR về client và đóng kết nối STOMP - đúng ý
- * định (không có CONNECTED/token sai, hoặc không có quyền subscribe thì không cho nhận tin tiếp).
- */
 @Component
 @RequiredArgsConstructor
 public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
@@ -51,11 +33,6 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 
     private final JwtService jwtService;
     private final AccountDetailsServiceImpl accountDetailsService;
-    // ObjectProvider, không inject ConversationService trực tiếp: ConversationServiceImpl cần
-    // SimpMessagingTemplate (được tạo bởi DelegatingWebSocketMessageBrokerConfiguration, chính là
-    // thứ cấu hình từ WebSocketConfig) nên inject thẳng tạo vòng phụ thuộc lúc khởi động
-    // (WebSocketConfig -> interceptor -> ConversationService -> SimpMessagingTemplate -> WebSocketConfig).
-    // Trì hoãn resolve tới lúc dùng thật (mỗi lần SUBSCRIBE) để cắt vòng này.
     private final ObjectProvider<ConversationService> conversationServiceProvider;
 
     @Override
@@ -107,7 +84,6 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         }
         Matcher matcher = CONVERSATION_TOPIC_PATTERN.matcher(destination);
         if (!matcher.matches()) {
-            // Địa chỉ khác (vd. /user/queue/notifications) không cần kiểm thêm ở đây
             return;
         }
 

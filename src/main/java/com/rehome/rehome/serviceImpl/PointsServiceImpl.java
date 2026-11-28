@@ -44,25 +44,23 @@ public class PointsServiceImpl implements PointsService {
 
         int quantity = request.getQuantity();
         if (quantity < 1 || quantity > MAX_REDEEM_QUANTITY) {
-            throw new AppException(ErrorCode.POINTS_INVALID_QUANTITY);                              // 400
+            throw new AppException(ErrorCode.POINTS_INVALID_QUANTITY);
         }
 
         int unitCost = request.getType() == PointRedeemType.AI_TRYON ? costPerAiTryon() : costPerLiveTryon();
-        // Admin đặt đơn giá <= 0 nghĩa là đóng quy đổi, tránh đổi miễn phí do cấu hình sai
         if (unitCost <= 0) {
-            throw new AppException(ErrorCode.POINTS_REDEEM_UNAVAILABLE);                            // 409
+            throw new AppException(ErrorCode.POINTS_REDEEM_UNAVAILABLE);
         }
         long totalCost = (long) unitCost * quantity;
         if (totalCost > Integer.MAX_VALUE) {
             throw new AppException(ErrorCode.POINTS_INVALID_QUANTITY);
         }
 
-        // UPDATE có điều kiện points_balance >= cost: hai request đồng thời không thể cùng qua
         int updated = request.getType() == PointRedeemType.AI_TRYON
                 ? memberProfileRepository.redeemForAiTryon(profile.getAccountId(), (int) totalCost, quantity)
                 : memberProfileRepository.redeemForLiveTryon(profile.getAccountId(), (int) totalCost, quantity);
         if (updated == 0) {
-            throw new AppException(ErrorCode.POINTS_NOT_ENOUGH);                                    // 409
+            throw new AppException(ErrorCode.POINTS_NOT_ENOUGH);
         }
 
         log.info(">>>> Doi diem: memberId={}, type={}, quantity={}, cost={}",
@@ -78,7 +76,6 @@ public class PointsServiceImpl implements PointsService {
         if (vndPerPoint <= 0 || order.getTotalAmount() == null) {
             return 0;
         }
-        // total_amount đã trừ voucher: điểm tính trên số tiền khách thực trả
         long points = order.getTotalAmount()
                 .divideToIntegralValue(BigDecimal.valueOf(vndPerPoint))
                 .setScale(0, RoundingMode.DOWN)

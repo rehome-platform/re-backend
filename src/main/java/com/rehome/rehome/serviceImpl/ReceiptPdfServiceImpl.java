@@ -38,7 +38,6 @@ public class ReceiptPdfServiceImpl implements ReceiptPdfService {
         return render(receipt);
     }
 
-    // package-private để test riêng phần render
     byte[] render(ConsignmentReceipt r) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Fonts fonts = loadFonts();
@@ -47,7 +46,6 @@ public class ReceiptPdfServiceImpl implements ReceiptPdfService {
             PdfWriter.getInstance(doc, out);
             doc.open();
 
-            // Tiêu đề
             Paragraph title = new Paragraph("BIÊN NHẬN KÝ GỬI", fonts.title);
             title.setAlignment(Element.ALIGN_CENTER);
             doc.add(title);
@@ -58,14 +56,12 @@ public class ReceiptPdfServiceImpl implements ReceiptPdfService {
             int termDays = r.getTermLengthDays();
             int totalDays = termDays * (r.getMaxRenewals() + 1);
 
-            // I. Các bên
             doc.add(heading("I. Các bên", fonts));
             PdfPTable parties = table();
             row(parties, "Bên A (Moderator tiếp nhận)", safe(r.getModerator().getUsername()), fonts);
             row(parties, "Bên B (Người ký gửi)", safe(r.getMember().getUsername()), fonts);
             doc.add(parties);
 
-            // II. Sản phẩm và kho
             doc.add(heading("II. Sản phẩm và kho nhận hàng", fonts));
             PdfPTable goods = table();
             row(goods, "Sản phẩm", safe(r.getConsignmentForm().getProductName()), fonts);
@@ -73,7 +69,6 @@ public class ReceiptPdfServiceImpl implements ReceiptPdfService {
                     safe(r.getWarehouse().getName()) + " - " + safe(r.getWarehouse().getAddress()), fonts);
             doc.add(goods);
 
-            // III. Giá và phí
             doc.add(heading("III. Giá và phí", fonts));
             PdfPTable prices = table();
             row(prices, "Giá thỏa thuận", money(r.getAgreedPrice()), fonts);
@@ -82,7 +77,6 @@ public class ReceiptPdfServiceImpl implements ReceiptPdfService {
             row(prices, "Tỷ lệ đền bù khi nhận lại hàng xuống cấp", percent(r.getDegradedCompensationRate()), fonts);
             doc.add(prices);
 
-            // IV. Kỳ ký gửi và hoa hồng
             doc.add(heading("IV. Kỳ ký gửi và hoa hồng", fonts));
             PdfPTable terms = table();
             row(terms, "Độ dài mỗi kỳ", termDays + " ngày", fonts);
@@ -98,7 +92,6 @@ public class ReceiptPdfServiceImpl implements ReceiptPdfService {
                     percent(r.getCommissionRateTerm3()), fonts);
             doc.add(terms);
 
-            // V. Xác nhận
             doc.add(heading("V. Xác nhận", fonts));
             String confirmedAt = r.getConfirmedAt() == null
                     ? "-"
@@ -120,10 +113,6 @@ public class ReceiptPdfServiceImpl implements ReceiptPdfService {
         }
     }
 
-    // ------------------------------------------------------------------
-    // Helpers
-    // ------------------------------------------------------------------
-
     private record Fonts(Font title, Font heading, Font normal, Font bold) {
     }
 
@@ -143,7 +132,6 @@ public class ReceiptPdfServiceImpl implements ReceiptPdfService {
                 throw new AppException(ErrorCode.RECEIPT_PDF_GENERATION_FAILED);
             }
             byte[] bytes = in.readAllBytes();
-            // Tên phải kết thúc bằng .ttf; IDENTITY_H + EMBEDDED để hiển thị đủ dấu tiếng Việt
             return BaseFont.createFont(resourcePath, BaseFont.IDENTITY_H, BaseFont.EMBEDDED,
                     false, bytes, null);
         } catch (AppException e) {

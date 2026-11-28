@@ -7,7 +7,7 @@ import java.util.UUID;
 public record AccountMeResponse(
         UUID id,
         String email,
-        String authorities,     // giữ nguyên định dạng cũ "[ROLE_MODERATOR]" để FE không vỡ
+        String authorities,
         String role,
         UUID warehouseId,
         String warehouseName,

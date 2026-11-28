@@ -137,8 +137,6 @@ public class ReturnShipBackServiceImpl implements ReturnShipBackService {
         return systemConfigReader.getInt(SystemConfigKeys.RETURN_SHIP_BACK_SHIP_WITHIN_DAYS, defaultShipWithinDays);
     }
 
-    // ------------------------------------------------------------------ 1.4. Trả phí gửi lại (Member)
-
     @Override
     @Transactional
     public PayShipBackFeeResponse payFee(String email, UUID returnRequestId,
@@ -277,8 +275,6 @@ public class ReturnShipBackServiceImpl implements ReturnShipBackService {
                 .build();
     }
 
-    // ------------------------------------------------------------------ IPN & đồng bộ VNPay
-
     @Override
     @Transactional
     public VnPayIpnResult handleVnPayIpn(String vnpTxnRef, String vnpAmountRaw,
@@ -368,8 +364,6 @@ public class ReturnShipBackServiceImpl implements ReturnShipBackService {
         }
 
         BigDecimal fee = returnRequest.getShipBackFee();
-        // Tiền cổng VNPay không đi qua ví Member nên không đổi số dư quỹ nền tảng - chỉ ghi dòng doanh thu
-        // giống ItemWithdrawalRequestServiceImpl.applyVnPayFeePaymentResult
         recordShipBackFeeRevenue(returnRequest, fee,
                 "Thu phí gửi lại hàng trả qua VNPay (mã GD " + transactionNo + ") cho đơn "
                         + returnRequest.getOrder().getOrderNo());
@@ -440,8 +434,6 @@ public class ReturnShipBackServiceImpl implements ReturnShipBackService {
                         .getBytes(StandardCharsets.US_ASCII));
     }
 
-    // ------------------------------------------------------------------ 1.6. Moderator tạo vận đơn gửi lại
-
     @Override
     @Transactional
     public ReturnRequestResponse ship(Account moderator, UUID returnRequestId) {
@@ -508,7 +500,6 @@ public class ReturnShipBackServiceImpl implements ReturnShipBackService {
         String toWardName = returnRequest.getShipBackWardName();
         String toProvinceName = returnRequest.getShipBackProvinceName();
 
-        // Phòng trường hợp dòng cũ chỉ có shipBackAddressId mà thiếu snapshot
         if ((!StringUtils.hasText(toWardName) || !StringUtils.hasText(toProvinceName))
                 && returnRequest.getShipBackAddressId() != null) {
             ShippingAddress address = shippingAddressRepository.findById(returnRequest.getShipBackAddressId())
@@ -560,8 +551,6 @@ public class ReturnShipBackServiceImpl implements ReturnShipBackService {
                 .items(ghnItems)
                 .build();
     }
-
-    // ------------------------------------------------------------------ Sổ quỹ & doanh thu
 
     private String generateTransactionNo() {
         String prefix = "WT-" + ZonedDateTime.now(ZoneId.of("UTC")).getYear() + "-";

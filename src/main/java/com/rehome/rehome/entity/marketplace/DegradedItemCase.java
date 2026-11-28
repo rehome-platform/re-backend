@@ -18,54 +18,42 @@ import lombok.*;
 @AllArgsConstructor
 @Builder
 public class DegradedItemCase {
-    // Khóa chính
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false)
     private UUID id;
 
-    // Sản phẩm về kho trong tình trạng xấu hơn
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "product_id", nullable = false)
     private Product product;
 
-    // Yêu cầu trả hàng dẫn đến ca này, nếu có
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "return_request_id", nullable = true)
     private ReturnRequest returnRequest;
 
-    // FULL_COMPENSATION / PARTIAL_WITH_ITEM_BACK — Member chọn, null nếu chưa quyết định (API 95)
     @Enumerated(EnumType.STRING)
     @Column(name = "choice", nullable = true)
     private DegradedItemChoice choice;
 
-    // Giá bán - hoa hồng, snapshot lúc mở ca (trước khi Member chọn) - đây là mức FULL_COMPENSATION;
-    // PARTIAL_WITH_ITEM_BACK = số này x degradedCompensationRate (snapshot trên biên nhận)
     @Column(name = "compensation_amount", nullable = false, precision = 19, scale = 2)
     private BigDecimal compensationAmount;
 
-    // Số tiền thực tế đã cộng vào ví người bán sau khi Member quyết định — F-162
     @Column(name = "paid_amount", nullable = true, precision = 19, scale = 2)
     private BigDecimal paidAmount;
 
-    // Moderator kết luận hàng xuống cấp
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "moderator_id", nullable = false)
     private Account moderator;
 
-    // Thời điểm ghi nhận ca
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    // Thời điểm Member quyết định — API 95
     @Column(name = "decided_at", nullable = true)
     private Instant decidedAt;
 
-    // Ghi chú của Moderator khi mở ca trực tiếp lúc kiểm kho (không qua yêu cầu trả hàng)
     @Column(name = "notes", nullable = true, columnDefinition = "text")
     private String notes;
 
-    // Ảnh bằng chứng Moderator chụp khi mở ca trực tiếp; ca mở từ yêu cầu trả hàng thì ảnh nằm ở returnRequest
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "degraded_item_case_photos", joinColumns = @JoinColumn(name = "degraded_item_case_id"))
     @Column(name = "image_url", nullable = false, length = 2048)
@@ -73,16 +61,12 @@ public class DegradedItemCase {
     @Builder.Default
     private List<String> photos = new ArrayList<>();
 
-    // Thời điểm Member đến kho lấy hàng tại quầy sau khi chọn PARTIAL_WITH_ITEM_BACK — Counter handover
     @Column(name = "picked_up_at", nullable = true)
     private Instant pickedUpAt;
 
-    // Hạn Member chọn phương án đền bù, mặc định 30 ngày kể từ lúc mở ca; quá hạn thành vô thừa
-    // nhận (choice = UNCLAIMED, Product.status = UNCLAIMED)
     @Column(name = "decision_deadline", nullable = true)
     private Instant decisionDeadline;
 
-    // Lần gần nhất hệ thống gửi thông báo nhắc chốt phương án (cách 7 ngày 1 lần); null = chưa gửi lần nào
     @Column(name = "last_reminder_sent_at", nullable = true)
     private Instant lastReminderSentAt;
 

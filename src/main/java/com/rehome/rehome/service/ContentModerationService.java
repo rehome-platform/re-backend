@@ -81,7 +81,6 @@ public class ContentModerationService {
         return action;
     }
 
-    /** Community content is hidden for review even when the strongest rule is AUTO_REJECT. */
     public ViolationWordAction evaluateForReview(String... texts) {
         if (texts == null) return null;
         List<String> values = Arrays.stream(texts).filter(Objects::nonNull)
@@ -95,7 +94,6 @@ public class ContentModerationService {
                 .max(Comparator.comparingInt(ContentModerationService::severity)).orElse(null);
     }
 
-    /** Chat-only moderation. Matching offsets retain the original UTF-16 positions. */
     public MaskResult mask(String text) {
         if (text == null || text.isBlank()) return new MaskResult(text, null);
         StringBuilder normalized = new StringBuilder(text.length());
@@ -121,7 +119,6 @@ public class ContentModerationService {
                     i += width;
                 }
                 if (severity(rule.action()) > severity(strongest)) strongest = rule.action();
-                // Include overlapping phrases as well as separate matches.
                 from = matcher.start() + Character.charCount(normalized.codePointAt(matcher.start()));
             }
         }
@@ -149,7 +146,6 @@ public class ContentModerationService {
         if (contentId != null) {
             detail.put("contentId", contentId.toString());
         }
-        // Keep private conversation text out of the shared audit log.
         AuditLog audit = audits.save(AuditLog.builder().actorAccount(accounts.getReferenceById(actorId))
                 .actionType(chat ? "CONTENT_CHAT_MASKED" : flagged ? "CONTENT_AUTO_FLAG" : "CONTENT_NOTIFY_ADMIN")
                 .targetType("CONTENT_REVIEW").targetId(UUID.randomUUID().toString()).detail(detail).build());

@@ -16,12 +16,6 @@ import org.springframework.stereotype.Component;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.repository.AccountRepository;
-/**
- * Seed dữ liệu mẫu cho bảng warehouses (phục vụ test API F-015 - kho gần nhất).
- * Chỉ seed khi bảng đang trống, nên khởi động lại app không bị trùng dữ liệu. Nếu bảng đã có dữ liệu
- * thì chỉ bổ sung khối địa chỉ GHN (phường/xã, quận/huyện, tỉnh/thành) còn thiếu theo định nghĩa seed,
- * không ghi đè giá trị đã có (Admin có thể đã sửa kho qua API 143).
- */
 @Slf4j
 @Component
 @Order(3)
@@ -29,14 +23,12 @@ import com.rehome.rehome.repository.AccountRepository;
 @ConditionalOnProperty(name = "app.initializer.seed-enabled", havingValue = "true")
 public class WarehouseInitializer implements CommandLineRunner {
 
-    // Số nhận hàng trả về kho (to_phone của vận đơn GHN chiều trả) - tạm dùng chung một hotline
     private static final String WAREHOUSE_HOTLINE = "0901234567";
 
     private final WarehouseRepository warehouseRepository;
 
     private static final String DEFAULT_MODERATOR_WAREHOUSE = "Kho Quận 7";
 
-    // email moderator -> tên kho phụ trách
     private static final Map<String, String> MODERATOR_WAREHOUSES = Map.of(
             "moderator1@rehome.com", "Kho Quận 7",
             "moderator2@rehome.com", "Kho Quận 1",
@@ -59,8 +51,6 @@ public class WarehouseInitializer implements CommandLineRunner {
         assignWarehousesToModerators();
     }
 
-    // Gán kho cho moderator chưa có kho (warehouse_id đang null). Chạy lặp lại không ghi đè
-// những moderator đã được gán kho.
     private void assignWarehousesToModerators() {
         Map<String, Warehouse> warehouseByName = warehouseRepository.findAll().stream()
                 .collect(Collectors.toMap(Warehouse::getName, w -> w, (a, b) -> a));
@@ -89,8 +79,6 @@ public class WarehouseInitializer implements CommandLineRunner {
         }
     }
 
-    // Điền khối địa chỉ GHN (phường/xã, quận/huyện, tỉnh/thành) cho kho seed còn thiếu. Từ khi Admin có API sửa kho
-    // (API 143), seed không còn là nguồn chuẩn nữa nên chỉ lấp chỗ trống, không ghi đè giá trị đã có.
     private void syncAddressUnits(List<Warehouse> seeds) {
         Map<String, Warehouse> seedByName = seeds.stream()
                 .collect(Collectors.toMap(Warehouse::getName, w -> w));
@@ -123,10 +111,6 @@ public class WarehouseInitializer implements CommandLineRunner {
         return value == null || value.isBlank();
     }
 
-    // Tên tỉnh/thành phải đúng như danh mục GHN trả về: "Hồ Chí Minh", không phải "TP. Hồ Chí Minh"
-    // (xem docs/ghnapi.md:1598 hệ cũ và :1832 hệ 2 cấp). Kho vẫn khai theo hệ cũ (isNewAddress=false,
-    // có quận/huyện) nên phường/xã + quận/huyện tra ở danh mục cũ; GHN cho phép mỗi khối địa chỉ
-    // của một vận đơn dùng hệ riêng qua cờ is_new_from_address/is_new_to_address.
     private List<Warehouse> seedDefinitions() {
         return List.of(
                 build("Kho Quận 1", "12 Nguyễn Trãi, P. Bến Thành, Q.1, TP.HCM",
@@ -156,7 +140,6 @@ public class WarehouseInitializer implements CommandLineRunner {
                 build("Kho Thủ Đức", "88 Võ Văn Ngân, P. Linh Chiểu, TP. Thủ Đức, TP.HCM",
                         "10.8494000", "106.7537000", "07:30 - 20:30", CatalogStatus.ACTIVE,
                         "Phường Linh Chiểu", "Thành phố Thủ Đức", "Hồ Chí Minh"),
-                // Kho HIDDEN để test: API nearest không được trả về kho này
                 build("Kho Bình Tân (tạm đóng)", "18 Kinh Dương Vương, P. An Lạc, Q. Bình Tân, TP.HCM",
                         "10.7654000", "106.6038000", "08:00 - 20:00", CatalogStatus.HIDDEN,
                         "Phường An Lạc", "Quận Bình Tân", "Hồ Chí Minh")

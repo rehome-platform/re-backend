@@ -7,10 +7,8 @@ import com.rehome.rehome.entity.enums.WalletTransactionType;
 
 public interface AdminFundService {
 
-    /** Sổ quỹ nền tảng: các bút toán đối ứng phía quỹ, mới nhất trước. from/to/type tùy chọn. */
     PageResponse<FundLedgerEntryResponse> ledger(String from, String to, WalletTransactionType type,
                                                  int page, int size);
 
-    /** Đối soát quỹ nền tảng với sổ bút toán tại thời điểm gọi. */
     FundReconciliationResponse reconciliation();
 }

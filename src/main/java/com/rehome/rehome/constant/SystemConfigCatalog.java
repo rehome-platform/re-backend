@@ -7,10 +7,6 @@ import java.util.Optional;
 
 import static com.rehome.rehome.constant.SystemConfigKeys.*;
 
-/**
- * Danh sách tham số Admin được phép chỉnh (F-157), kèm kiểu và khoảng hợp lệ để trả 422 khi nhập sai.
- * Muốn mở thêm tham số: thêm hằng vào SystemConfigKeys, thêm một dòng ở SPECS và một dòng ở defaults().
- */
 public final class SystemConfigCatalog {
 
     private SystemConfigCatalog() {}
@@ -29,10 +25,8 @@ public final class SystemConfigCatalog {
             int_(MAX_CONCURRENT_CAMPAIGNS, 1, 100),
             int_(LEGAL_IMAGE_RETENTION_DAYS, 1, 365),
             int_(OVERDUE_TASK_HOURS, 1, 720),
-            // Ví và rút tiền: số tiền là đồng
             dec(MIN_PAYOUT_AMOUNT, ONE, new BigDecimal("10000000")),
             int_(MAX_PAYOUT_REQUESTS_PER_DAY, 1, 100),
-            // Luồng ký gửi
             int_(END_OF_TERM_DECISION_DAYS, 1, 365),
             int_(DEGRADED_ITEM_DECISION_DAYS, 1, 365),
             int_(BRING_IN_DEADLINE_DAYS, 1, 90),
@@ -41,7 +35,6 @@ public final class SystemConfigCatalog {
             int_(RE_CONSIGN_MAX_COUNTER_ROUNDS, 0, 10),
             int_(RE_CONSIGN_MODERATOR_RESPONSE_DAYS, 1, 30),
             int_(MAX_PRICE_CHANGES_PER_DAY, 1, 20),
-            // Đơn hàng và trả hàng
             int_(ORDER_PAYMENT_TIMEOUT_MINUTES, 1, 1440),
             int_(ORDER_AUTO_COMPLETE_DAYS, 1, 30),
             int_(RETURN_REQUEST_WINDOW_DAYS, 1, 30),
@@ -49,20 +42,14 @@ public final class SystemConfigCatalog {
             int_(COUNTER_PICKUP_DAYS, 1, 90),
             int_(RETURN_SHIP_BACK_FEE_DEADLINE_MINUTES, 5, 1440),
             int_(RETURN_SHIP_BACK_SHIP_WITHIN_DAYS, 1, 30),
-            // Tỷ lệ lưu dạng phân số: 0.10 = 10%
             dec(COMMISSION_RATE_TERM1, ZERO, ONE),
             dec(COMMISSION_RATE_TERM2, ZERO, ONE),
             dec(COMMISSION_RATE_TERM3, ZERO, ONE),
             dec(DEGRADED_COMPENSATION_RATE, ZERO, ONE),
             dec(FLOOR_PRICE_RATIO, new BigDecimal("0.01"), ONE),
             dec(WITHDRAWAL_FEE, ZERO, new BigDecimal("10000000")),
-            // Gói thành viên VIP và voucher
             int_(MEMBERSHIP_EXPIRY_REMINDER_DAYS, 1, 30),
-            // Trần 1.00 = voucher giảm tối đa bằng đúng hoa hồng nền tảng thu trên đơn (hòa vốn).
-            // Cho phép tới 2.00 để Admin chủ động chịu lỗ trên đơn khi chạy khuyến mãi mạnh.
             dec(VOUCHER_MAX_RATIO_OF_COMMISSION, ZERO, new BigDecimal("2.00")),
-            // Điểm tích lũy. 0 = tắt: vnd_per_point = 0 thì không tích điểm, đơn giá đổi = 0 thì đóng quy đổi
-            // loại đó (cố ý không cho đơn giá âm; đơn giá 0 không bao giờ biến thành "đổi miễn phí").
             int_(POINTS_VND_PER_POINT, 0, 10_000_000),
             int_(POINTS_COST_PER_AI_TRYON, 0, 10_000),
             int_(POINTS_COST_PER_LIVE_TRYON, 0, 10_000));
@@ -71,11 +58,6 @@ public final class SystemConfigCatalog {
         return Optional.ofNullable(SPECS.get(key));
     }
 
-    /**
-     * Giá trị mặc định của mọi tham số trong catalog, giữ thứ tự khai báo.
-     * Dùng chung cho seed DB (SystemConfigInitializer) và API xem cấu hình (GET /api/admin/config),
-     * lấy từ các DEFAULT_* trong SystemConfigKeys để các nơi không bao giờ lệch nhau.
-     */
     public static Map<String, String> defaults() {
         Map<String, String> m = new LinkedHashMap<>();
         m.put(TERM_LENGTH_DAYS, String.valueOf(DEFAULT_TERM_LENGTH_DAYS));

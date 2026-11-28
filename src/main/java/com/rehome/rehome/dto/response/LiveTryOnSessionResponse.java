@@ -7,8 +7,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-// POST /tryon/live/sessions - tất cả thông tin WebView cần để tự kết nối Decart, không lộ
-// permanent API key: apiKey ở đây là client token ngắn hạn do backend mint hộ.
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -21,6 +19,5 @@ public class LiveTryOnSessionResponse {
     private String garmentImageUrl;
     private String prompt;
     private int maxDurationSeconds;
-    // null = không giới hạn (hạn mức theo gói có thể để trống) -> mobile hiện "Không giới hạn"
     private Integer remainingToday;
 }

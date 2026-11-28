@@ -39,7 +39,6 @@ public class UnclaimedProductServiceImpl implements UnclaimedProductService {
             throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);
         }
 
-        // Khóa dòng sản phẩm để không xác nhận chuyển giao 2 lần
         Product product = productRepository.findByIdForUpdate(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
@@ -58,7 +57,6 @@ public class UnclaimedProductServiceImpl implements UnclaimedProductService {
         detail.put("partnerOrganizationName", partner);
         detail.put("previousStatus", previous.name());
         detail.put("newStatus", ProductStatus.DONATED.name());
-        // label là phần duy nhất của detail được hiện ở lịch sử kho
         detail.put("label", product.getId());
         auditLogger.logWarehouse(moderator, product.getWarehouse(), WarehouseAuditGroup.INVENTORY,
                 "CONFIRM_UNCLAIMED_TRANSFER", "PRODUCT", product.getId(), "TRANSFERRED", detail);

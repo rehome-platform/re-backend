@@ -8,6 +8,5 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class DismissViolationReportRequest {
-    // Lý do Moderator bỏ qua, ví dụ "không đủ căn cứ"
     private String reason;
 }

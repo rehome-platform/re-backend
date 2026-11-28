@@ -18,7 +18,6 @@ public class UnclaimedProductController {
 
     private final UnclaimedProductService unclaimedProductService;
 
-    // API 36
     @PostMapping("/{id}/unclaimed/confirm-transfer")
     public ApiResponse<ProductStatusResponse> confirmTransfer(
             @PathVariable String id,

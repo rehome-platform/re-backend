@@ -40,7 +40,6 @@ public class EndOfTermDecisionController {
         return ResponseEntity.ok(ApiResponse.success(result, 200, "Đã ghi nhận quyết định"));
     }
 
-    // Moderator: danh sách yêu cầu ký gửi lại đang chờ chốt giá, chỉ của kho mình
     @GetMapping("/pending-pricing")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<List<PendingReConsignResponse>>> listPendingPricing(
@@ -48,7 +47,6 @@ public class EndOfTermDecisionController {
         return ResponseEntity.ok(ApiResponse.success(endOfTermDecisionService.listPendingPricing(account)));
     }
 
-    // Moderator chốt giá và điều khoản; Member xác nhận biên nhận mới sau đó
     @PostMapping("/{id}/re-consign-terms")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<ReConsignTermsResponse>> setReConsignTerms(
@@ -59,7 +57,6 @@ public class EndOfTermDecisionController {
         return ResponseEntity.ok(ApiResponse.success(result, 200, "Đã chốt giá và điều khoản, chờ Member xác nhận"));
     }
 
-    // Member đề xuất một giá khác với giá Moderator vừa chốt
     @PostMapping("/{id}/counter-offer")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<ReConsignCounterOfferResponse>> counterOffer(
@@ -70,7 +67,6 @@ public class EndOfTermDecisionController {
         return ResponseEntity.ok(ApiResponse.success(result, 200, "Đã gửi đề xuất giá, chờ ReHome phản hồi"));
     }
 
-    // Member không đồng ý đề xuất giá hiện tại -> chuyển sang nhận lại hàng
     @PostMapping("/{id}/decline")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<DecideEndOfTermResponse>> decline(
@@ -82,7 +78,6 @@ public class EndOfTermDecisionController {
         return ResponseEntity.ok(ApiResponse.success(result, 200, "Đã chuyển sang nhận lại hàng"));
     }
 
-    // Moderator phản hồi đề xuất giá của Member
     @PostMapping("/{id}/counter-response")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<ReConsignTermsResponse>> counterResponse(

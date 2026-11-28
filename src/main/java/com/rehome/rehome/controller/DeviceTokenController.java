@@ -14,10 +14,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * App gọi lúc đăng nhập để đăng ký token FCM, và lúc đăng xuất để gỡ - push notification
- * (F-092/F-093/F-094) khi app đã tắt/background, lúc WebSocket không còn kết nối.
- */
 @RestController
 @RequestMapping("/me/device-tokens")
 @RequiredArgsConstructor

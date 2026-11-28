@@ -13,7 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 
-// F-102: hết thời gian nhận đồ mà tổ chức chưa tự đóng (F-101) -> System đóng chiến dịch
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -27,9 +26,6 @@ public class CampaignAutoCloseServiceImpl implements CampaignAutoCloseService {
     @Transactional
     public void closeExpiredCampaigns() {
 
-        // Chỉ OPEN -> CLOSED. HIDDEN (Moderator ẩn do vi phạm) không được job này tự đóng, kể cả
-        // đã hết endTime - trạng thái xử lý vi phạm phải do Moderator/quy trình riêng quyết định,
-        // tự đóng ở đây sẽ xoá luôn dấu hiệu campaign này đang trong diện bị xử lý.
         List<Campaign> expired = campaignRepository
                 .findAllByStatusAndEndTimeBefore(CampaignStatus.OPEN, Instant.now());
 

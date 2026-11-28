@@ -13,9 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-// Điền display_name_normalized/legal_name_normalized cho hồ sơ tổ chức đã có trước khi 2 cột
-// này ra đời: ddl-auto chỉ thêm cột với giá trị null, mà null thì không khớp LIKE nào nên hồ sơ
-// cũ sẽ biến mất khỏi kết quả tìm kiếm GET /api/organizations?search=.
 @Slf4j
 @Component
 @Order(102)
@@ -34,8 +31,6 @@ public class OrganizationNameNormalizeInitializer implements ApplicationRunner {
             return;
         }
 
-        // Gán tay thay vì dựa vào @PreUpdate: entity không đổi gì thì Hibernate không phát UPDATE
-        // và callback sẽ không chạy.
         for (OrganizationProfile profile : pending) {
             profile.setDisplayNameNormalized(VietnameseText.normalize(profile.getDisplayName()));
             profile.setLegalNameNormalized(VietnameseText.normalize(profile.getLegalName()));

@@ -33,8 +33,6 @@ public class DeviceTokenServiceImpl implements DeviceTokenService {
 
         DeviceToken deviceToken = deviceTokenRepository.findByToken(request.getToken())
                 .orElseGet(DeviceToken::new);
-        // Token đã tồn tại nhưng thuộc account khác (đổi người dùng trên cùng thiết bị) -> gán lại,
-        // không tạo bản ghi mới, vì cột token là unique.
         if (deviceToken.getAccount() == null || !deviceToken.getAccount().getId().equals(accountId)) {
             Account account = accountRepository.findById(accountId)
                     .orElseThrow(() -> new AppException(ErrorCode.UNAUTHORIZED));

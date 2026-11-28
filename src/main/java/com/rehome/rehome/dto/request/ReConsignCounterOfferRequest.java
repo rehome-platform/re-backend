@@ -7,7 +7,6 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 
-// Member đề xuất một giá khác với giá Moderator vừa chốt (POST /end-of-term-decisions/{id}/counter-offer)
 @Getter
 @Setter
 public class ReConsignCounterOfferRequest {

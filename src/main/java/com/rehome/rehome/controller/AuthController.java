@@ -55,14 +55,12 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success(authService.refreshToken(request.getRefreshToken())));
     }
 
-    // Đổi 204 -> 200 vì 204 không có body, không đặt được ApiResponse
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse<Void>> logout(Authentication authentication) {
         authService.logout(authentication.getName());
         return ResponseEntity.ok(ApiResponse.success(null, "Đăng xuất thành công"));
     }
 
-    // Luôn trả như nhau để không lộ email có tồn tại hay không
     @PostMapping("/password/forgot")
     public ResponseEntity<ApiResponse<Void>> forgot(@Valid @RequestBody ForgotPasswordRequest request, HttpServletRequest httpRequest) {
         otpRateLimiter.check(request.getEmail(), httpRequest.getRemoteAddr());

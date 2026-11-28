@@ -14,7 +14,6 @@ import lombok.*;
 @AllArgsConstructor
 @Builder
 public class CounterIdentityConfirmation {
-    // 1 dòng/account, ghi đè mỗi lần Moderator xác nhận lại danh tính tại quầy
     @Id
     @Column(name = "account_id", nullable = false)
     private UUID accountId;
@@ -22,7 +21,6 @@ public class CounterIdentityConfirmation {
     @Column(name = "confirmed_at", nullable = false)
     private Instant confirmedAt;
 
-    // Hết hạn 15 phút sau khi xác nhận; bàn giao sau giờ này phải xác nhận lại
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 

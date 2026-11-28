@@ -41,7 +41,6 @@ public class AdminFundServiceImpl implements AdminFundService {
 
         Page<WalletTransaction> result = reportRepository.findPlatformLedger(range.from(), range.to(), type, pageable);
 
-        // Tài khoản liên quan = chủ ví Member của dòng đối ứng; nạp một lượt cho cả trang
         List<UUID> memberWalletIds = result.getContent().stream()
                 .map(WalletTransaction::getCounterpartTransaction)
                 .filter(Objects::nonNull)
@@ -75,7 +74,6 @@ public class AdminFundServiceImpl implements AdminFundService {
                                                           Instant checkedAt) {
         BigDecimal difference = fundBalance.subtract(ledgerBalance);
         BigDecimal memberDifference = memberWalletBalance.subtract(memberLedgerBalance);
-        // Sổ kép: mọi bút toán Member đều có dòng quỹ ngược dấu nên tổng hai phía phải bằng 0
         BigDecimal ledgerNetTotal = ledgerBalance.add(memberLedgerBalance);
 
         boolean balanced = difference.signum() == 0
@@ -121,7 +119,6 @@ public class AdminFundServiceImpl implements AdminFundService {
                     .build();
         }
 
-        // Hoa hồng của món hiện ngay trên dòng trả tiền người bán (bút toán COMMISSION_REVENUE riêng nằm ở dòng riêng của sổ)
         BigDecimal commission = null;
         OrderItem item = t.getRelatedOrderItem();
         if (t.getType() == WalletTransactionType.ORDER_PAYOUT && item != null) {

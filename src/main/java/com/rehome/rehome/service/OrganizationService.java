@@ -7,7 +7,6 @@ import com.rehome.rehome.dto.request.UpdateOrganizationProfileRequest;
 import com.rehome.rehome.dto.request.organization.RegisterOrganizationRequest;
 import com.rehome.rehome.dto.response.LegalChangeRequestDetailResponse;
 import com.rehome.rehome.dto.response.LegalChangeRequestResponse;
-import com.rehome.rehome.dto.response.MemberCodeResponse;
 import com.rehome.rehome.dto.response.OrganizationNearbyResponse;
 import com.rehome.rehome.dto.response.OrganizationOptionsResponse;
 import com.rehome.rehome.dto.response.OrganizationProfileResponse;
@@ -30,54 +29,35 @@ public interface OrganizationService {
     OrganizationProfileResponse getMyProfile(UUID accountId);
     OrganizationOptionsResponse getOptions();
 
-    // F-082: trang công khai của 1 tổ chức đã VERIFIED. viewer == null khi Guest (không có
-    // token). Moderator là ngoại lệ: được xem hồ sơ bất kể trạng thái xác minh (PENDING/REJECTED
-    // cũng xem được), vì cần tra cứu tổ chức từ các luồng duyệt/hộp thư trước khi tổ chức VERIFIED.
     OrganizationPublicProfileResponse getPublicProfile(UUID organizationId, Account viewer);
 
-    // F-085: theo dõi / bỏ theo dõi 1 tổ chức. Cả 2 đều idempotent (gọi lại không báo lỗi).
     void follow(UUID memberId, UUID organizationId);
     void unfollow(UUID memberId, UUID organizationId);
 
-    // Tổ chức đã VERIFIED gần vị trí Member, sắp theo khoảng cách tăng dần, tối đa 20 kết quả.
     List<OrganizationNearbyResponse> findNearby(double lat, double lng);
 
-    // Tổ chức mà chính Member đang theo dõi, mới theo dõi gần đây trước.
     PageResponse<OrganizationPublicProfileResponse> listFollowing(UUID memberId, int page, int size);
 
-    // GET /api/organizations?search=: danh mục công khai mọi tổ chức đã VERIFIED, lọc theo
-    // displayName/legalName nếu có search. viewerId == null khi Guest (không có token).
     PageResponse<OrganizationPublicProfileResponse> listPublicOrganizations(String search, UUID viewerId,
                                                                              int page, int size);
 
-    // F-096: tổ chức tự cập nhật thông tin thường, áp dụng ngay.
     OrganizationProfileUpdateResponse updateMyProfile(UUID accountId, UpdateOrganizationProfileRequest request);
 
-    // F-097: xin đổi thông tin pháp lý, phải chờ Moderator duyệt mới áp dụng. Chặn (409) nếu
-    // đang có 1 yêu cầu PENDING - mỗi lần chỉ được 1 yêu cầu (OP-05).
     LegalChangeRequestResponse requestLegalChange(UUID accountId, CreateLegalChangeRequestRequest request);
 
-    // OP-05 "Trạng thái yêu cầu": yêu cầu đổi thông tin pháp lý gần nhất của chính tổ chức.
     LegalChangeRequestDetailResponse getLatestLegalChangeRequest(UUID accountId);
 
-    // F-137: hồ sơ xác minh + checklist theo orgType cho Moderator.
     OrganizationVerificationResponse getVerificationDetail(UUID organizationId);
 
-    // F-138: Moderator duyệt tổ chức; chặn nếu hồ sơ chưa đủ giấy tờ theo checklist.
     OrganizationVerifyResponse verifyOrganization(Account moderator, UUID organizationId);
 
-    // F-138: Moderator từ chối hồ sơ kèm lý do để tổ chức sửa và nộp lại.
     OrganizationRejectResponse rejectOrganization(Account moderator, UUID organizationId,
                                                    RejectOrganizationRequest request);
 
-    // F-140: Moderator duyệt yêu cầu đổi thông tin pháp lý -> áp thẳng vào hồ sơ.
     LegalChangeRequestResponse approveLegalChange(Account moderator, UUID requestId);
 
-    // F-140: Moderator từ chối yêu cầu đổi thông tin pháp lý kèm lý do; hồ sơ giữ nguyên.
     LegalChangeRequestResponse rejectLegalChange(Account moderator, UUID requestId,
                                                  RejectLegalChangeRequest request);
 
-    // F-140: Moderator xem đầy đủ nội dung 1 yêu cầu đổi thông tin pháp lý (bất kỳ trạng thái)
-    // khi cần xét kỹ trước khi duyệt/từ chối.
     LegalChangeRequestDetailResponse getLegalChangeRequestDetail(UUID requestId);
 }

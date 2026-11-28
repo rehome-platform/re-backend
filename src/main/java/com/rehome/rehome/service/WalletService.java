@@ -13,7 +13,6 @@ import java.util.UUID;
 public interface WalletService {
     WalletBalanceResponse getBalance(String email);
 
-    // Hạn mức rút tiền Admin cấu hình + số lượt đã dùng hôm nay, cho màn rút tiền
     WalletConfigResponse getWalletConfig(String email);
 
     PageResponse<WalletTransactionResponse> getTransactions(

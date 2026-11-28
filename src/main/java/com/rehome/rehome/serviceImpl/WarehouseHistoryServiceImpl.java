@@ -48,7 +48,6 @@ public class WarehouseHistoryServiceImpl implements WarehouseHistoryService {
             throw new BadRequestException("size phải từ 1 đến " + MAX_PAGE_SIZE + ".");
         }
 
-        // Cách ly kho tuyệt đối: warehouseId luôn lấy từ tài khoản đang đăng nhập
         UUID warehouseId = moderator.getWarehouse().getId();
         var result = auditLogRepository.findWarehouseHistory(
                 warehouseId, group.name(), PageRequest.of(page, size));
@@ -60,7 +59,6 @@ public class WarehouseHistoryServiceImpl implements WarehouseHistoryService {
             for (ModeratorProfile profile : moderatorProfileRepository.findAllById(actorIds)) {
                 nameByAccountId.put(profile.getAccountId(), profile.getFullName());
             }
-            // Xác nhận biên nhận / quyết định hết kỳ là thao tác của Member nên actor có thể là Member
             for (MemberProfile profile : memberProfileRepository.findAllByAccount_IdIn(actorIds)) {
                 nameByAccountId.putIfAbsent(profile.getAccountId(), profile.getFullName());
             }
@@ -94,7 +92,6 @@ public class WarehouseHistoryServiceImpl implements WarehouseHistoryService {
                 .build();
     }
 
-    // Chỉ lấy đúng một trường "label" (mã đơn / SKU / số form) từ detail để hiển thị; còn lại không lộ ra
     private static String targetLabel(AuditLog log) {
         JsonNode detail = log.getDetail();
         if (detail != null && detail.hasNonNull("label") && detail.get("label").isTextual()) {

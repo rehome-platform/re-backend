@@ -13,13 +13,10 @@ import java.util.UUID;
 @Repository
 public interface CommunityPostPhotoRepository extends JpaRepository<CommunityPostPhoto, UUID> {
 
-    // OB-04: ảnh của 1 bài viết
     List<CommunityPostPhoto> findByPost_Id(UUID postId);
 
-    // OB-01: ảnh của nhiều bài viết, gom 1 query để tránh N+1 khi dựng danh sách
     @Query("select p.post.id, p.imageUrl from CommunityPostPhoto p where p.post.id in :postIds")
     List<Object[]> findUrlsByPostIds(@Param("postIds") Collection<UUID> postIds);
 
-    // OB-03: sửa bài thay toàn bộ ảnh cũ bằng danh sách mới
     void deleteByPost_Id(UUID postId);
 }

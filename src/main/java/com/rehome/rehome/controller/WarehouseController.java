@@ -31,10 +31,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.rehome.rehome.dto.marketplace.response.WarehouseResponse;
-/**
- * API 14 - GET /warehouses/nearest (F-015, Role: Member).
- * Trả về danh sách kho ACTIVE sắp xếp theo khoảng cách tăng dần so với vị trí Member.
- */
 @RestController
 @RequestMapping("/warehouses")
 @RequiredArgsConstructor

@@ -26,7 +26,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Gói thành viên VIP - màn M-01 (chọn gói), M-02 (xác nhận mua), M-03 (gói của tôi). */
 @RestController
 @RequestMapping("/memberships")
 @RequiredArgsConstructor
@@ -35,15 +34,12 @@ public class MembershipController {
 
     private final MembershipService membershipService;
 
-    // §8.1 - PUBLIC: khách chưa đăng nhập cũng xem được để quyết định đăng ký.
-    // Đường dẫn này phải nằm trong SecurityConfig.PUBLIC_ENDPOINTS.
     @GetMapping("/plans")
     @Operation(summary = "Danh sách gói thành viên đang bán (public). Hạn mức null = không giới hạn")
     public ResponseEntity<ApiResponse<List<MembershipPlanResponse>>> getPlans() {
         return ResponseEntity.ok(ApiResponse.success(membershipService.getPlans()));
     }
 
-    // §8.2 - LUÔN 200: chưa mua gói thì trả tier FREE, không trả 404
     @GetMapping("/me")
     @PreAuthorize("hasRole('MEMBER')")
     @Operation(summary = "Gói hiện tại + hạn mức đã dùng. Luôn trả 200, chưa mua gói thì tier = FREE")

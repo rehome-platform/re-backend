@@ -10,7 +10,6 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
-/** API 141, 142, 143, 144 - kho dưới góc nhìn Admin (có cả kho HIDDEN). */
 @Getter
 @Builder
 @AllArgsConstructor
@@ -27,11 +26,8 @@ public class WarehouseAdminResponse {
     private final String openingHours;
     private final CatalogStatus status;
     private final Instant createdAt;
-    // Số Moderator ACTIVE đang phụ trách kho
     private final long moderatorCount;
-    // Số món đang nằm trong kho (cùng định nghĩa tồn kho với dashboard và API 144)
     private final long inventoryCount;
-    // Số đơn đang xử lý tại kho (PAID, PACKING), mỗi đơn đếm một lần
     private final long activeOrders;
 
     public static WarehouseAdminResponse from(Warehouse w, long moderatorCount, long inventoryCount,

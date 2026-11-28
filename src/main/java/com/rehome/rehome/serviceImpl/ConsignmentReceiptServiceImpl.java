@@ -1,7 +1,6 @@
 package com.rehome.rehome.serviceImpl;
 
 import com.rehome.rehome.entity.enums.NotificationType;
-import com.rehome.rehome.entity.enums.NotificationTargetType;
 
 import com.rehome.rehome.component.AuditLogger;
 import com.rehome.rehome.component.ReceiptClauseRenderer;
@@ -55,12 +54,11 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
     private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
 
     private final AuditLogger auditLogger;
-    private final com.rehome.rehome.service.NotificationService notificationService;
     private final com.rehome.rehome.service.QueueService queueService;
 
     private final ConsignmentReceiptRepository consignmentReceiptRepository;
     private final ConsignmentReceiptPdfRepository consignmentReceiptPdfRepository;
-    private final ReceiptPdfService receiptPdfService;   // interface, không phải ReceiptPdfServiceImpl
+    private final ReceiptPdfService receiptPdfService;
     private final ConsignmentFormRepository consignmentFormRepository;
     private final AccountRepository accountRepository;
     private final ProductRepository productRepository;
@@ -80,12 +78,10 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
 
         authorizeRead(account, receipt);
 
-        // SKU chỉ có sau khi nhập kho; chưa có Product thì để null
         String sku = productRepository.findByConsignmentReceiptId(receipt.getId())
                 .map(Product::getId)
                 .orElse(null);
 
-        // Biên nhận ký gửi lại: lấy sản phẩm cũ và giá trước đó từ quyết định cuối kỳ
         EndOfTermDecision reConsign = endOfTermDecisionRepository
                 .findByNewReceipt_Id(receipt.getId())
                 .orElse(null);
@@ -119,7 +115,6 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
     @Override
     @Transactional
     public ConsignmentReceiptConfirmResponse confirmReceipt(Account account, UUID id, Integer version) {
-        // Khóa dòng để chống bấm xác nhận đồng thời
         ConsignmentReceipt receipt = consignmentReceiptRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_RECEIPT_NOT_FOUND));
 
@@ -136,9 +131,6 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
             throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_ALREADY_CONFIRMED);
         }
 
-        // F-030: biên nhận ký gửi lại (sinh từ setReConsignTerms/counter-response) chỉ xác nhận được
-        // khi Moderator đang chờ Member ở đúng đề xuất này (PROPOSED) và chưa quá proposalDeadline.
-        // COUNTER_OFFERED nghĩa là Member vừa đề xuất lại, bóng đang ở phía Moderator.
         var reConsignDecision = endOfTermDecisionRepository.findByNewReceipt_Id(receipt.getId());
         reConsignDecision.ifPresent(reConsign -> {
             if (reConsign.getReConsignStatus() == com.rehome.rehome.entity.enums.ReConsignStatus.COUNTER_OFFERED) {
@@ -154,28 +146,20 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
 
         Instant now = Instant.now();
 
-        // Set confirmedAt trước để PDF snapshot có đúng mốc xác nhận
         receipt.setConfirmedAt(now);
         receipt.setStatus(com.rehome.rehome.entity.enums.ReceiptStatus.CONFIRMED);
 
-        // F-022: render PDF trong cùng transaction. Thuần CPU, không gọi mạng, nên
-        // hoặc commit được cả confirmedAt lẫn PDF, hoặc rollback cả hai - biên nhận
-        // không bao giờ "có hiệu lực" mà thiếu file bằng chứng.
         byte[] pdf = receiptPdfService.generate(receipt);
 
         consignmentReceiptRepository.save(receipt);
         saveReceiptPdf(receipt, pdf, now);
 
-        // F-030: biên nhận này là biên nhận ký gửi lại (được tạo ở setReConsignTerms) - sản phẩm
-        // đã có SKU từ lần ký gửi đầu, chỉ cần đổi biên nhận/điều khoản và bán lại ngay, không phải
-        // chờ Moderator nhập kho lại như lần ký gửi đầu tiên
         reConsignDecision.ifPresent(reConsign -> {
             reConsign.setReConsignStatus(com.rehome.rehome.entity.enums.ReConsignStatus.CONFIRMED);
             endOfTermDecisionRepository.save(reConsign);
             activateReConsignedProduct(reConsign.getProduct(), receipt, now);
         });
 
-        // Biên nhận ký gửi lại thuộc nhóm tồn kho (CONFIRM_RECONSIGN); biên nhận lần đầu thuộc nhóm kiểm định
         if (reConsignDecision.isPresent()) {
             auditLogger.logWarehouseOp(account, receipt.getWarehouse(), WarehouseAuditGroup.INVENTORY,
                     "CONFIRM_RECONSIGN", "CONSIGNMENT_RECEIPT", receipt.getId().toString(), "CONFIRMED",
@@ -296,9 +280,6 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         product.setEndOfTermDeadline(now.plus(Duration.ofDays(
                 (long) newReceipt.getTermLengthDays() * (newReceipt.getMaxRenewals() + 1))));
         product.setStatus(ProductStatus.ON_SALE);
-        // §8.10 thời điểm 2: ký gửi lại tạo một vòng đời mới cho món, nên phải set lại nhãn
-        // "Nổi bật" theo gói VIP đang có hiệu lực của chủ món - món quay lên sàn mà thiếu nhãn thì
-        // Member thấy mất quyền lợi dù gói còn hạn.
         featuredListingManager.applyForNewProduct(product);
         productRepository.save(product);
         businessNotifications.product(product, NotificationType.QUEUE_TASK, "Món ký gửi đã lên sàn", "đã được ký gửi lại và đăng bán.");
@@ -310,7 +291,6 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         ConsignmentReceipt receipt = consignmentReceiptRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_RECEIPT_NOT_FOUND));
 
-        // Member chỉ xem biên nhận của mình; Moderator/Admin xem được mọi biên nhận
         boolean staff = account.getRole() == Role.MODERATOR || account.getRole() == Role.ADMIN;
         if (!staff && !receipt.getMember().getId().equals(account.getId())) {
             throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_FORBIDDEN);
@@ -325,24 +305,21 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         return new PdfDownload(receipt.getReceiptNo() + ".pdf", pdf.getContent());
     }
 
-    // Quyền đọc dữ liệu biên nhận: Member chỉ biên nhận của mình; Moderator biên nhận thuộc kho mình;
-    // Admin đọc mọi biên nhận. Quyền tải PDF (getReceiptPdf) giữ nguyên, không đi qua đây.
     private void authorizeRead(Account account, ConsignmentReceipt receipt) {
         switch (account.getRole()) {
             case ADMIN -> {
-                // được đọc theo quyền quản trị
             }
             case MODERATOR -> {
                 if (account.getWarehouse() == null) {
-                    throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);                  // 403
+                    throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);
                 }
                 if (!receipt.getWarehouse().getId().equals(account.getWarehouse().getId())) {
-                    throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_FORBIDDEN);           // 403
+                    throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_FORBIDDEN);
                 }
             }
             case MEMBER -> {
                 if (!receipt.getMember().getId().equals(account.getId())) {
-                    throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_FORBIDDEN);           // 403
+                    throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_FORBIDDEN);
                 }
             }
             default -> throw new AppException(ErrorCode.NOT_MEMBER_ACCOUNT);
@@ -358,7 +335,6 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
             }
             return hex.toString();
         } catch (NoSuchAlgorithmException e) {
-            // SHA-256 là thuật toán bắt buộc có trong mọi JVM
             throw new IllegalStateException(e);
         }
     }
@@ -366,12 +342,11 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
     @Override
     @Transactional
     public CompleteInspectionResponse completeInspection(UUID formId, CompleteInspectionRequest request) {
-        // Khóa dòng form: không còn ràng buộc unique ở DB nên phải tự chống tạo hai biên nhận cùng lúc
         ConsignmentForm form = consignmentFormRepository.findByIdForUpdate(formId)
-                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));      // 404
+                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));
 
         if (form.getStatus() != ConsignmentFormStatus.INSPECTING) {
-            throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_INSPECTING);                    // 409
+            throw new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_INSPECTING);
         }
         ConsignmentReceipt previous = consignmentReceiptRepository
                 .findFirstByConsignmentForm_IdOrderByCreatedAtDesc(form.getId()).orElse(null);
@@ -379,14 +354,13 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
             throw new AppException(ErrorCode.CONSIGNMENT_RECEIPT_ALREADY_EXISTS);
         }
 
-        // Moderator chỉ kiểm định form thuộc kho mình phụ trách
         Account moderator = currentModerator();
         if (moderator.getWarehouse() == null) {
-            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);                             // 403
+            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);
         }
         if (form.getWarehouse() == null
                 || !form.getWarehouse().getId().equals(moderator.getWarehouse().getId())) {
-            throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);                         // 403
+            throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
         }
 
         BigDecimal agreedPrice = request.getAgreedPrice().setScale(2, RoundingMode.HALF_UP);
@@ -421,7 +395,7 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
                         SystemConfigKeys.WITHDRAWAL_FEE, SystemConfigKeys.DEFAULT_WITHDRAWAL_FEE)))
                 .degradedCompensationRate((previous != null ? previous.getDegradedCompensationRate() : systemConfigReader.getDecimal(
                         SystemConfigKeys.DEGRADED_COMPENSATION_RATE, SystemConfigKeys.DEFAULT_DEGRADED_COMPENSATION_RATE)))
-                .confirmedAt(null)   // Member xác nhận ở API 20, PDF sinh lúc đó
+                .confirmedAt(null)
                 .build();
         receipt.setClausesSnapshot(receiptClauseRenderer.render(receipt));
 
@@ -432,14 +406,12 @@ public class ConsignmentReceiptServiceImpl implements ConsignmentReceiptService 
         consignmentReceiptRepository.save(receipt);
         businessNotifications.receipt(receipt);
 
-        // Endpoint cũ /consignment-receipts/{id}/inspection/complete: cũng phải vào lịch sử kho
         auditLogger.logWarehouseOp(moderator, form.getWarehouse(), WarehouseAuditGroup.INSPECTION,
                 "COMPLETE_INSPECTION", "CONSIGNMENT_FORM", form.getId().toString(), "PASSED", form.getFormNo());
         return new CompleteInspectionResponse(receipt.getId());
     }
 
     private String generateReceiptNo() {
-        // KG-2026-000123
         return "KG-%d-%06d".formatted(Year.now(VN_ZONE).getValue(), consignmentReceiptRepository.nextReceiptSequence());
     }
 

@@ -6,11 +6,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Địa chỉ riêng của tổ chức để nhận đồ quyên góp (OC-02), lấy từ điểm nhận đồ
- * trong hồ sơ tổ chức (OrganizationProfile.donationPoint*) - không nhập tay theo chiến dịch.
- * Chỉ có mặt trong response khi campaign.receiveAtOwnAddress = true.
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

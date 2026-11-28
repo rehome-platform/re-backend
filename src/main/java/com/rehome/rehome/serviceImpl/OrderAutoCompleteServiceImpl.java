@@ -15,10 +15,6 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.List;
 
-// F-064 (tự hoàn thành đơn) gộp với job trả tiền người ký gửi sau khi hết hạn trả hàng 3 ngày.
-// Tiền không được trả ngay lúc confirm-receipt nữa (xem OrderServiceImpl.confirmReceipt) - đơn
-// DELIVERED/COMPLETED nào đã quá autoCompleteDeadline, chưa có payoutAt, và không còn yêu cầu
-// trả hàng đang mở thì được xử lý ở đây.
 @Service
 @RequiredArgsConstructor
 @Slf4j

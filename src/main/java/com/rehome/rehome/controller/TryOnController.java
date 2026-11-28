@@ -30,15 +30,6 @@ public class TryOnController {
     private final MembershipService membershipService;
     private final com.rehome.rehome.service.MlOutfitSuggestionService mlOutfitSuggestionService;
 
-    /**
-     * §8.8 - hạn mức phối đồ AI (ảnh tĩnh) theo gói thành viên, tính theo NGÀY.
-     *
-     * <p>Đặt cạnh {@code POST /tryon/images} chứ không ở nhóm {@code /memberships} để màn phòng
-     * phối đồ (M-06) chỉ gọi một nhóm API, và để song song với {@code GET /tryon/live/quota}.
-     *
-     * <p>Mobile gọi trước khi bấm "Sinh ảnh" để hiện "Còn X/{limitPerDay} lượt hôm nay", và dùng
-     * {@code upsellTier} để hiện nút "Nâng cấp" trong dialog lỗi 429 TRYON_IMAGE_QUOTA_EXCEEDED.
-     */
     @GetMapping("/quota")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<AiTryOnQuotaResponse>> getQuota(
@@ -50,7 +41,6 @@ public class TryOnController {
         return ResponseEntity.ok(ApiResponse.success(membershipService.getAiTryOnQuota(account)));
     }
 
-    // API 97 (F-072..F-079): sinh ảnh thử đồ. Gọi đồng bộ, có thể mất vài chục giây vì chờ AI.
     @PostMapping("/images")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<TryOnImageResponse>> createImage(
@@ -65,7 +55,6 @@ public class TryOnController {
                 .body(ApiResponse.success(created, 201, "Đã tạo ảnh thử đồ"));
     }
 
-    // F-080: xem bộ sưu tập ảnh thử đồ
     @GetMapping("/images")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<PageResponse<TryOnImageResponse>>> getCollection(
@@ -79,7 +68,6 @@ public class TryOnController {
         return ResponseEntity.ok(ApiResponse.success(tryOnService.getCollection(account, page, size)));
     }
 
-    // Xem 1 ảnh trong bộ sưu tập (kèm imageUrl, thông tin từng món và warehouseId)
     @GetMapping("/images/{id}")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<TryOnImageResponse>> getImage(
@@ -114,7 +102,6 @@ public class TryOnController {
                 mlOutfitSuggestionService.suggest(account, productId, latitude, longitude)));
     }
 
-    // API 96 (F-075): gợi ý món còn thiếu. slot nhận String để slot sai/thiếu trả đúng message của spec
     @GetMapping("/suggestions")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<List<TryOnSuggestionResponse>>> getSuggestions(
@@ -124,7 +111,6 @@ public class TryOnController {
         return ResponseEntity.ok(ApiResponse.success(tryOnService.getSuggestions(slot, excludeProductId)));
     }
 
-    // F-081: xóa ảnh khỏi bộ sưu tập
     @DeleteMapping("/images/{id}")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<Void>> deleteImage(

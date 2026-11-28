@@ -4,13 +4,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 
-/**
- * Mốc "hôm nay" / "tháng này" theo giờ {@code Asia/Ho_Chi_Minh}, dùng chung cho mọi hạn mức tính
- * theo ngày/tháng (thử đồ real-time, phối đồ AI). Hạn mức reset 00:00 giờ VN - nếu tính theo UTC
- * thì Member sẽ thấy lượt reset lúc 7 giờ sáng.
- *
- * <p>Khoảng luôn là nửa mở {@code [from, to)} để dùng trực tiếp với {@code countBy...Between}.
- */
 public final class VnTimeWindow {
 
     public static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");

@@ -17,18 +17,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.util.StringUtils;
 
-/**
- * Push notification (F-092/F-093/F-094) qua Firebase Cloud Messaging khi app đã tắt/background -
- * lúc đó WebSocket (xem {@link WebSocketConfig}) không còn kết nối để nhận.
- *
- * <p>Chỉ khởi tạo khi {@code app.push.enabled=true}, để dev/CI không cần service account thật vẫn
- * chạy được (khớp cách {@link CloudinaryConfig} làm cho storage) - lúc đó
- * {@code NoopPushNotificationServiceImpl} nhận việc, không gọi Firebase.
- *
- * <p>Service account key KHÔNG commit vào repo (secret). Lấy chuỗi base64 của file JSON tải từ
- * Firebase Console > Project Settings > Service accounts > Generate new private key, set vào env
- * var {@code FIREBASE_CREDENTIALS_BASE64}.
- */
 @Configuration
 @ConditionalOnProperty(name = "app.push.enabled", havingValue = "true")
 public class FirebaseConfig {

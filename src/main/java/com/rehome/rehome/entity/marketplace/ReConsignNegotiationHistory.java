@@ -8,8 +8,6 @@ import java.time.Instant;
 import java.util.UUID;
 import lombok.*;
 
-// Một vòng thương lượng giá ký gửi lại cuối kỳ (Moderator đề xuất / Member đề xuất lại / Moderator
-// phản hồi / từ chối / quá hạn), để hai bên xem lại toàn bộ lịch sử trên GET biên nhận.
 @Entity
 @Table(name = "re_consign_negotiation_history")
 @Getter
@@ -27,7 +25,6 @@ public class ReConsignNegotiationHistory {
     @JoinColumn(name = "decision_id", nullable = false)
     private EndOfTermDecision decision;
 
-    // Ai thực hiện hành động này: MEMBER hoặc MODERATOR
     @Enumerated(EnumType.STRING)
     @Column(name = "actor", nullable = false)
     private Role actor;
@@ -36,7 +33,6 @@ public class ReConsignNegotiationHistory {
     @Column(name = "action", nullable = false)
     private ReConsignNegotiationAction action;
 
-    // Giá đề xuất/chốt ở vòng này; null với DECLINE/EXPIRE
     @Column(name = "price", precision = 19, scale = 2)
     private BigDecimal price;
 

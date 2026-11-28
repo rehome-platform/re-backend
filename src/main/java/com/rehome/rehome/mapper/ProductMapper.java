@@ -25,7 +25,6 @@ public class ProductMapper {
     private long takeBackPickupDeadlineDays;
 
 
-    // Dòng của danh sách /products/mine: không có priceChanges, termHistory
     public MyProductResponse toMyProduct(Product product, String photoUrl,
                                          EndOfTermDecision decision, OrderItem orderItem,
                                          ItemWithdrawalRequest withdrawal, DegradedItemCase degradedCase) {
@@ -35,7 +34,6 @@ public class ProductMapper {
         return base(product, photoUrl, decision, orderItem, withdrawal, degradedCase).build();
     }
 
-    // /products/mine/{id}: thêm lịch sử giảm giá và các kỳ
     public MyProductResponse toMyProductDetail(Product product, String photoUrl,
                                                EndOfTermDecision decision, OrderItem orderItem,
                                                ItemWithdrawalRequest withdrawal,
@@ -106,15 +104,10 @@ public class ProductMapper {
                 .receiptId(currentReceiptId(r, d))
                 .freeWithdrawalWindowDays(r.getFreeWithdrawalWindowDays())
                 .withdrawalFee(r.getWithdrawalFee())
-                // Quyền lợi "ưu tiên hiển thị" của gói VIP - hệ thống tự bật/tắt, không có nút cho
-                // Member. Trả cả mốc hết hạn để M-09 hiện banner "...đến {ngày hết hạn}".
                 .featured(FeaturedListingManager.isFeatured(p))
                 .featuredUntil(p.getFeaturedUntil());
     }
 
-    // Biên nhận đang áp dụng = biên nhận mới nhất đã xác nhận. Món đã ký gửi lại (RE_CONSIGN)
-    // thì trả biên nhận của lần ký gửi lại, nhưng chỉ khi Member đã xác nhận; chưa xác nhận
-    // thì biên nhận cũ vẫn là hợp đồng đang có hiệu lực.
     private static UUID currentReceiptId(ConsignmentReceipt original, EndOfTermDecision d) {
         if (d != null && d.getDecision() == EndOfTermChoice.RE_CONSIGN) {
             ConsignmentReceipt reConsigned = d.getNewReceipt();

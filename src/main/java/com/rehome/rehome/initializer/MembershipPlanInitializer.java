@@ -12,20 +12,6 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Seed 4 dòng {@code membership_plans} (FREE/SILVER/GOLD/DIAMOND), giống cách
- * {@code SystemConfigInitializer} seed tham số cấu hình.
- *
- * <p><b>Chỉ tạo hạng CHƯA có dòng; không bao giờ ghi đè giá trị Admin đã sửa.</b> Các con số dưới
- * đây là <b>giá trị seed ban đầu</b>, không phải nguồn cấu hình: Admin đổi được hết ở màn W-01 và
- * lần restart sau sẽ không bị initializer ghi về số cũ. Muốn đổi hạn mức thì sửa trong app, đừng
- * sửa file này.
- *
- * <p>{@code live_tryon_per_month} / {@code ai_tryon_per_month} seed {@code null} = KHÔNG chặn theo
- * tháng (hạn mức chính là theo ngày). Cột vẫn tồn tại để sau này siết thêm trần tháng mà không phải
- * migrate DB - xem cảnh báo chi phí ở đặc tả §2.2: hạn mức ngày của DIAMOND mở trần lý thuyết tới
- * 600 lượt real-time + 1.800 lượt phối đồ mỗi tháng cho 99.000đ.
- */
 @Slf4j
 @Component
 @Order(1)
@@ -52,8 +38,6 @@ public class MembershipPlanInitializer implements CommandLineRunner {
                 .aiTryonPerMonth(null)
                 .featuredListing(false)
                 .maxPendingConsignmentForms(5)
-                // FREE không mua được: nó là hạng mặc định, tồn tại để hạn mức miễn phí và trả phí
-                // cùng đọc từ một nguồn
                 .purchasable(false)
                 .active(true)
                 .sortOrder(0)
@@ -64,15 +48,12 @@ public class MembershipPlanInitializer implements CommandLineRunner {
                 .name("Thành viên Bạc")
                 .description("Gói nhập môn, dùng thử đồ thoải mái hơn")
                 .pricePerMonth(new BigDecimal("29000"))
-                // Gói năm seed = 10 tháng tiền (tiết kiệm ~17%)
                 .pricePerYear(new BigDecimal("290000"))
                 .liveTryonPerDay(5)
                 .liveTryonPerMonth(null)
                 .liveTryonMaxSeconds(10)
                 .aiTryonPerDay(15)
                 .aiTryonPerMonth(null)
-                // Bảng quyền lợi gốc ghi SILVER là "không", nhưng quyết định chốt (§17 mục 12) là
-                // SILVER TRỞ LÊN đều có. Muốn thu hẹp lại thì Admin tắt ở W-01, không sửa code.
                 .featuredListing(true)
                 .maxPendingConsignmentForms(10)
                 .purchasable(true)

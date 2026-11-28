@@ -7,9 +7,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-// API 97 - POST /tryon/images
-// Hợp lệ khi đúng 1 trong 2 bộ: {topProductId + bottomProductId} hoặc {dressProductId}.
-// "Đúng 1 bộ" KHÔNG kiểm bằng annotation vì spec trả 409 INCOMPLETE_OUTFIT (không phải 400) -> kiểm ở service.
 @Getter
 @Setter
 @NoArgsConstructor

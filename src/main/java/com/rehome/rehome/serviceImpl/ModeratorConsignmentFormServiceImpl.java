@@ -62,7 +62,6 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
 
-    // Cùng một quy tắc "biên nhận mới nhất" cho danh sách và chi tiết: createdAt lớn nhất, hòa thì id lớn hơn
     private static final Comparator<ConsignmentReceipt> NEWER_RECEIPT = Comparator
             .comparing(ConsignmentReceipt::getCreatedAt, Comparator.nullsFirst(Comparator.naturalOrder()))
             .thenComparing(ConsignmentReceipt::getId, Comparator.nullsFirst(Comparator.naturalOrder()));
@@ -75,8 +74,6 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
     private final MemberProfileRepository memberProfileRepository;
     private final ModeratorProfileRepository moderatorProfileRepository;
     private final SystemConfigReader systemConfigReader;
-
-    // ------------------------------------------------------------------ list
 
     @Override
     @Transactional(readOnly = true)
@@ -109,11 +106,9 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
                     warehouseId, ConsignmentFormStatus.PENDING, pageable);
             case APPROVED -> consignmentFormRepository.findForModeratorByStatus(
                     warehouseId, ConsignmentFormStatus.APPROVED, pageable);
-            // Dựa vào status + biên nhận + sản phẩm, không dựa vào hàng đợi kiểm định
             case INSPECTING -> consignmentFormRepository.findInspectionTabForModerator(
                     warehouseId, ConsignmentFormStatus.INSPECTING, pageable);
             case STOCKED_TODAY -> {
-                // "Hôm nay" theo giờ Việt Nam (UTC+7): [00:00 hôm nay, 00:00 ngày mai)
                 LocalDate today = LocalDate.now(VN_ZONE);
                 Instant startAt = today.atStartOfDay(VN_ZONE).toInstant();
                 Instant endAt = today.plusDays(1).atStartOfDay(VN_ZONE).toInstant();
@@ -123,29 +118,22 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
         };
     }
 
-    // ---------------------------------------------------------------- detail
-
     @Override
     @Transactional(readOnly = true)
     public ModeratorConsignmentFormResponse getDetail(Account moderator, UUID id) {
         ConsignmentForm form = consignmentFormRepository.findWithDetailsById(id)
-                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));      // 404
+                .orElseThrow(() -> new AppException(ErrorCode.CONSIGNMENT_FORM_NOT_FOUND));
 
-        // Không đọc nháp của Member, không đọc form kho khác
         Warehouse warehouse = requireWarehouse(moderator);
         if (form.getStatus() == ConsignmentFormStatus.DRAFT
                 || form.getWarehouse() == null
                 || !form.getWarehouse().getId().equals(warehouse.getId())) {
-            throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);                         // 403
+            throw new AppException(ErrorCode.CONSIGNMENT_FORM_FORBIDDEN);
         }
 
-        // Đi chung đường build với danh sách để dùng cùng quy tắc chọn biên nhận
         return buildResponses(List.of(form), true).get(0);
     }
 
-    // --------------------------------------------------------------- mapping
-
-    // Gom dữ liệu liên quan của cả trang bằng vài query theo lô, tránh N+1
     private List<ModeratorConsignmentFormResponse> buildResponses(List<ConsignmentForm> forms, boolean detail) {
         if (forms.isEmpty()) {
             return List.of();
@@ -153,7 +141,6 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
 
         List<UUID> formIds = forms.stream().map(ConsignmentForm::getId).toList();
 
-        // Biên nhận mới nhất của từng form (form có nhiều lần ký gửi lại có nhiều biên nhận)
         Map<UUID, ConsignmentReceipt> latestReceipts = consignmentReceiptRepository.findLatestByFormIds(formIds)
                 .stream()
                 .collect(Collectors.toMap(
@@ -161,7 +148,6 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
                         Function.identity(),
                         (a, b) -> NEWER_RECEIPT.compare(a, b) >= 0 ? a : b));
 
-        // Sản phẩm của đúng các biên nhận mới nhất đó
         List<UUID> receiptIds = latestReceipts.values().stream().map(ConsignmentReceipt::getId).toList();
         Map<UUID, Product> productsByReceipt = receiptIds.isEmpty()
                 ? Map.of()
@@ -171,7 +157,6 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
                         Function.identity(),
                         (a, b) -> a));
 
-        // Chỉ form chưa có biên nhận mới cần tra claim của hàng đợi
         Map<String, Account> claimers = loadQueueClaimers(forms, latestReceipts);
 
         Map<UUID, MemberProfile> memberProfiles = loadMemberProfiles(forms);
@@ -190,7 +175,6 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
             Product product = receipt == null ? null : productsByReceipt.get(receipt.getId());
             List<String> formPhotos = photos.getOrDefault(form.getId(), List.of());
 
-            // Giai đoạn trước biên nhận: người nhận việc trong hàng đợi. Sau biên nhận: moderator lưu trên biên nhận
             Account responsible = receipt != null
                     ? receipt.getModerator()
                     : claimers.get(form.getId().toString());
@@ -254,8 +238,6 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
                     .createdAt(receipt.getCreatedAt())
                     .build());
         }
-        // Đang kiểm định, chưa lập biên nhận: trả cấu hình hiện hành (giá trị sẽ được snapshot vào biên nhận
-        // khi hoàn tất kiểm định, ConsignmentInspectionServiceImpl dùng cùng key và giá trị mặc định)
         if (receipt == null && form.getStatus() == ConsignmentFormStatus.INSPECTING) {
             response.setConsignmentConfig(currentConsignmentConfig());
         }
@@ -289,7 +271,6 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
                 .build();
     }
 
-    // Dẫn xuất bước nghiệp vụ từ status form + biên nhận mới nhất + sản phẩm; không thêm status mới vào DB
     static ModeratorResumeStep resolveResumeStep(ConsignmentForm form, ConsignmentReceipt receipt, boolean hasProduct) {
         ConsignmentFormStatus status = form.getStatus();
         if (status == ConsignmentFormStatus.REJECTED
@@ -312,9 +293,6 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
         };
     }
 
-    // ------------------------------------------------------ batch loaders
-
-    // Claim của hàng đợi cho các form chưa có biên nhận. Ưu tiên claim ở hàng đợi kiểm định
     private Map<String, Account> loadQueueClaimers(List<ConsignmentForm> forms,
                                                    Map<UUID, ConsignmentReceipt> latestReceipts) {
         List<String> refIds = forms.stream()
@@ -385,11 +363,9 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
                 .build();
     }
 
-    // --------------------------------------------------------------- helpers
-
     private Warehouse requireWarehouse(Account moderator) {
         if (moderator == null || moderator.getWarehouse() == null) {
-            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);                             // 403
+            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);
         }
         return moderator.getWarehouse();
     }
@@ -401,7 +377,7 @@ public class ModeratorConsignmentFormServiceImpl implements ModeratorConsignment
         try {
             return ModeratorFormStage.valueOf(stage.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
-            throw new AppException(ErrorCode.INVALID_FORM_STAGE);                                 // 400
+            throw new AppException(ErrorCode.INVALID_FORM_STAGE);
         }
     }
 }

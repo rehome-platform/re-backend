@@ -15,7 +15,6 @@ import java.util.UUID;
 
 public interface ProductService {
 
-    // ---- Sàn (khách xem được, viewerId = null nếu chưa đăng nhập)
     PageResponse<ProductSummaryResponse> getProducts(String search, UUID categoryId, UUID brandId,
                                                      BigDecimal priceMin, BigDecimal priceMax,
                                                      UUID warehouseId, TryOnSlot tryonSlot,
@@ -26,7 +25,6 @@ public interface ProductService {
 
     ProductDetailResponse getProductDetail(String id, UUID viewerId);
 
-    // ---- Hàng ký gửi của tôi (Member)
     Page<MyProductResponse> getMyProducts(UUID memberId, ProductStatus status,
                                           boolean pendingDecision, Pageable pageable);
 
@@ -34,13 +32,11 @@ public interface ProductService {
 
     PriceReductionResponse reducePrice(Account account, String productId, PriceReductionRequest request);
 
-    // POST /products/{id}/donate: quyên góp sản phẩm ký gửi còn đủ điều kiện
     DonateProductResponse donate(Account account, String productId, DonateProductRequest request);
 
 
     ShippingFeePreviewResponse getShippingFeePreview(String productId, String wardName, String provinceName);
 
-    // ---- Kho (Moderator)
     ProductResponse create(CreateProductRequest request, Account account);
 
     ProductSkuLookupResponse getBySku(Account account, String sku);

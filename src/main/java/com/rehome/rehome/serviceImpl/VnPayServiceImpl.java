@@ -70,8 +70,6 @@ public class VnPayServiceImpl implements VnPayService {
     private final PaymentRepository paymentRepository;
     private final OrderService orderService;
     private final ItemWithdrawalRequestService itemWithdrawalRequestService;
-    // Không có phụ thuộc vòng: MembershipServiceImpl mở giao dịch cổng qua
-    // MembershipGatewayPaymentBuilder, không gọi vào service này.
     private final MembershipService membershipService;
     private final MembershipPaymentRepository membershipPaymentRepository;
     private final ReturnShipBackService returnShipBackService;
@@ -81,8 +79,6 @@ public class VnPayServiceImpl implements VnPayService {
     public CreateVnPayResponse createPaymentForOrders(String email, List<UUID> orderIds, String customReturnUrl,
                                                        String clientIp) {
 
-        // Quyền sở hữu và trạng thái đơn do OrderService kiểm, để trả ví / VNPay
-        // dùng chung đúng một bộ mã lỗi ORDER_ALREADY_PAID / ORDER_NOT_PENDING
         List<Order> orders = orderService.loadPayableOrders(email, orderIds);
 
         for (Order order : orders) {
@@ -94,10 +90,7 @@ public class VnPayServiceImpl implements VnPayService {
         }
 
         String effectiveReturnUrl = StringUtils.hasText(customReturnUrl) ? customReturnUrl : returnUrl;
-        // Với lô nhiều đơn thì lấy đơn đầu làm mốc, các đơn còn lại tra qua bảng payments
         String txnRef = orders.get(0).getId() + "-" + System.currentTimeMillis();
-        // Không nối hết mã đơn vào đây: vnp_OrderInfo có giới hạn độ dài, lô nhiều đơn sẽ tràn.
-        // Muốn biết lô gồm đơn nào thì tra payments theo vnp_txn_ref.
         String orderInfo = orders.size() == 1
                 ? "Thanh toan don hang: " + orders.get(0).getOrderNo()
                 : "Thanh toan " + orders.size() + " don hang ReHome";
@@ -111,8 +104,6 @@ public class VnPayServiceImpl implements VnPayService {
         String createDate = now.format(formatter);
 
 
-// Link hết hạn đúng lúc đơn hết hạn thanh toán (order_payment_timeout_minutes);
-// lô nhiều đơn thì lấy hạn sớm nhất
         ZonedDateTime expireAt = orders.stream()
                 .map(Order::getPaymentDeadline)
                 .filter(Objects::nonNull)
@@ -136,8 +127,6 @@ public class VnPayServiceImpl implements VnPayService {
         fields.put("vnp_CreateDate", createDate);
         fields.put("vnp_ExpireDate", expireDate);
 
-        // Query string và chuỗi hash dùng chung 1 công thức (key=value sắp xếp theo key, value url-encode),
-        // nên chữ ký tính trên đúng chuỗi sẽ được gửi đi, không cần build hai lần.
         String query = hashAllFields(fields);
 
         String secureHash;
@@ -150,8 +139,6 @@ public class VnPayServiceImpl implements VnPayService {
 
         String paymentUrl = payUrl + "?" + query + "&vnp_SecureHash=" + secureHash;
 
-        // Mỗi đơn vẫn một dòng payments riêng (để đối soát theo đơn), nhưng chung vnp_TxnRef
-        // vì chỉ có một giao dịch VNPay
         for (Order order : orders) {
             Payment payment = paymentRepository.findByOrder_Id(order.getId())
                     .orElseGet(() -> Payment.builder().order(order).build());
@@ -197,9 +184,6 @@ public class VnPayServiceImpl implements VnPayService {
 
         String txnRef = params.get("vnp_TxnRef");
 
-        // Route theo TIỀN TỐ: "SUB-" = mua gói thành viên. Xem MembershipGatewayPaymentBuilder.
-        // Mua gói chỉ mở một giao dịch cho một subscription nên không có bước đối chiếu tổng tiền
-        // của cả lô như đơn hàng; số tiền đã nằm trong membership_payments.
         if (MembershipGatewayPaymentBuilder.isMembershipRef(txnRef)) {
             if (membershipService.applyVnPayResult(txnRef, params.get("vnp_ResponseCode"),
                     params.get("vnp_TransactionNo"))) {
@@ -216,7 +200,6 @@ public class VnPayServiceImpl implements VnPayService {
 
         List<Payment> payments = paymentRepository.findAllByVnpTxnRef(txnRef);
         if (payments.isEmpty()) {
-            // Không phải thanh toán đơn hàng - có thể là phí rút hàng (API 91 / F-033)
             boolean handled = itemWithdrawalRequestService.applyVnPayFeePaymentResult(
                     params.get("vnp_TxnRef"), params.get("vnp_ResponseCode"), params.get("vnp_TransactionNo"));
             if (handled) {
@@ -231,7 +214,6 @@ public class VnPayServiceImpl implements VnPayService {
             return new VnPayIpnResult("02", "Order already confirmed");
         }
 
-        // Giao dịch trả gộp nhiều đơn thì VNPay thu tổng, nên phải đối chiếu với tổng các dòng payments
         long expectedAmount = totalAmount(payments).setScale(0, RoundingMode.HALF_UP).longValueExact() * 100;
         long receivedAmount;
         try {
@@ -264,8 +246,6 @@ public class VnPayServiceImpl implements VnPayService {
         Payment payment = paymentRepository.findByOrder_Id(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Chưa có giao dịch VNPay nào cho đơn hàng này"));
 
-        // Đơn này có thể nằm trong một giao dịch VNPay trả gộp nhiều đơn - hỏi VNPay một lần rồi
-        // áp kết quả cho cả lô, không để các đơn anh em kẹt PENDING
         if (payment.getStatus() == PaymentStatus.PENDING) {
             syncWithVnPay(paymentRepository.findAllByVnpTxnRef(payment.getVnpTxnRef()));
         }
@@ -306,8 +286,6 @@ public class VnPayServiceImpl implements VnPayService {
             throw new IllegalArgumentException("Không tìm thấy giao dịch tương ứng");
         }
 
-        // Trạng thái hiển thị luôn lấy từ DB (do IPN cập nhật), không tin tham số trên URL redirect
-        // vì đây đi qua browser, có thể bị sửa. Nếu IPN chưa kịp tới thì hỏi lại VNPay 1 lần.
         if (payments.stream().anyMatch(p -> p.getStatus() == PaymentStatus.PENDING)) {
             syncWithVnPay(payments);
         }
@@ -372,7 +350,6 @@ public class VnPayServiceImpl implements VnPayService {
                 .format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
         String orderInfo = "Truy van giao dich " + txnRef;
 
-        // querydr dùng công thức hash khác (nối chuỗi theo thứ tự cố định bằng "|"), không dùng hashAllFields
         String hashData = String.join("|",
                 requestId, version, "querydr", tmnCode, txnRef,
                 transactionDate, createDate, "127.0.0.1", orderInfo);
@@ -422,14 +399,11 @@ public class VnPayServiceImpl implements VnPayService {
                 response.getTxnRef(), response.getResponseCode(), response.getTransactionStatus(),
                 response.getTransactionNo(), response.getMessage());
 
-        // vnp_ResponseCode là mã của chính request truy vấn (00 = truy vấn thành công), khác với
-        // vnp_TransactionStatus là trạng thái thật của giao dịch
         if (!"00".equals(response.getResponseCode())) {
             log.warn(">>>> Truy van VNPay loi cho txnRef={}: {}", payment.getVnpTxnRef(), response.getMessage());
             return;
         }
 
-        // "01" = giao dịch đang chờ xử lý bên VNPay, giữ nguyên PENDING chờ IPN hoặc lần poll kế tiếp
         if ("01".equals(response.getTransactionStatus())) {
             return;
         }
@@ -450,8 +424,6 @@ public class VnPayServiceImpl implements VnPayService {
             payment.setPaidAt(Instant.now());
             paymentRepository.save(payment);
 
-            // Không tự set PAID ở đây: đơn có thể đã bị hủy trước khi IPN về, khi đó hàng đã nhả
-            // lại lên sàn nên tiền phải vào ví người mua chứ không được chốt lại đơn
             orderService.applyGatewayPaymentSuccess(
                     payment.getOrder().getId(),
                     OrderPaymentMethod.VNPAY,
@@ -466,8 +438,6 @@ public class VnPayServiceImpl implements VnPayService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
-    // Sắp xếp field theo tên, bỏ field rỗng, nối "key=value" (value url-encode) bằng "&".
-    // Đây chính là chuỗi dùng để tính vnp_SecureHash, và cũng là query string gửi lên VNPay.
     private String hashAllFields(Map<String, String> fields) {
         List<String> fieldNames = new ArrayList<>(fields.keySet());
         java.util.Collections.sort(fieldNames);

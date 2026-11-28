@@ -9,7 +9,6 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 
-/** API 143 - Admin sửa kho. Gửi đủ các field (PUT), giống API tạo, gồm cả địa chỉ hành chính (provinceName, wardName, provinceId, wardCode). */
 @Data
 public class UpdateWarehouseRequest {
 
@@ -35,8 +34,6 @@ public class UpdateWarehouseRequest {
     @NotBlank(message = "wardCode không được để trống")
     @Size(max = 50, message = "wardCode tối đa 50 ký tự")
     private String wardCode;
-
-    // isNewAddress không nhận từ client: kho luôn khai theo hành chính 2 cấp (isNewAddress = true)
 
     @NotNull(message = "latitude không được để trống")
     @DecimalMin(value = "-90", message = "latitude phải trong khoảng -90 đến 90")

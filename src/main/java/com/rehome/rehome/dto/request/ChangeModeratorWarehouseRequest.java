@@ -5,7 +5,6 @@ import lombok.Data;
 
 import java.util.UUID;
 
-/** API 140 - chuyển Moderator sang kho khác. */
 @Data
 public class ChangeModeratorWarehouseRequest {
 

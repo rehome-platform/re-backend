@@ -85,8 +85,6 @@ public class CampaignServiceImpl implements CampaignService {
                 .orElseThrow(() -> new IllegalArgumentException(CAMPAIGN_NOT_FOUND));
         boolean isOwner = viewerAccountId != null
                 && campaign.getOrganization().getAccountId().equals(viewerAccountId);
-        // HIDDEN (bị Moderator xử lý vi phạm): chỉ tổ chức sở hữu xem được, Member/Guest coi như
-        // không tồn tại - giống hành vi với CommunityPost REMOVED (CommunityPostServiceImpl.getDetail)
         if (!isOwner && (campaign.getStatus() == CampaignStatus.HIDDEN
                 || isBanned(campaign.getOrganization()))) {
             throw new IllegalArgumentException(CAMPAIGN_NOT_FOUND);
@@ -113,7 +111,6 @@ public class CampaignServiceImpl implements CampaignService {
 
         OrganizationProfile organization = organizationProfileRepository.findById(organizationAccountId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND));
-        // Chỉ tổ chức đã xác minh mới được tạo chiến dịch (docs/OVERVIEW.md mục 2, Actor Organization)
         if (organization.getVerificationStatus() != VerificationStatus.VERIFIED) {
             throw new ForbiddenException("Hồ sơ tổ chức chưa được xác minh.");
         }
@@ -121,8 +118,6 @@ public class CampaignServiceImpl implements CampaignService {
         int maxConcurrent = systemConfigReader.getInt(
                 SystemConfigKeys.MAX_CONCURRENT_CAMPAIGNS,
                 SystemConfigKeys.DEFAULT_MAX_CONCURRENT_CAMPAIGNS);
-        // "Đang chạy" tính cả chiến dịch bị Moderator ẩn do vi phạm (HIDDEN) nhưng chưa hết hạn -
-        // không thì tổ chức bị ẩn 1 chiến dịch lại được lách hạn mức để mở thêm cái mới ngay lúc đó
         long running = campaignRepository.countActiveByOrganization(organizationAccountId, Instant.now());
         if (running >= maxConcurrent) {
             throw new ConflictException(
@@ -148,8 +143,6 @@ public class CampaignServiceImpl implements CampaignService {
         auditLogger.logCurrentOperation("CREATE_CAMPAIGN", "CAMPAIGN", campaign.getId(), campaign.getStatus().name());
         moderation.recordMatch(organizationAccountId, "CAMPAIGN", campaign.getId(), moderationAction);
 
-        // UC-44: báo cho người theo dõi tổ chức khi có chiến dịch mới. Chỉ gửi lúc TẠO, không
-        // gửi khi sửa (updateCampaign không gọi hàm này).
         notificationService.notifyFollowers(organizationAccountId, NotificationType.FOLLOWED_ORG_CAMPAIGN,
                 organization.getDisplayName() + " mở chiến dịch mới",
                 campaign.getTitle(),
@@ -170,8 +163,6 @@ public class CampaignServiceImpl implements CampaignService {
             throw new ConflictException("Chỉ sửa được chiến dịch đang mở.");
         }
 
-        // Body giống API 119 nhưng field nào bỏ trống thì giữ nguyên: PUT toàn phần sẽ
-        // xoá mất startTime/endTime (NOT NULL) khi client chỉ gửi vài field
         var moderationAction = moderation.evaluate(request.getTitle(), request.getDescription());
         if (StringUtils.hasText(request.getTitle())) {
             campaign.setTitle(request.getTitle());
@@ -206,7 +197,6 @@ public class CampaignServiceImpl implements CampaignService {
         }
         campaign.setReceiveAtOwnAddress(receiveAtOwnAddress);
 
-        // Kiểm tra trên giá trị sau khi ghép, vì client có thể chỉ gửi endTime
         requireValidWindow(campaign.getStartTime(), campaign.getEndTime());
 
         campaignRepository.save(campaign);
@@ -254,14 +244,11 @@ public class CampaignServiceImpl implements CampaignService {
     public CampaignStatusResponse closeCampaign(UUID organizationAccountId, UUID campaignId) {
         Campaign campaign = requireOwnCampaign(organizationAccountId, campaignId);
 
-        // Không cho tự đóng để "thoát" khỏi HIDDEN: CLOSED lại là trạng thái public listing chấp
-        // nhận lọc (parsePublicStatusFilter), tự đóng sẽ lộ ngược chiến dịch đang bị xử lý vi phạm
         if (campaign.getStatus() == CampaignStatus.HIDDEN) {
             throw new ConflictException(
                     "Chiến dịch đang bị ẩn do vi phạm, không thể tự đóng.", "CAMPAIGN_HIDDEN");
         }
 
-        // Đóng lại chiến dịch đã đóng thì coi như không có gì xảy ra (spec không khai báo 409 ở đây)
         if (campaign.getStatus() != CampaignStatus.CLOSED) {
             campaign.setStatus(CampaignStatus.CLOSED);
             campaignRepository.save(campaign);
@@ -358,9 +345,6 @@ public class CampaignServiceImpl implements CampaignService {
         return PageResponse.from(result.map(this::toPublicResponse));
     }
 
-    // Response dùng ACTIVE/CLOSED nên filter cũng nhận đúng bộ chữ đó; vẫn chấp nhận
-    // tên enum gốc OPEN để khớp với tài liệu API. Chỉ listMyCampaigns (màn quản lý của chính tổ
-    // chức) chấp nhận lọc HIDDEN - public listing (parsePublicStatusFilter) không có nhánh này.
     private static CampaignStatus parseStatusFilter(String status) {
         if (!StringUtils.hasText(status)) {
             return null;
@@ -373,9 +357,6 @@ public class CampaignServiceImpl implements CampaignService {
         };
     }
 
-    // Duyệt công khai (xuyên tổ chức hoặc theo 1 tổ chức): bỏ trống status thì mặc định chỉ
-    // chiến dịch đang mở, khác với listMyCampaigns (bỏ trống = mọi trạng thái, màn quản lý của
-    // chính tổ chức cần thấy cả chiến dịch đã đóng)
     private static CampaignStatus parsePublicStatusFilter(String status) {
         if (!StringUtils.hasText(status)) {
             return CampaignStatus.OPEN;
@@ -402,8 +383,6 @@ public class CampaignServiceImpl implements CampaignService {
         }
     }
 
-    // Kho đang có lượt chờ lấy CỦA CHÍNH chiến dịch này thì không cho bỏ khỏi chiến dịch
-    // (mobile đã khoá sẵn ở UI) - lượt chờ lấy của chiến dịch khác dùng chung kho không tính
     private void requireNoPendingPickupOnRemovedWarehouses(UUID campaignId, Set<Warehouse> currentWarehouses,
                                                             Set<Warehouse> newWarehouses) {
         Set<UUID> newIds = newWarehouses.stream().map(Warehouse::getId).collect(Collectors.toSet());
@@ -452,8 +431,6 @@ public class CampaignServiceImpl implements CampaignService {
                 .orElse(null);
     }
 
-    // Đọc ngược lại chuỗi đã ghép ở joinPreferredItemTypes, để API trả cùng kiểu List<String>
-    // đã nhận lúc tạo/sửa - thiếu bước này thì màn sửa nhận lại rỗng dù đã lưu (bug đã báo)
     private static List<String> splitPreferredItemTypes(String preferredItemTypes) {
         if (!StringUtils.hasText(preferredItemTypes)) {
             return List.of();
@@ -492,10 +469,6 @@ public class CampaignServiceImpl implements CampaignService {
                 .build();
     }
 
-    // includeDonationNoteCount cũng chính là "isOwner" ở getPublicDetail (xem toPublicResponse
-    // 2-arg overload) - dùng lại thay vì thêm tham số riêng, vì cả hai field đều chỉ lộ cho tổ chức
-    // sở hữu. Lấy báo cáo RESOLVED gần nhất của target này, không có thì null (ẩn vì lý do khác
-    // chưa có trong hệ thống, hoặc dữ liệu cũ)
     private String latestResolutionReason(ViolationTargetType targetType, UUID targetId) {
         return violationReportRepository.findByTargetTypeAndTargetIdOrderByCreatedAtAsc(targetType, targetId)
                 .stream()
@@ -556,9 +529,6 @@ public class CampaignServiceImpl implements CampaignService {
                 .toList();
     }
 
-    // FE hiển thị "ACTIVE"/"CLOSED"/"HIDDEN"; DB giữ nguyên OPEN/CLOSED/HIDDEN (xem F-098..F-102).
-    // HIDDEN chỉ bao giờ tới được đây cho tổ chức sở hữu (getPublicDetail đã chặn 404 ở trên) hoặc
-    // ở listMyCampaigns - không lộ nhầm cho Member/Guest thành "CLOSED".
     private static String toApiStatus(CampaignStatus status) {
         return switch (status) {
             case OPEN -> "ACTIVE";

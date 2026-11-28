@@ -13,9 +13,7 @@ public interface MembershipPlanRepository extends JpaRepository<MembershipPlan, 
 
     Optional<MembershipPlan> findByTier(MembershipTier tier);
 
-    // GET /memberships/plans: chỉ gói đang bán, FREE bị loại vì purchasable = false
     List<MembershipPlan> findAllByActiveTrueAndPurchasableTrueOrderBySortOrderAsc();
 
-    // Màn Admin W-01: cả 4 dòng kể cả FREE
     List<MembershipPlan> findAllByOrderBySortOrderAsc();
 }

@@ -12,11 +12,10 @@ public final class CodeGenerator {
 
     private CodeGenerator() {}
 
-    /** "Áo khoác" -> "AK"; "Kho Quận 10" (bỏ tiền tố "kho") -> "Q10" */
     public static String fromName(String name, String... ignoredLeadingWords) {
         String ascii = Normalizer.normalize(name, Normalizer.Form.NFD)
                 .replaceAll("\\p{M}", "")
-                .replace('đ', 'd').replace('Đ', 'D');   // đ không tách dấu bằng NFD
+                .replace('đ', 'd').replace('Đ', 'D');
 
         List<String> words = new ArrayList<>(
                 Arrays.stream(ascii.trim().split("[^A-Za-z0-9]+"))
@@ -34,7 +33,7 @@ public final class CodeGenerator {
 
         StringBuilder sb = new StringBuilder();
         for (String w : words) {
-            if (w.chars().allMatch(Character::isDigit)) sb.append(w);   // giữ nguyên số
+            if (w.chars().allMatch(Character::isDigit)) sb.append(w);
             else sb.append(Character.toUpperCase(w.charAt(0)));
         }
 
@@ -43,7 +42,6 @@ public final class CodeGenerator {
         return code.length() > MAX_LENGTH ? code.substring(0, MAX_LENGTH) : code;
     }
 
-    /** Nếu mã đã tồn tại thì thêm hậu tố 2, 3, 4... cho tới khi không trùng */
     public static String makeUnique(String base, Predicate<String> exists) {
         String candidate = base;
         int n = 2;

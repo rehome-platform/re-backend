@@ -41,7 +41,6 @@ public class BrandController {
             @Valid @RequestBody UpdateBrandRequest request) {
         return ResponseEntity.ok(ApiResponse.success(brandService.update(id, request), 200, "Đã cập nhật"));
     }
-    // BrandController (@RequestMapping("/brands"))
     @PatchMapping("/{id}/hide")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<CatalogStatusResponse>> hide(@PathVariable UUID id) {

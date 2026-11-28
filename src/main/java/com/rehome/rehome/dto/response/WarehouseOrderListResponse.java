@@ -7,10 +7,6 @@ import lombok.NoArgsConstructor;
 
 import java.util.Map;
 
-/**
- * Cùng hình dạng với OrderListResponse/SoldOrderListResponse: danh sách phân trang + số
- * lượng theo từng trạng thái cho thanh tab, nhưng đếm trên cả kho thay vì một buyer/seller.
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

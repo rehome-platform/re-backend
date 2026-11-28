@@ -52,7 +52,6 @@ public class OtpRateLimiter {
     }
 
     public void check(String email, String ipAddress) {
-        // Internal callers may omit the IP; the email limit still applies.
         if (ipAddress != null && !ipAddress.isBlank()) {
             checkBucket("ip", ipAddress, ipLimit);
         }

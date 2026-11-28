@@ -19,10 +19,6 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
-// Tách khỏi WarehouseController (/warehouses, API cho Member/Moderator) để không đụng rule /warehouses/** trong SecurityConfig.
-// API 142/143 có thêm alias đường dẫn ngắn POST /warehouses và PUT /warehouses/{id} (ADMIN): rule ADMIN tương ứng
-// đứng trước rule /warehouses/** (MEMBER) trong SecurityConfig. Không alias cả controller vì GET /warehouses
-// đã thuộc WarehouseController (trùng mapping).
 @RestController
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")

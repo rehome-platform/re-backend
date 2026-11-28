@@ -24,8 +24,7 @@ public class CompleteInspectionRequest {
     private BigDecimal agreedPrice;
 
     @Positive(message = "termLengthDays phải lớn hơn 0.")
-    private Integer termLengthDays;   // không truyền thì lấy mặc định hệ thống
+    private Integer termLengthDays;
 
-    // Ghi chú nội bộ của Moderator, không bắt buộc
     private String moderatorNote;
 }

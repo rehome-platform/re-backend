@@ -69,25 +69,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-/**
- * Mua / xem gói thành viên VIP.
- *
- * <h2>Quy tắc gia hạn và đổi hạng (đặc tả §2.3, chốt ở §17 mục 16)</h2>
- * <ul>
- *   <li>Mỗi Member tại một thời điểm có <b>tối đa 1</b> subscription {@code ACTIVE}.</li>
- *   <li>Mua khi đang còn hạn <b>cùng hạng</b> -> <b>cộng dồn</b> thời gian vào {@code expiresAt}
- *       hiện tại (không tạo dòng mới, để lịch sử hạn mức liền mạch).</li>
- *   <li>Mua khi đang còn hạn <b>khác hạng</b> -> gói cũ chuyển {@code REPLACED} và <b>dừng ngay,
- *       KHÔNG hoàn phần còn lại</b>; gói mới tính đủ từ bây giờ. Màn M-02 bắt buộc cảnh báo điều
- *       này trước khi người mua trả tiền.</li>
- *   <li>Voucher đã phát từ gói cũ <b>vẫn dùng được</b> tới khi hết hạn của chính nó - không thu hồi.</li>
- *   <li>Đổi hạng -> chạy lại set/clear {@code featured_until} theo quyền lợi của hạng mới.</li>
- * </ul>
- *
- * <h2>Pro-rata</h2>
- * Cố ý KHÔNG tính tiền chênh theo ngày khi đổi hạng (§1.4). Nếu sau này cần, chỗ sửa là
- * {@link #activate} - đừng rải logic tính tiền ra chỗ khác.
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -111,18 +92,13 @@ public class MembershipServiceImpl implements MembershipService {
     private final VoucherIssueService voucherIssueService;
     private final NotificationService notificationService;
 
-    // Mã sắp hết hạn trong bao nhiêu ngày thì tính vào voucherSummary.expiringSoon và hiện badge
-    // "Còn N ngày" ở M-04
     private static final int VOUCHER_EXPIRING_SOON_DAYS = 3;
-
-    // ================================================================ §8.1 GET /memberships/plans
 
     @Override
     public List<MembershipPlanResponse> getPlans() {
         List<MembershipPlan> plans =
                 membershipPlanRepository.findAllByActiveTrueAndPurchasableTrueOrderBySortOrderAsc();
 
-        // Nạp một lần toàn bộ mẫu voucher đang bật rồi gom theo hạng, thay vì query cho từng gói
         List<VoucherTemplate> templates = voucherTemplateRepository.findAllByActiveTrue();
 
         List<MembershipPlanResponse> result = new ArrayList<>(plans.size());
@@ -145,7 +121,6 @@ public class MembershipServiceImpl implements MembershipService {
                 }
             }
         }
-        // SHIPPING trước ORDER_DISCOUNT cho thứ tự hiển thị ổn định giữa các lần gọi
         vouchers.sort(Comparator.comparing(v -> v.getType() == VoucherType.SHIPPING ? 0 : 1));
 
         return MembershipPlanResponse.builder()
@@ -170,7 +145,6 @@ public class MembershipServiceImpl implements MembershipService {
                 .build();
     }
 
-    /** Trả theo năm tiết kiệm bao nhiêu % so với trả 12 tháng. null khi gói không bán theo năm. */
     private static BigDecimal yearlySavingPercent(MembershipPlan plan) {
         BigDecimal yearly = plan.getPricePerYear();
         if (yearly == null || plan.getPricePerMonth().signum() <= 0) {
@@ -185,8 +159,6 @@ public class MembershipServiceImpl implements MembershipService {
                 .divide(twelveMonths, 1, RoundingMode.HALF_UP);
     }
 
-    // ================================================================ §8.2 GET /memberships/me
-
     @Override
     public MyMembershipResponse getMyMembership(Account account) {
         EffectiveQuota quota = quotaResolver.resolve(account.getId());
@@ -198,8 +170,6 @@ public class MembershipServiceImpl implements MembershipService {
         long pendingForms = consignmentFormRepository.countByMember_IdAndStatus(
                 account.getId(), ConsignmentFormStatus.PENDING);
 
-        // Trạng thái/chu kỳ chỉ có nghĩa khi đang thực sự có gói; FREE thì để null để mobile biết
-        // ẩn ngày hết hạn và đổi nút chính thành "Nâng cấp gói".
         MemberSubscription subscription = quota.isFree()
                 ? null
                 : memberSubscriptionRepository.findById(quota.subscriptionId()).orElse(null);
@@ -259,7 +229,6 @@ public class MembershipServiceImpl implements MembershipService {
                 .build();
     }
 
-    /** Làm tròn LÊN: gói hết hạn trong hôm nay vẫn hiện "còn 1 ngày" chứ không phải 0. */
     private static BigDecimal remainingValue(BigDecimal pricePaid, Instant startedAt, Instant expiresAt, Instant now) {
         if (pricePaid.signum() <= 0 || startedAt == null || expiresAt == null
                 || !expiresAt.isAfter(now) || !expiresAt.isAfter(startedAt)) {
@@ -285,15 +254,11 @@ public class MembershipServiceImpl implements MembershipService {
         return (int) ((hours + 23) / 24);
     }
 
-    // ================================================================ §8.3 POST /memberships/subscribe
-
     @Override
     @Transactional
     public SubscribeMembershipResponse subscribe(Account account, SubscribeMembershipRequest request) {
 
         if (account.getRole() != Role.MEMBER) {
-            // Tổ chức mua gói là ngoài phạm vi (§1.4). Chặn ở service chứ không chỉ dựa vào
-            // @PreAuthorize, để luồng Admin grant sau này gọi vào đây cũng không lách được.
             throw new BadRequestException("Chỉ tài khoản Member mua được gói thành viên.");
         }
         if (request == null || request.getPlanId() == null) {
@@ -309,29 +274,25 @@ public class MembershipServiceImpl implements MembershipService {
         }
 
         MembershipPlan plan = membershipPlanRepository.findById(request.getPlanId())
-                .orElseThrow(() -> new AppException(ErrorCode.MEMBERSHIP_PLAN_NOT_FOUND));            // 404
+                .orElseThrow(() -> new AppException(ErrorCode.MEMBERSHIP_PLAN_NOT_FOUND));
         if (!Boolean.TRUE.equals(plan.getActive()) || !Boolean.TRUE.equals(plan.getPurchasable())) {
-            throw new AppException(ErrorCode.MEMBERSHIP_PLAN_NOT_PURCHASABLE);                        // 409
+            throw new AppException(ErrorCode.MEMBERSHIP_PLAN_NOT_PURCHASABLE);
         }
 
         BigDecimal price = cycle == BillingCycle.YEARLY ? plan.getPricePerYear() : plan.getPricePerMonth();
         if (cycle == BillingCycle.YEARLY && price == null) {
-            throw new AppException(ErrorCode.MEMBERSHIP_PLAN_YEARLY_NOT_AVAILABLE);                   // 400
+            throw new AppException(ErrorCode.MEMBERSHIP_PLAN_YEARLY_NOT_AVAILABLE);
         }
 
-        // Một giao dịch chờ thanh toán là đủ: cho mở nhiều link cùng lúc sẽ dẫn tới hai lần thu
-        // tiền cho hai subscription của cùng một người.
         Instant paymentCheckAt = Instant.now();
         memberSubscriptionRepository.cancelExpiredPendingPayments(account.getId(),
                 paymentCheckAt.minus(Duration.ofMinutes(MembershipGatewayPaymentBuilder.PAY_LINK_MINUTES)), paymentCheckAt);
         if (!memberSubscriptionRepository
                 .findAllByMember_IdAndStatus(account.getId(), SubscriptionStatus.PENDING_PAYMENT)
                 .isEmpty()) {
-            throw new AppException(ErrorCode.MEMBERSHIP_PAYMENT_PENDING);                             // 409
+            throw new AppException(ErrorCode.MEMBERSHIP_PAYMENT_PENDING);
         }
 
-        // Khóa dòng ACTIVE trước khi quyết định cộng dồn / thay thế: hai request mua song song
-        // phải nối đuôi nhau, nếu không Member sẽ có 2 gói ACTIVE.
         MemberSubscription current = memberSubscriptionRepository
                 .findActiveByMemberIdForUpdate(account.getId())
                 .filter(s -> s.isEffectiveAt(Instant.now()))
@@ -343,17 +304,13 @@ public class MembershipServiceImpl implements MembershipService {
         return subscribeByGateway(account, plan, cycle, price, method, request.getRedirectUrl());
     }
 
-    // ---- Trả bằng ví: thu tiền và kích hoạt trong cùng một transaction ----
-
     private SubscribeMembershipResponse subscribeByWallet(Account account, MembershipPlan plan,
                                                           BillingCycle cycle, BigDecimal price,
                                                           MemberSubscription current) {
-        // Khóa ví trước khi đọc số dư, cùng cơ chế với OrderServiceImpl.payOrders
         Wallet wallet = walletRepository.findByMemberIdForUpdate(account.getId())
                 .orElseThrow(() -> new ConflictException(
                         "INSUFFICIENT_BALANCE: ví chưa có số dư.", "INSUFFICIENT_BALANCE"));
 
-        // Tiền đang khóa cho yêu cầu rút không được tiêu tiếp
         BigDecimal available = wallet.getBalance().subtract(wallet.getLockedBalance());
         if (price.compareTo(available) > 0) {
             throw new ConflictException(
@@ -363,8 +320,6 @@ public class MembershipServiceImpl implements MembershipService {
         MembershipTier replacedTier = replacePreviousIfDifferentTier(current, plan);
         MemberSubscription subscription = activate(account, plan, cycle, price, current, null);
 
-        // Chỉ trừ ví SAU khi kích hoạt thành công; price = 0 (gói miễn phí Admin cấu hình) thì
-        // không ghi bút toán rỗng vào sổ.
         if (price.signum() > 0) {
             wallet.setBalance(wallet.getBalance().subtract(price));
             walletRepository.save(wallet);
@@ -380,10 +335,6 @@ public class MembershipServiceImpl implements MembershipService {
                     .note("Mua " + plan.getName() + " " + cycleLabel(cycle))
                     .build();
             walletTransactionRepository.save(purchase);
-            // Dòng đối ứng bên quỹ nền tảng, ngược dấu, để sổ sách luôn cân (F-039).
-            // Loại dòng đối ứng chính là MEMBERSHIP_PURCHASE nên đối soát quỹ vẫn tính nó -
-            // tiền thật có đi vào quỹ. MEMBERSHIP_REVENUE chỉ dùng cho tiền từ cổng (xem
-            // recordMembershipRevenue), nơi KHÔNG có dòng Member nào đối ứng.
             recordPlatformCounterpart(purchase);
         }
 
@@ -414,13 +365,9 @@ public class MembershipServiceImpl implements MembershipService {
                 .build();
     }
 
-    // ---- Trả qua cổng: chỉ tạo subscription PENDING_PAYMENT, chờ IPN ----
-
     private SubscribeMembershipResponse subscribeByGateway(Account account, MembershipPlan plan,
                                                             BillingCycle cycle, BigDecimal price,
                                                             OrderPaymentMethod method, String redirectUrl) {
-        // CHƯA đụng tới gói đang chạy: người mua có thể bỏ giữa đường, lúc đó gói cũ phải còn
-        // nguyên. Việc chuyển REPLACED/cộng dồn nằm ở applyGatewayPaymentSuccess.
         MemberSubscription pending = memberSubscriptionRepository.save(
                 newSubscriptionFromPlan(account, plan, cycle, price, null));
 
@@ -447,12 +394,6 @@ public class MembershipServiceImpl implements MembershipService {
                 .build();
     }
 
-    // ================================================================ Kích hoạt
-
-    /**
-     * Dựng dòng subscription mới từ plan, snapshot toàn bộ hạn mức. Chưa set started/expires -
-     * {@link #activate} làm việc đó, vì luồng cổng tạo dòng này trước khi biết có thu được tiền hay không.
-     */
     private MemberSubscription newSubscriptionFromPlan(Account account, MembershipPlan plan,
                                                         BillingCycle cycle, BigDecimal price,
                                                         Account grantedByAdmin) {
@@ -474,11 +415,6 @@ public class MembershipServiceImpl implements MembershipService {
                 .build();
     }
 
-    /**
-     * Chuyển gói cũ sang {@code REPLACED} khi mua gói KHÁC hạng. Không hoàn phần còn lại (§17 mục 16).
-     *
-     * @return hạng của gói vừa bị thay thế, hoặc null nếu không có gì bị thay
-     */
     private MembershipTier replacePreviousIfDifferentTier(MemberSubscription current, MembershipPlan newPlan) {
         if (current == null || current.getTier() == newPlan.getTier()) {
             return null;
@@ -492,16 +428,6 @@ public class MembershipServiceImpl implements MembershipService {
         return current.getTier();
     }
 
-    /**
-     * Kích hoạt gói. Hai nhánh:
-     * <ul>
-     *   <li><b>Cùng hạng còn hạn</b> -> cộng dồn vào {@code expiresAt} của dòng ĐANG CÓ và trả về
-     *       chính dòng đó; không tạo dòng mới. Snapshot hạn mức cũng được làm mới theo plan hiện
-     *       tại nếu plan đã tăng - người gia hạn hưởng mức mới ngay.</li>
-     *   <li><b>Khác hạng hoặc chưa có gói</b> -> dòng mới bắt đầu từ bây giờ.</li>
-     * </ul>
-     * Cuối cùng luôn chạy lại set/clear {@code featured_until} theo quyền lợi của hạng đang hiệu lực.
-     */
     private MemberSubscription activate(Account account, MembershipPlan plan, BillingCycle cycle,
                                          BigDecimal price, MemberSubscription current,
                                          Account grantedByAdmin) {
@@ -510,11 +436,9 @@ public class MembershipServiceImpl implements MembershipService {
 
         if (current != null && current.getTier() == plan.getTier()
                 && current.getStatus() == SubscriptionStatus.ACTIVE) {
-            // Cộng dồn: mốc tính là expiresAt hiện tại, không phải now - mua sớm không bị mất ngày
             current.setExpiresAt(plusMonths(current.getExpiresAt(), months));
             current.setBillingCycle(cycle);
             current.setPricePaid(price == null ? BigDecimal.ZERO : price);
-            // Nhắc lại ở kỳ mới
             current.setExpiryReminderSentAt(null);
             applyPlanSnapshotIfHigher(current, plan);
             memberSubscriptionRepository.save(current);
@@ -531,11 +455,6 @@ public class MembershipServiceImpl implements MembershipService {
         return fresh;
     }
 
-    /**
-     * Gia hạn cùng hạng thì làm mới snapshot, nhưng CHỈ theo hướng tăng: Admin đã giảm hạn mức thì
-     * giảm "chỉ áp từ kỳ sau" - mà kỳ sau chính là lần gia hạn này, nên ở đây lấy nguyên giá trị
-     * mới của plan cho mọi field. Dùng plan hiện tại làm nguồn là đúng ý nghĩa "kỳ mới".
-     */
     private static void applyPlanSnapshotIfHigher(MemberSubscription s, MembershipPlan plan) {
         s.setLiveTryonPerDay(plan.getLiveTryonPerDay());
         s.setLiveTryonPerMonth(plan.getLiveTryonPerMonth());
@@ -546,17 +465,11 @@ public class MembershipServiceImpl implements MembershipService {
         s.setMaxPendingConsignmentForms(plan.getMaxPendingConsignmentForms());
     }
 
-    /**
-     * Cộng tháng theo lịch (giờ VN) thay vì cộng 30 ngày, để gói mua ngày 15 luôn hết hạn ngày 15
-     * tháng sau. Ngày 31 cộng sang tháng chỉ có 30 ngày thì {@code java.time} tự kẹp về ngày cuối tháng.
-     */
     private static Instant plusMonths(Instant from, int months) {
         return from.atZone(com.rehome.rehome.util.VnTimeWindow.VN_ZONE)
                 .plusMonths(months)
                 .toInstant();
     }
-
-    // ================================================================ §8.4 Lịch sử mua gói
 
     @Override
     public PageResponse<MembershipPurchaseResponse> getPurchaseHistory(Account account, int page, int size) {
@@ -581,8 +494,6 @@ public class MembershipServiceImpl implements MembershipService {
                 }));
     }
 
-    // ================================================================ §8.8 GET /tryon/quota
-
     @Override
     public AiTryOnQuotaResponse getAiTryOnQuota(Account account) {
         AiTryOnQuotaGuard.Usage usage = aiTryOnQuotaGuard.usage(account.getId());
@@ -601,8 +512,6 @@ public class MembershipServiceImpl implements MembershipService {
                 .upsellTier(aiTryOnQuotaGuard.upsellTier(quota))
                 .build();
     }
-
-    // ================================================================ §8.12 Kết quả từ cổng
 
     @Override
     @Transactional
@@ -637,17 +546,6 @@ public class MembershipServiceImpl implements MembershipService {
         return true;
     }
 
-    /**
-     * Cổng báo đã nhận tiền. Quy tắc giống đơn hàng (xem {@code OrderService.applyGatewayPaymentSuccess}):
-     * <b>cổng báo thành công không tự kích hoạt</b>.
-     *
-     * <ul>
-     *   <li>Còn {@code PENDING_PAYMENT} -> kích hoạt (cộng dồn hoặc thay thế gói cũ như luồng ví).</li>
-     *   <li>Đã rời {@code PENDING_PAYMENT} (bị hủy, hoặc đã kích hoạt bằng đường khác) -> tiền là
-     *       tiền thật nên <b>hoàn vào ví Member</b>; cờ chống hoàn hai lần là chính trạng thái
-     *       {@code CANCELLED} + {@code cancelReason} đã ghi "đã hoàn".</li>
-     * </ul>
-     */
     @Override
     @Transactional
     public void applyGatewayPaymentSuccess(UUID subscriptionId, OrderPaymentMethod method, String note) {
@@ -670,9 +568,6 @@ public class MembershipServiceImpl implements MembershipService {
             MemberSubscription effective;
 
             if (current != null && current.getTier() == plan.getTier()) {
-                // Gia hạn CÙNG hạng: cộng dồn vào dòng đang chạy (mốc là expiresAt hiện tại, mua
-                // sớm không mất ngày), rồi đóng dòng PENDING lại - nó không còn vai trò gì.
-                // Payment được trỏ sang dòng thật để lịch sử mua gói hiện đúng gói nào đã gia hạn.
                 current.setExpiresAt(plusMonths(current.getExpiresAt(), months));
                 current.setBillingCycle(subscription.getBillingCycle());
                 current.setPricePaid(subscription.getPricePaid());
@@ -692,9 +587,6 @@ public class MembershipServiceImpl implements MembershipService {
                 }
                 effective = current;
             } else {
-                // Khác hạng -> gói cũ dừng ngay, không hoàn phần còn lại (§17 mục 16).
-                // Kích hoạt CHÍNH dòng PENDING này, không tạo dòng mới: dòng đó đã mang snapshot
-                // hạn mức và giá đã trả từ lúc mở giao dịch, và membership_payments đang trỏ vào nó.
                 replacePreviousIfDifferentTier(current, plan);
 
                 Instant now = Instant.now();
@@ -706,8 +598,6 @@ public class MembershipServiceImpl implements MembershipService {
                 effective = subscription;
             }
 
-            // Tiền đi từ ngoài vào ví quỹ: bên MEMBER KHÔNG có bút toán nào (đúng convention hiện
-            // tại của thanh toán cổng), chỉ ghi 1 dòng doanh thu bên PLATFORM.
             recordMembershipRevenue(subscription.getPricePaid(),
                     "Doanh thu bán " + plan.getName() + " (" + method + ")");
 
@@ -719,7 +609,6 @@ public class MembershipServiceImpl implements MembershipService {
             return;
         }
 
-        // Đã hoàn tiền trước đó rồi thì không hoàn thêm lần nữa
         if (subscription.getCancelReason() != null
                 && subscription.getCancelReason().startsWith(REFUNDED_MARKER)) {
             log.warn(">>>> Giao dich mua goi {} da duoc hoan tien truoc do, bo qua ket qua muon tu {}",
@@ -732,7 +621,6 @@ public class MembershipServiceImpl implements MembershipService {
                 method, subscriptionId, subscription.getStatus(), subscription.getPricePaid());
     }
 
-    /** Tiền tố ghi vào {@code cancel_reason} để chống hoàn tiền hai lần. */
     private static final String REFUNDED_MARKER = "[ĐÃ HOÀN]";
 
     private void refundToWallet(MemberSubscription subscription, String note) {
@@ -776,18 +664,6 @@ public class MembershipServiceImpl implements MembershipService {
         log.info(">>>> Huy giao dich mua goi cho subscriptionId={}: {}", subscription.getId(), reason);
     }
 
-    // ================================================================ Ghi sổ ví
-
-    /**
-     * Doanh thu bán gói khi tiền đến từ cổng thanh toán: 1 dòng PLATFORM dương,
-     * <b>không có dòng Member đối ứng và không đổi số dư quỹ</b> - giống hệt cách
-     * {@code COMMISSION_REVENUE} đang làm ở {@code OrderServiceImpl}. Đối soát quỹ bỏ qua loại dòng
-     * này (xem {@code AdminReportQueryRepository.REVENUE_RECOGNITION_TYPES}).
-     *
-     * <p>Lưu ý: mua bằng VÍ thì KHÔNG đi qua đây - lúc đó đã có cặp bút toán
-     * {@code MEMBERSHIP_PURCHASE} (Member, âm) + đối ứng (PLATFORM, dương) nên ghi thêm dòng doanh
-     * thu nữa là ghi nhận trùng.
-     */
     private void recordMembershipRevenue(BigDecimal amount, String note) {
         if (amount == null || amount.signum() <= 0) {
             return;
@@ -807,7 +683,6 @@ public class MembershipServiceImpl implements MembershipService {
                 .build());
     }
 
-    // F-039: mỗi bút toán ví Member phải có một bút toán đối ứng ở quỹ nền tảng, ngược dấu
     private void recordPlatformCounterpart(WalletTransaction memberTransaction) {
         PlatformFund fund = platformFundRepository.findTopByOrderByIdAsc()
                 .orElseGet(() -> platformFundRepository.save(PlatformFund.builder().build()));
@@ -834,8 +709,6 @@ public class MembershipServiceImpl implements MembershipService {
         long seq = walletTransactionRepository.countByTransactionNoStartingWith(prefix) + 1;
         return prefix + String.format("%06d", seq);
     }
-
-    // ================================================================ Thông báo
 
     private void notifyActivated(Account account, MemberSubscription subscription, int vouchersIssued) {
         notificationService.notify(account, NotificationType.MEMBERSHIP_EVENT,

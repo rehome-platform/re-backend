@@ -19,10 +19,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Push qua Firebase Cloud Messaging. Chỉ có mặt khi {@code app.push.enabled=true}
- * (xem {@link com.rehome.rehome.config.FirebaseConfig}).
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -43,8 +39,6 @@ public class FcmPushNotificationServiceImpl implements PushNotificationService {
         }
 
         List<String> tokens = deviceTokens.stream().map(DeviceToken::getToken).toList();
-        // FCM giới hạn 500 token/lần gửi multicast; số thiết bị của 1 account thực tế rất nhỏ nên
-        // chunk đơn giản bằng sublist, không cần hàng đợi.
         for (int from = 0; from < tokens.size(); from += FCM_MULTICAST_LIMIT) {
             List<String> chunk = tokens.subList(from, Math.min(from + FCM_MULTICAST_LIMIT, tokens.size()));
             sendChunk(chunk, title, body, data);
@@ -70,8 +64,6 @@ public class FcmPushNotificationServiceImpl implements PushNotificationService {
         }
     }
 
-    // Token hết hạn/gỡ app/đăng xuất Firebase (UNREGISTERED) hoặc sai định dạng (INVALID_ARGUMENT)
-    // thì xoá khỏi DB ngay - gửi lại lần sau vẫn lỗi, chỉ tốn quota và trễ response.
     private void cleanUpInvalidTokens(List<String> tokens, BatchResponse response) {
         List<SendResponse> responses = response.getResponses();
         List<String> invalidTokens = new ArrayList<>();

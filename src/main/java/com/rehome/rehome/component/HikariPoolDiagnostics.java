@@ -13,7 +13,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Optional load-test telemetry. Reads pool counters without borrowing a JDBC connection. */
 @Component
 @Slf4j
 @ConditionalOnProperty(name = "app.performance.diagnostics.enabled", havingValue = "true")
@@ -53,7 +52,6 @@ public class HikariPoolDiagnostics {
                     timestamp, active, idle, total, waiting, maximum);
             append(timestamp, active, idle, total, waiting, maximum);
         } catch (Exception ex) {
-            // Diagnostics must not stop other scheduled jobs or change application behavior.
             unavailable(ex.getClass().getSimpleName());
         }
     }

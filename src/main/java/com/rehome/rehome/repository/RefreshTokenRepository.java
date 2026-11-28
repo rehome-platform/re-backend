@@ -9,7 +9,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-import javax.swing.text.html.Option;
 import java.util.Optional;
 @Repository
 public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long> {
@@ -19,8 +18,6 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from RefreshToken r where r.token = :token")
     Optional<RefreshToken> findByTokenForUpdate(@org.springframework.data.repository.query.Param("token") String token);
-
-    Optional<RefreshToken> findByAccount(Account account);
 
     @Modifying
     @Transactional

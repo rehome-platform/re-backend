@@ -24,7 +24,6 @@ public class CreateViolationWordRequest {
     @NotNull(message = "action không được để trống")
     private ViolationWordAction action;
 
-    // Không gửi thì mặc định bật
     private Boolean isActive;
 
     @Size(max = 1000, message = "note tối đa 1000 ký tự")

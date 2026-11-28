@@ -38,7 +38,6 @@ public class OrganizationLegalFileServiceImpl implements OrganizationLegalFileSe
 
         String storedUrl = storedUrl(profile, kind, documentId);
         if (!StringUtils.hasText(storedUrl)) {
-            // Hồ sơ không nộp tệp này, hoặc ảnh đã bị job F-139 xóa khi hết hạn giữ
             throw new AppException(ErrorCode.LEGAL_FILE_NOT_FOUND);
         }
 
@@ -48,10 +47,6 @@ public class OrganizationLegalFileServiceImpl implements OrganizationLegalFileSe
         return new LegalFileDownload(fileName(kind, documentId, storedUrl), contentTypeOf(storedUrl), content);
     }
 
-    /**
-     * Chỉ Moderator, hoặc chính tổ chức sở hữu hồ sơ. Admin cũng không xem được, đúng như
-     * API 128 chỉ mở cho MODERATOR (OVERVIEW dòng 563).
-     */
     private void requireReader(Account caller, UUID organizationId) {
         boolean moderator = caller.getRole() == Role.MODERATOR;
         boolean owner = caller.getRole() == Role.ORGANIZATION && caller.getId().equals(organizationId);
@@ -60,7 +55,6 @@ public class OrganizationLegalFileServiceImpl implements OrganizationLegalFileSe
         }
     }
 
-    /** URL thật trên storage, lấy từ đúng field của hồ sơ. Không bao giờ ra khỏi service này. */
     private String storedUrl(OrganizationProfile profile, LegalFileKind kind, UUID documentId) {
         if (kind == LegalFileKind.DOCUMENT) {
             return documentUrl(profile, documentId);
@@ -80,7 +74,6 @@ public class OrganizationLegalFileServiceImpl implements OrganizationLegalFileSe
         if (documentId == null || documents == null) {
             return null;
         }
-        // Giấy tờ phải thuộc đúng tổ chức trên đường dẫn, không cho đổi {id} để mượn quyền
         return documents.stream()
                 .filter(document -> documentId.equals(document.getId()))
                 .map(OrganizationDocument::getFileUrl)
@@ -88,10 +81,6 @@ public class OrganizationLegalFileServiceImpl implements OrganizationLegalFileSe
                 .orElse(null);
     }
 
-    /**
-     * Tên file do server tự đặt theo loại giấy tờ, không lấy tên client đặt lúc upload —
-     * tên đó đi thẳng vào header Content-Disposition.
-     */
     private static String fileName(LegalFileKind kind, UUID documentId, String storedUrl) {
         String extension = extensionOf(storedUrl);
         return switch (kind) {
@@ -112,7 +101,6 @@ public class OrganizationLegalFileServiceImpl implements OrganizationLegalFileSe
         if (lower.endsWith(".webp")) {
             return "image/webp";
         }
-        // Mọi đuôi còn lại đều là ảnh: /uploads chỉ nhận jpeg/png/webp và pdf
         return "image/jpeg";
     }
 

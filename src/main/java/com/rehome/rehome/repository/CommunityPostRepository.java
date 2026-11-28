@@ -37,10 +37,8 @@ public interface CommunityPostRepository extends JpaRepository<CommunityPost, UU
     Page<CommunityPost> findByOrganization_AccountIdInAndStatus(@Param("organizationIds") Collection<UUID> organizationIds,
                                                              @Param("status") ContentStatus status, Pageable pageable);
 
-    // F-107: bài viết của chính tổ chức đang đăng nhập
     Page<CommunityPost> findByOrganization_AccountId(UUID organizationId, Pageable pageable);
 
-    // scope=ALL (newsfeed xuyên tổ chức, Guest xem được)
     @Query("select p from CommunityPost p where p.status = :status "
             + "and p.organization.account.status <> com.rehome.rehome.entity.enums.AccountStatus.BANNED")
     Page<CommunityPost> findByStatus(@Param("status") ContentStatus status, Pageable pageable);

@@ -36,7 +36,7 @@ public class BrandServiceImpl implements BrandService {
         String name = request.getName().trim().replaceAll("\\s+", " ");
 
         if (brandRepository.existsByNameIgnoreCase(name)) {
-            throw new AppException(ErrorCode.BRAND_NAME_ALREADY_EXISTS);           // 409
+            throw new AppException(ErrorCode.BRAND_NAME_ALREADY_EXISTS);
         }
 
         Brand brand = brandRepository.save(Brand.builder()
@@ -52,12 +52,12 @@ public class BrandServiceImpl implements BrandService {
     @Transactional
     public BrandResponse update(UUID id, UpdateBrandRequest request) {
         Brand brand = brandRepository.findById(id)
-                .orElseThrow(() -> new AppException(ErrorCode.BRAND_NOT_FOUND));              // 404
+                .orElseThrow(() -> new AppException(ErrorCode.BRAND_NOT_FOUND));
 
         String name = request.getName().trim().replaceAll("\\s+", " ");
 
         if (brandRepository.existsByNameIgnoreCaseAndIdNot(name, id)) {
-            throw new AppException(ErrorCode.BRAND_NAME_ALREADY_EXISTS);                      // 409
+            throw new AppException(ErrorCode.BRAND_NAME_ALREADY_EXISTS);
         }
 
         brand.setName(name);
@@ -74,7 +74,7 @@ public class BrandServiceImpl implements BrandService {
     @Transactional
     public CatalogStatusResponse hide(UUID id) {
         Brand brand = brandRepository.findById(id)
-                .orElseThrow(() -> new AppException(ErrorCode.BRAND_NOT_FOUND));      // 404
+                .orElseThrow(() -> new AppException(ErrorCode.BRAND_NOT_FOUND));
 
         if (brand.getStatus() != CatalogStatus.HIDDEN) {
             brand.setStatus(CatalogStatus.HIDDEN);
@@ -98,11 +98,10 @@ public class BrandServiceImpl implements BrandService {
     @Transactional
     public void delete(UUID id) {
         Brand brand = brandRepository.findById(id)
-                .orElseThrow(() -> new AppException(ErrorCode.BRAND_NOT_FOUND));      // 404
+                .orElseThrow(() -> new AppException(ErrorCode.BRAND_NOT_FOUND));
 
-        // Product và ConsignmentForm đều có FK brand_id NOT NULL: còn dùng thì không xóa được
         if (productRepository.existsByBrand_Id(id) || consignmentFormRepository.existsByBrand_Id(id)) {
-            throw new AppException(ErrorCode.BRAND_IN_USE);                           // 409
+            throw new AppException(ErrorCode.BRAND_IN_USE);
         }
 
         brandRepository.delete(brand);

@@ -16,21 +16,17 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
-// Dùng chung cho GET /moderator/consignment-forms (danh sách) và GET /moderator/consignment-forms/{id} (chi tiết).
-// Các field chỉ có ở chi tiết được bỏ khỏi JSON của danh sách khi null.
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class ModeratorConsignmentFormResponse {
 
-    // ---- Thông tin form (có ở cả danh sách và chi tiết)
     private UUID id;
     private String formNo;
     private ConsignmentFormStatus status;
     private String productName;
     private BigDecimal desiredPrice;
-    // Ảnh đại diện (ảnh đầu tiên)
     private String thumbnailUrl;
     private String rejectReason;
     private LocalDate bringInDeadline;
@@ -38,19 +34,13 @@ public class ModeratorConsignmentFormResponse {
     private String warehouseName;
 
     private MemberInfo member;
-    // Moderator phụ trách theo giai đoạn: claim hàng đợi trước khi có biên nhận, moderator trên biên nhận sau đó
     private ModeratorInfo moderator;
 
-    // Biên nhận mới nhất của form
     private UUID receiptId;
-    // Lúc Member xác nhận biên nhận mới nhất; null nếu chưa xác nhận hoặc chưa có biên nhận
     private Instant confirmedAt;
-    // SKU sản phẩm sau khi nhập kho; null nếu chưa nhập kho
     private String productSku;
-    // Bước nghiệp vụ tiếp theo, Frontend dùng để điều hướng
     private ModeratorResumeStep resumeStep;
 
-    // ---- Chỉ có ở chi tiết
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String description;
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -73,8 +63,6 @@ public class ModeratorConsignmentFormResponse {
     private ReceiptInfo receipt;
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private ProductInfo product;
-    // Cấu hình ký gửi hiện hành (đọc sống từ SystemConfigReader) để Moderator thấy mức sẽ áp khi lập biên nhận.
-    // Chỉ có khi form đang INSPECTING và chưa có biên nhận; đã có biên nhận thì giá trị đã chốt nằm ở receipt.
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private ConsignmentConfigInfo consignmentConfig;
 

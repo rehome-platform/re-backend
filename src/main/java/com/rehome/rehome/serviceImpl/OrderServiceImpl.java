@@ -3,7 +3,6 @@ package com.rehome.rehome.serviceImpl;
 import com.rehome.rehome.util.NotificationFormatting;
 
 import com.rehome.rehome.entity.enums.NotificationType;
-import com.rehome.rehome.entity.enums.NotificationTargetType;
 
 import com.rehome.rehome.client.GhnApi;
 import com.rehome.rehome.component.VoucherCalculator;
@@ -134,13 +133,10 @@ public class OrderServiceImpl implements OrderService {
     private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
 
 
-    // Trạng thái GHN mà người mua cần biết là đơn đang có trục trặc, không chỉ là chậm.
-    // Xem bảng trạng thái trong docs/ghnapi.md mục "Mã trạng thái đơn hàng".
     private static final Set<String> ISSUE_GHN_STATUSES = Set.of(
             "delivery_fail", "waiting_to_return", "return", "return_transporting", "return_sorting",
             "returning", "return_fail", "returned", "exception", "lost", "damage", "scrap", "cancel");
 
-    // Yêu cầu trả hàng còn đang mở - chưa chốt được đơn khi còn một trong các trạng thái này
     private static final List<ReturnRequestStatus> OPEN_RETURN_STATUSES = List.of(
             ReturnRequestStatus.PENDING,
             ReturnRequestStatus.APPROVED,
@@ -173,7 +169,6 @@ public class OrderServiceImpl implements OrderService {
     private final AuditLogger auditLogger;
     private final ObjectMapper objectMapper;
 
-    // Chưa có cấu hình thuế thật, tạm để 0
     @Value("${app.order.tax-rate:0}")
     private BigDecimal taxRate;
 
@@ -183,11 +178,9 @@ public class OrderServiceImpl implements OrderService {
     @Value("${ghn.shop-id}")
     private String ghnShopId;
 
-    // Host in phiếu GHN = base-url bỏ phần /shiip/public-api (sandbox: dev-online-gateway.ghn.vn)
     @Value("${ghn.base-url}")
     private String ghnBaseUrl;
 
-    // Product chưa có weight/length/width/height thật - dùng kích thước mặc định cho sandbox (F-127)
     @Value("${ghn.default-package.weight-grams}")
     private int defaultPackageWeightGrams;
 
@@ -234,8 +227,6 @@ public class OrderServiceImpl implements OrderService {
                 lockedProducts.add(lockAndValidateProduct(productId, buyer.getId()));
             }
 
-            // Món vừa đặt mà cũng đang nằm trong giỏ thì dọn khỏi giỏ, để các món còn lại
-            // (ví dụ đã hết hàng) không bị kẹt theo.
             Cart cart = cartRepository.findByMember_Id(buyer.getId()).orElse(null);
             if (cart != null) {
                 Set<String> requestedIdSet = new HashSet<>(requestedProductIds);
@@ -267,12 +258,8 @@ public class OrderServiceImpl implements OrderService {
         int paymentTimeoutMinutes = systemConfigReader.getInt(
                 SystemConfigKeys.ORDER_PAYMENT_TIMEOUT_MINUTES,
                 SystemConfigKeys.DEFAULT_ORDER_PAYMENT_TIMEOUT_MINUTES);
-        // Mỗi sản phẩm là 1 đơn riêng (giống Shopee), kể cả khi nhiều món cùng kho, để
-        // trả hàng/đổi trạng thái được từng món độc lập - không còn gộp theo kho (F-053 cũ).
         Instant paymentDeadline = Instant.now().plus(paymentTimeoutMinutes, ChronoUnit.MINUTES);
 
-        // Phí ship phải tính TRƯỚC khi tạo đơn: voucher áp cho CẢ lần thanh toán nên cần biết
-        // subtotal và shippingFee của mọi đơn trước, rồi mới phân bổ phần giảm về từng đơn.
         List<BigDecimal> shippingFees = new ArrayList<>(lockedProducts.size());
         for (Product product : lockedProducts) {
             shippingFees.add(ghnShippingFeeCalculator.calculate(
@@ -280,8 +267,6 @@ public class OrderServiceImpl implements OrderService {
                     shippingAddress.getProvinceName()));
         }
 
-        // Một lần thanh toán dùng TỐI ĐA MỘT mã, áp cho cả lô rồi chia ngược về từng đơn (§12.6).
-        // Người mua không phải chọn áp mã cho món nào - giống Shopee.
         VoucherApplication voucherApplication =
                 applyVoucher(request.getVoucherCode(), buyer, lockedProducts, shippingFees);
 
@@ -309,9 +294,6 @@ public class OrderServiceImpl implements OrderService {
                     .shippingFee(shippingFee)
                     .voucher(voucherApplication.voucher())
                     .discountAmount(discount)
-                    // total_amount = subtotal + shippingFee − discount. Đây là số tiền người mua
-                    // trả thật, và cũng là số được hoàn khi hủy đơn - KHÔNG bao giờ hoàn
-                    // subtotal + shippingFee, nếu không người mua lãi tiền mỗi lần đặt rồi hủy.
                     .totalAmount(subtotal.add(shippingFee).subtract(discount))
                     .paymentMethod(OrderPaymentMethod.WALLET)
                     .status(OrderStatus.PENDING_PAYMENT)
@@ -324,8 +306,6 @@ public class OrderServiceImpl implements OrderService {
             OrderItem item = OrderItem.builder()
                     .order(order)
                     .product(product)
-                    // priceAtOrder GIỮ NGUYÊN giá bán, KHÔNG trừ voucher: người ký gửi nhận tiền
-                    // tính trên giá này, phần giảm do nền tảng chịu (§1.3, §13.4).
                     .priceAtOrder(product.getCurrentPrice())
                     .commissionRateApplied(commissionRateForTerm(product))
                     .taxRateApplied(taxRate)
@@ -333,7 +313,6 @@ public class OrderServiceImpl implements OrderService {
                     .build();
             orderItemRepository.save(item);
 
-            // F-055: RESERVED ngay lúc đặt hàng, không phải từ lúc thêm giỏ
             product.setStatus(ProductStatus.RESERVED);
             productRepository.save(product);
 
@@ -397,7 +376,6 @@ public class OrderServiceImpl implements OrderService {
                         (first, second) -> first
                 ));
 
-        // Yêu cầu trả hàng gần nhất của từng đơn (query đã sắp mới nhất trước nên putIfAbsent giữ bản mới nhất)
         Map<UUID, String> returnRequestIdByOrderId = new java.util.HashMap<>();
         if (!orderIds.isEmpty()) {
             for (Object[] row : returnRequestRepository.findOrderIdAndIdByOrderIds(orderIds)) {
@@ -477,7 +455,6 @@ public class OrderServiceImpl implements OrderService {
 
         List<OrderStatus> statuses = parseSoldStatuses(status);
 
-        // Không truyền Sort: thứ tự đã nằm trong câu JPQL (root là OrderItem, không phải Order)
         PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1));
 
         Page<Order> result = orderRepository.findOrdersContainingSellerItems(
@@ -485,7 +462,6 @@ public class OrderServiceImpl implements OrderService {
 
         List<UUID> orderIds = result.getContent().stream().map(Order::getId).toList();
 
-        // Chỉ lấy món của chính người bán này - một đơn có thể gồm hàng của nhiều người ký gửi
         List<OrderItem> sellerItems = orderIds.isEmpty()
                 ? List.of()
                 : orderItemRepository.findSellerItemsByOrderIds(orderIds, seller.getId());
@@ -544,8 +520,6 @@ public class OrderServiceImpl implements OrderService {
                 .build();
     }
 
-    // netAmount dùng đúng công thức của confirmReceipt (giá - hoa hồng), nên đơn COMPLETED
-    // khớp số với GET /wallet/revenue. tax chỉ để hiển thị: payout hiện không trừ thuế.
     private SoldOrderItemResponse toSoldOrderItem(OrderItem item, Map<String, String> thumbnailByProductId) {
         BigDecimal salePrice = item.getPriceAtOrder();
         BigDecimal commission = salePrice.multiply(item.getCommissionRateApplied());
@@ -563,8 +537,6 @@ public class OrderServiceImpl implements OrderService {
                 .build();
     }
 
-    // Mặc định bỏ PENDING_PAYMENT (người mua chưa trả, đơn có thể tự hủy sau 15 phút nên
-    // chưa phải "đã bán") và CANCELLED. Muốn xem đơn hủy thì gọi ?status=CANCELLED.
     private List<OrderStatus> parseSoldStatuses(String status) {
         if (!StringUtils.hasText(status)) {
             return List.of(OrderStatus.PAID, OrderStatus.PACKING, OrderStatus.PACKED, OrderStatus.SHIPPING,
@@ -776,12 +748,9 @@ public class OrderServiceImpl implements OrderService {
                 .build();
     }
 
-    // Quyền xem chi tiết đơn: Member chỉ đơn của mình; Moderator chỉ đơn thuộc kho được phân
-    // công; Admin xem mọi đơn theo cơ chế quản trị hiện tại.
     private void authorizeOrderDetailAccess(Account caller, Order order) {
         switch (caller.getRole()) {
             case ADMIN -> {
-                // được đọc theo quyền quản trị
             }
             case MODERATOR -> {
                 if (caller.getWarehouse() == null
@@ -798,8 +767,6 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    // Chỉ cho SCAN khi đơn đang đóng gói (PAID/PACKING) và chưa quét đủ; chỉ cho
-    // CREATE_SHIPMENT khi đã quét đủ và chưa có mã vận đơn - DG-01
     private List<String> packingAllowedActions(Order order, int scannedCount, int totalCount) {
         List<String> allowedActions = new ArrayList<>();
         if (order.getStatus() == OrderStatus.PACKED) {
@@ -817,12 +784,6 @@ public class OrderServiceImpl implements OrderService {
         return allowedActions;
     }
 
-    // Cùng công thức với ReturnRequestServiceImpl khi chặn RETURN_WINDOW_EXPIRED - nếu lệch nhau
-    // thì app vẫn hiện nút trả hàng trong lúc API đã từ chối.
-    // Dùng mốc đã chốt lúc GHN báo giao (Order.returnDeadline). Đơn giao trước khi có cột này thì
-    // tính lại từ deliveredAt theo config hiện tại. ReturnRequestServiceImpl.create chặn
-    // RETURN_WINDOW_EXPIRED bằng cùng quy tắc - nếu lệch nhau thì app vẫn hiện nút trả hàng
-    // trong lúc API đã từ chối.
     private Instant returnDeadline(Order order) {
         if (order.getReturnDeadline() != null) {
             return order.getReturnDeadline();
@@ -859,19 +820,14 @@ public class OrderServiceImpl implements OrderService {
 
         releaseReservedProducts(orderId);
 
-        // Đơn còn chờ thanh toán thì chưa thu tiền của ai, chỉ đóng đơn và nhả hàng về sàn.
-        // Gọi refundBuyerAndCancel ở đây sẽ cộng khống tiền chưa từng trả vào ví người mua.
         if (order.getStatus() == OrderStatus.PENDING_PAYMENT) {
             order.setStatus(OrderStatus.CANCELLED);
             order.setCancelReason(CancelReason.BUYER_CANCELLED);
             businessNotifications.order(order, "Đơn hàng đã huỷ", "đã huỷ theo yêu cầu của bạn.");
             order.setCancelledAt(Instant.now());
             orderRepository.save(order);
-            // Chưa thu tiền -> trả mã về ví (§12.4)
             releaseVoucherIfAllOrdersCancelled(order);
         } else {
-            // Đơn ĐÃ THANH TOÁN: hoàn total_amount (số đã trả thật, đã trừ voucher) nhưng CỐ Ý
-            // KHÔNG trả mã - nếu trả thì người mua đặt rồi hủy liên tục để xoay vòng một mã.
             refundBuyerAndCancel(order, CancelReason.BUYER_CANCELLED, "Hoàn tiền hủy đơn " + order.getOrderNo());
         }
 
@@ -883,9 +839,6 @@ public class OrderServiceImpl implements OrderService {
                 .build();
     }
 
-    // Đổi địa chỉ giao hàng sau khi đặt, chỉ cho phép một lần và chỉ khi chưa đóng gói.
-    // Phí ship được tính lại theo tuyến kho -> địa chỉ mới; tăng thì chặn lại để buyer tự quyết,
-    // giảm thì hoàn phần chênh vào ví ngay (tương tự refundBuyerWallet lúc hủy đơn).
     @Override
     @Transactional
     public OrderResponse updateShippingAddress(String email, UUID orderId, UpdateOrderShippingAddressRequest request) {
@@ -955,8 +908,6 @@ public class OrderServiceImpl implements OrderService {
         order.setShippingWardName(newAddress.getWardName());
         order.setShippingProvinceName(newAddress.getProvinceName());
         order.setShippingFee(newFee);
-        // Phải trừ lại discountAmount: đơn có voucher mà tính total = subtotal + ship sẽ "mất"
-        // phần giảm và người mua bị đòi thêm tiền khi đổi địa chỉ.
         order.setTotalAmount(order.getSubtotal().add(newFee).subtract(nullToZero(order.getDiscountAmount())));
         order.setAddressChangedAt(Instant.now());
         orderRepository.save(order);
@@ -980,8 +931,6 @@ public class OrderServiceImpl implements OrderService {
                 .build();
     }
 
-    // Hoàn phần phí ship chênh lệch vào ví khi đổi sang địa chỉ có phí thấp hơn - cùng cơ chế
-    // khóa ví với payOrders để không lệch số dư khi có request song song.
     private void refundShippingFeeDifference(Order order, BigDecimal amount) {
         Wallet wallet = walletRepository.findByMemberIdForUpdate(order.getBuyer().getId())
                 .orElseGet(() -> getOrCreateWallet(order.getBuyer()));
@@ -1023,8 +972,6 @@ public class OrderServiceImpl implements OrderService {
 
         List<Order> orders = loadPayableOrders(email, parseOrderIds(request.getOrderIds()));
 
-        // Khóa ví trước khi đọc số dư: hai request trả ví song song của cùng người mua phải nối
-        // đuôi nhau, nếu không cả hai cùng thấy đủ tiền rồi trừ thành số dư âm.
         Wallet wallet = walletRepository.findByMemberIdForUpdate(buyer.getId())
                 .orElseThrow(() -> new ConflictException(
                         "INSUFFICIENT_BALANCE: ví chưa có số dư.", "INSUFFICIENT_BALANCE"));
@@ -1033,7 +980,6 @@ public class OrderServiceImpl implements OrderService {
                 .map(Order::getTotalAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // Tiền đang khóa cho yêu cầu rút không được tiêu tiếp
         BigDecimal available = wallet.getBalance().subtract(wallet.getLockedBalance());
         if (total.compareTo(available) > 0) {
             throw new ConflictException(
@@ -1114,9 +1060,6 @@ public class OrderServiceImpl implements OrderService {
         return orders;
     }
 
-    // Tiền từ cổng thanh toán về sau khi đơn đã rời trạng thái chờ thanh toán (IPN muộn, hoặc
-    // người mua đã trả bằng ví trong lúc chờ) thì tuyệt đối không được chốt lại đơn: hàng đã nhả
-    // về sàn và có thể đã bán cho người khác. Tiền vẫn là tiền thật nên phải vào ví người mua.
     @Override
     @Transactional
     public void applyGatewayPaymentSuccess(UUID orderId, OrderPaymentMethod method, String note) {
@@ -1128,10 +1071,6 @@ public class OrderServiceImpl implements OrderService {
         }
 
         if (order.getStatus() == OrderStatus.PENDING_PAYMENT) {
-            // Tiền cổng báo về đi thẳng vào quỹ nền tảng, coi như quỹ đang GIỮ HỘ cho tới khi đơn
-            // hoàn tất (payoutOrder) mới tách ra trả người ký gửi + ghi nhận hoa hồng. Thiếu dòng
-            // này thì quỹ chỉ có tiền RA (trả người ký gửi) mà không có tiền VÀO cho các đơn trả
-            // qua cổng, quỹ tất yếu âm dần dù sổ sách vẫn "cân" theo từng cặp ghi riêng lẻ.
             recordGatewayPaymentReceived(order, "Thanh toán đơn hàng " + order.getOrderNo() + " qua " + method);
             order.setPaymentMethod(method);
             order.setStatus(OrderStatus.PAID);
@@ -1142,20 +1081,16 @@ public class OrderServiceImpl implements OrderService {
             return;
         }
 
-        // IPN lặp lại của chính cổng đã chốt đơn này - tiền chỉ về một lần, không hoàn gì cả
         if (order.getPaymentMethod() == method && order.getStatus() != OrderStatus.CANCELLED) {
             return;
         }
 
-        // Đơn hủy có hoàn tiền (F-061/F-062) hoặc đơn trả hàng đã hoàn rồi thì không hoàn thêm lần nữa
         if (order.getRefundAmount() != null) {
             log.warn(">>>> Don {} da duoc hoan tien truoc do, bo qua ket qua thanh toan muon tu {}",
                     order.getOrderNo(), method);
             return;
         }
 
-        // Tiền cổng về muộn vẫn phải vào quỹ trước, rồi mới chuyển tiếp qua ví người mua ở dưới -
-        // nếu không quỹ bị trừ ở refundBuyerWallet mà chưa từng được cộng, lại tạo thêm một chỗ âm.
         recordGatewayPaymentReceived(order, "Tiền " + method + " về muộn cho đơn " + order.getOrderNo());
         refundBuyerWallet(order, note);
         order.setRefundAmount(order.getTotalAmount());
@@ -1177,8 +1112,6 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    // Giữ nguyên thứ tự người mua gửi lên nhưng bỏ id trùng, để một đơn lặp hai lần trong body
-    // không bị trừ tiền hai lần.
     private static List<UUID> parseOrderIds(List<String> rawOrderIds) {
         List<UUID> orderIds = new ArrayList<>();
         for (String rawOrderId : rawOrderIds) {
@@ -1218,7 +1151,6 @@ public class OrderServiceImpl implements OrderService {
                     "ORDER_NOT_DELIVERED_YET");
         }
 
-        // Đang tranh chấp trả hàng thì chưa chốt đơn được, chờ kết luận trả hàng xong đã
         if (returnRequestRepository.existsByOrder_IdAndStatusIn(orderId, OPEN_RETURN_STATUSES)) {
             throw new ConflictException(
                     "Đơn đang có yêu cầu trả hàng chưa xử lý xong.",
@@ -1233,8 +1165,6 @@ public class OrderServiceImpl implements OrderService {
                 .build();
     }
 
-    // Đổi món RESERVED -> SOLD và đơn -> COMPLETED. Không payout ở đây: tiền người ký gửi
-    // giữ lại tới hết hạn trả hàng (autoCompleteDeadline), xem payoutOrder/OrderAutoCompleteServiceImpl.
     private void completeOrder(Order order) {
         for (OrderItem item : orderItemRepository.findAllByOrder_Id(order.getId())) {
             Product product = productRepository.findByIdForUpdate(item.getProduct().getId()).orElse(null);
@@ -1252,7 +1182,6 @@ public class OrderServiceImpl implements OrderService {
         orderRepository.save(order);
     }
 
-    // F-064: hệ thống tự chốt đơn DELIVERED quá hạn mà buyer không bấm xác nhận.
     @Override
     @Transactional
     public void autoCompleteOrder(UUID orderId) {
@@ -1270,9 +1199,6 @@ public class OrderServiceImpl implements OrderService {
         completeOrder(order);
     }
 
-    // Trả tiền người ký gửi của mọi món trong đơn và ghi payoutAt. Idempotent qua kiểm tra
-    // payoutAt - job quá hạn 3 ngày và các nhánh từ chối/hủy/kết luận trả hàng đều gọi chung
-    // hàm này nên không cần lo gọi trùng.
     @Override
     @Transactional
     public void payoutOrder(UUID orderId, String note) {
@@ -1309,15 +1235,11 @@ public class OrderServiceImpl implements OrderService {
             businessNotifications.product(item.getProduct(), NotificationType.WALLET_EVENT, "Tiền bán hàng đã vào ví",
                     "tiền bán hàng " + NotificationFormatting.vnd(payoutAmount) + " của đơn " + order.getOrderNo() + " đã vào ví.");
 
-            // Phần hoa hồng nền tảng giữ lại của món này (giá chốt - tiền trả người bán)
             recordPlatformRevenue(WalletTransactionType.COMMISSION_REVENUE,
                     item.getPriceAtOrder().subtract(payoutAmount), order, item,
                     "Hoa hồng đơn " + order.getOrderNo());
         }
 
-        // Chi phí khuyến mãi của đơn này - ghi CÙNG LÚC với COMMISSION_REVENUE, không ghi lúc đặt
-        // đơn (đơn có thể bị hủy). Số tiền là discount_amount của CHÍNH đơn này, không phải tổng
-        // của cả lô dùng cùng mã (§12.6 điểm 4).
         BigDecimal discount = nullToZero(order.getDiscountAmount());
         if (discount.signum() > 0) {
             recordPlatformPromotionCost(discount, order,
@@ -1328,9 +1250,6 @@ public class OrderServiceImpl implements OrderService {
         order.setPayoutAt(Instant.now());
         orderRepository.save(order);
 
-        // Tích điểm cho người mua ở đây, không phải lúc COMPLETED: payoutOrder chỉ chạy khi hết hạn
-        // trả hàng và đơn không bị hoàn (đơn RETURNED/CANCELLED không bao giờ tới đây), lại idempotent
-        // qua payoutAt - nên không cần luồng thu hồi điểm và không thể cộng hai lần.
         pointsService.awardForOrder(order);
     }
 
@@ -1381,8 +1300,6 @@ public class OrderServiceImpl implements OrderService {
         Account moderator = accountRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
 
-        // Khóa đơn rồi mới tới dòng hàng đợi (cùng thứ tự với createShipment để không deadlock):
-        // hai lần quét song song cùng một SKU phải nối đuôi nhau, lần sau thấy scanned = true và không làm gì
         Order order = orderRepository.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
 
@@ -1430,7 +1347,6 @@ public class OrderServiceImpl implements OrderService {
         }
         orderRepository.save(order);
 
-        // Chỉ lần quét đầu của mỗi SKU mới tới đây nên mỗi SKU đúng một dòng log
         ObjectNode detail = objectMapper.createObjectNode();
         detail.put("label", order.getOrderNo());
         detail.put("productId", item.getProduct().getId());
@@ -1447,8 +1363,6 @@ public class OrderServiceImpl implements OrderService {
                 .build();
     }
 
-    // Moderator phải đang giữ việc đóng gói của đơn này. Khóa dòng queue (PESSIMISTIC_WRITE) để việc không bị
-    // nhả/nhận lại giữa chừng. Việc không tồn tại (đơn chưa vào hàng đợi / đã gỡ) cũng không cho thao tác
     private void requireActiveClaim(Account moderator, UUID orderId) {
         QueueItem queueItem = queueItemRepository.findByTypeAndRefIdForUpdate(QueueType.PACKING, orderId.toString())
                 .orElseThrow(() -> new AppException(ErrorCode.QUEUE_ITEM_NOT_FOUND));
@@ -1457,7 +1371,6 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    // Chỉ đóng gói khi đơn còn PAID/PACKING và chưa có vận đơn
     private void requirePackable(Order order) {
         if (order.getStatus() != OrderStatus.PAID && order.getStatus() != OrderStatus.PACKING) {
             throw new ConflictException("Đơn không ở trạng thái đóng gói.", "ORDER_NOT_PACKABLE");
@@ -1467,8 +1380,6 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    // Quét sai SKU (không thuộc đơn đang xử lý): không đổi tiến độ quét, chỉ trả hướng dẫn
-    // đưa sản phẩm về đúng chỗ. Không lộ thông tin sản phẩm thuộc kho khác - DG-01/F-127.
     private PackScanResponse wrongSkuResponse(String productId, int scannedCount, int totalCount, Account moderator) {
         Product product = productRepository.findById(productId).orElse(null);
 
@@ -1552,8 +1463,6 @@ public class OrderServiceImpl implements OrderService {
         Account moderator = accountRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("Account không tồn tại"));
 
-        // Khóa đơn trước, dòng hàng đợi sau (cùng thứ tự với packScan). Bấm đúp / hai Moderator cùng bấm sẽ
-        // nối đuôi nhau; request sau thấy đã có vận đơn nên không gọi GHN lần nữa
         Order order = orderRepository.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
 
@@ -1562,8 +1471,6 @@ public class OrderServiceImpl implements OrderService {
             throw new ForbiddenException("Bạn không có quyền tạo vận đơn cho đơn này.");
         }
 
-        // Đã có vận đơn (Moderator bấm lại): trả kết quả cũ ngay, không gọi GHN, không ghi log thêm.
-        // Phải đứng trước kiểm tra claim vì tạo xong thì dòng hàng đợi đã bị gỡ
         if (StringUtils.hasText(order.getGhnTrackingCode())) {
             return CreateShipmentResponse.builder()
                     .id(order.getId().toString())
@@ -1582,7 +1489,6 @@ public class OrderServiceImpl implements OrderService {
             throw new ConflictException("Đơn không có món nào để đóng gói.", "ORDER_HAS_NO_ITEMS");
         }
 
-        // Quét đủ 100%: đếm theo cờ scanned của từng món, không tin riêng scannedCount
         long scannedItems = items.stream().filter(i -> Boolean.TRUE.equals(i.getScanned())).count();
         if (order.getScannedCount() == null || order.getScannedCount() < totalCount || scannedItems < totalCount) {
             throw new ConflictException("Chưa quét đủ tất cả món trong đơn.", "ORDER_NOT_FULLY_SCANNED");
@@ -1670,7 +1576,6 @@ public class OrderServiceImpl implements OrderService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đơn hàng."));
 
-        // Kho của Moderator phải trùng kho của đơn (giống createShipment) - kiểm tra trước khi gọi GHN
         if (moderator.getWarehouse() == null
                 || !order.getWarehouse().getId().equals(moderator.getWarehouse().getId())) {
             throw new ForbiddenException("Bạn không có quyền in phiếu vận đơn của đơn này.");
@@ -1741,7 +1646,6 @@ public class OrderServiceImpl implements OrderService {
                         .build())
                 .toList();
 
-        // Chỉ xét sự kiện mới nhất: giao thất bại rồi giao lại thành công thì không còn là sự cố nữa
         OrderTrackingEvent latest = trackingEvents.isEmpty()
                 ? null
                 : trackingEvents.get(trackingEvents.size() - 1);
@@ -1764,7 +1668,6 @@ public class OrderServiceImpl implements OrderService {
         return ghnStatus != null && ISSUE_GHN_STATUSES.contains(ghnStatus.toLowerCase(Locale.ROOT));
     }
 
-    // F-062: GHN báo thất lạc/hư hỏng/hủy vận đơn -> tự hủy đơn, nhả hàng về sàn, hoàn 100% vào ví người mua
     @Override
     @Transactional
     public void cancelOrderForCarrierFailure(UUID orderId, String reason) {
@@ -1781,7 +1684,6 @@ public class OrderServiceImpl implements OrderService {
                 + (StringUtils.hasText(reason) ? " (" + reason + ")" : "");
         refundBuyerAndCancel(order, CancelReason.CARRIER_FAILED, note);
         auditLogger.logSystemOperation("CANCEL_ORDER_CARRIER_FAILURE", "ORDER", orderId, "CANCELLED", "GHN");
-        // Hệ thống hủy, người mua không có lỗi -> trả mã về ví nếu mã còn hạn (§12.4)
         releaseVoucherIfAllOrdersCancelled(order);
 
         log.info(">>>> Tu huy don do GHN loi: orderNo={}, reason={}", order.getOrderNo(), reason);
@@ -1800,17 +1702,11 @@ public class OrderServiceImpl implements OrderService {
                 .toList();
 
         return GhnCreateOrderRequest.builder()
-                // UUID, không phải orderNo: orderNo đếm theo số dòng orders trong DB local nên có thể
-                // trùng lại số cũ sau khi reset/seed DB, còn lịch sử client_order_code bên GHN sandbox
-                // thì không bao giờ mất -> trùng số sẽ khiến GHN trả lại y nguyên vận đơn cũ (đã giao/khác
-                // người nhận) thay vì tạo vận đơn mới, gây TO_ADDRESS_CONFLICT hoặc lẫn lịch sử tracking.
                 .clientOrderCode(order.getId().toString())
                 .toName(order.getShippingRecipientName())
                 .toPhone(order.getShippingPhone())
                 .toAddress(order.getShippingAddressDetail())
                 .toWardName(trimToNull(order.getShippingWardName()))
-                // Hệ 2 cấp không còn quận/huyện: phải bỏ hẳn key *_district_name khỏi body (null -> không serialize).
-                // Gửi chuỗi rỗng vẫn bị GHN hiểu là có khai quận/huyện và trả TO_ADDRESS_CONFLICT.
                 .toDistrictName(Boolean.TRUE.equals(order.getShippingIsNewAddress())
                         ? null : trimToNull(order.getShippingDistrictName()))
                 .toProvinceName(trimToNull(order.getShippingProvinceName()))
@@ -1836,8 +1732,6 @@ public class OrderServiceImpl implements OrderService {
                 .build();
     }
 
-    // Ngày giao dự kiến chỉ để hiển thị, GHN đổi định dạng thì mất field này chứ không được
-    // làm hỏng cả lệnh tạo vận đơn vốn đã gọi thành công.
     private static Instant parseGhnTime(String time) {
         if (!StringUtils.hasText(time)) {
             return null;
@@ -1850,13 +1744,10 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    // Khoảng trắng đầu/cuối làm GHN không khớp được tên phường/xã, tỉnh/thành trong danh mục
     private static String trimToNull(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
 
-    // GHN chỉ trả TO_ADDRESS_CONFLICT/"Địa chỉ nhận không hợp lệ" mà không nói field nào sai,
-    // nên log lại đúng khối địa chỉ đã gửi để đối chiếu với GET /address-units/provinces|wards
     private void logGhnAddressBlocks(Order order, GhnCreateOrderRequest ghnRequest) {
         log.error(">>>> Dia chi gui GHN cho orderNo={}: to_name=[{}] to_phone=[{}] to_address=[{}] "
                         + "to_ward_name=[{}] to_district_name=[{}] to_province_name=[{}] is_new_to_address={}",
@@ -1870,7 +1761,6 @@ public class OrderServiceImpl implements OrderService {
                 ghnRequest.getIsNewFromAddress());
     }
 
-    // Nhả RESERVED -> ON_SALE cho mọi món trong đơn, dùng chung cho hủy đơn do buyer và do GHN lỗi
     private void releaseReservedProducts(UUID orderId) {
         for (OrderItem item : orderItemRepository.findAllByOrder_Id(orderId)) {
             Product product = productRepository.findByIdForUpdate(item.getProduct().getId()).orElse(null);
@@ -1881,8 +1771,6 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    // F-132/F-136: hàng trả hợp lệ hoặc thất lạc chiều trả - hoàn 100% cho người mua, đơn sang RETURNED
-    // (không payout người bán vì tiền đơn vẫn nằm ở quỹ nền tảng cho tới khi đơn COMPLETED)
     @Override
     @Transactional
     public void refundOrderForReturn(UUID orderId, String note) {
@@ -1901,11 +1789,6 @@ public class OrderServiceImpl implements OrderService {
         order.setRefundAmount(order.getTotalAmount());
         orderRepository.save(order);
 
-        // Món vẫn SOLD tới lúc này (completeOrder chạy trước khi buyer gửi yêu cầu trả) - trả
-        // hàng hợp lệ/thất lạc nghĩa là người ký gửi không nhận được tiền cho món này, nên không
-        // thể tiếp tục hiện "Đã bán". Về RETURNED chờ Moderator quyết định hướng xử lý (F-133).
-        // RESERVED cũng phải về RETURNED cùng lúc - nếu không món kẹt RESERVED mãi vì không đơn
-        // nào khác còn tham chiếu tới nó sau khi applyReturnedItemAction chạy (RELIST/RETURN_TO_SELLER/DISCARD).
         for (OrderItem item : orderItemRepository.findAllByOrder_Id(orderId)) {
             Product product = productRepository.findByIdForUpdate(item.getProduct().getId()).orElse(null);
             if (product != null
@@ -1916,8 +1799,6 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    // API 88 (F-133): món đang RETURNED (trả hàng hợp lệ/thất lạc, xem refundOrderForReturn) được
-    // Moderator quyết định hướng xử lý cuối - đăng bán lại, trả về người ký gửi hay tiêu hủy
     @Override
     @Transactional
     public void applyReturnedItemAction(UUID orderId, ReturnedItemAction action) {
@@ -1937,7 +1818,6 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    // Hoàn 100% tổng tiền đơn vào ví người mua rồi chuyển đơn sang CANCELLED, dùng chung cho mọi lý do hủy có hoàn tiền
     private void refundBuyerAndCancel(Order order, CancelReason reason, String note) {
         refundBuyerWallet(order, note);
 
@@ -1982,8 +1862,6 @@ public class OrderServiceImpl implements OrderService {
         if (product.getStatus() != ProductStatus.ON_SALE) {
             throw new ConflictException("Sản phẩm không còn để bán.", "PRODUCT_NOT_AVAILABLE");
         }
-        // Phải chặn lại ở đây chứ không chỉ ở addItem: luồng buy-now gửi productIds trực tiếp,
-        // không đi qua giỏ hàng.
         if (product.getMember().getId().equals(buyerId)) {
             throw new ConflictException(
                     "Bạn không thể mua món do chính mình ký gửi.", "CANNOT_BUY_OWN_PRODUCT");
@@ -1991,12 +1869,6 @@ public class OrderServiceImpl implements OrderService {
         return product;
     }
 
-    // ================================================================ Voucher (§12)
-
-    /**
-     * Kết quả áp mã cho một lần thanh toán. {@code voucher == null} nghĩa là không dùng mã, và mọi
-     * {@link #discountOf} trả 0 - nhánh này phải không đổi hành vi so với trước khi có voucher.
-     */
     private record VoucherApplication(
             com.rehome.rehome.entity.membership.MemberVoucher voucher,
             String code,
@@ -2012,15 +1884,6 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    /**
-     * Kiểm tra mã, tính mức giảm cho cả lô đơn, phân bổ về từng đơn và đánh dấu mã {@code USED}.
-     *
-     * <p><b>Chống race</b>: khóa dòng voucher bằng {@code findByCodeForUpdate} rồi <b>đọc lại
-     * status trong lock</b> mới set USED. Không khóa thì hai request đặt hàng song song cùng dùng
-     * một mã sẽ cùng vượt qua bước kiểm tra - đúng loại lỗi đã tránh ở
-     * {@code ProductRepository.findByIdForUpdate} và {@code WalletRepository.findByMemberIdForUpdate}.
-     * Toàn bộ nằm trong transaction của {@code createOrders} nên mã và đơn commit/rollback cùng nhau.
-     */
     private VoucherApplication applyVoucher(String voucherCode, Account buyer,
                                             List<Product> products, List<BigDecimal> shippingFees) {
         if (!StringUtils.hasText(voucherCode)) {
@@ -2028,7 +1891,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         MemberVoucher voucher = memberVoucherRepository.findByCodeForUpdate(voucherCode.trim())
-                .orElseThrow(() -> new AppException(ErrorCode.VOUCHER_NOT_FOUND));                   // 404
+                .orElseThrow(() -> new AppException(ErrorCode.VOUCHER_NOT_FOUND));
 
         List<VoucherCalculator.OrderLine> lines = new ArrayList<>(products.size());
         BigDecimal totalSubtotal = BigDecimal.ZERO;
@@ -2043,8 +1906,6 @@ public class OrderServiceImpl implements OrderService {
             totalSubtotal = totalSubtotal.add(product.getCurrentPrice());
         }
 
-        // B1/C1: quyền sở hữu, trạng thái (đọc lại TRONG lock), hạn dùng, và min_order_amount so
-        // với TỔNG subtotal của cả lần thanh toán - không phải từng đơn
         voucherCalculator.assertUsable(voucher, buyer.getId(), totalSubtotal, Instant.now());
 
         VoucherCalculator.Result result = voucherCalculator.calculate(voucher, lines, true);
@@ -2065,31 +1926,12 @@ public class OrderServiceImpl implements OrderService {
                 voucher.getVoucherTemplate().getName(), byProduct);
     }
 
-    /**
-     * Trả mã về {@code UNUSED} khi đơn không thành (§12.4).
-     *
-     * <p><b>Chỉ trả khi TẤT CẢ đơn mang mã đó đều đã hủy.</b> Còn một đơn chưa hủy thì mã vẫn
-     * {@code USED}, và phần giảm của đơn bị hủy <b>không</b> được chuyển sang đơn còn lại - người
-     * mua đã chốt số tiền của từng đơn lúc đặt.
-     *
-     * <p>Mã đã hết hạn tại thời điểm trả thì đặt {@code EXPIRED}, không trả về {@code UNUSED}:
-     * trả lại một mã không còn dùng được chỉ làm ví voucher hiện sai.
-     *
-     * <p>Bảng quyết định:
-     * <ul>
-     *   <li>Quá hạn thanh toán / GHN lỗi / người mua hủy đơn {@code PENDING_PAYMENT} -> <b>trả mã</b>
-     *       (người mua không có lỗi, hoặc chưa thu tiền).</li>
-     *   <li>Người mua hủy đơn {@code PAID}, hoặc trả hàng sau khi đã giao -> <b>KHÔNG trả mã</b>
-     *       (tránh đặt rồi hủy liên tục để xoay vòng một mã).</li>
-     * </ul>
-     */
     private void releaseVoucherIfAllOrdersCancelled(Order cancelledOrder) {
         MemberVoucher voucher = cancelledOrder.getVoucher();
         if (voucher == null) {
             return;
         }
 
-        // Bỏ mã khỏi đơn bị hủy trước, để vòng kiểm tra bên dưới không đếm chính nó
         cancelledOrder.setVoucher(null);
         cancelledOrder.setDiscountAmount(BigDecimal.ZERO);
         orderRepository.save(cancelledOrder);
@@ -2119,8 +1961,6 @@ public class OrderServiceImpl implements OrderService {
                 locked.getCode(), locked.getStatus());
     }
 
-    // Dòng orders cũ (trước khi có cột discount_amount) đọc ra null tới khi
-    // scripts/backfill-order-discount-amount.sql được chạy trên Postgres
     private static BigDecimal nullToZero(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
     }
@@ -2151,9 +1991,6 @@ public class OrderServiceImpl implements OrderService {
                 .orElseGet(() -> PlatformFund.builder().build());
     }
 
-    // Ghi nhận doanh thu của nền tảng (COMMISSION_REVENUE): dòng PLATFORM dương, không có dòng Member đối ứng
-    // và không đổi số dư quỹ - tiền hoa hồng vốn đã nằm trong quỹ từ lúc người mua thanh toán, dòng này chỉ
-    // đánh dấu phần tiền đó là doanh thu. Đối soát quỹ bỏ qua loại dòng này (AdminReportQueryRepository).
     private void recordPlatformRevenue(WalletTransactionType type, BigDecimal amount, Order order,
                                        OrderItem item, String note) {
         if (amount == null || amount.signum() <= 0) {
@@ -2179,15 +2016,6 @@ public class OrderServiceImpl implements OrderService {
         walletTransactionRepository.save(revenueTransaction);
     }
 
-    /**
-     * Chi phí khuyến mãi khi một đơn có voucher hoàn tất: 1 dòng PLATFORM <b>âm</b>, không có dòng
-     * Member đối ứng và <b>không đổi số dư quỹ</b> - giống hệt cách {@code COMMISSION_REVENUE} làm.
-     * Phần giảm chưa bao giờ vào quỹ (người mua đã trả ít hơn ngay từ lúc thanh toán), nên dòng này
-     * chỉ để báo cáo biết nền tảng đã chi bao nhiêu cho khuyến mãi.
-     *
-     * <p>Vì vậy {@code VOUCHER_DISCOUNT} phải nằm trong danh sách loại bị bỏ qua khi đối soát quỹ -
-     * xem {@code AdminReportQueryRepository.REVENUE_RECOGNITION_TYPES}.
-     */
     private void recordPlatformPromotionCost(BigDecimal amount, Order order, String note) {
         if (amount == null || amount.signum() <= 0) {
             return;
@@ -2210,11 +2038,6 @@ public class OrderServiceImpl implements OrderService {
                 .build());
     }
 
-    // Tiền cổng thanh toán (VNPay...) báo về cho MỘT đơn: khác đường với trả bằng ví (payOrders),
-    // tiền này chưa bao giờ nằm trong ví Member nào để debit - nó đến thẳng từ ngoài vào quỹ nền
-    // tảng nên chỉ có 1 dòng PLATFORM dương, KHÔNG có dòng Member đối ứng. Đây CÓ đổi số dư quỹ
-    // (khác COMMISSION_REVENUE/VOUCHER_DISCOUNT) vì tiền thật sự đã về, quỹ đang giữ hộ phần sẽ
-    // trả cho người ký gửi tới khi payoutOrder chạy.
     private void recordGatewayPaymentReceived(Order order, String note) {
         BigDecimal amount = order.getTotalAmount();
         if (amount == null || amount.signum() <= 0) {
@@ -2240,7 +2063,6 @@ public class OrderServiceImpl implements OrderService {
                 .build());
     }
 
-    // F-039: mỗi bút toán ví Member phải có một bút toán đối ứng ở quỹ nền tảng, ngược dấu, để sổ sách luôn cân
     private void recordPlatformCounterpart(WalletTransaction memberTransaction) {
         PlatformFund fund = getOrCreatePlatformFund();
         BigDecimal counterpartAmount = memberTransaction.getAmount().negate();

@@ -20,9 +20,6 @@ import java.util.stream.Collectors;
 @Component
 public class OrganizationProfileMapper {
 
-    /**
-     * API 3: tạo hồ sơ mới từ request.
-     */
     public OrganizationProfile toEntity(RegisterOrganizationRequest request) {
         OrganizationProfile org = new OrganizationProfile();
         applyFields(request, org);
@@ -31,15 +28,6 @@ public class OrganizationProfileMapper {
         return org;
     }
 
-    /**
-     * API 4: ghi đè dữ liệu request vào hồ sơ đã có (nộp lại sau khi bị từ chối).
-     * Không đụng vào account và verificationStatus, service tự xử lý hai field này.
-     *
-     * F-003: /me trả cccdFrontUrl/cccdBackUrl/documents[].fileUrl là link bảo vệ
-     * (/api/organizations/{id}/legal-files/...), không phải URL storage. Nếu mobile không đổi
-     * ảnh thì gửi lại nguyên văn link đó để giữ tệp cũ - lưu thẳng link này làm fileUrl sẽ làm
-     * mất tệp thật, nên phải nhận diện và giữ nguyên giá trị đang lưu trong trường hợp này.
-     */
     public void updateEntity(RegisterOrganizationRequest request, OrganizationProfile profile) {
         applyFields(request, profile);
 
@@ -70,11 +58,6 @@ public class OrganizationProfileMapper {
         return res;
     }
 
-    // ------------------------------------------------------------------
-    // Phần dùng chung cho toEntity và updateEntity
-    // ------------------------------------------------------------------
-
-    /** Gán các field đơn (kể cả điểm nhận đồ đã trải phẳng) từ request vào hồ sơ. */
     private void applyFields(RegisterOrganizationRequest request, OrganizationProfile org) {
         org.setLegalName(request.getLegalName().trim());
         org.setDisplayName(request.getDisplayName().trim());
@@ -88,7 +71,6 @@ public class OrganizationProfileMapper {
         org.setDescription(request.getDescription());
         org.setLogoUrl(blankToNull(request.getLogoUrl()));
 
-        // Điểm nhận đồ: trải phẳng vào các cột donationPoint*
         DonationPointRequest dp = request.getDonationPoint();
         org.setDonationPointName(dp.getName());
         org.setDonationPointAddress(dp.getAddress());
@@ -98,7 +80,6 @@ public class OrganizationProfileMapper {
         org.setDonationPointContactPhone(blankToNull(dp.getContactPhone()));
     }
 
-    /** Tạo danh sách giấy tờ mới, gán quan hệ 2 chiều document -> organization. */
     private List<OrganizationDocument> buildDocuments(List<DocumentRequest> requests, OrganizationProfile org) {
         return buildDocuments(requests, org, Map.of());
     }
@@ -119,11 +100,6 @@ public class OrganizationProfileMapper {
         return documents;
     }
 
-    /**
-     * Thay toàn bộ giấy tờ cũ bằng giấy tờ mới.
-     * Phải clear() + addAll() trên CHÍNH list đang có, không gọi setDocuments(newList),
-     * vì Hibernate báo lỗi nếu list có orphanRemoval bị thay bằng đối tượng khác.
-     */
     private void replaceDocuments(List<DocumentRequest> requests, OrganizationProfile org) {
         List<OrganizationDocument> current = org.getDocuments();
         if (current == null) {
@@ -138,8 +114,6 @@ public class OrganizationProfileMapper {
         current.addAll(buildDocuments(requests, org, existingFileUrlById));
     }
 
-    // F-003: gửi lại đúng link bảo vệ của giấy tờ cũ (thay vì URL storage thật) nghĩa là
-    // "giữ nguyên tệp này" - tra theo documentId trong link để lấy lại URL thật đang lưu.
     private String resolveEchoedDocumentFileUrl(UUID organizationId, String requestedFileUrl,
                                                 Map<UUID, String> existingFileUrlById) {
         UUID echoedDocumentId = LegalFileLinks.documentIdFromLinkOrNull(organizationId, requestedFileUrl);

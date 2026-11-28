@@ -13,13 +13,11 @@ import lombok.*;
 @AllArgsConstructor
 @Builder
 public class Cart {
-    // Khóa chính
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false)
     private UUID id;
 
-    // Mỗi Member đúng một giỏ
     @OneToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "member_id", nullable = false, unique = true)
     private Account member;

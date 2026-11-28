@@ -16,7 +16,6 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Snapshot notification data before commit; persist and deliver in an independent transaction afterwards. */
 @Component
 @RequiredArgsConstructor
 @Slf4j

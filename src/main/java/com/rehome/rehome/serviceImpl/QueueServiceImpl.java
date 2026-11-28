@@ -75,7 +75,6 @@ public class QueueServiceImpl implements QueueService {
     private final AccountRepository accountRepository;
     private final BusinessNotifications businessNotifications;
 
-    // Không đặt readOnly: tab RETURN có thể phải bù dòng hàng đợi còn thiếu (syncPendingReturnRequests)
     @Override
     @Transactional
     public List<QueueItemResponse> list(String type, Account moderator) {
@@ -105,8 +104,6 @@ public class QueueServiceImpl implements QueueService {
         return toResponses(items);
     }
 
-    // Yêu cầu trả hàng PENDING tạo trước khi có hàng đợi (hoặc bị sót lúc tạo) không có dòng trong queue_items
-    // nên tab Trả hàng bị rỗng. Bù các dòng còn thiếu cho kho của Moderator; đã có dòng thì giữ nguyên.
     private void syncPendingReturnRequests(Warehouse warehouse) {
         List<String> pendingIds = returnRequestRepository.findPendingIdsByWarehouse(warehouse).stream()
                 .map(UUID::toString)
@@ -141,11 +138,6 @@ public class QueueServiceImpl implements QueueService {
         }
     }
 
-    // DG-01: QueueItemResponse của PACKING cần kèm dữ liệu đơn hàng (mã đơn, người nhận,
-    // số món, vị trí kệ, thời gian chờ); LEGAL_CHANGE kèm nội dung xin đổi (xem bên dưới);
-    // FORM_REVIEW / INSPECTION / ORG_VERIFICATION / WITHDRAWAL kèm targetName + subjectSubtitle;
-    // WITHDRAWAL kèm thêm sku, ảnh, phí, hạn lấy hàng; DONATION_PICKUP kèm sku, chiến dịch, tổ chức, status.
-    // Mọi dữ liệu nạp theo lô từ danh sách refId nên số truy vấn cố định, không phụ thuộc số dòng hàng đợi.
     private List<QueueItemResponse> toResponses(List<QueueItem> items) {
         List<UUID> packingOrderIds = items.stream()
                 .filter(i -> i.getType() == QueueType.PACKING)
@@ -230,7 +222,6 @@ public class QueueServiceImpl implements QueueService {
             }
         }
 
-        // Nhánh ký gửi: FORM_REVIEW / INSPECTION cùng trỏ tới id form ký gửi
         List<UUID> consignmentFormIds = items.stream()
                 .filter(i -> i.getType() == QueueType.FORM_REVIEW || i.getType() == QueueType.INSPECTION)
                 .map(i -> parseUuid(i.getRefId()))
@@ -243,7 +234,6 @@ public class QueueServiceImpl implements QueueService {
         if (!consignmentFormIds.isEmpty()) {
             consignmentFormRepository.findAllById(consignmentFormIds).forEach(f -> formsById.put(f.getId(), f));
 
-            // getId() trên proxy lazy không kích hoạt query
             List<UUID> memberIds = formsById.values().stream()
                     .map(f -> f.getMember().getId())
                     .distinct()
@@ -254,8 +244,6 @@ public class QueueServiceImpl implements QueueService {
             }
         }
 
-        // Nhánh tổ chức: ORG_VERIFICATION có refId là accountId của tổ chức; người đại diện là
-        // @Embedded trên OrganizationProfile nên không phát sinh truy vấn thêm
         List<UUID> organizationIds = items.stream()
                 .filter(i -> i.getType() == QueueType.ORG_VERIFICATION)
                 .map(i -> parseUuid(i.getRefId()))
@@ -269,8 +257,6 @@ public class QueueServiceImpl implements QueueService {
                     .forEach(o -> organizationsById.put(o.getAccountId(), o));
         }
 
-        // Nhánh rút hàng: WITHDRAWAL có refId là id yêu cầu rút hàng; tên món lấy từ product (fetch sẵn),
-        // tên và mã người ký gửi lấy theo lô từ MemberProfile (getId() trên proxy lazy không kích hoạt query)
         List<UUID> withdrawalIds = items.stream()
                 .filter(i -> i.getType() == QueueType.WITHDRAWAL)
                 .map(i -> parseUuid(i.getRefId()))
@@ -294,7 +280,6 @@ public class QueueServiceImpl implements QueueService {
             }
         }
 
-        // Ảnh đại diện món cần rút: nạp 1 lô cho mọi sản phẩm, lấy ảnh đầu tiên theo displayOrder
         Map<String, String> withdrawalImageByProductId = new HashMap<>();
         if (!withdrawalsById.isEmpty()) {
             List<String> withdrawalProductIds = withdrawalsById.values().stream()
@@ -307,7 +292,6 @@ public class QueueServiceImpl implements QueueService {
             }
         }
 
-        // Nhánh quyên góp: DONATION_PICKUP có refId là id Donation; product, chiến dịch, tổ chức fetch sẵn theo lô
         List<UUID> donationIds = items.stream()
                 .filter(i -> i.getType() == QueueType.DONATION_PREP || i.getType() == QueueType.DONATION_PICKUP
                         || i.getType() == QueueType.DONATION_REASSIGN)
@@ -424,7 +408,6 @@ public class QueueServiceImpl implements QueueService {
         QueueItem item = queueItemRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.QUEUE_ITEM_NOT_FOUND));
 
-        // Việc thuộc kho khác thì coi như không tồn tại
         if (item.getWarehouse() != null && !item.getWarehouse().getId().equals(warehouse.getId())) {
             throw new AppException(ErrorCode.QUEUE_ITEM_NOT_FOUND);
         }
@@ -458,8 +441,6 @@ public class QueueServiceImpl implements QueueService {
         logPackingTask(moderator, warehouse, item, "RELEASE_TASK");
     }
 
-    // Chỉ việc đóng gói thuộc nhóm lịch sử PACKING; các loại việc khác không ghi ở đây.
-    // Gọi trong transaction của claim/release nên claim thất bại (409) thì không có log
     private void logPackingTask(Account moderator, Warehouse warehouse, QueueItem item, String action) {
         if (item.getType() != QueueType.PACKING || warehouse == null) {
             return;

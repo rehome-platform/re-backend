@@ -11,10 +11,8 @@ import lombok.NoArgsConstructor;
 @Builder
 public class UploadedFileResponse {
 
-    /** URL công khai để FE gắn vào imageUrl/fileUrl/avatarUrl */
     private String url;
 
-    /** Tên file gốc do client gửi lên, chỉ để hiển thị lại */
     private String originalFileName;
 
     private String contentType;

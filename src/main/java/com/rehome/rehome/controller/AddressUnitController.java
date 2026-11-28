@@ -13,10 +13,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-// Danh mục địa chỉ GHN (hệ 2 cấp mới, sau sáp nhập 01/07/2025: tỉnh/thành -> phường/xã thẳng,
-// không còn quận/huyện), dùng khi Member thêm/sửa địa chỉ giao hàng và khi khai địa chỉ kho.
-// Tên trả về chính là giá trị gửi lại cho wardName/provinceName để tạo vận đơn GHN với
-// is_new_to_address/is_new_from_address: true mà không bị "ward not found".
 @RestController
 @RequestMapping("/address-units")
 @RequiredArgsConstructor

@@ -5,9 +5,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Yêu cầu đổi thông tin pháp lý vừa gửi, chờ Moderator duyệt (F-097).
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

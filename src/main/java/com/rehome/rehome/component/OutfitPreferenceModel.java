@@ -4,7 +4,6 @@ import com.rehome.rehome.util.VietnameseText;
 import java.math.BigDecimal;
 import java.util.*;
 
-/** Fits a smoothed multinomial user model against the available-catalogue background. */
 public final class OutfitPreferenceModel {
     public static final String VERSION = "multinomial-nb-v1";
     public record Item(String name, String category, String brand, String size, BigDecimal price) {}
@@ -24,7 +23,6 @@ public final class OutfitPreferenceModel {
         return tokens.size();
     }
 
-    /** Mean log likelihood ratio; this is a ranking signal, not a purchase probability. */
     public double score(Item candidate) {
         if (personalTotal == 0 || backgroundTotal == 0) return 0;
         double score = 0;
@@ -49,7 +47,6 @@ public final class OutfitPreferenceModel {
         field(tokens, "brand:", item.brand());
         field(tokens, "size:", item.size());
         if (item.price() != null && item.price().signum() > 0) {
-            // A logarithmic bucket treats nearby prices similarly without learning fixture IDs.
             tokens.add("price:" + (int) Math.floor(Math.log(item.price().doubleValue()) / Math.log(2)));
         }
         return tokens;

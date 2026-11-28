@@ -7,7 +7,6 @@ import lombok.Getter;
 
 import java.time.Instant;
 
-/** API 146 - tham số sau khi sửa. */
 @Getter
 @Builder
 @AllArgsConstructor

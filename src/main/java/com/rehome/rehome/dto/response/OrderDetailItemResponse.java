@@ -20,6 +20,5 @@ public class OrderDetailItemResponse {
     private String condition;
     private BigDecimal priceAtOrder;
 
-    // Đã được Moderator quét đối chiếu SKU trước khi tạo vận đơn - F-127
     private Boolean scanned;
 }

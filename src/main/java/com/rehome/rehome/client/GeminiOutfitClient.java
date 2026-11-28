@@ -38,7 +38,6 @@ public class GeminiOutfitClient {
             return suggestions;
         }
 
-        // Send public product metadata only. Use positions so the provider does not need SKU or warehouse IDs.
         var candidates = mapper.createArrayNode();
         for (int i = 0; i < suggestions.size(); i++) {
             var product = suggestions.get(i);

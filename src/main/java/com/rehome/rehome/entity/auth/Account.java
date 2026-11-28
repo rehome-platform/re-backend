@@ -41,7 +41,6 @@ public class Account implements UserDetails {
     @Column(unique = true)
     private String phone;
 
-    // Lý do khoá tài khoản, chỉ có ý nghĩa khi status = BANNED; trả cho app trong body lỗi ACCOUNT_BANNED
     @Column(name = "ban_reason", columnDefinition = "text")
     private String banReason;
 
@@ -82,7 +81,6 @@ public class Account implements UserDetails {
         return List.of(new SimpleGrantedAuthority("ROLE_" + role.name()));
     }
 
-    // Kho Moderator phụ trách; null với Member/Admin
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "warehouse_id", nullable = true)

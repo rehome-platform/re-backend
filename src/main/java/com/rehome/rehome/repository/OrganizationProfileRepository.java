@@ -1,6 +1,5 @@
 package com.rehome.rehome.repository;
 
-import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.auth.OrganizationProfile;
 import com.rehome.rehome.entity.enums.VerificationStatus;
 import org.springframework.data.domain.Page;
@@ -26,20 +25,13 @@ public interface OrganizationProfileRepository extends JpaRepository<Organizatio
     boolean existsByTaxCodeAndAccountIdNot(String taxCode, UUID accountId);
     Optional<OrganizationProfile> findByAccountId(UUID accountId);
 
-    // F-139: hồ sơ đã DUYỆT quá hạn giữ ảnh giấy tờ. Lọc theo status để hồ sơ bị từ chối
-    // (cũng có verifiedAt vì đó là mốc "kết luận") không bị xóa ảnh trước khi nộp lại
     List<OrganizationProfile> findAllByVerificationStatusAndVerifiedAtBefore(
             VerificationStatus verificationStatus, Instant verifiedAt);
 
-    // Tổ chức gần vị trí: chỉ tổ chức đã VERIFIED mới công khai (F-082)
     List<OrganizationProfile> findAllByVerificationStatus(VerificationStatus verificationStatus);
 
-    // Hồ sơ đã tồn tại trước khi có cột display_name_normalized - ddl-auto=update chỉ thêm cột
-    // với giá trị null, cần initializer điền lại (xem OrganizationNameNormalizeInitializer)
     List<OrganizationProfile> findAllByDisplayNameNormalizedIsNull();
 
-    // GET /api/organizations?search=: tìm theo displayName hoặc legalName, chỉ tổ chức VERIFIED.
-    // keyword "" -> không lọc theo tên, chỉ còn verificationStatus
     @Query("select o from OrganizationProfile o where o.verificationStatus = :status "
             + "and (o.displayNameNormalized like concat('%', :keyword, '%') "
             + "or o.legalNameNormalized like concat('%', :keyword, '%'))")

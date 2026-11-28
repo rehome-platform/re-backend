@@ -5,9 +5,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Hồ sơ tổ chức sau khi cập nhật thông tin thường (F-096).
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

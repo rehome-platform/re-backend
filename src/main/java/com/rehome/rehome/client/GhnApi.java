@@ -25,22 +25,18 @@ public interface GhnApi {
             @RequestHeader("ShopId") String shopId,
             @RequestBody GhnCreateOrderRequest request);
 
-    // In phiếu vận đơn: lấy token in, gắn vào URL /a5/public-api/print* - xem docs/ghnapi.md "In đơn"
     @PostMapping("/v2/a5/gen-token")
     GhnGenTokenResponse genPrintToken(
             @RequestHeader("Token") String token,
             @RequestHeader("ShopId") String shopId,
             @RequestBody GhnGenTokenRequest request);
 
-    // F-054: tính phí ship thật theo tuyến kho -> địa chỉ nhận, dùng cho GET /cart/checkout-preview
     @PostMapping("/v2/shipping-order/fee")
     GhnCalculateFeeResponse calculateFee(
             @RequestHeader("Token") String token,
             @RequestHeader("ShopId") String shopId,
             @RequestBody GhnCalculateFeeRequest request);
 
-    // Hệ hành chính 2 cấp (mới, sau sáp nhập 01/07/2025) - danh mục này mới khớp với is_new_*_address: true
-    // dùng khi Tạo đơn. Xem docs/ghnapi.md "Lấy Tỉnh/Thành (Mới)".
     @GetMapping("/v3/master-data/province/all")
     GhnMasterDataResponse<GhnNewProvince> getProvinces(
             @RequestHeader("Token") String token,
@@ -48,7 +44,6 @@ public interface GhnApi {
             @RequestParam("offset") int offset,
             @RequestParam("limit") int limit);
 
-    // Phường/xã thuộc thẳng tỉnh/thành (không còn quận/huyện) - xem docs/ghnapi.md "Lấy Phường/Xã (Mới)".
     @GetMapping("/v3/master-data/ward/all-by-province-id")
     GhnMasterDataResponse<GhnNewWard> getWards(
             @RequestHeader("Token") String token,

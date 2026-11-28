@@ -15,6 +15,5 @@ public class StartInspectionRequest {
     private Boolean counterfeitSuspected;
     private String conditionNote;
 
-    // Ảnh bằng chứng Moderator chụp lúc kiểm hàng - bắt buộc 2-5 ảnh (TH-05..TH-07)
     private List<String> evidenceImageUrls;
 }

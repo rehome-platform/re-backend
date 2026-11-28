@@ -11,18 +11,13 @@ import java.util.UUID;
 
 public interface DegradedItemCaseService {
 
-    // Moderator mở ca hàng xuống cấp trực tiếp lúc kiểm kho, không qua yêu cầu trả hàng
     DegradedItemCaseDetailResponse open(Account moderator, OpenDegradedItemCaseRequest request);
 
-    // API 95 (F-036) - Member quyết định nhận đền đủ hay nhận lại hàng kèm đền một phần
     DegradedItemCaseResponse decide(Account account, UUID id, DecideDegradedItemCaseRequest request);
 
-    // Member xem một ca của mình trước khi quyết định
     DegradedItemCaseDetailResponse getMine(Account account, UUID id);
 
-    // Member xem các ca của mình; status = null/rỗng thì lấy tất cả
     List<DegradedItemCaseDetailResponse> listMine(Account account, String status);
 
-    // Moderator xem các ca hàng xuống cấp thuộc kho mình quản lý; status = null/rỗng thì lấy tất cả
     List<DegradedItemCaseDetailResponse> listByWarehouse(Account moderator, String status);
 }

@@ -8,8 +8,6 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 
-// Đã thanh toán xong (ví, hoặc VNPay đã confirm trước đó) -> id/feeCharged/status có giá trị, payUrl null.
-// Còn phải trả qua cổng (VNPay vừa tạo giao dịch) -> chỉ payUrl có giá trị, các field khác null.
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

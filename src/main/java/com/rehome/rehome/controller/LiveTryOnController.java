@@ -22,10 +22,6 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-/**
- * Thử đồ AI real-time qua camera (Decart Lucy VTON) - tách khỏi {@link TryOnController} vì đây là
- * luồng WebRTC/video, không phải sinh ảnh tĩnh. Giới hạn chi tiết xem {@code LiveTryOnServiceImpl}.
- */
 @RestController
 @RequestMapping("/tryon/live")
 @RequiredArgsConstructor
@@ -33,7 +29,6 @@ public class LiveTryOnController {
 
     private final LiveTryOnService liveTryOnService;
 
-    // Mobile gọi trước khi mở camera để hiện "còn X/2 lượt hôm nay" hoặc ẩn nút khi hết lượt
     @GetMapping("/quota")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<LiveTryOnQuotaResponse>> getQuota(
@@ -42,7 +37,6 @@ public class LiveTryOnController {
         return ResponseEntity.ok(ApiResponse.success(liveTryOnService.getQuota(account)));
     }
 
-    // Trừ quota ngay tại đây (xem LiveTryOnServiceImpl) rồi mint client token Decart cho WebView
     @PostMapping("/sessions")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<LiveTryOnSessionResponse>> startSession(
@@ -53,7 +47,6 @@ public class LiveTryOnController {
         return ResponseEntity.status(201).body(ApiResponse.success(created, 201, "Đã tạo phiên thử đồ AI"));
     }
 
-    // WebView tự upload video 10s kết quả thẳng tới đây sau khi quay xong; đánh dấu phiên COMPLETED
     @PostMapping(value = "/sessions/{id}/video", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<LiveTryOnSessionVideoResponse>> uploadVideo(
@@ -65,7 +58,6 @@ public class LiveTryOnController {
         return ResponseEntity.ok(ApiResponse.success(uploaded, "Đã lưu video thử đồ"));
     }
 
-    // Lịch sử video đã quay xong của chính Member (mới nhất trước) để xem lại / tải lại
     @GetMapping("/sessions")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<PageResponse<LiveTryOnHistoryItemResponse>>> getHistory(
@@ -85,7 +77,6 @@ public class LiveTryOnController {
         return ResponseEntity.ok(ApiResponse.success(null, "Đã xoá video thử đồ"));
     }
 
-    // Mobile tự báo khi không có video (vd. mất kết nối giữa chừng) - chỉ để audit, không hoàn quota
     @PatchMapping("/sessions/{id}/started")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<Void>> confirmFirstFrame(

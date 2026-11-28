@@ -5,7 +5,6 @@ import java.time.Instant;
 import java.util.UUID;
 import lombok.*;
 
-// Lịch sử trạng thái vận chuyển GHN, ghi mỗi lần webhook bắn về - F-128
 @Entity
 @Table(name = "order_tracking_events")
 @Getter
@@ -23,19 +22,15 @@ public class OrderTrackingEvent {
     @JoinColumn(name = "order_id", nullable = false)
     private Order order;
 
-    // Trạng thái thô từ GHN, ví dụ "delivering", "delivered"
     @Column(name = "ghn_status", nullable = false, length = 255)
     private String ghnStatus;
 
     @Column(name = "description", nullable = true, columnDefinition = "text")
     private String description;
 
-    // Nơi kiện hàng đang ở khi GHN bắn sự kiện - field Warehouse trong webhook.
-    // GHN không phải lúc nào cũng gửi, nên có thể null.
     @Column(name = "location", nullable = true, length = 255)
     private String location;
 
-    // Thời điểm GHN ghi nhận sự kiện - field Time trong webhook
     @Column(name = "occurred_at", nullable = false)
     private Instant occurredAt;
 

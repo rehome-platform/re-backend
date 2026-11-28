@@ -8,7 +8,6 @@ import lombok.Getter;
 import java.util.List;
 import java.util.UUID;
 
-/** GET /api/admin/audit-logs/filter-options - actor và loại thao tác thực sự có trong audit log. */
 @Getter
 @Builder
 @AllArgsConstructor
@@ -21,7 +20,6 @@ public class AuditLogFilterOptionsResponse {
     @AllArgsConstructor
     public static class ActorOption {
         private final UUID id;
-        // null với Admin (không có profile)
         private final String name;
         private final String email;
         private final Role role;

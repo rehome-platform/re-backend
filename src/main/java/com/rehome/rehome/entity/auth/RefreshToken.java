@@ -18,7 +18,6 @@ public class RefreshToken {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // Lưu token dạng UUID string, không lưu JWT refresh token trực tiếp để dễ thu hồi (revoke)
     @Column(nullable = false, unique = true, length = 512)
     private String token;
 

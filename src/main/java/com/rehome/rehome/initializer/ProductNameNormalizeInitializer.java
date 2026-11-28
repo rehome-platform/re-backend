@@ -13,8 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-// Điền name_normalized cho sản phẩm đã có trước khi cột này ra đời: ddl-auto chỉ thêm cột
-// với giá trị null, mà null thì không khớp LIKE nào nên hàng cũ sẽ biến mất khỏi kết quả tìm kiếm.
 @Slf4j
 @Component
 @Order(101)
@@ -33,8 +31,6 @@ public class ProductNameNormalizeInitializer implements ApplicationRunner {
             return;
         }
 
-        // Gán tay thay vì dựa vào @PreUpdate: entity không đổi gì thì Hibernate không phát UPDATE
-        // và callback sẽ không chạy.
         for (Product product : pending) {
             product.setNameNormalized(VietnameseText.normalize(product.getName()));
         }

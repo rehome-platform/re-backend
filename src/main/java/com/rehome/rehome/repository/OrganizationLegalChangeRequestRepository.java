@@ -12,10 +12,8 @@ import java.util.UUID;
 public interface OrganizationLegalChangeRequestRepository
         extends JpaRepository<OrganizationLegalChangeRequest, UUID> {
 
-    // OP-05: yêu cầu đổi thông tin pháp lý gần nhất của chính tổ chức (duyệt hay từ chối gì cũng lấy)
     Optional<OrganizationLegalChangeRequest> findFirstByOrganization_AccountIdOrderByCreatedAtDesc(
             UUID organizationAccountId);
 
-    // Mỗi lần chỉ 1 yêu cầu đang chờ duyệt (wireframe OP-05) - chặn tạo mới khi còn PENDING
     boolean existsByOrganization_AccountIdAndStatus(UUID organizationAccountId, LegalChangeRequestStatus status);
 }

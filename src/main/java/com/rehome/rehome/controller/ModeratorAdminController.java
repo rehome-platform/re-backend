@@ -19,7 +19,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
 
-// /api/admin/** đã được SecurityConfig giới hạn cho ADMIN; @PreAuthorize là lớp bảo vệ thứ hai
 @RestController
 @RequestMapping("/api/admin/moderators")
 @RequiredArgsConstructor

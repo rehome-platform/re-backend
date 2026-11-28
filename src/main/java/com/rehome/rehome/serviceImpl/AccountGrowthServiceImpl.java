@@ -28,7 +28,6 @@ import java.util.TreeMap;
 @RequiredArgsConstructor
 public class AccountGrowthServiceImpl implements AccountGrowthService {
 
-    // Số kỳ tối đa trong một response, chặn khoảng quá dài làm nặng query và biểu đồ
     static final int MAX_POINTS = 366;
     private static final int DEFAULT_DAYS = 30;
     private static final DateTimeFormatter MONTH_LABEL = DateTimeFormatter.ofPattern("yyyy-MM");
@@ -47,7 +46,6 @@ public class AccountGrowthServiceImpl implements AccountGrowthService {
             }
         }
 
-        // Ngày đầu của kỳ chứa d: chính ngày đó / thứ Hai của tuần / mùng 1 của tháng
         LocalDate startOf(LocalDate d) {
             return switch (this) {
                 case DAY -> d;
@@ -82,7 +80,6 @@ public class AccountGrowthServiceImpl implements AccountGrowthService {
         Granularity g = Granularity.parse(granularity);
 
         AdminDateRange parsed = AdminDateRange.optional(from, to);
-        // Bỏ trống thì lấy 30 ngày gần nhất tính tới hết hôm nay (giờ VN)
         LocalDate toDate = parsed.toDate() != null ? parsed.toDate() : LocalDate.now(AdminDateRange.VN_ZONE);
         LocalDate fromDate = parsed.fromDate() != null ? parsed.fromDate() : toDate.minusDays(DEFAULT_DAYS - 1L);
         AdminDateRange range = AdminDateRange.of(fromDate, toDate);
@@ -93,7 +90,6 @@ public class AccountGrowthServiceImpl implements AccountGrowthService {
 
     static AccountGrowthResponse buildGrowth(Granularity g, LocalDate fromDate, LocalDate toDate,
                                              List<Instant> createdAts) {
-        // Đủ mọi kỳ từ kỳ chứa fromDate tới kỳ chứa toDate, kể cả kỳ 0 đăng ký
         Map<LocalDate, Long> counts = new TreeMap<>();
         for (LocalDate start = g.startOf(fromDate); !start.isAfter(toDate); start = g.next(start)) {
             if (counts.size() >= MAX_POINTS) {

@@ -7,7 +7,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
-/** Length-prefixed components avoid ambiguities between different input combinations. */
 public final class TryOnFingerprint {
     private TryOnFingerprint() {}
 

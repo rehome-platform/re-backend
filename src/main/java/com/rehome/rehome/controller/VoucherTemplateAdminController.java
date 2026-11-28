@@ -21,11 +21,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * Admin - mẫu voucher (màn W-04).
- *
- * <p>Không có DELETE: {@code member_vouchers} trỏ FK vào template để thống kê. Chỉ "Ngừng phát".
- */
 @RestController
 @RequestMapping("/api/admin/voucher-templates")
 @RequiredArgsConstructor

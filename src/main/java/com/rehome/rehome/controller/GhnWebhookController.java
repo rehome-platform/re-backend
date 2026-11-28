@@ -10,7 +10,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-// API 71 - POST /webhooks/ghn (F-128). GHN gọi về, không qua JWT - xem SecurityConfig.PUBLIC_ENDPOINTS.
 @RestController
 @RequestMapping("/webhooks")
 @RequiredArgsConstructor

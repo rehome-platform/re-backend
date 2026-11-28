@@ -12,9 +12,7 @@ import java.util.List;
 public class CreatePostRequest {
     private String content;
 
-    // Ảnh đã upload qua POST /uploads; mỗi url thành 1 dòng community_post_photos
     private List<String> photoUrls;
 
-    // OB-02: không bắt buộc; chỉ cho gắn chiến dịch đang OPEN của chính tổ chức đang đăng bài
     private String campaignId;
 }

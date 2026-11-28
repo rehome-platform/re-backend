@@ -21,13 +21,11 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
-// F-069 + F-071 + quá hạn trả phí gửi lại hàng trả không hợp lệ (SHIP_BACK)
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class ReturnRequestAutoExpireServiceImpl implements ReturnRequestAutoExpireService {
 
-    // Đã vào luồng gửi lại qua GHN -> không đánh dấu quá hạn đến kho nhận
     private static final Set<ShipBackStatus> ACTIVE_OR_DONE_SHIP_BACK = EnumSet.of(
             ShipBackStatus.PAID, ShipBackStatus.SHIPPING, ShipBackStatus.DELIVERED);
 

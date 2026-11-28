@@ -4,7 +4,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-// Chỉ được gửi đúng 1 trong 3 field
 @Getter
 @Setter
 @NoArgsConstructor

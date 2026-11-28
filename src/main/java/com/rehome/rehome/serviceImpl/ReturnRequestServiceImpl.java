@@ -97,7 +97,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             ReturnRequestStatus.SHIPPED_BACK,
             ReturnRequestStatus.INSPECTING);
 
-    // Vận đơn chiều trả bị GHN báo thất lạc/hư hỏng/tiêu hủy -> F-136
     private static final List<String> LOST_GHN_STATUSES = List.of("lost", "damage", "scrap");
 
     private final com.rehome.rehome.service.ContentModerationService moderation;
@@ -140,7 +139,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     @Value("${ghn.default-package.height-cm}")
     private int defaultPackageHeightCm;
 
-    // return_handover_carrier_days: số ngày Member phải bàn giao hàng trả cho GHN
     private int handoverDeadlineDays() {
         return systemConfigReader.getInt(SystemConfigKeys.RETURN_HANDOVER_CARRIER_DAYS,
                 SystemConfigKeys.DEFAULT_RETURN_HANDOVER_CARRIER_DAYS);
@@ -184,9 +182,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                     "ORDER_NOT_RETURNABLE");
         }
 
-        // Buyer được trả hàng trong 3 ngày kể từ lúc GHN báo giao, kể cả khi đã bấm "Đã nhận
-        // hàng" (đơn COMPLETED) - vì payout người ký gửi giờ giữ lại tới hết hạn đó, không trả
-        // ngay lúc confirm-receipt nữa.
         Instant returnWindowEnd = order.getReturnDeadline() != null
                 ? order.getReturnDeadline()
                 : order.getDeliveredAt().plus(systemConfigReader.getInt(
@@ -208,7 +203,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .order(order)
                 .reason(request.getReason())
                 .status(ReturnRequestStatus.PENDING)
-                // Mốc thật được chốt lại lúc Moderator duyệt và tạo vận đơn trả
                 .handoverDeadline(Instant.now().plus(handoverDeadlineDays(), ChronoUnit.DAYS))
                 .build();
         returnRequestRepository.save(returnRequest);
@@ -282,7 +276,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         return toResponseWithPhotos(findOrThrow(id));
     }
 
-    // F-131: duyệt yêu cầu và tạo vận đơn GHN chiều ngược (từ địa chỉ người mua về kho)
     @Override
     @Transactional
     public ReturnRequestResponse approve(UUID id) {
@@ -290,7 +283,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         ReturnRequest returnRequest = returnRequestRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new IllegalArgumentException("Return request not found"));
 
-        // Đã tạo vận đơn trả trước đó thì trả lại kết quả cũ, không gọi GHN lần nữa
         if (StringUtils.hasText(returnRequest.getGhnReturnTrackingCode())) {
             return toResponseWithPhotos(returnRequest);
         }
@@ -360,15 +352,12 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         return toResponseWithPhotos(returnRequest);
     }
 
-    // Yêu cầu trả hàng bị từ chối/hủy mà lúc đó đã quá hạn 3 ngày (autoCompleteDeadline) thì trả
-    // tiền ngay, khỏi chờ job quét định kỳ. Còn trong hạn thì để OrderAutoCompleteServiceImpl xử lý.
     private void payoutIfReturnWindowPassed(Order order, String note) {
         if (order.getAutoCompleteDeadline() != null && Instant.now().isAfter(order.getAutoCompleteDeadline())) {
             orderService.payoutOrder(order.getId(), note);
         }
     }
 
-    // F-068: Member bàn giao hàng cho GHN (webhook GHN cũng tự chuyển trạng thái này khi tài xế lấy hàng)
     @Override
     @Transactional
     public ReturnRequestResponse confirmHandover(String email, UUID id) {
@@ -390,8 +379,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             throw new ConflictException("Yêu cầu trả hàng chưa được duyệt.", "RETURN_NOT_APPROVED");
         }
 
-        // Quá handoverDeadline mà job F-069 chưa kịp quét tới -> hủy ngay tại đây, tránh
-        // cho bàn giao trễ vẫn được chấp nhận trong lúc chờ tới lượt quét định kỳ.
         if (returnRequest.getHandoverDeadline() != null
                 && Instant.now().isAfter(returnRequest.getHandoverDeadline())) {
             returnRequest.setStatus(ReturnRequestStatus.CANCELLED);
@@ -412,8 +399,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         return toResponseWithPhotos(returnRequest);
     }
 
-    // API 85: Moderator nhận hàng về kho, ghi nhận đúng sản phẩm gốc/xuống cấp/nghi hàng giả
-    // không, kèm conditionNote bắt buộc; đồng thời chuyển sang INSPECTING nếu chưa.
     @Override
     @Transactional
     public ReturnRequestResponse startInspection(UUID id, StartInspectionRequest request) {
@@ -454,11 +439,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         return toResponseWithPhotos(returnRequest);
     }
 
-    // API 88 (F-133): VALID -> hoàn 100% cho người mua, kèm action quyết định hướng xử lý món
-    // hàng (RELIST/RETURN_TO_SELLER/DISCARD); INVALID -> không hoàn tiền, đơn vẫn tính bán, Member
-    // có pickupDeadline ngày để chọn cách nhận lại hàng (F-070) - action không áp dụng cho INVALID.
-    // Hàng bị đánh dấu degraded lúc kiểm (API 85) thì không dùng action - mở DegradedItemCase
-    // (F-036) để Member bán tự quyết định, "không đăng bán lại" (docs/OVERVIEW.md).
     @Override
     @Transactional
     public ReturnRequestResponse resolve(Account moderator, UUID id, ResolveReturnRequestRequest request) {
@@ -507,9 +487,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 orderService.applyReturnedItemAction(returnRequest.getOrder().getId(), action);
             }
         } else {
-            // Chưa đóng (resolvedAt để trống): còn chờ Member nhận lại hàng, hết hạn thì F-071 đóng hộ.
-            // Trả hàng không hợp lệ -> người ký gửi vẫn được trả tiền, và trả ngay lúc kết luận
-            // (không chờ hết hạn 3 ngày, không chờ Member chọn cách nhận lại hàng)
             returnRequest.setStatus(ReturnRequestStatus.INVALID);
             returnRequest.setPickupDeadline(now.plus(
                     systemConfigReader.getInt(SystemConfigKeys.COUNTER_PICKUP_DAYS,
@@ -593,9 +570,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         }
     }
 
-    // F-036: snapshot mức đền đủ (giá bán - hoa hồng áp dụng lúc đặt đơn, KHÔNG trừ thuế - khác
-    // payout thường) ngay lúc mở ca; Member tự chọn FULL_COMPENSATION hay PARTIAL_WITH_ITEM_BACK
-    // sau đó ở API 95, choice/paidAmount để trống tới lúc đó.
     private void openDegradedItemCase(Account moderator, ReturnRequest returnRequest) {
         OrderItem item = orderItemRepository
                 .findAllByOrder_IdWithProductOrderByIdAsc(returnRequest.getOrder().getId())
@@ -644,7 +618,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         return configured > 0 ? configured : SystemConfigKeys.DEFAULT_COUNTER_PICKUP_DAYS;
     }
 
-    // 1.2: Báo phí gửi lại hàng trả không hợp lệ qua GHN tới địa chỉ người mua chọn
     @Override
     public ShipBackQuoteResponse getShipBackQuote(String email, UUID id, UUID addressId) {
 
@@ -690,7 +663,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .build();
     }
 
-    // F-070 (API 82): Member chọn gửi lại (tự trả phí trước) hoặc đến kho nhận hàng trả không hợp lệ
     @Override
     @Transactional
     public ReturnRequestResponse chooseInvalidReturn(String email, UUID id, InvalidReturnChoiceRequest request) {
@@ -811,13 +783,11 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             returnRequestRepository.save(returnRequest);
 
         } else if ("delivered".equals(status) && returnRequest.getStatus() == ReturnRequestStatus.SHIPPED_BACK) {
-            // Vận đơn trả đã về tới kho - chuyển sang chờ Moderator kiểm hàng
             returnRequest.setStatus(ReturnRequestStatus.INSPECTING);
             returnRequestRepository.save(returnRequest);
 
         } else if (LOST_GHN_STATUSES.contains(status)
                 && OPEN_STATUSES.contains(returnRequest.getStatus())) {
-            // F-136: hàng trả thất lạc - người mua không phải chịu, hoàn 100%
             markLost(returnRequest, StringUtils.hasText(reason) ? reason : status);
 
             log.info(">>>> Hang tra that lac, da hoan tien: returnRequestId={}, ghnStatus={}",
@@ -827,7 +797,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         return true;
     }
 
-    // 1.7: Webhook GHN cho vận đơn gửi lại hàng trả không hợp lệ (chiều kho -> người mua)
     private boolean applyShipBackGhnStatus(String trackingCode, String ghnStatus) {
         ReturnRequest returnRequest = returnRequestRepository
                 .findByShipBackTrackingCode(trackingCode)
@@ -856,7 +825,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                     "hàng trả đã được giao lại thành công · Mã GHN " + trackingCode + ".");
 
         } else if ("returned".equals(status) || "return".equals(status)) {
-            // Giao thất bại, hàng hoàn về kho -> không hoàn phí, chỉ còn cách đến kho lấy (hạn mới 7 ngày)
             returnRequest.setShipBackStatus(ShipBackStatus.FAILED);
             returnRequest.setShipBackFailedAt(now);
             returnRequest.setInvalidReturnChoice(InvalidReturnChoice.WAREHOUSE_PICKUP);
@@ -872,7 +840,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         return true;
     }
 
-    // API 89 (F-136): Moderator tự tay đánh dấu thất lạc khi webhook GHN không về kịp hoặc không về
     @Override
     @Transactional
     public ReturnRequestResponse markLost(UUID id, MarkLostRequest request) {
@@ -897,9 +864,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         return toResponseWithPhotos(returnRequest);
     }
 
-    // F-136: hàng trả thất lạc trên đường về kho - rủi ro thuộc nền tảng/vận chuyển, không phải
-    // người mua, nên hoàn 100% dù hàng chưa về kho và chưa qua kiểm. Dùng chung cho cả webhook
-    // GHN tự báo lẫn Moderator tự tay đánh dấu (API 89).
     private void markLost(ReturnRequest returnRequest, String note) {
         returnRequest.setStatus(ReturnRequestStatus.LOST);
         returnRequest.setResolutionNote(note);
@@ -914,7 +878,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 "đã hoàn " + returnRequest.getOrder().getTotalAmount() + "đ do hàng trả thất lạc.");
     }
 
-    // Vận đơn chiều ngược: lấy hàng tại địa chỉ người mua, giao về kho đã bán món hàng
     private GhnCreateOrderRequest buildReturnShipmentRequest(ReturnRequest returnRequest, List<OrderItem> items) {
         Order order = returnRequest.getOrder();
         Warehouse warehouse = order.getWarehouse();
@@ -929,9 +892,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .toList();
 
         return GhnCreateOrderRequest.builder()
-                // UUID của return request, không phải orderNo: cùng lý do với OrderServiceImpl
-                // (orderNo đếm theo DB local, có thể trùng lại số cũ sau reset/seed còn lịch sử
-                // client_order_code bên GHN sandbox thì không bao giờ mất).
                 .clientOrderCode("RT-" + returnRequest.getId())
                 .fromName(order.getShippingRecipientName())
                 .fromPhone(order.getShippingPhone())

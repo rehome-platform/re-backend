@@ -16,7 +16,6 @@ import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.DegradedItemCaseStatus;
 import com.rehome.rehome.entity.enums.DegradedItemChoice;
 import com.rehome.rehome.entity.enums.ProductStatus;
-import com.rehome.rehome.entity.enums.Role;
 import com.rehome.rehome.entity.enums.TransactionStatus;
 import com.rehome.rehome.entity.enums.WalletTransactionType;
 import com.rehome.rehome.entity.enums.WalletType;
@@ -72,8 +71,6 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
     private final SystemConfigReader systemConfigReader;
     private final com.rehome.rehome.repository.ReturnRequestRepository returnRequestRepository;
 
-    // Moderator mở ca trực tiếp lúc kiểm kho (không qua yêu cầu trả hàng): compensationAmount
-    // snapshot từ giá đang bán - hoa hồng kỳ hiện tại, cùng công thức áp dụng lúc bán (F-036).
     @Override
     @Transactional
     public DegradedItemCaseDetailResponse open(Account moderator, OpenDegradedItemCaseRequest request) {
@@ -84,7 +81,6 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
             throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);
         }
 
-        // Lock the return first, matching item-action's return -> product lock order.
         ReturnRequest pendingReturn = returnRequestRepository
                 .findLatestReturnsByProductIds(List.of(request.getProductId())).stream().findFirst()
                 .flatMap(reference -> returnRequestRepository.findByIdForUpdate(reference.getReturnRequestId()))
@@ -129,7 +125,6 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
                 "Món " + product.getName() + ": vui lòng chọn phương án trước hạn "
                         + NotificationFormatting.deadline(degradedCase.getDecisionDeadline()) + ".", NotificationTargetType.DEGRADED_ITEM_CASE, degradedCase.getId());
 
-        // Tạm ẩn khỏi sàn chờ Member quyết định (F-036) - hàng vẫn nằm trong kho, không phải WITHDRAWN
         product.setStatus(ProductStatus.WAREHOUSE);
         productRepository.save(product);
 
@@ -155,9 +150,6 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
         };
     }
 
-    // API 95 (F-036): FULL_COMPENSATION -> đền đủ compensationAmount, hàng thành tài sản nền tảng;
-    // PARTIAL_WITH_ITEM_BACK -> đền compensationAmount x degradedCompensationRate (snapshot biên
-    // nhận), Member đến kho lấy hàng về (không mất phí rút). Cả hai đều cộng ví ngay (F-162).
     @Override
     @Transactional
     public DegradedItemCaseResponse decide(Account account, UUID id, DecideDegradedItemCaseRequest request) {
@@ -168,7 +160,6 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
 
         DegradedItemChoice choice = parseChoice(request.getChoice());
 
-        // Khóa dòng để Member bấm chọn và job quét quá hạn (tự gán UNCLAIMED) không cùng xử lý một ca
         DegradedItemCase degradedCase = degradedItemCaseRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new AppException(ErrorCode.DEGRADED_ITEM_CASE_NOT_FOUND));
 
@@ -176,14 +167,12 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
             throw new AppException(ErrorCode.DEGRADED_ITEM_CASE_FORBIDDEN);
         }
 
-        // Job đã đánh dấu vô thừa nhận vì quá hạn - không cho chọn trễ
         if (degradedCase.getChoice() == DegradedItemChoice.UNCLAIMED) {
             throw new AppException(ErrorCode.DECISION_EXPIRED);
         }
         if (degradedCase.getChoice() != null) {
             throw new AppException(ErrorCode.DEGRADED_ITEM_CASE_ALREADY_DECIDED);
         }
-        // Quá hạn nhưng job chưa kịp chạy
         if (degradedCase.getDecisionDeadline() != null && Instant.now().isAfter(degradedCase.getDecisionDeadline())) {
             throw new AppException(ErrorCode.DECISION_EXPIRED);
         }
@@ -200,7 +189,6 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
             paidAmount = degradedCase.getCompensationAmount()
                     .multiply(rate)
                     .setScale(2, RoundingMode.HALF_UP);
-            // Member sẽ đến kho lấy hàng (không mất phí rút) - hàng ngừng bán ngay, giống F-032
             product.setStatus(ProductStatus.WITHDRAWN);
         }
         productRepository.save(product);
@@ -219,8 +207,6 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
         return toResponse(degradedCase);
     }
 
-    // UNCLAIMED không nằm trong whitelist: đó là giá trị hệ thống tự gán khi quá hạn
-    // (DegradedItemCaseLifecycleServiceImpl), không phải lựa chọn Member được gửi lên qua API này
     private DegradedItemChoice parseChoice(String value) {
         DegradedItemChoice choice;
         try {
@@ -234,7 +220,6 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
         return choice;
     }
 
-    // F-162: cộng tiền đền vào ví người bán như một bút toán, không phải chuyển tiền thật
     private void creditSellerWallet(DegradedItemCase degradedCase, Account seller, BigDecimal amount) {
         Wallet wallet = getOrCreateWallet(seller);
         wallet.setBalance(wallet.getBalance().add(amount));
@@ -271,7 +256,6 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
                 .orElseGet(() -> PlatformFund.builder().build());
     }
 
-    // F-039: mỗi bút toán ví Member phải có một bút toán đối ứng ở quỹ nền tảng, ngược dấu
     private void recordPlatformCounterpart(WalletTransaction memberTransaction) {
         PlatformFund fund = getOrCreatePlatformFund();
         BigDecimal counterpartAmount = memberTransaction.getAmount().negate();
@@ -304,8 +288,6 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
                 .build();
     }
 
-    // ---------------------------------------------------------------- Member xem ca của mình
-
     @Override
     public DegradedItemCaseDetailResponse getMine(Account account, UUID id) {
         DegradedItemCase degradedCase = degradedItemCaseRepository.findDetailById(id)
@@ -315,8 +297,6 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
         return toDetailResponse(degradedCase);
     }
 
-    // Member chỉ xem ca của chính mình; Moderator xem ca thuộc kho mình quản lý (cùng quy tắc
-    // với listByWarehouse) để xử lý được ca Moderator khác mở lúc kiểm kho
     private void authorizeRead(Account account, DegradedItemCase degradedCase) {
         switch (account.getRole()) {
             case MODERATOR -> {
@@ -374,8 +354,6 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
     private DegradedItemCaseDetailResponse toDetailResponse(DegradedItemCase c) {
         ReturnRequest returnRequest = c.getReturnRequest();
 
-        // Ảnh và lý do nằm ở yêu cầu trả hàng dẫn đến ca này; ca mở trực tiếp lúc kiểm kho
-        // (không qua trả hàng) thì lấy ảnh/ghi chú Moderator nhập thẳng lúc mở ca
         List<String> photos = returnRequest == null || !c.getPhotos().isEmpty() ? c.getPhotos()
                 : returnRequestPhotoRepository
                         .findAllByReturnRequest_IdOrderByIdAsc(returnRequest.getId()).stream()
@@ -395,7 +373,6 @@ public class DegradedItemCaseServiceImpl implements DegradedItemCaseService {
                 .receivedAt(c.getCreatedAt())
                 .decidedAt(c.getDecidedAt())
                 .decisionDeadline(c.getDecisionDeadline())
-                // F-036 chưa quy định hạn lấy hàng riêng cho PARTIAL_WITH_ITEM_BACK
                 .pickupDeadline(null)
                 .autoDecided(c.getChoice() == DegradedItemChoice.UNCLAIMED)
                 .pickedUpAt(c.getPickedUpAt())

@@ -11,11 +11,8 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 public class RejectOrganizationRequest {
-    // Lý do để tổ chức biết phải sửa gì rồi nộp lại (API 4, F-003)
     private String reason;
 
-    // Chấm từng giấy tờ đạt/chưa đạt khi từ chối, để tổ chức biết đúng giấy tờ nào cần sửa
-    // thay vì chỉ có 1 lý do chung. Tùy chọn - bỏ trống thì giữ nguyên accepted cũ của giấy tờ.
     private List<DocumentDecision> documents;
 
     public RejectOrganizationRequest(String reason) {

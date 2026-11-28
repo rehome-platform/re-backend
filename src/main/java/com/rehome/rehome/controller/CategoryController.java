@@ -40,7 +40,6 @@ public class CategoryController {
             @Valid @RequestBody UpdateCategoryRequest request) {
         return ResponseEntity.ok(ApiResponse.success(categoryService.update(id, request), 200, "Đã cập nhật"));
     }
-    // CategoryController (@RequestMapping("/categories"))
     @PatchMapping("/{id}/hide")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<CatalogStatusResponse>> hide(@PathVariable UUID id) {

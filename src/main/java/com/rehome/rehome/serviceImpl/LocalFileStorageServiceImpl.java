@@ -11,13 +11,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
-/**
- * Lưu file vào ổ đĩa của server. CHỈ dùng cho dev: deploy hiện tại là JAR lên Azure Web App,
- * app.storage.local-dir là đường dẫn tương đối nên rơi vào wwwroot - bị thay sạch mỗi lần deploy.
- * Khi deploy dùng {@link CloudinaryFileStorageServiceImpl} (app.storage.provider=cloudinary).
- *
- * <p>Là bản mặc định nếu không khai báo {@code app.storage.provider}.
- */
 @Service
 @ConditionalOnProperty(name = "app.storage.provider", havingValue = "local", matchIfMissing = true)
 public class LocalFileStorageServiceImpl implements FileStorageService {
@@ -37,7 +30,6 @@ public class LocalFileStorageServiceImpl implements FileStorageService {
     @Override
     public String store(String path, byte[] content, String contentType) {
         Path target = root.resolve(path).normalize();
-        // Chặn path traversal (../)
         if (!target.startsWith(root)) {
             throw new AppException(ErrorCode.FILE_UPLOAD_FAILED);
         }
@@ -77,7 +69,6 @@ public class LocalFileStorageServiceImpl implements FileStorageService {
         }
 
         Path target = root.resolve(path).normalize();
-        // Chặn path traversal: URL nằm trong DB nên không tin được hoàn toàn
         if (!target.startsWith(root) || !Files.isRegularFile(target)) {
             return Optional.empty();
         }
@@ -88,7 +79,6 @@ public class LocalFileStorageServiceImpl implements FileStorageService {
         }
     }
 
-    /** store() trả publicBaseUrl + "/" + path nên bỏ đúng tiền tố đó là ra path. */
     private String pathFromUrl(String url) {
         String prefix = publicBaseUrl + "/";
         if (url == null || !url.startsWith(prefix)) {

@@ -13,13 +13,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * GET /api/admin/membership-subscriptions (dòng danh sách, W-02) và
- * GET /api/admin/membership-subscriptions/{id} (chi tiết, W-03 - trả thêm 3 khối cuối).
- *
- * <p>Dùng một DTO cho cả hai: các khối {@code quotaUsage} / {@code payments} / {@code vouchers}
- * để null ở danh sách. Tách thành hai class sẽ phải lặp lại 12 field đầu.
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -39,11 +32,8 @@ public class AdminMembershipSubscriptionResponse {
     private Instant startedAt;
     private Instant expiresAt;
     private Integer daysRemaining;
-    // true = Admin tặng tay, không phải Member mua
     private boolean grantedByAdmin;
     private String cancelReason;
-
-    // ---- Chỉ có ở chi tiết {id} ----
 
     private QuotaUsage quotaUsage;
     private List<PaymentRef> payments;

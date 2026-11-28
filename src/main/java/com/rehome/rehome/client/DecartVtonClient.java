@@ -16,26 +16,10 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
-/**
- * Client mint "client token" ngắn hạn của Decart (Lucy VTON realtime) - xem docs
- * {@code POST https://api.decart.ai/v1/client/tokens}, header {@code x-api-key} là permanent key.
- *
- * <p>Permanent key CHỈ nằm ở backend (decart.api.key). Token trả về cho mobile là
- * {@code apiKey} ngắn hạn (field {@link TokenResult#apiKey()}), mobile truyền thẳng cho Decart
- * Web SDK trong WebView - không bao giờ thấy permanent key.
- *
- * <p>Hai field chặn chi phí quan trọng nhất trong request:
- * <ul>
- *   <li>{@code allowedModels}: token chỉ mở khoá đúng model này, kể cả nếu request bị can thiệp.</li>
- *   <li>{@code constraints.realtime.maxSessionDuration}: Decart tự cắt phiên phía server họ sau
- *   đúng N giây, không phụ thuộc client có tôn trọng countdown trên app hay không.</li>
- * </ul>
- */
 @Slf4j
 @Component
 public class DecartVtonClient {
 
-    // null khi chưa cấu hình decart.api.key -> mọi lần gọi trả 502 TRYON_LIVE_TOKEN_FAILED
     private final RestClient client;
 
     @Autowired
@@ -50,8 +34,6 @@ public class DecartVtonClient {
             this.client = null;
             return;
         }
-        // Mint token phải nhanh (chỉ là 1 call REST ngắn) - timeout thấp để mobile không đứng
-        // ở màn "Đang kết nối AI..." quá lâu khi Decart chậm/không phản hồi.
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(Duration.ofSeconds(connectTimeoutSeconds));
         factory.setReadTimeout(Duration.ofSeconds(readTimeoutSeconds));
@@ -62,16 +44,10 @@ public class DecartVtonClient {
                 .build();
     }
 
-    // Dùng cho test: truyền RestClient đã gắn MockRestServiceServer
     DecartVtonClient(RestClient client) {
         this.client = client;
     }
 
-    /**
-     * @param modelId           ví dụ "lucy-vton-3.5" - ghim version cụ thể, không dùng alias "latest"
-     * @param tokenTtlSeconds   thời gian token còn hiệu lực để MỞ kết nối (1-3600s theo Decart)
-     * @param maxSessionSeconds Decart tự cắt phiên sau N giây kể cả token chưa hết hạn (tối thiểu 10s)
-     */
     public TokenResult mintClientToken(String modelId, int tokenTtlSeconds, int maxSessionSeconds) {
         if (client == null) {
             log.error(">>>> Mint Decart client token that bai: chua cau hinh decart.api.key");
@@ -100,7 +76,6 @@ public class DecartVtonClient {
         } catch (AppException e) {
             throw e;
         } catch (RuntimeException e) {
-            // RestClientResponseException (401 sai key, 422 validation), ResourceAccessException (mạng/timeout)...
             log.error(">>>> Mint Decart client token that bai: {}", e.toString());
             throw failed();
         }

@@ -21,32 +21,26 @@ import org.hibernate.annotations.ColumnDefault;
 @AllArgsConstructor
 @Builder
 public class Order {
-    // Khóa chính của đơn
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false)
     private UUID id;
 
-    // Mã đơn Member nhìn thấy và dùng để tra cứu
     @Column(name = "order_no", nullable = false, unique = true, length = 255)
     private String orderNo;
 
-    // Người mua
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "buyer_id", nullable = false)
     private Account buyer;
 
-    // Mỗi đơn chỉ 1 kho — giỏ nhiều kho bị tách thành nhiều đơn
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "warehouse_id", nullable = false)
     private Warehouse warehouse;
 
-    // Địa chỉ giao hàng chọn lúc đặt — chỉ để tham chiếu, không dùng để hiển thị
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "shipping_address_id", nullable = false)
     private ShippingAddress shippingAddress;
 
-    // Bản chụp lúc đặt hàng, không đổi theo khi Member sửa/xóa địa chỉ sau này
     @Column(name = "shipping_recipient_name", nullable = true, length = 255)
     private String shippingRecipientName;
 
@@ -56,7 +50,6 @@ public class Order {
     @Column(name = "shipping_address_detail", nullable = true, length = 255)
     private String shippingAddressDetail;
 
-    // Bản chụp phường/xã/tỉnh lúc đặt hàng, dùng để tạo vận đơn GHN - F-127
     @Column(name = "shipping_ward_name", nullable = true, length = 255)
     private String shippingWardName;
 
@@ -71,125 +64,91 @@ public class Order {
     @Builder.Default
     private Boolean shippingIsNewAddress = false;
 
-    // Số món đã quét SKU đối chiếu trước khi tạo vận đơn, so với OrderItem - F-127
     @Column(name = "scanned_count", nullable = false)
     @ColumnDefault("0")
     @Builder.Default
     private Integer scannedCount = 0;
 
-    // Tổng tiền sản phẩm, chưa gồm phí ship
     @Column(name = "subtotal", nullable = false, precision = 19, scale = 2)
     private BigDecimal subtotal;
 
-    // Phí vận chuyển, trả hết cho GHN, nền tảng không hưởng phần này
     @Column(name = "shipping_fee", nullable = false, precision = 19, scale = 2)
     private BigDecimal shippingFee;
 
-    // Mã giảm giá đã dùng cho đơn này. KHÔNG đặt UNIQUE: một mã áp cho cả lần thanh toán nên
-    // nhiều đơn của cùng lần đó chia nhau một mã, mỗi đơn giữ phần discountAmount của mình.
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "voucher_id", nullable = true)
     private com.rehome.rehome.entity.membership.MemberVoucher voucher;
 
-    // Phần giảm giá của riêng đơn này (nền tảng chịu, KHÔNG trừ vào tiền người ký gửi).
-    // ddl-auto: update thêm cột với NULL cho dòng cũ -> phải chạy
-    // scripts/backfill-order-discount-amount.sql trên Postgres trước khi dựa vào NOT NULL.
     @Column(name = "discount_amount", nullable = false, precision = 19, scale = 2)
     @ColumnDefault("0")
     @Builder.Default
     private BigDecimal discountAmount = BigDecimal.ZERO;
 
-    // Số tiền người mua trả = subtotal + shipping_fee − discount_amount
     @Column(name = "total_amount", nullable = false, precision = 19, scale = 2)
     private BigDecimal totalAmount;
 
-    // WALLET / VNPAY — chọn một, không trả nửa ví nửa cổng
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_method", nullable = false)
     private OrderPaymentMethod paymentMethod;
 
-    // PENDING_PAYMENT / PAID / PACKING / SHIPPING / DELIVERED / COMPLETED / CANCELLED
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     @ColumnDefault("'PENDING_PAYMENT'")
     @Builder.Default
     private OrderStatus status = OrderStatus.PENDING_PAYMENT;
 
-    // Mã vận đơn GHN, có sau khi kho đóng gói
     @Column(name = "ghn_tracking_code", nullable = true, length = 255)
     private String ghnTrackingCode;
 
-    // Ngày giao dự kiến GHN trả về lúc tạo vận đơn (expected_delivery_time), chụp lại để màn
-    // theo dõi vận chuyển hiện được mà không phải gọi lại GHN
     @Column(name = "expected_delivery_date", nullable = true)
     private Instant expectedDeliveryDate;
 
-    // Thời điểm tạo vận đơn GHN thành công. Đơn cũ (tạo vận đơn trước khi có cột) để null,
-    // không suy ra từ updated_at vì updated_at đổi theo mọi thao tác khác
     @Column(name = "shipment_created_at", nullable = true)
     private Instant shipmentCreatedAt;
 
     @Column(name = "handed_over_at")
     private Instant handedOverAt;
 
-    // Hạn thanh toán, mặc định 15 phút; quá hạn hủy đơn và nhả hàng về sàn
     @Column(name = "payment_deadline", nullable = false)
     private Instant paymentDeadline;
 
-    // Thời điểm GHN báo đã giao
     @Column(name = "delivered_at", nullable = true)
     private Instant deliveredAt;
 
-    // Hạn tự hoàn thành = deliveredAt + order_auto_complete_days (system_configs), chốt lúc GHN báo giao
     @Column(name = "auto_complete_deadline", nullable = true)
     private Instant autoCompleteDeadline;
 
-    // Hạn cuối gửi yêu cầu trả hàng = deliveredAt + return_request_window_days (system_configs), chốt
-    // lúc GHN báo giao để admin đổi cấu hình sau đó không làm lệch hạn của đơn đã giao.
-    // Null với đơn giao trước khi có cột này - lúc đó tính lại từ deliveredAt.
     @Column(name = "return_deadline", nullable = true)
     private Instant returnDeadline;
 
-    // Lý do hủy — chỉ có PAYMENT_EXPIRED được code hủy tự động gán hiện tại
     @Enumerated(EnumType.STRING)
     @Column(name = "cancel_reason", nullable = true)
     private CancelReason cancelReason;
 
-    // Thời điểm đơn chuyển sang CANCELLED
     @Column(name = "cancelled_at", nullable = true)
     private Instant cancelledAt;
 
-    // Thời điểm Member đổi địa chỉ giao hàng sau khi đặt - chỉ cho đổi một lần
     @Column(name = "address_changed_at", nullable = true)
     private Instant addressChangedAt;
 
-    // Số tiền đã hoàn vào ví người mua khi hủy đơn — F-061
     @Column(name = "refund_amount", nullable = true, precision = 19, scale = 2)
     private BigDecimal refundAmount;
 
-    // Thời điểm đơn chuyển sang COMPLETED — F-063/F-064
     @Column(name = "completed_at", nullable = true)
     private Instant completedAt;
 
-    // Thời điểm tiền thực sự vào ví người ký gửi. Null = chưa trả. Tách khỏi completedAt vì
-    // tiền giữ lại tới hết hạn trả hàng (autoCompleteDeadline) rồi mới cộng ví, không trả ngay
-    // lúc confirm-receipt nữa — xem OrderAutoCompleteServiceImpl.
     @Column(name = "payout_at", nullable = true)
     private Instant payoutAt;
 
-    // 1–5 sao — UC-39 / F-066
     @Column(name = "service_rating", nullable = true)
     private Short serviceRating;
 
-    // Thời điểm Member đánh giá
     @Column(name = "rated_at", nullable = true)
     private Instant ratedAt;
 
-    // Nhận xét của Member khi đánh giá — F-066
     @Column(name = "rating_comment", nullable = true, columnDefinition = "text")
     private String ratingComment;
 
-    // Ảnh bằng chứng Member gửi kèm đánh giá, tối đa 5 ảnh — F-066
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "order_rating_image_urls", joinColumns = @JoinColumn(name = "order_id"))
     @Column(name = "image_url", nullable = false, length = 2048)
@@ -197,7 +156,6 @@ public class Order {
     @Builder.Default
     private List<String> ratingImageUrls = new ArrayList<>();
 
-    // Ghi chú của người mua lúc đặt hàng, hiển thị cho Moderator khi đóng gói - DG-01
     @Column(name = "buyer_note", nullable = true, columnDefinition = "text")
     private String buyerNote;
 
@@ -208,11 +166,9 @@ public class Order {
     @Builder.Default
     private List<String> packingPhotoUrls = new ArrayList<>();
 
-    // Thời điểm đặt đơn — mốc chốt tỷ lệ hoa hồng theo kỳ
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    // Thời điểm cập nhật gần nhất
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 

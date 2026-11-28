@@ -39,7 +39,6 @@ public class MembershipPaymentAdminServiceImpl implements MembershipPaymentAdmin
     @Transactional(readOnly = true)
     public PageResponse<AdminMembershipPaymentResponse> search(
             String from, String to, String tier, String method, int page, int size) {
-        // Sai định dạng hoặc from > to đều ra 400 INVALID_DATE_RANGE
         AdminDateRange range = AdminDateRange.optional(from, to);
         MembershipTier tierFilter = parseEnum(MembershipTier.class, tier, "tier");
         OrderPaymentMethod methodFilter = parseEnum(OrderPaymentMethod.class, method, "method");
@@ -72,7 +71,6 @@ public class MembershipPaymentAdminServiceImpl implements MembershipPaymentAdmin
         Page<MembershipPayment> result = membershipPaymentRepository.findAll(spec,
                 PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))));
 
-        // Tên Member lấy theo lô, tránh N+1
         List<UUID> memberIds = result.getContent().stream().map(p -> p.getMember().getId()).distinct().toList();
         Map<UUID, String> nameByAccountId = new HashMap<>();
         if (!memberIds.isEmpty()) {

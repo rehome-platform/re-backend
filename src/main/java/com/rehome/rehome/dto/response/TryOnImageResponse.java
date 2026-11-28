@@ -19,17 +19,13 @@ public class TryOnImageResponse {
     private UUID id;
     private TryOnModelType modelType;
     private String imageUrl;
-    // POST: whether this request reused a result. GET: whether the collection row originated from reuse.
     private boolean reused;
     private Instant createdAt;
 
-    // Thử Áo + Quần: top và bottom có giá trị, dress = null. Thử Đầm thì ngược lại.
     private ProductInfo top;
     private ProductInfo bottom;
     private ProductInfo dress;
 
-    // Thông tin gọn của từng món để Member so sánh ngay trong bộ sưu tập.
-    // status cho app biết món đã bán / hết hạn hay còn mua được.
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
@@ -40,7 +36,6 @@ public class TryOnImageResponse {
         private String thumbnailUrl;
         private BigDecimal currentPrice;
         private ProductStatus status;
-        // Kho giữ món này. FE so top.warehouseId với bottom.warehouseId: khác nhau thì mua cả bộ sẽ tách 2 đơn (F-053)
         private UUID warehouseId;
     }
 }

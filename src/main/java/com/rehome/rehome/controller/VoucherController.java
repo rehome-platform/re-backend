@@ -26,7 +26,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Ví voucher của Member - màn M-04, và bottom-sheet chọn mã ở M-07. */
 @RestController
 @RequestMapping("/vouchers")
 @RequiredArgsConstructor
@@ -48,12 +47,6 @@ public class VoucherController {
                 voucherService.getMyVouchers(account, parseStatus(status), page, size)));
     }
 
-    /**
-     * §8.6 - voucher dùng được cho đơn sắp đặt, kèm số tiền giảm THẬT.
-     *
-     * <p>{@code productIds} là CSV, bỏ trống = lấy cả giỏ hàng (giống {@code POST /orders}).
-     * Mobile <b>phải</b> gọi API này để hiện số tiền giảm, không tự tính ở client.
-     */
     @GetMapping("/applicable")
     @PreAuthorize("hasRole('MEMBER')")
     @Operation(summary = "Voucher dùng được cho đơn sắp đặt + số tiền giảm thật của từng mã")
@@ -84,7 +77,6 @@ public class VoucherController {
         List<String> ids = new ArrayList<>();
         for (String token : csv.split(",")) {
             String trimmed = token.trim();
-            // Bỏ id trùng để một món gửi hai lần không bị tính thành hai đơn khi xem trước
             if (!trimmed.isEmpty() && !ids.contains(trimmed)) {
                 ids.add(trimmed);
             }

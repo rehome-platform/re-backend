@@ -61,27 +61,20 @@ public class ConversationServiceImpl implements ConversationService {
     private static final String CONVERSATION_NOT_FOUND = "Không tìm thấy hội thoại.";
     private static final String NOT_A_PARTICIPANT = "Bạn không thuộc hội thoại này.";
 
-    // Che email/số điện thoại/số tài khoản ngân hàng trong nội dung tin nhắn trước khi lưu,
-    // để tránh giao dịch ngoài sàn (F-089/F-090/F-091).
     private static final Pattern EMAIL_PATTERN =
             Pattern.compile("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
-    // Cho phép khoảng trắng/dấu chấm/gạch ngang xen giữa các chữ số, vd. "0912 345 678", "0912.345.678"
     private static final Pattern PHONE_PATTERN =
             Pattern.compile("(?:\\+84|0)(?:[\\s.-]?\\d){9,10}\\b");
     private static final Pattern BANK_ACCOUNT_PATTERN = Pattern.compile("\\b\\d{9,19}\\b");
 
-    // Rate limit gửi tin nhắn: tối đa 10 tin / 30 giây / Member, giữ trong bộ nhớ theo accountId.
     private static final int MESSAGE_RATE_LIMIT_MAX = 10;
     private static final Duration MESSAGE_RATE_LIMIT_WINDOW = Duration.ofSeconds(30);
     private final com.rehome.rehome.service.ContentModerationService moderation;
     private final Map<UUID, Deque<Instant>> messageSendTimestamps = new ConcurrentHashMap<>();
 
-    // Đơn đang trong luồng giao hàng, dùng cho shippingCount ở hộp thư Moderator
     private static final List<OrderStatus> SHIPPING_ORDER_STATUSES = List.of(
             OrderStatus.PACKING, OrderStatus.PACKED, OrderStatus.SHIPPING);
 
-    // Yêu cầu trả hàng còn đang xử lý, dùng cho returnCount ở hộp thư Moderator - cùng tập
-    // trạng thái "mở" với ReturnRequestServiceImpl.OPEN_STATUSES
     private static final List<ReturnRequestStatus> OPEN_RETURN_STATUSES = List.of(
             ReturnRequestStatus.PENDING, ReturnRequestStatus.APPROVED,
             ReturnRequestStatus.SHIPPED_BACK, ReturnRequestStatus.INSPECTING);
@@ -98,8 +91,6 @@ public class ConversationServiceImpl implements ConversationService {
     private final SimpMessagingTemplate messagingTemplate;
     private final PushNotificationService pushNotificationService;
 
-    // Mỗi hội thoại là 1 topic STOMP riêng; WebSocketAuthInterceptor chặn SUBSCRIBE của người
-    // không thuộc hội thoại đó nên không cần tách theo user queue.
     private static String conversationTopic(UUID conversationId) {
         return "/topic/conversations." + conversationId;
     }
@@ -119,8 +110,6 @@ public class ConversationServiceImpl implements ConversationService {
         return buildSummaries(List.of(conversation), viewer).get(0);
     }
 
-    // Tin cuối của 1 hội thoại: content/thời điểm/người gửi, để FE không cần tự tra ngược
-    // bằng cách mở lịch sử tin nhắn chỉ để hiển thị preview.
     private record LastMessageInfo(String content, Instant createdAt, UUID senderId) {
     }
 
@@ -143,8 +132,6 @@ public class ConversationServiceImpl implements ConversationService {
                 ? resolveMemberStats(conversations)
                 : Map.of();
 
-        // Sắp theo thời điểm hoạt động gần nhất (tin cuối), không phải lúc tạo hội thoại;
-        // hội thoại chưa có tin nhắn nào thì dùng lúc tạo làm mốc
         return conversations.stream()
                 .sorted(Comparator.comparing(
                         (Conversation c) -> lastActivityAt(c, lastMessageByConversationId.get(c.getId())),
@@ -180,8 +167,6 @@ public class ConversationServiceImpl implements ConversationService {
     private record MemberStats(String phone, long consignCount, long shippingCount, long returnCount) {
     }
 
-    // Hộp thư Moderator (F-089/F-091): phone + 3 chỉ số của từng Member đối diện, gom theo
-    // memberIds của cả trang để tránh N+1 (1 câu/chỉ số thay vì 1 câu/hội thoại).
     private Map<UUID, MemberStats> resolveMemberStats(List<Conversation> conversations) {
         List<UUID> memberIds = conversations.stream().map(c -> c.getMember().getId()).distinct().toList();
 
@@ -270,7 +255,6 @@ public class ConversationServiceImpl implements ConversationService {
                 .orElseThrow(() -> new IllegalArgumentException(CONVERSATION_NOT_FOUND));
         requireParticipant(viewer, conversation);
 
-        // Mở hội thoại là đã đọc: nếu không set readAt ở đây thì unreadCount (API 110) chỉ tăng
         messageRepository.markAsReadByConversationId(conversationId, viewer.getId(), Instant.now());
 
         Pageable pageable = PageRequest.of(
@@ -317,18 +301,12 @@ public class ConversationServiceImpl implements ConversationService {
         moderation.recordMatch(viewer.getId(), "CHAT", message.getId(), masked.action());
 
         MessageResponse response = toMessageResponse(message, viewer.getId());
-        // isMine phụ thuộc viewer nên broadcast riêng 1 bản trung lập (không ai được đánh dấu "của mình")
-        // để cả 2 phía nhận qua WebSocket đều tự so sánh senderId với chính mình ở client.
         messagingTemplate.convertAndSend(conversationTopic(conversationId),
                 toMessageResponse(message, null));
-        // WebSocket chỉ tới được nếu người nhận đang mở kết nối; push FCM thêm đường tới khi app
-        // đã tắt/background. NoopPushNotificationServiceImpl không làm gì nếu chưa cấu hình Firebase.
         pushMessageNotification(conversation, sender, response);
         return response;
     }
 
-    // Người nhận: phía còn lại của hội thoại, trừ MEMBER_WAREHOUSE là hộp thư chung của cả kho
-    // (counterpartId là warehouseId, không phải 1 account) nên báo cho mọi Moderator đang phụ trách.
     private List<Account> resolveRecipients(Conversation conversation, Account sender) {
         boolean senderIsMember = sender.getId().equals(conversation.getMember().getId());
         return switch (conversation.getType()) {
@@ -386,7 +364,6 @@ public class ConversationServiceImpl implements ConversationService {
         }
     }
 
-    // Hộp thư theo vai trò: Moderator thấy hộp thư chung của kho mình, không phân theo từng người (F-091)
     private List<Conversation> findInbox(Account viewer) {
         return switch (viewer.getRole()) {
             case MEMBER -> conversationRepository.findByMember_IdOrderByCreatedAtDesc(viewer.getId());
@@ -404,11 +381,6 @@ public class ConversationServiceImpl implements ConversationService {
         }
     }
 
-    // viewer luôn là Account lấy từ SecurityContext (JwtAuthenticationFilter/WebSocketAuthChannelInterceptor,
-    // cả hai đi qua AccountDetailsServiceImpl.loadUserByUsername). Chỉ an toàn gọi viewer.getWarehouse()
-    // ở đây vì AccountRepository.findByEmail/findByEmailIgnoreCase có @EntityGraph nạp sẵn warehouse -
-    // phiên Hibernate lúc đăng nhập đã đóng từ lâu khi tới đây (nhất là STOMP, sống suốt kết nối), nên
-    // nếu warehouse còn là proxy lazy thì sẽ LazyInitializationException.
     private static boolean isParticipant(Account viewer, Conversation conversation) {
         return switch (viewer.getRole()) {
             case MEMBER -> conversation.getMember().getId().equals(viewer.getId());
@@ -421,7 +393,6 @@ public class ConversationServiceImpl implements ConversationService {
         };
     }
 
-    // Dùng bởi WebSocketAuthInterceptor để chặn STOMP SUBSCRIBE vào hội thoại không thuộc về mình.
     @Override
     @Transactional(readOnly = true)
     public boolean isParticipant(Account viewer, UUID conversationId) {
@@ -430,7 +401,6 @@ public class ConversationServiceImpl implements ConversationService {
                 .orElse(false);
     }
 
-    // Member chỉ thấy tổ chức đã VERIFIED (F-082), nên cũng chỉ chat được với tổ chức đó
     private boolean counterpartExists(ConversationType type, UUID counterpartId) {
         return switch (type) {
             case MEMBER_ORGANIZATION -> organizationProfileRepository.findById(counterpartId)
@@ -440,7 +410,6 @@ public class ConversationServiceImpl implements ConversationService {
         };
     }
 
-    // Tên + ảnh đại diện hiển thị cho phía đối diện; Warehouse không có ảnh nên avatarUrl null.
     private record CounterpartDisplay(String displayName, String avatarUrl) {
     }
 
@@ -449,7 +418,6 @@ public class ConversationServiceImpl implements ConversationService {
         Map<UUID, CounterpartDisplay> displays = new HashMap<>();
 
         if (viewerRole != Role.MEMBER) {
-            // Organization / Moderator: phía đối diện là Member
             List<UUID> memberIds = conversations.stream().map(c -> c.getMember().getId()).distinct().toList();
             memberProfileRepository.findAllById(memberIds)
                     .forEach(profile -> displays.put(profile.getAccountId(),
@@ -481,7 +449,6 @@ public class ConversationServiceImpl implements ConversationService {
         return viewerRole == Role.MEMBER ? conversation.getCounterpartId() : conversation.getMember().getId();
     }
 
-    // Cùng lý do an toàn như isParticipant() ở trên - dựa vào @EntityGraph trên AccountRepository.
     private UUID requireWarehouseId(Account moderator) {
         if (moderator.getWarehouse() == null) {
             throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);

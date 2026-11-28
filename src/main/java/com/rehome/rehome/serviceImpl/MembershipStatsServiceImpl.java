@@ -26,18 +26,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * §9.4 - thống kê cho màn W-05.
- *
- * <p>Nguyên tắc: <b>tiền đã chi lấy từ sổ ví, không lấy từ mệnh giá</b>. Mã voucher phát ra mà
- * không ai dùng thì không tốn đồng nào, và một mã PERCENT cho số tiền khác nhau tùy đơn - nên
- * "tổng tiền đã chi" chỉ có thể đọc từ các dòng {@code VOUCHER_DISCOUNT} ghi lúc đơn hoàn tất.
- *
- * <p>Chi phí AI thì <b>không</b> tính thành tiền ở đây: nền tảng chưa có số chi phí thật mỗi lượt
- * (hóa đơn Decart / chi phí chạy mô hình). API trả về <i>số lượt đã dùng</i> theo hạng để Admin
- * tự nhân với đơn giá thật và đối chiếu lãi/lỗ như cảnh báo cuối §2.2 - hard-code một đơn giá
- * phỏng đoán vào code sẽ cho ra con số trông như thật mà sai.
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -65,8 +53,6 @@ public class MembershipStatsServiceImpl implements MembershipStatsService {
         Map<MembershipTier, Long> aiUsage =
                 statsRepository.aiTryOnUsageByTier(range.from(), range.to(), now);
 
-        // Biểu đồ cột: một điểm cho mỗi (tháng, hạng) thật sự có doanh thu - không bơm tháng rỗng,
-        // FE tự dựng trục thời gian từ from/to.
         List<MembershipStatsResponse.MonthlyRevenue> revenueByMonth = new ArrayList<>();
         Map<String, Map<MembershipTier, BigDecimal>> grouped =
                 statsRepository.revenueByMonthAndTier(payments);
@@ -82,12 +68,10 @@ public class MembershipStatsServiceImpl implements MembershipStatsService {
                                 .getOrDefault(tier, 0L))
                         .build())));
 
-        // Bảng theo hạng: luôn trả đủ các hạng bán được (kể cả hạng doanh thu 0), để W-05 không
-        // mất dòng khi một hạng chưa ai mua trong kỳ
         List<MembershipStatsResponse.TierBreakdown> byTier = new ArrayList<>();
         for (MembershipPlan plan : membershipPlanRepository.findAllByOrderBySortOrderAsc()) {
             if (plan.getTier() == MembershipTier.FREE) {
-                continue;   // FREE không có doanh thu, không đưa vào bảng tiền
+                continue;
             }
             MembershipTier tier = plan.getTier();
             BigDecimal revenue = payments.stream()
@@ -145,14 +129,12 @@ public class MembershipStatsServiceImpl implements MembershipStatsService {
         long totalExpired = 0;
         List<VoucherStatsResponse.TemplateStats> templateStats = new ArrayList<>();
 
-        // Đi theo danh sách mẫu (kể cả mẫu đã tắt) để bảng W-05 không mất dòng của mẫu ngừng phát
         for (VoucherTemplate template : voucherTemplateRepository.findAllByOrderByCreatedAtAsc()) {
             Map<MemberVoucherStatus, Long> statuses =
                     byTemplate.getOrDefault(template.getId(), Map.of());
             long unused = statuses.getOrDefault(MemberVoucherStatus.UNUSED, 0L);
             long used = statuses.getOrDefault(MemberVoucherStatus.USED, 0L);
             long expired = statuses.getOrDefault(MemberVoucherStatus.EXPIRED, 0L);
-            // "Đã phát" = tổng mọi trạng thái, vì một mã luôn ở đúng một trạng thái
             long issued = unused + used + expired;
 
             totalIssued += issued;

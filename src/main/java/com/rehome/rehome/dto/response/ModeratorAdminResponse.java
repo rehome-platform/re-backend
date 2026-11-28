@@ -8,7 +8,6 @@ import lombok.Getter;
 import java.time.Instant;
 import java.util.UUID;
 
-/** API 138, 139, 140 - thông tin Moderator dưới góc nhìn Admin. */
 @Getter
 @Builder
 @AllArgsConstructor

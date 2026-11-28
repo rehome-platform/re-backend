@@ -57,12 +57,10 @@ public class OtpServiceImpl implements OtpService {
     @Value("${app.otp.resend-seconds:60}") private long resendSeconds;
     @Value("${app.otp.max-attempts:5}") private int maxAttempts;
 
-    // Điều kiện cũ của isEnabled(): status ACTIVE && emailVerified
     private boolean canResetPassword(Account account) {
         return account.getStatus() == AccountStatus.ACTIVE && account.isEmailVerified();
     }
 
-    // Caller holds the account row lock (or is registering a new account).
     @Transactional
     @Override
     public void issue(Account account, OtpPurpose purpose) {
@@ -100,7 +98,6 @@ public class OtpServiceImpl implements OtpService {
         return new OtpResponse("Nếu tài khoản phù hợp, OTP đã được gửi đến email.");
     }
 
-    // Preserve failed-attempt counters even when returning an invalid-code error.
     @Transactional(noRollbackFor = OtpException.class)
     @Override
     public OtpResponse verify(VerifyOtpRequest request) {
@@ -169,8 +166,6 @@ public class OtpServiceImpl implements OtpService {
         EmailOtp otp = otps.findById(key).orElseGet(EmailOtp::new);
         Instant now = Instant.now();
 
-        // Đang trong thời gian chờ: im lặng bỏ qua, KHÔNG ném 429
-        // (ném lỗi chỉ với email có thật sẽ lộ email đó tồn tại)
         if (otp.getSentAt() != null && now.isBefore(otp.getSentAt().plusSeconds(resendSeconds))) {
             log.warn("forgot: đang trong thời gian chờ {}s", resendSeconds);
             return;
@@ -180,7 +175,7 @@ public class OtpServiceImpl implements OtpService {
         TOKEN_RANDOM.nextBytes(bytes);
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
 
-        if (otp.getId() == null) { // dòng mới: vô hiệu hóa phần OTP để không ai dùng được
+        if (otp.getId() == null) {
             otp.setId(key);
             otp.setCodeHash(encoder.encode(UUID.randomUUID().toString()));
             otp.setExpiresAt(now);

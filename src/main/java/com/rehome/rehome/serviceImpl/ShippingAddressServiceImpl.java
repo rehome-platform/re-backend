@@ -70,7 +70,6 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
                     "MAX_ADDRESSES_REACHED");
         }
 
-        // Địa chỉ đầu tiên của member luôn là mặc định, không phụ thuộc request
         boolean isDefault = existingCount == 0 || Boolean.TRUE.equals(request.getIsDefault());
         if (isDefault) {
             shippingAddressRepository.clearDefaultForMember(member.getId());
@@ -132,10 +131,6 @@ public class ShippingAddressServiceImpl implements ShippingAddressService {
         return toResponse(address);
     }
 
-    // Phường/xã + tỉnh/thành theo hành chính 2 cấp (sau 01/07/2025, không còn quận/huyện) luôn bắt buộc,
-    // và phải khớp danh mục GHN mới tạo được vận đơn — xem docs/ghnapi.md mục "Lấy Phường/Xã (Mới)"/"Tạo đơn".
-    // Chặn tên tự do ngay ở form địa chỉ, thay vì để Moderator đụng TO_ADDRESS_CONFLICT ở bước tạo vận đơn;
-    // tên đã chuẩn hóa được lưu lại để Order snapshot đúng giá trị GHN chấp nhận.
     private ResolvedAddressUnit resolveAddressUnit(AddShippingAddressRequest request) {
         if (!StringUtils.hasText(request.getWardName())) {
             throw new BadRequestException("wardName là bắt buộc.");

@@ -11,9 +11,6 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 
-// Dùng chung cho mọi nơi cần phí ship thật theo tuyến kho -> địa chỉ nhận
-// (GET /cart/checkout-preview và POST /orders). Lỗi/không có kết quả từ GHN thì rơi về phí cố định
-// app.order.shipping-fee, không chặn luồng mua hàng vì GHN có thể sập/token hết hạn bất cứ lúc nào.
 @Component
 @RequiredArgsConstructor
 @Slf4j

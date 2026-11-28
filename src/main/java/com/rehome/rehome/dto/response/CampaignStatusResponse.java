@@ -5,9 +5,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Id + trạng thái của chiến dịch — dùng cho lúc tạo (F-098) và lúc đóng (F-101).
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

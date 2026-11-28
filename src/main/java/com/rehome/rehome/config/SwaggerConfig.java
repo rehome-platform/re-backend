@@ -8,16 +8,6 @@ import io.swagger.v3.oas.models.security.SecurityScheme;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/**
- * Cấu hình Swagger UI (springdoc-openapi).
- * Sau khi chạy app, truy cập:
- *   - Swagger UI: http://localhost:8080/swagger-ui.html
- *   - OpenAPI JSON: http://localhost:8080/v3/api-docs
- *
- * Đã khai báo sẵn scheme "bearerAuth" nên trên UI sẽ có nút "Authorize" (hình ổ khoá)
- * để bạn dán access token vào (không cần gõ tiền tố "Bearer "), Swagger sẽ tự đính kèm
- * header Authorization cho các API cần xác thực.
- */
 @Configuration
 public class SwaggerConfig {
 

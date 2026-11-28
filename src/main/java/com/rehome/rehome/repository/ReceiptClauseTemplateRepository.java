@@ -12,9 +12,7 @@ public interface ReceiptClauseTemplateRepository extends JpaRepository<ReceiptCl
 
     List<ReceiptClauseTemplate> findAllByOrderByDisplayOrderAsc();
 
-    // Dùng lúc tạo biên nhận mới: chỉ các điều đang bật mới được đưa vào snapshot
     List<ReceiptClauseTemplate> findAllByActiveTrueOrderByDisplayOrderAsc();
 
-    // Để gán displayOrder kế tiếp khi Admin thêm điều mới
     Optional<ReceiptClauseTemplate> findTopByOrderByDisplayOrderDesc();
 }

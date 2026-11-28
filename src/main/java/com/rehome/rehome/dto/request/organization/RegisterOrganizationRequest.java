@@ -16,7 +16,6 @@ public class RegisterOrganizationRequest {
     @NotBlank(message = "orgType là bắt buộc")
     private String orgType;
 
-    // Không bắt buộc (CLB trường học thường không có)
     private String taxCode;
 
     @NotBlank(message = "operationScope là bắt buộc")

@@ -18,27 +18,17 @@ import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-/**
- * Render các {@link ReceiptClauseTemplate} đang bật thành JSON snapshot gắn vào
- * {@link ConsignmentReceipt} lúc tạo (xem {@code ConsignmentReceipt#clausesSnapshot}).
- *
- * <p>Snapshot = ảnh chụp tại thời điểm tạo biên nhận. Sau đó Admin sửa/xoá/tắt template không
- * ảnh hưởng gì tới các biên nhận đã tạo trước đó — chỉ đổi cho biên nhận tạo MỚI sau này.
- */
 @Component
 @RequiredArgsConstructor
 public class ReceiptClauseRenderer {
 
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{(\\w+)}}");
 
-    // Whitelist placeholder cho phép dùng trong bodyTemplate; thêm field mới ở Receipt thì khai
-    // báo thêm một dòng ở đây, không cho Admin tự ý chèn tên field tuỳ ý
     private static final Set<String> ALLOWED_PLACEHOLDERS = Set.of(
             "floorPrice", "withdrawalFee", "freeWithdrawalWindowDays", "degradedCompensationRate");
 
     private final ReceiptClauseTemplateRepository receiptClauseTemplateRepository;
 
-    // Validate placeholder hợp lệ lúc Admin tạo/sửa template, trước khi lưu DB
     public void validatePlaceholders(String bodyTemplate) {
         Matcher matcher = PLACEHOLDER.matcher(bodyTemplate == null ? "" : bodyTemplate);
         while (matcher.find()) {
@@ -48,7 +38,6 @@ public class ReceiptClauseRenderer {
         }
     }
 
-    // Gọi lúc tạo biên nhận mới, cùng transaction với việc lưu Receipt
     public ArrayNode render(ConsignmentReceipt receipt) {
         ArrayNode array = JsonNodeFactory.instance.arrayNode();
         for (ReceiptClauseTemplate template : receiptClauseTemplateRepository.findAllByActiveTrueOrderByDisplayOrderAsc()) {
@@ -78,7 +67,6 @@ public class ReceiptClauseRenderer {
         return result.toString();
     }
 
-    // 500000 -> "500.000 đ", khớp định dạng formatVnd() ở mobile
     private static String formatVnd(BigDecimal amount) {
         if (amount == null) return "";
         String digits = amount.setScale(0, RoundingMode.HALF_UP).toBigInteger().toString();
@@ -92,7 +80,6 @@ public class ReceiptClauseRenderer {
         return grouped.reverse() + " đ";
     }
 
-    // 0.5 -> "50%", khớp định dạng formatRate() ở mobile
     private static String formatRate(BigDecimal rate) {
         if (rate == null) return "";
         int percent = rate.multiply(new BigDecimal(100)).setScale(0, RoundingMode.HALF_UP).intValue();

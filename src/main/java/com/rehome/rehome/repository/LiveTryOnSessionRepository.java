@@ -14,9 +14,6 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface LiveTryOnSessionRepository extends JpaRepository<LiveTryOnSession, UUID> {
 
-    // Quota 2 lượt/ngày: đếm số phiên đã mint token trong khoảng [startOfDay, endOfDay) giờ VN.
-    // Biết trước: đếm-rồi-lưu không atomic 100% nếu cùng 1 account bắn 2 request start gần như
-    // đồng thời (race hiếm, lệch tối đa 1 lượt). Chấp nhận cho MVP thay vì thêm bảng counter riêng.
     long countByMember_IdAndFirstFrameAtGreaterThanEqualAndFirstFrameAtLessThan(
             UUID memberId, Instant from, Instant to);
 
@@ -25,8 +22,6 @@ public interface LiveTryOnSessionRepository extends JpaRepository<LiveTryOnSessi
 
     Optional<LiveTryOnSession> findByIdAndMember_Id(UUID id, UUID memberId);
 
-    // Lịch sử video của Member: chỉ phiên COMPLETED đã có video. Nạp sẵn product để map tên/ảnh
-    // không phát sinh N+1 (quan hệ product là LAZY).
     @EntityGraph(attributePaths = "product")
     Page<LiveTryOnSession> findByMember_IdAndStatusAndVideoUrlIsNotNull(
             UUID memberId, LiveTryOnStatus status, Pageable pageable);

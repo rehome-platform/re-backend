@@ -14,17 +14,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Số liệu theo kho cho API 141 (danh sách kho của Admin). Mỗi hàm gom nhóm theo kho trong đúng 1 query
- * cho toàn bộ kho, tránh N+1 khi liệt kê nhiều kho. Kho không có dòng nào thì không có trong Map (coi là 0).
- */
 @Repository
 public class WarehouseStatsQueryRepository {
 
     @PersistenceContext
     private EntityManager em;
 
-    // Số món đang nằm trong kho theo các trạng thái tồn kho
     public Map<UUID, Long> countInventoryByWarehouse(Collection<ProductStatus> statuses) {
         List<Object[]> rows = em.createQuery(
                         "select p.warehouse.id, count(p) from Product p "
@@ -34,8 +29,6 @@ public class WarehouseStatsQueryRepository {
         return toMap(rows);
     }
 
-    // Mỗi đơn gắn đúng một kho (orders.warehouse_id) và được đếm bằng count(distinct id),
-    // không join order_items nên đơn nhiều món không bị đếm lặp
     public Map<UUID, Long> countActiveOrdersByWarehouse(Collection<OrderStatus> statuses) {
         List<Object[]> rows = em.createQuery(
                         "select o.warehouse.id, count(distinct o.id) from Order o "
@@ -45,8 +38,6 @@ public class WarehouseStatsQueryRepository {
         return toMap(rows);
     }
 
-    // Kho của Moderator nằm ở accounts.warehouse_id, hoặc ở moderator_profiles.warehouse_id với dữ liệu cũ;
-    // cùng quy tắc ưu tiên với ModeratorAdminServiceImpl: account trước, profile sau. Chỉ đếm tài khoản ACTIVE.
     public Map<UUID, Long> countActiveModeratorsByWarehouse() {
         List<Object[]> rows = em.createQuery(
                         "select a.warehouse.id, mp.warehouse.id from Account a "

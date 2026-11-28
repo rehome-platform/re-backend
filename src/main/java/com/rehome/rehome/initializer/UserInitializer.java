@@ -9,7 +9,6 @@ import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.MemberProfileRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -19,7 +18,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 @Slf4j
-// @Component // tạm tắt: chỉ cần app chạy 1 lần để Hibernate sync schema, chưa cần seed account thật
 @Component
 @Order(0)
 @RequiredArgsConstructor
@@ -70,8 +68,6 @@ public class UserInitializer implements CommandLineRunner {
         }
     }
 
-    // 5 Member để test quầy (tra theo phone / memberCode). Mật khẩu chung: 123456
-    // memberCode do @GeneratedMemberCode tự sinh khi lưu MemberProfile
     private void initMembers() {
         List<String[]> members = List.of(
                 new String[]{"member1@rehome.com", "0900000011", "Nguyễn Văn An"},
@@ -88,7 +84,6 @@ public class UserInitializer implements CommandLineRunner {
             }
             Account account = createAccount(m[0], m[1], "123456", Role.MEMBER);
 
-            // @MapsId: accountId lấy từ account, không set tay
             MemberProfile profile = MemberProfile.builder()
                     .account(account)
                     .fullName(m[2])

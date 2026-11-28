@@ -30,7 +30,6 @@ public class DegradedItemCaseController {
 
     private final DegradedItemCaseService degradedItemCaseService;
 
-    // Moderator mở ca hàng xuống cấp trực tiếp lúc kiểm kho, không qua yêu cầu trả hàng
     @PostMapping
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<DegradedItemCaseDetailResponse>> open(
@@ -42,7 +41,6 @@ public class DegradedItemCaseController {
         return ResponseEntity.ok(ApiResponse.success(result, "Đã mở ca xử lý hàng xuống cấp"));
     }
 
-    // API 95 (F-036)
     @PostMapping("/{id}/decide")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<DegradedItemCaseResponse>> decide(
@@ -55,8 +53,6 @@ public class DegradedItemCaseController {
         return ResponseEntity.ok(ApiResponse.success(result, "Đã ghi nhận quyết định"));
     }
 
-    // Chi tiết một ca hàng xuống cấp: Member xem ca của chính mình trước khi quyết định (API 95),
-    // Moderator xem ca thuộc kho mình quản lý (vd. mở trực tiếp lúc kiểm kho)
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('MEMBER','MODERATOR')")
     public ResponseEntity<ApiResponse<DegradedItemCaseDetailResponse>> getMine(
@@ -67,7 +63,6 @@ public class DegradedItemCaseController {
                 degradedItemCaseService.getMine(account, id)));
     }
 
-    // Danh sách ca của chính Member; status=PENDING_DECISION = các ca đang chờ Member quyết định
     @GetMapping
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<List<DegradedItemCaseDetailResponse>>> listMine(
@@ -78,7 +73,6 @@ public class DegradedItemCaseController {
                 degradedItemCaseService.listMine(account, status)));
     }
 
-    // Danh sách ca hàng xuống cấp thuộc kho của Moderator đang đăng nhập (TH-04..TH-07)
     @GetMapping("/warehouse")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<List<DegradedItemCaseDetailResponse>>> listByWarehouse(

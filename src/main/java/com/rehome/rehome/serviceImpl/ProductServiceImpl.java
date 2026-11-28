@@ -31,7 +31,6 @@ import com.rehome.rehome.exception.BadRequestException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.mapper.ProductMapper;
 import com.rehome.rehome.repository.*;
-import com.rehome.rehome.repository.spec.ProductSpecifications;
 import com.rehome.rehome.service.NotificationService;
 import com.rehome.rehome.service.ItemWithdrawalRequestService;
 import com.rehome.rehome.service.ProductService;
@@ -69,7 +68,6 @@ public class ProductServiceImpl implements ProductService {
     private final com.rehome.rehome.component.BusinessNotifications businessNotifications;
 
 
-    // Yêu cầu rút còn sống: sản phẩm ở WAREHOUSE, hoặc WITHDRAWN với dữ liệu cũ.
     private static final List<ItemWithdrawalStatus> ACTIVE_WITHDRAWAL_STATUSES =
             List.of(ItemWithdrawalStatus.PENDING_APPROVAL, ItemWithdrawalStatus.PENDING_PICKUP);
 
@@ -102,8 +100,6 @@ public class ProductServiceImpl implements ProductService {
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 50;
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
-
-    // ================================================================ Sàn (public)
 
     @Override
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
@@ -206,20 +202,13 @@ public class ProductServiceImpl implements ProductService {
                 .build();
     }
 
-    // Người ký gửi không được mua lại món của chính mình (chặn thật ở CartService/OrderService),
-    // cờ này chỉ để FE ẩn nút trước. Null-safe hai đầu: khách chưa đăng nhập -> false.
     private static boolean isOwnedBy(Product product, UUID viewerId) {
         return viewerId != null && viewerId.equals(product.getMember().getId());
     }
 
-    // RESERVED (từ lúc đặt hàng) và SOLD (từ lúc buyer xác nhận nhận hàng) đều gắn với đúng 1 đơn
-    // đang active - hiện order sớm từ RESERVED để người ký gửi thấy mốc tiền vào ví (payoutDueAt)
-    // ngay khi GHN báo giao, không phải chờ tới lúc buyer bấm nhận.
     private static boolean hasOrderToShow(ProductStatus status) {
         return status == ProductStatus.RESERVED || status == ProductStatus.SOLD;
     }
-
-    // ================================================================ Hàng ký gửi của tôi
 
     @Override
     public Page<MyProductResponse> getMyProducts(UUID memberId, ProductStatus status,
@@ -232,7 +221,6 @@ public class ProductServiceImpl implements ProductService {
             return page.map(p -> null);
         }
 
-        // Mỗi loại dữ liệu phụ lấy bằng một query cho cả trang, tránh N+1
         Map<String, String> photos = productPhotoRepository
                 .findByProduct_IdInOrderByDisplayOrderAscIdAsc(ids).stream()
                 .collect(Collectors.toMap(
@@ -240,22 +228,18 @@ public class ProductServiceImpl implements ProductService {
                         ProductPhoto::getImageUrl,
                         (first, second) -> first));
 
-        // findByProductIds sắp deadline giảm dần -> giữ dòng đầu = dòng mới nhất của sản phẩm
         Map<String, EndOfTermDecision> decisions = endOfTermDecisionRepository.findByProductIds(ids).stream()
                 .collect(Collectors.toMap(
                         d -> d.getProduct().getId(),
                         d -> d,
                         (first, second) -> first));
 
-        // Giữ cả OrderItem (không chỉ Order) vì hoa hồng chốt và kỳ đặt nằm ở dòng đơn
         Map<String, OrderItem> orderItems = orderItemRepository.findActiveByProductIds(ids).stream()
                 .collect(Collectors.toMap(
                         oi -> oi.getProduct().getId(),
                         oi -> oi,
                         (first, second) -> first));
 
-        // Yêu cầu rút đang chờ nhận hàng và ca hàng xuống cấp đang chờ quyết định, để app
-        // hiện được "món này đang chờ rút / chờ bạn quyết định" ngay trên danh sách
         Map<String, ItemWithdrawalRequest> withdrawals = itemWithdrawalRequestRepository
                 .findByProductIdsAndStatusIn(ids, ACTIVE_WITHDRAWAL_STATUSES).stream()
                 .collect(Collectors.toMap(
@@ -293,11 +277,10 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public MyProductResponse getMyProduct(UUID memberId, String id) {
         Product product = productRepository.findById(id)
-                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));            // 404
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        // Chỉ chủ hàng được xem
         if (!product.getMember().getId().equals(memberId)) {
-            throw new AppException(ErrorCode.PRODUCT_FORBIDDEN);                              // 403
+            throw new AppException(ErrorCode.PRODUCT_FORBIDDEN);
         }
 
         List<ProductPriceChange> changes =
@@ -347,8 +330,6 @@ public class ProductServiceImpl implements ProductService {
                 donation.getStatus().name(), donation.getHandedOverAt(), donation.getReassignedFromCampaignTitle());
     }
 
-    // price = giá có hiệu lực lúc kỳ đó bắt đầu. Mốc đầu các kỳ trước suy ra bằng cách
-    // lùi từ termStartedAt của kỳ hiện tại theo độ dài kỳ.
     private List<MyProductResponse.TermInfo> buildTermHistory(Product p, List<ProductPriceChange> changesAsc) {
         ConsignmentReceipt r = p.getConsignmentReceipt();
         int current = p.getCurrentTerm();
@@ -379,26 +360,25 @@ public class ProductServiceImpl implements ProductService {
         }
 
         Product product = productRepository.findByIdForUpdate(productId)
-                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));               // 404
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
         if (!product.getMember().getId().equals(account.getId())) {
-            throw new AppException(ErrorCode.PRODUCT_FORBIDDEN);                                 // 403
+            throw new AppException(ErrorCode.PRODUCT_FORBIDDEN);
         }
         if (product.getStatus() != ProductStatus.ON_SALE) {
-            throw new AppException(ErrorCode.PRODUCT_NOT_ON_SALE);                               // 409
+            throw new AppException(ErrorCode.PRODUCT_NOT_ON_SALE);
         }
 
         BigDecimal newPrice = request.getNewPrice().setScale(2, RoundingMode.HALF_UP);
         BigDecimal floorPrice = product.getConsignmentReceipt().getFloorPrice();
 
         if (newPrice.compareTo(product.getCurrentPrice()) >= 0) {
-            throw new AppException(ErrorCode.INVALID_NEW_PRICE);                                 // 400
+            throw new AppException(ErrorCode.INVALID_NEW_PRICE);
         }
         if (newPrice.compareTo(floorPrice) < 0) {
-            throw new AppException(ErrorCode.BELOW_FLOOR_PRICE);                                 // 409
+            throw new AppException(ErrorCode.BELOW_FLOOR_PRICE);
         }
 
-        // Số lần giảm giá tối đa mỗi ngày do Admin cấu hình; đếm theo ngày VN từ lịch sử đổi giá
         LocalDate today = LocalDate.now(VN_ZONE);
         int maxPerDay = systemConfigReader.getInt(SystemConfigKeys.MAX_PRICE_CHANGES_PER_DAY,
                 SystemConfigKeys.DEFAULT_MAX_PRICE_CHANGES_PER_DAY);
@@ -408,7 +388,7 @@ public class ProductServiceImpl implements ProductService {
                         today.atStartOfDay(VN_ZONE).toInstant(),
                         today.plusDays(1).atStartOfDay(VN_ZONE).toInstant());
         if (reducedToday >= maxPerDay) {
-            throw new AppException(ErrorCode.PRICE_CHANGE_LIMIT_REACHED);                        // 409
+            throw new AppException(ErrorCode.PRICE_CHANGE_LIMIT_REACHED);
         }
 
         BigDecimal oldPrice = product.getCurrentPrice();
@@ -441,10 +421,10 @@ public class ProductServiceImpl implements ProductService {
         }
 
         Product product = productRepository.findByIdForUpdate(productId)
-                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));                // 404
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
         if (!product.getMember().getId().equals(account.getId())) {
-            throw new AppException(ErrorCode.PRODUCT_FORBIDDEN);                           // 403
+            throw new AppException(ErrorCode.PRODUCT_FORBIDDEN);
         }
 
         ProductStatus previousStatus = product.getStatus();
@@ -609,24 +589,21 @@ public class ProductServiceImpl implements ProductService {
                 .build();
     }
 
-    // ================================================================ Kho (Moderator)
-
     @Override
     @Transactional
     public ProductResponse create(CreateProductRequest request, Account account) {
         ConsignmentReceipt receipt = receiptRepository.findByIdForUpdate(request.getReceiptId())
-                .orElseThrow(() -> new AppException(ErrorCode.RECEIPT_NOT_FOUND));          // 404
+                .orElseThrow(() -> new AppException(ErrorCode.RECEIPT_NOT_FOUND));
 
-        // Moderator chỉ nhập kho biên nhận thuộc kho mình phụ trách
         if (account.getWarehouse() == null
                 || !account.getWarehouse().getId().equals(receipt.getWarehouse().getId())) {
-            throw new AppException(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);                 // 403
+            throw new AppException(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);
         }
         if (receipt.effectiveStatus() != com.rehome.rehome.entity.enums.ReceiptStatus.CONFIRMED) {
-            throw new AppException(ErrorCode.RECEIPT_NOT_CONFIRMED);                         // 409
+            throw new AppException(ErrorCode.RECEIPT_NOT_CONFIRMED);
         }
         if (productRepository.existsByConsignmentReceiptId(receipt.getId())) {
-            throw new AppException(ErrorCode.RECEIPT_ALREADY_HAS_PRODUCT);                   // 409
+            throw new AppException(ErrorCode.RECEIPT_ALREADY_HAS_PRODUCT);
         }
 
         ConsignmentForm form = receipt.getConsignmentForm();
@@ -642,7 +619,6 @@ public class ProductServiceImpl implements ProductService {
         }
         Instant now = Instant.now();
 
-        // Moderator không nhập size thì lấy size Member đã khai trong form
         String size = StringUtils.hasText(request.getSize()) ? request.getSize() : form.getSize();
 
         Product product = Product.builder()
@@ -663,8 +639,6 @@ public class ProductServiceImpl implements ProductService {
                         (long) receipt.getTermLengthDays() * (receipt.getMaxRenewals() + 1))))
                 .build();
 
-        // §8.10 thời điểm 2: món mới nhập kho của Member đang có gói với featured_listing phải
-        // được gắn nhãn NGAY, không đợi tới lần gia hạn gói. Gọi trước save để chỉ có 1 lệnh INSERT.
         featuredListingManager.applyForNewProduct(product);
 
         productRepository.save(product);
@@ -678,7 +652,6 @@ public class ProductServiceImpl implements ProductService {
     }
 
     private String generateSku(Warehouse warehouse, Category category) {
-        // Q7-AK-000845 = <mã kho>-<mã danh mục>-<số thứ tự 6 chữ số>
         return "%s-%s-%06d".formatted(
                 warehouse.getCode(), category.getCode(), productRepository.nextSkuSequence());
     }
@@ -690,26 +663,25 @@ public class ProductServiceImpl implements ProductService {
             ProductPhoto p = new ProductPhoto();
             p.setProduct(product);
             p.setImageUrl(urls.get(i));
-            p.setDisplayOrder(i);   // ảnh đầu tiên là ảnh đại diện
+            p.setDisplayOrder(i);
             photos.add(p);
         }
         productPhotoRepository.saveAll(photos);
     }
 
-    // Moderator chỉ thao tác được sản phẩm thuộc kho của mình
     private void assertSameWarehouse(Account account, Product product) {
         if (account.getWarehouse() == null
                 || !account.getWarehouse().getId().equals(product.getWarehouse().getId())) {
-            throw new AppException(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);   // 403
+            throw new AppException(ErrorCode.PRODUCT_NOT_IN_YOUR_WAREHOUSE);
         }
     }
 
     @Override
     public ProductSkuLookupResponse getBySku(Account account, String sku) {
         Product product = productRepository.findById(sku)
-                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));    // 404
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        assertSameWarehouse(account, product);                                        // 403
+        assertSameWarehouse(account, product);
 
         List<String> photos = productPhotoRepository
                 .findByProduct_IdOrderByDisplayOrderAscIdAsc(product.getId())
@@ -719,7 +691,6 @@ public class ProductServiceImpl implements ProductService {
 
         ConsignmentReceipt receipt = product.getConsignmentReceipt();
 
-        // Mã Member và họ tên nằm ở MemberProfile (Account không giữ)
         Account member = product.getMember();
         MemberProfile profile = member == null ? null
                 : memberProfileRepository.findByAccountId(member.getId()).orElse(null);
@@ -770,9 +741,9 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public PdfDownload getSkuLabel(Account account, String productId) {
         Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));    // 404
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        assertSameWarehouse(account, product);                                        // 403
+        assertSameWarehouse(account, product);
 
         return new PdfDownload("sku-" + product.getId() + ".pdf", skuLabelPdfService.generate(product));
     }
@@ -782,7 +753,7 @@ public class ProductServiceImpl implements ProductService {
                                                             boolean degradedOnly, int page, int size) {
 
         if (account.getWarehouse() == null) {
-            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);              // 403
+            throw new AppException(ErrorCode.MODERATOR_NO_WAREHOUSE);
         }
 
         int safePage = Math.max(page, 0);
@@ -850,8 +821,6 @@ public class ProductServiceImpl implements ProductService {
         return pending;
     }
 
-    // Số ngày đã trôi qua trong kỳ ký gửi hiện tại (tối thiểu 1); dùng chung cho API 40 và API 41.
-    // null khi sản phẩm chưa có mốc bắt đầu kỳ (dữ liệu cũ)
     private static Integer daysIntoCurrentTerm(Product product) {
         if (product.getTermStartedAt() == null) {
             return null;

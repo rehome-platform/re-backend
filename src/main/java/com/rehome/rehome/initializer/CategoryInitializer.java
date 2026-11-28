@@ -37,7 +37,6 @@ public class CategoryInitializer implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         Map<String, TryOnSlot> seeds = new LinkedHashMap<>();
 
-        // TOP
         seeds.put("Áo thun", TryOnSlot.TOP);
         seeds.put("Áo sơ mi", TryOnSlot.TOP);
         seeds.put("Áo polo", TryOnSlot.TOP);
@@ -47,7 +46,6 @@ public class CategoryInitializer implements ApplicationRunner {
         seeds.put("Áo blazer", TryOnSlot.TOP);
         seeds.put("Áo kiểu", TryOnSlot.TOP);
 
-        // BOTTOM
         seeds.put("Quần jeans", TryOnSlot.BOTTOM);
         seeds.put("Quần tây", TryOnSlot.BOTTOM);
         seeds.put("Quần kaki", TryOnSlot.BOTTOM);
@@ -55,7 +53,6 @@ public class CategoryInitializer implements ApplicationRunner {
         seeds.put("Quần jogger / Quần thể thao", TryOnSlot.BOTTOM);
         seeds.put("Chân váy", TryOnSlot.BOTTOM);
 
-        // DRESS
         seeds.put("Đầm", TryOnSlot.DRESS);
         seeds.put("Váy liền", TryOnSlot.DRESS);
         seeds.put("Jumpsuit", TryOnSlot.DRESS);
@@ -94,8 +91,6 @@ public class CategoryInitializer implements ApplicationRunner {
         @Override
         @Transactional
         public void run(String... args) {
-            // Dùng native query vì entity đã khai báo code NOT NULL;
-            // nếu findAll() lỗi do code null thì chuyển sang JdbcTemplate.
             for (Warehouse w : warehouseRepository.findAll()) {
                 if (w.getCode() == null) {
                     w.setCode(CodeGenerator.makeUnique(

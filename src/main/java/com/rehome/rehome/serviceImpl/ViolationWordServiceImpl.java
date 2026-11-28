@@ -135,7 +135,6 @@ public class ViolationWordServiceImpl implements ViolationWordService {
                 .orElseThrow(() -> new AppException(ErrorCode.VIOLATION_WORD_NOT_FOUND));
     }
 
-    // Hai request tạo cùng từ chạy song song có thể cùng qua existsByWord; ràng buộc unique là chốt chặn cuối
     private ViolationWord saveOrConflict(ViolationWord entity) {
         try {
             return violationWordRepository.saveAndFlush(entity);
@@ -144,7 +143,6 @@ public class ViolationWordServiceImpl implements ViolationWordService {
         }
     }
 
-    // trim + chữ thường + gộp mọi khoảng trắng liên tiếp về 1 dấu cách
     static String normalize(String raw) {
         return raw.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
     }

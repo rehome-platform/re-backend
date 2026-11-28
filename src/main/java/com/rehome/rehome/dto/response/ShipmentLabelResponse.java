@@ -12,9 +12,7 @@ import lombok.NoArgsConstructor;
 public class ShipmentLabelResponse {
     private String id;
     private String ghnTrackingCode;
-    // A5 | 80x80 | 52x70
     private String size;
-    // Link in phiếu GHN, token hết hạn sau ~30 phút
     private String printUrl;
 }
 

@@ -17,7 +17,6 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
 
     Page<Notification> findByRecipientAccount_Id(UUID recipientAccountId, Pageable pageable);
 
-    // Kèm recipient vào điều kiện để đánh dấu đọc không đọc được thông báo của người khác
     Optional<Notification> findByIdAndRecipientAccount_Id(UUID id, UUID recipientAccountId);
 
     long countByRecipientAccount_IdAndIsReadFalse(UUID recipientAccountId);

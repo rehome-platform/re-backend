@@ -5,7 +5,6 @@ import com.rehome.rehome.dto.response.AccountBannedResult;
 import com.rehome.rehome.dto.response.ApiResponse;
 import com.rehome.rehome.entity.auth.Account;
 import com.rehome.rehome.entity.enums.AccountStatus;
-import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.ErrorCode;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
@@ -24,10 +23,6 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 
-/**
- * Filter chạy trước mỗi request: đọc header Authorization: Bearer <token>,
- * validate JWT, nếu hợp lệ và account còn ACTIVE thì set Authentication vào SecurityContext.
- */
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -35,7 +30,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String HEADER_NAME = "Authorization";
     private static final String PREFIX = "Bearer ";
 
-    // Lý do token bị từ chối, để JwtAuthenticationEntryPoint trả đúng mã lỗi khi endpoint cần đăng nhập
     public static final String AUTH_ERROR_ATTRIBUTE = "jwt.auth.error";
 
     private final JwtService jwtService;
@@ -75,8 +69,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 }
             }
         } catch (ExpiredJwtException ex) {
-            // Không chặn ngay: endpoint public (xem sàn) vẫn phải mở được với token cũ.
-            // Endpoint cần đăng nhập sẽ trả 401 ACCESS_TOKEN_EXPIRED qua JwtAuthenticationEntryPoint.
             SecurityContextHolder.clearContext();
             request.setAttribute(AUTH_ERROR_ATTRIBUTE, ErrorCode.ACCESS_TOKEN_EXPIRED);
         } catch (JwtException | IllegalArgumentException | UsernameNotFoundException ex) {
@@ -86,13 +78,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (banned) {
             writeBanned(response, banReason);
-            return; // dừng chain, không cho request đi tiếp
+            return;
         }
 
         filterChain.doFilter(request, response);
     }
 
-    // 403 ACCOUNT_BANNED kèm lý do khoá trong result; dùng ObjectMapper để lý do được escape đúng JSON
     private void writeBanned(HttpServletResponse response, String reason) throws IOException {
         ErrorCode ec = ErrorCode.ACCOUNT_BANNED;
         response.setStatus(ec.getStatus().value());

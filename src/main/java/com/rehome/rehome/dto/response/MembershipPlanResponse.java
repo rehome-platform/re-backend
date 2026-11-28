@@ -9,12 +9,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * GET /memberships/plans (public) - danh sách gói đang bán, sắp theo sortOrder.
- *
- * <p>Mobile phải render quyền lợi <b>từ JSON này</b>, không hard-code text, vì Admin sửa được mọi
- * con số ở màn W-01. Hạn mức {@code null} nghĩa là KHÔNG GIỚI HẠN -> hiện "Không giới hạn".
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -26,9 +20,7 @@ public class MembershipPlanResponse {
     private String name;
     private String description;
     private BigDecimal pricePerMonth;
-    // null = không bán gói năm
     private BigDecimal pricePerYear;
-    // Tiết kiệm bao nhiêu % khi trả theo năm so với trả 12 tháng; null khi không bán gói năm
     private BigDecimal yearlySavingPercent;
     private Benefits benefits;
     private List<VoucherBenefit> vouchers;
@@ -48,7 +40,6 @@ public class MembershipPlanResponse {
         private Integer maxPendingConsignmentForms;
     }
 
-    /** Một dòng "mỗi tháng nhận N mã loại X", dựng từ voucher_template_tier_rules của hạng đó. */
     @Data
     @NoArgsConstructor
     @AllArgsConstructor

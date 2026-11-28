@@ -26,7 +26,6 @@ public interface ConsignmentFormService {
     ConsignmentFormDetailResponse update(UUID id, ConsignmentFormRequest request, Account account);
     ConsignmentFormStatusResponse returnOnsite(UUID id, ReturnOnsiteRequest request, Account moderator);
 
-    // Nháp ký gửi ("Tủ đồ")
     ConsignmentFormDetailResponse createDraft(ConsignmentFormRequest request, Account account);
     ConsignmentFormDetailResponse updateDraft(UUID id, ConsignmentFormRequest request, Account account);
     void deleteDraft(UUID id, Account account);

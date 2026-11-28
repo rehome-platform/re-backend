@@ -7,11 +7,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
-/**
- * Serve thư mục uploads ở /files/** để URL mà
- * {@link com.rehome.rehome.serviceImpl.LocalFileStorageServiceImpl} trả về mở được thật.
- * Chỉ cần khi chạy local; với provider=cloudinary thì file nằm trên CDN của Cloudinary.
- */
 @Configuration
 @ConditionalOnProperty(name = "app.storage.provider", havingValue = "local", matchIfMissing = true)
 public class LocalStorageWebConfig implements WebMvcConfigurer {

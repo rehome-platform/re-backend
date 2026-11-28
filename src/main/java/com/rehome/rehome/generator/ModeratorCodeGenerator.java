@@ -9,7 +9,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.EnumSet;
 
-/** Sinh mã nhân viên Moderator dạng MOD000001 từ sequence moderator_code_seq (giống MemberCodeGenerator). */
 public class ModeratorCodeGenerator implements BeforeExecutionGenerator {
 
     @Override

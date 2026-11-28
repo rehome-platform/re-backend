@@ -37,7 +37,7 @@ public class CategoryServiceImpl implements CategoryService {
         String name = normalize(request.getName());
 
         if (categoryRepository.existsByNameIgnoreCase(name)) {
-            throw new AppException(ErrorCode.CATEGORY_NAME_ALREADY_EXISTS);           // 409
+            throw new AppException(ErrorCode.CATEGORY_NAME_ALREADY_EXISTS);
         }
 
         String code = CodeGenerator.makeUnique(
@@ -59,12 +59,12 @@ public class CategoryServiceImpl implements CategoryService {
     @Transactional
     public CategoryResponse update(UUID id, UpdateCategoryRequest request) {
         Category category = categoryRepository.findById(id)
-                .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));   // 404
+                .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));
 
         String name = normalize(request.getName());
 
         if (categoryRepository.existsByNameIgnoreCaseAndIdNot(name, id)) {
-            throw new AppException(ErrorCode.CATEGORY_NAME_ALREADY_EXISTS);           // 409
+            throw new AppException(ErrorCode.CATEGORY_NAME_ALREADY_EXISTS);
         }
 
         category.setName(name);
@@ -90,9 +90,8 @@ public class CategoryServiceImpl implements CategoryService {
     @Transactional
     public CatalogStatusResponse hide(UUID id) {
         Category category = categoryRepository.findById(id)
-                .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));   // 404
+                .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));
 
-        // Idempotent: đã HIDDEN rồi thì gọi lại vẫn trả 200
         if (category.getStatus() != CatalogStatus.HIDDEN) {
             category.setStatus(CatalogStatus.HIDDEN);
             categoryRepository.save(category);
@@ -115,11 +114,10 @@ public class CategoryServiceImpl implements CategoryService {
     @Transactional
     public void delete(UUID id) {
         Category category = categoryRepository.findById(id)
-                .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));   // 404
+                .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));
 
-        // Product và ConsignmentForm đều có FK category_id NOT NULL: còn dùng thì không xóa được
         if (productRepository.existsByCategory_Id(id) || consignmentFormRepository.existsByCategory_Id(id)) {
-            throw new AppException(ErrorCode.CATEGORY_IN_USE);                        // 409
+            throw new AppException(ErrorCode.CATEGORY_IN_USE);
         }
 
         categoryRepository.delete(category);

@@ -15,6 +15,5 @@ public class ReConsignTermsResponse {
 
     private UUID decisionId;
 
-    // Biên nhận ký gửi lại vừa tạo, chờ Member xác nhận (confirmedAt = null)
     private UUID newReceiptId;
 }

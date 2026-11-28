@@ -7,12 +7,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Màn chi tiết / danh sách yêu cầu rút hàng của Member (F-032 -> F-035).
- *
- * <p>Khác {@link ItemWithdrawalResponse} (trả ngay sau khi tạo, chỉ có cái app cần để điều
- * hướng): ở đây có thêm tên món, tên kho và tình trạng phí để hiện đủ một màn chi tiết.
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -23,37 +17,28 @@ public class ItemWithdrawalDetailResponse {
     private String productId;
     private String productName;
 
-    /** PENDING_APPROVAL / PENDING_PICKUP / REJECTED / COMPLETED / EXPIRED */
     private String status;
 
-    /** Lý do Moderator từ chối; null trừ khi status = REJECTED */
     private String rejectReason;
 
-    /** Phí rút hàng; 0 nếu rút trong cửa sổ 7 ngày miễn phí hoặc hàng được miễn phí */
     private BigDecimal feeAmount;
 
-    /** true khi không còn gì phải trả: phí bằng 0, hoặc đã thanh toán xong */
     private boolean feePaid;
 
-    /** WALLET / VNPAY; null khi chưa trả hoặc không phải trả */
     private String paymentMethod;
 
     private Instant pickupDeadline;
 
-    /** Hạn trả phí (feeCharged > 0); null khi miễn phí hoặc đã trả */
     private Instant feePaymentDeadline;
 
     private String warehouseName;
 
-    /** Mobile đang tạm ghép địa chỉ theo tên kho - trả thẳng để khỏi phải ghép nữa */
     private String warehouseAddress;
     private String warehouseOpeningHours;
 
-    /** Ảnh đại diện của sản phẩm (displayOrder nhỏ nhất); null nếu sản phẩm chưa có ảnh */
     private String photoUrl;
 
     private Instant createdAt;
 
-    /** Thời điểm Moderator bàn giao hàng tại quầy; null khi chưa hoàn tất (F-034) */
     private Instant completedAt;
 }

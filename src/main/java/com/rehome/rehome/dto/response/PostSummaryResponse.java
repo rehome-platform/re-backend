@@ -9,9 +9,6 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * 1 dòng trong danh sách bài viết cộng đồng (F-086).
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

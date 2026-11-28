@@ -28,7 +28,6 @@ import com.rehome.rehome.entity.marketplace.CommunityPostPhoto;
 import com.rehome.rehome.entity.marketplace.ViolationReport;
 import com.rehome.rehome.exception.AppException;
 import com.rehome.rehome.exception.BadRequestException;
-import com.rehome.rehome.exception.ConflictException;
 import com.rehome.rehome.exception.ErrorCode;
 import com.rehome.rehome.repository.AccountRepository;
 import com.rehome.rehome.repository.CampaignRepository;
@@ -99,7 +98,6 @@ public class ViolationReportServiceImpl implements ViolationReportService {
         Account reporter = accountRepository.findById(reporterId)
                 .orElseThrow(() -> new AppException(ErrorCode.UNAUTHORIZED));
 
-        // Member đã có báo cáo PENDING cho đúng target này thì không cho báo cáo thêm lần nữa
         if (violationReportRepository.existsByReporterMember_IdAndTargetTypeAndTargetIdAndStatus(
                 reporterId, targetType, targetId, ViolationReportStatus.PENDING)) {
             throw new AppException(ErrorCode.DUPLICATE_PENDING_REPORT);
@@ -144,8 +142,6 @@ public class ViolationReportServiceImpl implements ViolationReportService {
         };
     }
 
-    // ---------------------------------------------------------------- GET /violation-reports
-
     @Override
     @Transactional(readOnly = true)
     public List<ViolationReportGroupResponse> list(String status, String type) {
@@ -154,8 +150,6 @@ public class ViolationReportServiceImpl implements ViolationReportService {
 
         List<ViolationReport> reports = fetchFiltered(statusFilter, typeFilter);
 
-        // reports đã asc theo createdAt (xem các @Query trong repository) nên mỗi nhóm cũng asc
-        // theo encounter order của groupingBy - khỏi sort lại trong nhóm
         Map<String, List<ViolationReport>> grouped = reports.stream()
                 .collect(Collectors.groupingBy(r -> r.getTargetType() + "|" + r.getTargetId(),
                         LinkedHashMap::new, Collectors.toList()));
@@ -215,8 +209,6 @@ public class ViolationReportServiceImpl implements ViolationReportService {
             throw new BadRequestException("type phải là POST, CAMPAIGN hoặc ORGANIZATION_ACCOUNT.");
         }
     }
-
-    // ---------------------------------------------------------------- GET /violation-reports/{id}
 
     @Override
     @Transactional(readOnly = true)
@@ -304,8 +296,6 @@ public class ViolationReportServiceImpl implements ViolationReportService {
         };
     }
 
-    // Target đã bị xoá vật lý khỏi DB (hiếm, nhưng báo cáo cũ vẫn phải mở được) - trả khung rỗng
-    // thay vì 404 cả trang chi tiết
     private static ViolationTargetSnapshotResponse emptySnapshot(ViolationTargetType type, UUID targetId) {
         return ViolationTargetSnapshotResponse.builder()
                 .targetType(type.name())
@@ -313,9 +303,6 @@ public class ViolationReportServiceImpl implements ViolationReportService {
                 .build();
     }
 
-    // Lịch sử vi phạm của 1 tổ chức: mỗi lần resolve đóng nhiều báo cáo PENDING của cùng target
-    // trong 1 lượt (cùng resolvedAt) -> gộp lại thành 1 "incident" bằng (targetType, targetId,
-    // resolvedAt) để không đếm trùng theo số người báo cáo.
     private OrganizationViolationHistoryResponse buildHistory(UUID organizationId) {
         List<ViolationReport> resolved = violationReportRepository.findResolvedByOrganizationId(organizationId);
 
@@ -342,8 +329,6 @@ public class ViolationReportServiceImpl implements ViolationReportService {
                 .actions(items)
                 .build();
     }
-
-    // ---------------------------------------------------------------- resolve / dismiss
 
     @Override
     @Transactional
@@ -428,8 +413,6 @@ public class ViolationReportServiceImpl implements ViolationReportService {
         }
     }
 
-    // Thực hiện hành động trên nội dung (nếu có) rồi trả về id tài khoản tổ chức sở hữu target,
-    // để gửi cảnh báo và tính lịch sử vi phạm
     private UUID executeAction(ViolationResolutionAction action, ViolationReport report) {
         return switch (action) {
             case REMOVE_POST -> {
@@ -450,7 +433,6 @@ public class ViolationReportServiceImpl implements ViolationReportService {
                 donationService.holdCampaignDonations(campaign.getId());
                 yield campaign.getOrganization().getAccountId();
             }
-            // WARN_ORG/PROPOSE_BAN không đổi trạng thái nội dung - chỉ cảnh báo/ghi nhận đề xuất
             case WARN_ORG, PROPOSE_BAN -> resolveOrganizationId(report);
         };
     }
@@ -482,7 +464,6 @@ public class ViolationReportServiceImpl implements ViolationReportService {
         auditLogger.log(moderator, actionType, report.getTargetType().name(), report.getTargetId().toString(), detail);
     }
 
-    // F-xxx (Task 5): cảnh báo tổ chức bị xử lý, kèm target bị phạt/lý do/tổng số lần vi phạm
     private void notifyOrganizationWarning(ViolationReport report, ViolationResolutionAction action,
                                             String reason, UUID organizationId) {
         Account organizationAccount = accountRepository.findById(organizationId).orElse(null);
@@ -499,7 +480,6 @@ public class ViolationReportServiceImpl implements ViolationReportService {
                 toNotificationTargetType(report.getTargetType()), report.getTargetId(), null);
     }
 
-    // Task 5: báo cho MỖI người đã báo cáo (trong các báo cáo vừa đóng) đúng 1 lần
     @Override
     @Transactional
     public void resolvePendingForBannedOrganization(Account actor, UUID organizationId) {

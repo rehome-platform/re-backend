@@ -8,9 +8,6 @@ import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 
-/**
- * Note quyên góp tổ chức tự ghi khi nhận đồ tại địa chỉ riêng (F-167).
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -20,7 +17,7 @@ public class DonationNoteResponse {
     private String campaignId;
     private String donorName;
 
-    @JsonProperty("isAnonymous") // Jackson mặc định bỏ tiền tố "is" của getter boolean -> phải ép tên field tường minh
+    @JsonProperty("isAnonymous")
     private boolean isAnonymous;
 
     private String note;

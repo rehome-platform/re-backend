@@ -18,9 +18,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
-import org.springframework.context.annotation.Profile;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
@@ -44,15 +42,8 @@ public class ProductInitializer implements CommandLineRunner {
     private final ProductPhotoRepository productPhotoRepository;
     private final FileStorageService fileStorageService;
 
-    // Mặc định TẮT để môi trường thật (Azure) không tự mọc 2 sản phẩm giả trên sàn.
-    // Bật khi chạy local: biến môi trường APP_SEED_TRYON_PRODUCTS=true
-//    @Value("${app.seed.tryon-products:false}")
-//    private boolean tryOnSeedEnabled;
-
-    // Tiền tố câu chung chung cũ, dữ liệu nào còn dùng câu này sẽ được thay bằng tình trạng thật
     private static final String GENERIC_CONDITION_PREFIX = "Hàng đã qua kiểm định";
 
-    // id, tên, size, giá thỏa thuận, giá hiện tại, status, kỳ hiện tại, số ngày đã chạy, tình trạng
     private record Seed(String id, String name, String size, String agreedPrice, String price,
                         ProductStatus status, short term, int daysIntoTerm, String conditionNote) {}
 
@@ -66,9 +57,6 @@ public class ProductInitializer implements CommandLineRunner {
             new Seed("Q7-QU-000851", "Quần short Puma", "L", "100000", "90000", ProductStatus.DONATED, (short) 3, 90, "Như mới, còn nguyên mác")
     );
 
-    // Sản phẩm mẫu để test thử đồ AI (API 97): đang bán, đúng slot (Áo sơ mi = TOP, Quần tây = BOTTOM), có ảnh thật.
-    // Ảnh nằm trong src/main/resources/seed/tryon/ và được đẩy qua FileStorageService nên chạy được cả provider
-    // local lẫn cloudinary (URL do chính storage sinh ra, nên loadByUrl đọc lại được để gửi sang AI).
     private record TryOnSeed(String id, String name, String size, String agreedPrice, String price,
                              String categoryName, String conditionNote, String photoResource, String photoPath,
                              String receiptNo) {}
@@ -151,7 +139,6 @@ public class ProductInitializer implements CommandLineRunner {
                     .endOfTermDeadline(termStartedAt.plus(30, ChronoUnit.DAYS))
                     .build());
 
-            // Sản phẩm đang chờ Member chọn cách xử lý cuối kỳ (decision = null)
             if ("Q7-AK-000849".equals(s.id())) {
                 endOfTermDecisionService.createDecision(product, now);
             }
@@ -160,8 +147,6 @@ public class ProductInitializer implements CommandLineRunner {
         seedTryOnProducts();
     }
 
-    // Idempotent: chạy lại bao nhiêu lần cũng được. Thiếu sản phẩm thì tạo, thiếu ảnh thì bổ sung ảnh.
-    // Không đụng tới sản phẩm đã có (kể cả khi bạn đã đổi trạng thái/giá bằng tay).
     private void seedTryOnProducts() {
         Account member = accountRepository.findFirstByRole(Role.MODERATOR).orElse(null);
         Warehouse warehouse = warehouseRepository.findAll().stream().findFirst().orElse(null);
@@ -177,7 +162,6 @@ public class ProductInitializer implements CommandLineRunner {
 
             Product product = productRepository.findById(s.id()).orElse(null);
             if (product == null) {
-                // Không có danh mục đúng tên thì tự tạo, để sản phẩm chắc chắn được thêm
                 Category category = categoryRepository.findAll().stream()
                         .filter(c -> s.categoryName().equals(c.getName()))
                         .findFirst()
@@ -209,7 +193,6 @@ public class ProductInitializer implements CommandLineRunner {
                 .bringInDeadline(LocalDate.ofInstant(termStartedAt, ZoneOffset.UTC))
                 .build());
 
-        // receiptNo cố ý dùng tiền tố KG-SEED- để không đụng dãy KG-<năm>-<seq> của phiếu thật (cột unique)
         ConsignmentReceipt receipt = consignmentReceiptRepository.save(ConsignmentReceipt.builder()
                 .receiptNo(s.receiptNo())
                 .consignmentForm(form)
@@ -242,7 +225,6 @@ public class ProductInitializer implements CommandLineRunner {
         return product;
     }
 
-    // Lỗi đọc ảnh/storage chỉ ghi log, không làm app không khởi động được
     private void addTryOnPhoto(Product product, TryOnSeed s) {
         try {
             byte[] bytes = new ClassPathResource(s.photoResource()).getContentAsByteArray();
@@ -259,8 +241,6 @@ public class ProductInitializer implements CommandLineRunner {
         }
     }
 
-    // DB đã có sẵn sản phẩm mẫu từ lần chạy trước nên khối seed bị bỏ qua; sửa riêng các sản phẩm mẫu
-    // còn mang câu chung chung "Hàng đã qua kiểm định…". Sản phẩm thật do Moderator nhập không bị đụng tới.
     private void repairGenericConditionNotes() {
         for (Seed s : SEEDS) {
             productRepository.findById(s.id())

@@ -22,8 +22,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 
-// F-036: Member có decisionDeadline (mặc định 30 ngày) để chọn FULL_COMPENSATION/PARTIAL_WITH_ITEM_BACK.
-// Không chọn kịp thì không được bồi hoàn gì - giống Điều 8.3 hợp đồng áp cho EndOfTermDecision.
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -45,8 +43,6 @@ public class DegradedItemCaseLifecycleServiceImpl implements DegradedItemCaseLif
         markUnclaimedForOverdueDecisions(now);
     }
 
-    // Cách reminderIntervalDays (mặc định 7 ngày) 1 lần, tính từ lúc mở ca hoặc lần nhắc gần nhất,
-    // cho tới khi còn trong hạn (decisionDeadline chưa qua - case đã quá hạn do job dưới xử lý)
     private void sendReminders(Instant now) {
         Instant reminderCutoff = now.minus(reminderIntervalDays, ChronoUnit.DAYS);
 
@@ -70,8 +66,6 @@ public class DegradedItemCaseLifecycleServiceImpl implements DegradedItemCaseLif
         }
     }
 
-    // Quá decisionDeadline mà choice vẫn null -> không ai chọn, hệ thống tự gán UNCLAIMED (giống
-    // EndOfTermChoice.UNCLAIMED) và gỡ sản phẩm sang vô thừa nhận, không bồi hoàn gì
     private void markUnclaimedForOverdueDecisions(Instant now) {
         for (DegradedItemCase degradedCase : degradedItemCaseRepository
                 .findAllByChoiceIsNullAndDecisionDeadlineBefore(now)) {

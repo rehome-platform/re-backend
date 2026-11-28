@@ -41,21 +41,17 @@ public interface QueueItemRepository extends JpaRepository<QueueItem, String> {
 
     Optional<QueueItem> findByTypeAndRefId(QueueType type, String refId);
 
-    // Đóng gói: khóa dòng queue cùng lúc với đơn để kiểm tra claim và hoàn tất việc không bị chen ngang
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select q from QueueItem q left join fetch q.claimedBy where q.type = :type and q.refId = :refId")
     Optional<QueueItem> findByTypeAndRefIdForUpdate(@Param("type") QueueType type, @Param("refId") String refId);
 
-    // API 140: Moderator còn giữ việc (việc xong thì dòng queue bị gỡ) thì không cho chuyển kho
     boolean existsByClaimedBy_Id(java.util.UUID accountId);
 
-    // Moderator: lấy thông tin claim của nhiều việc cùng lúc (kèm người nhận, không N+1)
     @Query("select q from QueueItem q left join fetch q.claimedBy "
             + "where q.type in :types and q.refId in :refIds")
     List<QueueItem> findByTypesAndRefIds(@Param("types") Collection<QueueType> types,
                                          @Param("refIds") Collection<String> refIds);
 
-    // Claim an toàn khi 2 Moderator bấm cùng lúc: chỉ 1 người update được dòng claimed_by IS NULL
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update QueueItem q set q.claimedBy = :moderator, q.claimedAt = :now "
             + "where q.id = :id and q.claimedBy is null")

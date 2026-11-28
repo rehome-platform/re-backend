@@ -16,33 +16,16 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-/**
- * Mở giao dịch VNPay cho một lần mua gói thành viên.
- *
- * <p><b>Vì sao là component riêng chứ không gọi {@code VnPayService}?</b> Service đó phải gọi
- * ngược về {@code MembershipService} khi IPN về (route theo tiền tố), nên {@code
- * MembershipServiceImpl} gọi xuôi vào nó sẽ thành phụ thuộc vòng và Spring từ chối tạo bean.
- *
- * <h2>Tiền tố mã giao dịch - đây là chỗ route IPN</h2>
- * Cổng thanh toán chỉ trả về đúng cái mã mình gửi lên, nên mã phải tự nói nó là giao dịch gì:
- * <ul>
- *   <li>Đơn hàng: {@code <orderId>-<millis>} (hành vi cũ, giữ nguyên)</li>
- *   <li>Mua gói: {@code SUB-<subscriptionId không dấu gạch>-<millis>}</li>
- * </ul>
- */
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class MembershipGatewayPaymentBuilder {
 
-    /** Tiền tố nhận dạng giao dịch mua gói. */
     public static final String MEMBERSHIP_REF_PREFIX = "SUB-";
 
     private static final DateTimeFormatter VNPAY_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
-    // Link thanh toán gói sống 15 phút: đủ để mở app cổng và trả tiền, và nếu bỏ giữa đường thì
-    // subscription PENDING_PAYMENT không treo quá lâu chặn lần mua sau (MEMBERSHIP_PAYMENT_PENDING).
     public static final int PAY_LINK_MINUTES = 15;
 
     @Value("${vnpay.tmn-code}")
@@ -70,10 +53,6 @@ public class MembershipGatewayPaymentBuilder {
                 + "-" + System.currentTimeMillis();
     }
 
-    /**
-     * Dựng URL thanh toán VNPay. VNPay không có bước gọi API tạo giao dịch - chỉ ký query string
-     * rồi redirect, nên không có nhánh lỗi mạng ở đây.
-     */
     public String createVnPayPayment(MembershipPayment payment, String customReturnUrl, String clientIp) {
         String txnRef = buildRef(payment.getSubscription().getId());
         ZonedDateTime now = ZonedDateTime.now(VN_ZONE);
@@ -83,7 +62,6 @@ public class MembershipGatewayPaymentBuilder {
         fields.put("vnp_Version", vnpVersion);
         fields.put("vnp_Command", "pay");
         fields.put("vnp_TmnCode", vnpTmnCode);
-        // VNPay nhận số tiền đã nhân 100
         fields.put("vnp_Amount", String.valueOf(toGatewayAmount(payment.getAmount()) * 100));
         fields.put("vnp_CurrCode", "VND");
         fields.put("vnp_TxnRef", txnRef);
@@ -103,7 +81,6 @@ public class MembershipGatewayPaymentBuilder {
         return vnpPayUrl + "?" + query + "&vnp_SecureHash=" + secureHash;
     }
 
-    /** VNPay nhận số nguyên đồng, không nhận phần thập phân. */
     private static long toGatewayAmount(BigDecimal amount) {
         return amount.setScale(0, RoundingMode.HALF_UP).longValueExact();
     }

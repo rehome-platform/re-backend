@@ -27,7 +27,6 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -39,8 +38,6 @@ public class ProductController {
 
     private final ProductService productService;
 
-    // ---------------------------------------------------------------- Sàn (public)
-
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<ProductSummaryResponse>>> getProducts(
             @RequestParam(required = false) String search,
@@ -49,7 +46,6 @@ public class ProductController {
             @RequestParam(required = false) BigDecimal priceMin,
             @RequestParam(required = false) BigDecimal priceMax,
             @RequestParam(required = false) UUID warehouseId,
-            // Lọc theo loại thử đồ của danh mục: TOP / BOTTOM / DRESS (F-076: Member tự chọn món còn thiếu)
             @RequestParam(required = false) TryOnSlot tryonSlot,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -71,13 +67,10 @@ public class ProductController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
-    // ---------------------------------------------------------------- Hàng ký gửi của tôi
-
     @GetMapping("/mine")
     @PreAuthorize("hasRole('MEMBER')")
     public ApiResponse<PageResponse<MyProductResponse>> getMyProducts(
             @RequestParam(required = false) ProductStatus status,
-            // true = chỉ lấy hàng đang chờ Member chọn cách xử lý cuối kỳ
             @RequestParam(defaultValue = "false") boolean pendingDecision,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -140,7 +133,6 @@ public class ProductController {
     }
 
 
-    // Xem trước phí ship GHN thật cho 1 sản phẩm - chỉ cần nhập địa chỉ, không cần giỏ hàng/đơn hàng
     @GetMapping("/{id}/shipping-fee-preview")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<ShippingFeePreviewResponse>> getShippingFeePreview(
@@ -152,8 +144,6 @@ public class ProductController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
-    // ---------------------------------------------------------------- Kho (Moderator)
-
     @PostMapping
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<ProductResponse>> create(
@@ -164,7 +154,6 @@ public class ProductController {
                 .body(ApiResponse.success(result, 201, "Đã nhập kho"));
     }
 
-    // Trả thẳng file PDF để Moderator in tem, không qua URL trung gian
     @GetMapping("/{id}/sku-label")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<byte[]> getSkuLabel(
@@ -181,9 +170,6 @@ public class ProductController {
                 .body(pdf.content());
     }
 
-    // ---------------------------------------------------------------- Chi tiết theo id/SKU
-
-    // Moderator quét SKU -> thông tin kho; còn lại -> chi tiết công khai
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<Object>> getProduct(
             @PathVariable String id,

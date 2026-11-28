@@ -19,32 +19,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Phát voucher định kỳ cho một subscription theo {@code voucher_template_tier_rules} của hạng đó.
- *
- * <h2>Idempotent bằng hai lớp</h2>
- * <ol>
- *   <li>{@code last_voucher_issued_at} trong cùng tháng (giờ VN) -> bỏ qua cả lượt. Đây là chốt
- *       chính, chạy job hai lần trong ngày không phát đôi.</li>
- *   <li>Đếm số mã đã phát từ subscription này cho từng mẫu <i>trong tháng đó</i> -> chỉ phát phần
- *       còn thiếu. Lớp này cứu trường hợp lượt phát trước bị lỗi giữa đường (mẫu A đã phát, mẫu B
- *       chưa) mà {@code last_voucher_issued_at} vẫn kịp được ghi.</li>
- * </ol>
- *
- * <p>Cả hai lớp nằm trong cùng transaction với lúc insert, nên hai job chạy song song sẽ có một
- * bên thấy dữ liệu của bên kia (hoặc bị chặn ở commit) chứ không cùng phát.
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class VoucherIssueServiceImpl implements VoucherIssueService {
 
-    // Bỏ các ký tự dễ đọc sai khi người mua gõ tay hoặc đọc qua điện thoại:
-    // O/0, I/1/L, Z/2, S/5, B/8 - giữ 20 chữ + 5 số
     private static final String CODE_ALPHABET = "ACDEFGHJKMNPQRTUVWXY34679";
     private static final int CODE_BODY_LENGTH = 6;
-    // Mã UNIQUE ở DB; đụng trùng thì sinh lại. 25^6 ≈ 244 triệu tổ hợp nên vòng lặp này gần như
-    // không bao giờ chạy quá 1 lần, nhưng vẫn phải có trần để không treo nếu alphabet bị thu nhỏ.
     private static final int MAX_CODE_ATTEMPTS = 20;
 
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -58,7 +39,6 @@ public class VoucherIssueServiceImpl implements VoucherIssueService {
         Instant now = Instant.now();
         VnTimeWindow.Window month = VnTimeWindow.thisMonth();
 
-        // Lớp 1: tháng này đã phát rồi thì thôi
         Instant last = subscription.getLastVoucherIssuedAt();
         boolean alreadyIssuedThisMonth = last != null && !last.isBefore(month.from());
 
@@ -69,7 +49,6 @@ public class VoucherIssueServiceImpl implements VoucherIssueService {
                 continue;
             }
 
-            // Lớp 2: chỉ phát phần còn thiếu của tháng
             long already = memberVoucherRepository
                     .countBySourceSubscription_IdAndVoucherTemplate_IdAndIssuedAtGreaterThanEqualAndIssuedAtLessThan(
                             subscription.getId(), template.getId(), month.from(), month.to());
@@ -77,7 +56,6 @@ public class VoucherIssueServiceImpl implements VoucherIssueService {
             if (missing <= 0) {
                 continue;
             }
-            // Đã phát đủ ít nhất một mẫu và cờ tháng đã bật -> lượt này chỉ là chạy lại, không phát
             if (alreadyIssuedThisMonth && already > 0) {
                 continue;
             }
@@ -93,14 +71,11 @@ public class VoucherIssueServiceImpl implements VoucherIssueService {
             log.info(">>>> Phat {} voucher cho subscriptionId={} (tier={})",
                     issued, subscription.getId(), subscription.getTier());
         } else if (last == null) {
-            // Hạng không có rule nào (hoặc mọi mẫu đã tắt): vẫn ghi mốc để job không quét lại
-            // subscription này mỗi ngày.
             subscription.setLastVoucherIssuedAt(now);
         }
         return issued;
     }
 
-    /** Hạng của subscription được nhận mấy mã của mẫu này. 0 = không nhận. */
     private static int quantityFor(VoucherTemplate template, MemberSubscription subscription) {
         for (VoucherTemplateTierRule rule : template.getTierRules()) {
             if (rule.getTier() == subscription.getTier()) {
@@ -110,7 +85,6 @@ public class VoucherIssueServiceImpl implements VoucherIssueService {
         return 0;
     }
 
-    /** Snapshot toàn bộ luật từ template: Admin sửa mẫu về sau không đổi mã đã phát. */
     private MemberVoucher buildVoucher(MemberSubscription subscription, VoucherTemplate template, Instant now) {
         return MemberVoucher.builder()
                 .code(generateUniqueCode(template.getType()))
@@ -124,9 +98,6 @@ public class VoucherIssueServiceImpl implements VoucherIssueService {
                 .minOrderAmount(template.getMinOrderAmount())
                 .status(MemberVoucherStatus.UNUSED)
                 .issuedAt(now)
-                // Hết hạn vào CUỐI ngày thứ validDays (giờ VN), không phải đúng giờ phút lúc phát -
-                // mã "hiệu lực 30 ngày" phát 23:50 mà hết hạn 23:50 ngày thứ 30 thì người mua mất
-                // gần một ngày và rất dễ hiểu là lỗi.
                 .expiresAt(endOfDayAfter(now, template.getValidDays()))
                 .build();
     }
@@ -137,7 +108,6 @@ public class VoucherIssueServiceImpl implements VoucherIssueService {
                 .minus(1, ChronoUnit.SECONDS);
     }
 
-    /** Tiền tố nói loại mã để người mua nhìn là biết, ví dụ {@code SHIP-7K2M9A} / {@code SALE-3B8Q1Z}. */
     private String generateUniqueCode(VoucherType type) {
         String prefix = type == VoucherType.SHIPPING ? "SHIP-" : "SALE-";
         for (int attempt = 0; attempt < MAX_CODE_ATTEMPTS; attempt++) {

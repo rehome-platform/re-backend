@@ -66,7 +66,6 @@ public class CartController {
         return ResponseEntity.ok(response);
     }
 
-    // API 58 (F-054)
     @GetMapping("/checkout-preview")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<CheckoutPreviewResponse>> checkoutPreview(

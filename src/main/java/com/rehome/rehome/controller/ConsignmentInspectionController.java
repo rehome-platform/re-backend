@@ -20,7 +20,6 @@ public class ConsignmentInspectionController {
 
     private final ConsignmentInspectionService consignmentInspectionService;
 
-    // API 34
     @PostMapping("/{id}/inspection/complete")
     public ApiResponse<CompleteInspectionResponse> completeInspection(
             @PathVariable UUID id,

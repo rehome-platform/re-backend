@@ -16,25 +16,18 @@ public interface ItemWithdrawalRequestService {
     void refundDonationFee(ItemWithdrawalRequest withdrawal);
 
 
-    // API 90 (F-032) - Member yêu cầu rút lại một sản phẩm đang ký gửi
     ItemWithdrawalResponse create(Account account, CreateItemWithdrawalRequest request);
 
-    // Moderator của kho giữ sản phẩm duyệt yêu cầu rút hàng -> PENDING_PICKUP
     ItemWithdrawalResponse approve(Account moderator, UUID id);
 
-    // Moderator từ chối, bắt buộc có lý do -> REJECTED, sản phẩm trả lại ON_SALE
     ItemWithdrawalResponse reject(Account moderator, UUID id, RejectItemWithdrawalRequest request);
 
-    // API 91 (F-033) - Member trả phí rút hàng bằng ví hoặc VNPay (chọn đúng 1, không chia nhỏ)
     PayItemWithdrawalFeeResponse payFee(
             Account account, UUID id, PayItemWithdrawalFeeRequest request, String clientIp);
 
-    // Webhook VNPay gọi khi có kết quả thanh toán phí rút hàng; trả về true nếu khớp một yêu cầu
     boolean applyVnPayFeePaymentResult(String vnpTxnRef, String responseCode, String transactionNo);
 
-    // Member xem chi tiết một yêu cầu rút hàng của mình
     ItemWithdrawalDetailResponse getMine(Account account, UUID id);
 
-    // Member xem danh sách yêu cầu rút hàng của mình; status = null/rỗng thì lấy tất cả
     List<ItemWithdrawalDetailResponse> listMine(Account account, String status);
 }

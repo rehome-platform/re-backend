@@ -21,10 +21,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
-/**
- * Gom doanh thu nền tảng theo kỳ. Dùng chung cách chia kỳ (ngày/tuần ISO/tháng, giờ VN) và giới hạn số kỳ
- * của AccountGrowthServiceImpl để hai biểu đồ của dashboard hành xử giống nhau.
- */
 @Service
 @RequiredArgsConstructor
 public class RevenueTrendServiceImpl implements RevenueTrendService {
@@ -43,8 +39,6 @@ public class RevenueTrendServiceImpl implements RevenueTrendService {
 
         List<RevenueEntry> entries = queryRepository.findPlatformRevenueEntries(parsed.from(), parsed.to());
 
-        // Bỏ from (toàn thời gian): bắt đầu từ ngày có doanh thu đầu tiên thay vì 1970 để không vượt giới hạn số kỳ
-        // (bút toán đã được lọc < cận trên nên ngày đầu tiên không bao giờ vượt toDate)
         LocalDate fromDate = parsed.fromDate() != null
                 ? parsed.fromDate()
                 : entries.stream()
@@ -57,7 +51,6 @@ public class RevenueTrendServiceImpl implements RevenueTrendService {
 
     static RevenueTrendResponse buildTrend(Granularity g, LocalDate fromDate, LocalDate toDate,
                                            List<RevenueEntry> entries) {
-        // Đủ mọi kỳ từ kỳ chứa fromDate tới kỳ chứa toDate, kể cả kỳ không có doanh thu
         Map<LocalDate, BigDecimal> sums = new TreeMap<>();
         for (LocalDate start = g.startOf(fromDate); !start.isAfter(toDate); start = g.next(start)) {
             if (sums.size() >= AccountGrowthServiceImpl.MAX_POINTS) {

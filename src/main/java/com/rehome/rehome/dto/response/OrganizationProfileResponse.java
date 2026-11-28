@@ -14,11 +14,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
-/**
- * Hồ sơ tổ chức của chính người đang đăng nhập.
- * Chưa nộp hồ sơ -> mọi field đều null (verificationStatus = null).
- * ALWAYS để field null vẫn xuất hiện trong JSON, kể cả khi project cấu hình NON_NULL toàn cục.
- */
 @Getter
 @Builder
 @NoArgsConstructor
@@ -51,10 +46,8 @@ public class OrganizationProfileResponse {
 
     private Instant verifiedAt;
 
-    // Dữ liệu để app điền sẵn form nộp lại khi hồ sơ bị từ chối
     private Instant submittedAt;
 
-    // Hạn mức chiến dịch đang chạy (OPEN) để app báo trước kiểu "đang có 2/3 chiến dịch"; null khi chưa nộp hồ sơ
     private Integer maxConcurrentCampaigns;
     private Long runningCampaigns;
 
@@ -85,7 +78,6 @@ public class OrganizationProfileResponse {
         private LocalDate issueDate;
         private String issuingAuthority;
         private String fileUrl;
-        // Kết luận của Moderator cho riêng giấy tờ này ở lần từ chối gần nhất; null = chưa chấm
         private Boolean accepted;
     }
 
@@ -123,7 +115,6 @@ public class OrganizationProfileResponse {
                         .fullName(p.getRepresentative().getFullName())
                         .position(p.getRepresentative().getPosition())
                         .cccdNumber(p.getRepresentative().getCccdNumber())
-                        // F-139: đường dẫn endpoint có kiểm quyền, không phải URL storage
                         .cccdFrontUrl(LegalFileLinks.cccdFrontOrNull(
                                 p.getAccountId(), p.getRepresentative().getCccdFrontUrl()))
                         .cccdBackUrl(LegalFileLinks.cccdBackOrNull(
@@ -143,7 +134,6 @@ public class OrganizationProfileResponse {
                 .build();
     }
 
-    /** Tổ chức chưa nộp hồ sơ: trả về object rỗng, verificationStatus = null. */
     public static OrganizationProfileResponse notSubmitted() {
         return OrganizationProfileResponse.builder().build();
     }

@@ -19,7 +19,6 @@ public class QueueController {
 
     private final QueueService queueService;
 
-    // API 28
     @GetMapping
     public ApiResponse<List<QueueItemResponse>> list(
             @RequestParam(required = false) String type,
@@ -27,13 +26,11 @@ public class QueueController {
         return ApiResponse.success(queueService.list(type, mine, moderator));
     }
 
-    // API 29
     @PostMapping("/{id}/claim")
     public ApiResponse<QueueClaimResponse> claim(@PathVariable String id, @AuthenticationPrincipal Account moderator) {
         return ApiResponse.success(queueService.claim(id, moderator), "Đã nhận việc");
     }
 
-    // API 30: HTTP 200 (204 không được có body), statusCode 204 nằm trong body theo spec
     @PostMapping("/{id}/release")
     public ApiResponse<Void> release(@PathVariable String id, @AuthenticationPrincipal Account moderator) {
         queueService.release(id, moderator);

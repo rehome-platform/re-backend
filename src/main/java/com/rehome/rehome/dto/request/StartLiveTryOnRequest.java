@@ -6,7 +6,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-// POST /tryon/live/sessions - món sẽ làm garment reference cho Decart Lucy VTON
 @Getter
 @Setter
 @NoArgsConstructor

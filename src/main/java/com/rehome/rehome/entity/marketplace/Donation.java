@@ -20,54 +20,41 @@ import org.hibernate.annotations.ColumnDefault;
 @AllArgsConstructor
 @Builder
 public class Donation {
-    // Khóa chính
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false)
     private UUID id;
 
-    // Điểm ký gửi nhận đồ
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "warehouse_id", nullable = false)
     private Warehouse warehouse;
 
-    // Chiến dịch mà lượt quyên góp này thuộc về — 1 kho nhận cho nhiều chiến dịch của nhiều
-    // tổ chức nên bắt buộc Moderator phải chọn (xem CreateDonationRequest/recordDonation).
-    // Cột để nullable vì ddl-auto=update không backfill được cho các lượt đã ghi nhận trước field này.
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "campaign_id", nullable = true)
     private Campaign campaign;
 
-    // Moderator đã ghi nhận lượt quyên góp này, để tra cứu/đối soát. Nullable cùng lý do với campaign
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "recorded_by_account_id", nullable = true)
     private Account recordedBy;
 
-    // Sản phẩm ký gửi đã được Member quyên góp (POST /products/{id}/donate) thay vì tiếp tục bán.
-    // Null với lượt quyên góp ghi nhận trực tiếp tại quầy (recordDonation, F-163) - không gắn với
-    // sản phẩm ký gửi nào.
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "product_id", nullable = true)
     private Product product;
 
-    // DIRECT - Moderator ghi nhận tại quầy (F-163); CONSIGNED_ITEM - Member quyên góp món ký gửi
     @Enumerated(EnumType.STRING)
     @Column(name = "source", nullable = false)
     @ColumnDefault("'DIRECT'")
     @Builder.Default
     private DonationSource source = DonationSource.DIRECT;
 
-    // Tên người quyên góp; null khi quyên góp ẩn danh
     @Column(name = "donor_name", nullable = true, length = 255)
     private String donorName;
 
-    // Người quyên góp chọn ẩn danh
     @Column(name = "is_anonymous", nullable = false)
     @ColumnDefault("false")
     @Builder.Default
     private Boolean isAnonymous = false;
 
-    // Ghi chú tự do của Moderator, ví dụ "2 áo khoác, 1 chăn" — không ghi số kg
     @Column(name = "note", nullable = true, columnDefinition = "text")
     private String note;
 
@@ -78,19 +65,16 @@ public class Donation {
     @Builder.Default
     private List<String> photoUrls = new ArrayList<>();
 
-    // PENDING_PICKUP — chờ tổ chức đến lấy; HANDED_OVER — đã bàn giao
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     @ColumnDefault("'PENDING_PICKUP'")
     @Builder.Default
     private DonationStatus status = DonationStatus.PENDING_PICKUP;
 
-    // Tổ chức đã đến nhận; null khi còn chờ lấy
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "handed_over_to_organization_id", nullable = true)
     private OrganizationProfile handedOverToOrganization;
 
-    // Thời điểm bàn giao; null khi còn chờ lấy
     @Column(name = "handed_over_at", nullable = true)
     private Instant handedOverAt;
 
@@ -115,7 +99,6 @@ public class Donation {
         return reassignedFromCampaign == null ? null : reassignedFromCampaign.getTitle();
     }
 
-    // Thời điểm ghi nhận
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

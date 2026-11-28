@@ -35,15 +35,6 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Ví voucher của Member và API xem trước số tiền giảm.
- *
- * <p>{@code GET /vouchers/applicable} dựng lại <b>đúng</b> các đơn mà {@code POST /orders} sẽ tạo
- * (mỗi sản phẩm một đơn, phí ship tính theo tuyến kho -> địa chỉ nhận) rồi chạy cùng một
- * {@link VoucherCalculator}, nên số tiền hiện ở màn thanh toán khớp với số tiền thật khi đặt.
- * Khác biệt duy nhất: ở đây <b>không khóa dòng sản phẩm</b> - đây chỉ là xem trước, và giữ lock
- * trong lúc người mua còn đang chọn mã sẽ chặn người khác mua món đó.
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -58,20 +49,15 @@ public class VoucherServiceImpl implements VoucherService {
     private final GhnShippingFeeCalculator ghnShippingFeeCalculator;
     private final VoucherCalculator voucherCalculator;
 
-    // ================================================================ §8.5 GET /vouchers/me
-
     @Override
     public PageResponse<MemberVoucherResponse> getMyVouchers(Account account, MemberVoucherStatus status,
                                                               int page, int size) {
-        // Thứ tự (UNUSED trước, sắp hết hạn lên đầu) đã nằm trong query nên Pageable không kèm Sort.
-        // Hai method thay vì một câu có tham số status nullable - xem ghi chú ở MemberVoucherRepository.
         PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1));
         var result = status == null
                 ? memberVoucherRepository.findWallet(account.getId(), pageable)
                 : memberVoucherRepository.findByMember_IdAndStatusOrderByExpiresAtAsc(
                         account.getId(), status, pageable);
 
-        // Mã đã dùng có thể trải trên nhiều đơn -> gom orderNo của cả trang trong 1 query
         Map<UUID, List<String>> orderNosByVoucherId = loadUsedOrderNos(
                 result.getContent().stream().map(MemberVoucher::getId).toList());
 
@@ -110,7 +96,6 @@ public class VoucherServiceImpl implements VoucherService {
                 .build();
     }
 
-    // Làm tròn LÊN để mã hết hạn trong hôm nay vẫn hiện "Còn 1 ngày", không phải 0
     private static int daysRemaining(Instant expiresAt, Instant now) {
         if (expiresAt == null || !expiresAt.isAfter(now)) {
             return 0;
@@ -118,8 +103,6 @@ public class VoucherServiceImpl implements VoucherService {
         long hours = Duration.between(now, expiresAt).toHours();
         return (int) ((hours + 23) / 24);
     }
-
-    // ================================================================ §8.6 GET /vouchers/applicable
 
     @Override
     public ApplicableVouchersResponse getApplicableVouchers(Account account, List<String> productIds,
@@ -149,8 +132,6 @@ public class VoucherServiceImpl implements VoucherService {
             if (reason == null) {
                 discount = voucherCalculator.calculate(v, lines, false).totalDiscount();
                 if (discount.signum() <= 0) {
-                    // Đủ điều kiện hình thức nhưng không giảm được đồng nào: thường là voucher ship
-                    // gặp đơn miễn phí ship, hoặc mã giảm đơn chạm trần hoa hồng = 0
                     reason = "Mã không giảm được cho đơn này";
                 }
             }
@@ -169,7 +150,6 @@ public class VoucherServiceImpl implements VoucherService {
                     .build());
         }
 
-        // Dùng được trước, trong đó giảm nhiều nhất lên đầu - đúng thứ tự bottom-sheet của M-07
         items.sort((a, b) -> {
             if (a.isApplicable() != b.isApplicable()) {
                 return a.isApplicable() ? -1 : 1;
@@ -184,14 +164,6 @@ public class VoucherServiceImpl implements VoucherService {
                 .build();
     }
 
-    /**
-     * Dựng danh sách đơn sắp tạo. Cùng quy tắc với {@code OrderServiceImpl.createOrders}:
-     * {@code productIds} rỗng = lấy cả giỏ hàng, mỗi sản phẩm là một đơn riêng.
-     *
-     * <p>Món đã rời {@code ON_SALE} bị lọc bỏ thay vì ném lỗi: đây là màn xem trước, người mua
-     * chưa bấm đặt nên không nên chặn cả màn vì một món vừa bị người khác mua. {@code POST /orders}
-     * mới là nơi báo lỗi.
-     */
     private List<VoucherCalculator.OrderLine> buildLines(Account account, List<String> productIds,
                                                           ShippingAddress address) {
         List<String> ids = new ArrayList<>();
@@ -213,7 +185,6 @@ public class VoucherServiceImpl implements VoucherService {
             if (product.getStatus() != ProductStatus.ON_SALE) {
                 continue;
             }
-            // Không mua được món do chính mình ký gửi -> cũng không tính vào xem trước
             if (product.getMember().getId().equals(account.getId())) {
                 continue;
             }

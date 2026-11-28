@@ -39,16 +39,13 @@ public class ReturnRequestResponse {
 
     private Instant createdAt;
     private Instant resolvedAt;
-    // Thời điểm người mua nhận lại hàng trả không hợp lệ tại quầy
     private Instant pickedUpAt;
 
-    // Gửi lại hàng trả không hợp lệ qua GHN (invalidReturnChoice = SHIP_BACK)
     private String shipBackStatus;
     private BigDecimal shipBackFee;
     private Instant shipBackFeeDeadline;
     private Instant shipBackPaidAt;
     private String shipBackPaymentMethod;
-    // Hạn Moderator tạo vận đơn (shipBackPaidAt + return_ship_back_ship_within_days)
     private Instant shipBackShipDeadline;
     private String shipBackTrackingCode;
     private Instant shipBackShippedAt;
@@ -61,39 +58,28 @@ public class ReturnRequestResponse {
     private String shipBackWardName;
     private String shipBackProvinceName;
 
-    // Người mua / người bán (F-036, TH-04..TH-07) - để Moderator xem chi tiết lúc kiểm hàng
     private String buyerName;
     private String buyerPhone;
     private String sellerName;
 
-    // Ảnh sản phẩm lúc ký gửi/đăng bán, để so sánh với ảnh hàng trả về
     private List<String> initialConsignmentPhotoUrls;
 
-    // Các yêu cầu trả hàng khác (nếu có) của cùng đơn, mới nhất trước
     private List<ReturnRequestHistoryItem> returnHistory;
 
-    // Snapshot mức đền (giá bán - hoa hồng áp dụng lúc đặt đơn) và mức đền một phần nếu Member
-    // chọn nhận lại hàng - chỉ có giá trị khi hàng bị đánh dấu degraded (API 85)
     private BigDecimal compensationAmount;
     private BigDecimal halfCompensationAmount;
 
-    // Thông tin sản phẩm để Moderator xem nhanh lúc kiểm hàng, không phải tự tra chéo bằng orderId
     private String sku;
     private String productName;
     private String brandName;
     private String size;
 
-    // Mã người ký gửi (MemberProfile.memberCode), khác sellerName (họ tên) đã có sẵn ở trên
     private String sellerCode;
 
-    // Kỳ ký gửi đang chạy và số ngày đã trôi qua trong kỳ đó tính tới lúc xem, cùng độ dài 1 kỳ
-    // (snapshot trên biên nhận) - Moderator cần để đối chiếu với lịch sử giá/hoa hồng
     private Short currentTerm;
     private Integer daysIntoTerm;
     private Integer termLengthDays;
 
-    // Tỷ lệ hoa hồng chốt lúc đặt đơn (OrderItem.commissionRateApplied) và tỷ lệ đền hàng xuống
-    // cấp snapshot trên biên nhận - dùng để Moderator kiểm lại compensationAmount/halfCompensationAmount
     private BigDecimal commissionRate;
     private BigDecimal degradedCompensationRate;
 

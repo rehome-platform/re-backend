@@ -11,6 +11,5 @@ import lombok.Getter;
 public class AccountStatusResponse {
     private final String accountId;
     private final AccountStatus status;
-    // null khi không bị khoá
     private final String banReason;
 }

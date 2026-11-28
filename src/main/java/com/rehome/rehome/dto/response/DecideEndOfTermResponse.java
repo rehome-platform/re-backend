@@ -16,6 +16,5 @@ public class DecideEndOfTermResponse {
 
     private EndOfTermChoice decision;
 
-    // Luôn null ở bước Member chọn: biên nhận ký gửi lại do Moderator tạo sau khi chốt giá và điều khoản
     private UUID newReceiptId;
 }

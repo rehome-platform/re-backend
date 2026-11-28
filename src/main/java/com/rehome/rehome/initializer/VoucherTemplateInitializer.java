@@ -15,23 +15,6 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Seed 5 mẫu voucher mẫu, khớp bảng gợi ý đã chốt với Admin. Chỉ tạo khi chưa có mẫu cùng tên, nên
- * Admin sửa/tắt/xoá rồi thì restart không dựng lại.
- *
- * <h2>5 mẫu, cố ý khác nhau để minh hoạ đủ cách dùng</h2>
- * <ul>
- *   <li><b>Freeship 15.000đ</b> - FIXED, không yêu cầu đơn tối thiểu, phát đều cả 3 hạng.</li>
- *   <li><b>Freeship 30.000đ cho đơn từ 300k</b> - FIXED cao hơn nhưng có đơn tối thiểu, CHỈ phát
- *       Vàng/Kim cương để tạo khác biệt giữa các hạng.</li>
- *   <li><b>Giảm 10% đơn hàng, tối đa 50.000đ</b> - PERCENT khớp đúng hoa hồng kỳ 1 (10%, kỳ phổ
- *       biến nhất), nên % quảng cáo gần như luôn đạt được thật, không bị cắt ngầm.</li>
- *   <li><b>Giảm 5% đơn hàng, tối đa 30.000đ</b> - PERCENT thấp, phát nhiều, dùng cho đơn nhỏ hơn.</li>
- *   <li><b>Giảm 15% đơn từ 500k, tối đa 80.000đ</b> - PERCENT cao hơn hoa hồng kỳ 1, CHỈ phát Kim
- *       cương; thực tế mức giảm thường bị trần hoa hồng của món cắt xuống còn ~10-20% tuỳ kỳ,
- *       không đạt đủ 15% với món đang ở kỳ 1 - ghi rõ trong mô tả để không gây hiểu lầm.</li>
- * </ul>
- */
 @Slf4j
 @Component
 @Order(1)
@@ -99,7 +82,6 @@ public class VoucherTemplateInitializer implements CommandLineRunner {
         return 1;
     }
 
-    // quantity null = hạng đó không nhận mẫu này (ví dụ chỉ phát riêng Kim cương)
     private static void addRule(VoucherTemplate template, MembershipTier tier, Integer quantity) {
         if (quantity == null) {
             return;

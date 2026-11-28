@@ -7,9 +7,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * 1 dòng trong danh sách chiến dịch của tổ chức (F-103, OC-03).
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

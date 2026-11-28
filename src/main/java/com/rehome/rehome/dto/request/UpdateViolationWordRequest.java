@@ -8,7 +8,6 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
-/** PUT: thay toàn bộ thông tin từ khóa; riêng isActive không gửi thì giữ nguyên trạng thái hiện tại. */
 @Data
 public class UpdateViolationWordRequest {
 

@@ -25,13 +25,10 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     Optional<Order> findByGhnTrackingCode(String ghnTrackingCode);
 
-    // Khóa dòng để job tự trả tiền và request trả hàng không cùng xử lý một đơn
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from Order o where o.id = :id")
     Optional<Order> findByIdForUpdate(@Param("id") UUID id);
 
-    // F-064 gộp với job trả tiền người ký gửi: đơn đã giao quá hạn (DELIVERED) hoặc đã
-    // chốt sớm bởi buyer (COMPLETED) mà chưa trả tiền
     List<Order> findAllByStatusInAndAutoCompleteDeadlineBeforeAndPayoutAtIsNull(
             List<OrderStatus> statuses, Instant deadline);
 
@@ -40,9 +37,6 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     @Query("select o.status, count(o) from Order o where o.buyer.id = :buyerId group by o.status")
     List<Object[]> countGroupedByStatusForBuyer(@Param("buyerId") UUID buyerId);
 
-    // Đơn có chứa ít nhất một món do :sellerId ký gửi. distinct vì một đơn có thể gồm nhiều
-    // món của cùng người bán. ORDER BY nằm trong câu query chứ không qua Pageable: root của
-    // query là OrderItem nên Sort.by("createdAt") sẽ trỏ sai bảng.
     @Query(value = "select distinct o from OrderItem oi join oi.order o "
             + "where oi.product.member.id = :sellerId and o.status in :statuses "
             + "order by o.createdAt desc",
@@ -52,30 +46,22 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
                                                 @Param("statuses") List<OrderStatus> statuses,
                                                 Pageable pageable);
 
-    // Đếm theo trạng thái cho thanh tab màn "Đơn đã bán". count(distinct o) vì một đơn
-    // nhiều món của cùng người bán vẫn chỉ là một đơn.
     @Query("select o.status, count(distinct o) from OrderItem oi join oi.order o "
             + "where oi.product.member.id = :sellerId group by o.status")
     List<Object[]> countGroupedByStatusForSeller(@Param("sellerId") UUID sellerId);
 
-    // Đơn đã bán thuộc một kho - dùng cho moderator xem đơn của kho mình quản lý, không
-    // giới hạn theo người ký gửi hay người mua như hai query trên.
     Page<Order> findByWarehouse_IdAndStatusIn(UUID warehouseId, List<OrderStatus> statuses, Pageable pageable);
 
     @Query("select o.status, count(o) from Order o where o.warehouse.id = :warehouseId group by o.status")
     List<Object[]> countGroupedByStatusForWarehouse(@Param("warehouseId") UUID warehouseId);
 
-    // Thống kê hộp thư Moderator: số đơn đang trong luồng giao hàng theo người mua, gom nhiều Member 1 query
     @Query("select o.buyer.id, count(o) from Order o "
             + "where o.buyer.id in :buyerIds and o.status in :statuses group by o.buyer.id")
     List<Object[]> countByBuyerIdsInAndStatusIn(@Param("buyerIds") Collection<UUID> buyerIds,
                                                  @Param("statuses") Collection<OrderStatus> statuses);
 
-    // Các đơn đã dùng một mã voucher. MemberVoucher cố ý không có used_order_id vì một mã áp cho
-    // cả lần thanh toán và trải trên nhiều đơn - quan hệ ngược nằm ở đây (xem MemberVoucher).
     List<Order> findAllByVoucher_Id(UUID voucherId);
 
-    // Mã đã dùng ở những đơn nào, gom nhiều mã trong 1 query cho ví voucher / màn Admin
     @Query("select o.voucher.id, o.orderNo from Order o where o.voucher.id in :voucherIds "
             + "order by o.createdAt asc")
     List<Object[]> findVoucherIdAndOrderNoByVoucherIds(@Param("voucherIds") Collection<UUID> voucherIds);

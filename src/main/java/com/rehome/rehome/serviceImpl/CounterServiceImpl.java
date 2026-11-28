@@ -59,11 +59,9 @@ public class CounterServiceImpl implements CounterService {
     private static final List<ConsignmentFormStatus> OPEN_FORM_STATUSES =
             List.of(ConsignmentFormStatus.PENDING, ConsignmentFormStatus.APPROVED, ConsignmentFormStatus.INSPECTING);
 
-    // Form ký gửi còn hiệu lực với kho: chưa bị từ chối/hết hạn/hủy và chưa nhập kho xong
     private static final List<ConsignmentFormStatus> ACTIVE_CONSIGNMENT_STATUSES = List.of(
             ConsignmentFormStatus.PENDING, ConsignmentFormStatus.APPROVED, ConsignmentFormStatus.INSPECTING);
 
-    // Mỗi lần admin khoá tài khoản ghi 1 dòng audit log này (xem AccountAdminServiceImpl.ban)
     private static final String BAN_ACTION_TYPE = "BAN_ACCOUNT";
     private static final String ACCOUNT_TARGET_TYPE = "ACCOUNT";
 
@@ -126,8 +124,6 @@ public class CounterServiceImpl implements CounterService {
         }
     }
 
-    // F-034: đóng yêu cầu rút hàng khi Moderator bàn giao xong tại quầy (record phải khớp thực
-    // tế: hàng đã về tay người ký gửi). Trước bàn giao hàng vẫn ở WAREHOUSE; dữ liệu cũ có thể WITHDRAWN.
     private void handoverItemWithdrawal(Account moderator, UUID accountId, UUID refId) {
         ItemWithdrawalRequest withdrawal = itemWithdrawalRequestRepository.findById(refId)
                 .filter(r -> r.getMember().getId().equals(accountId))
@@ -150,7 +146,6 @@ public class CounterServiceImpl implements CounterService {
         }
         auditLogger.logOperation(moderator, "HANDOVER_WITHDRAWAL", "WITHDRAWAL", refId, "COMPLETED");
 
-        // API 72: việc trong hàng đợi (mở ở API 90 lúc tạo yêu cầu) đã xử lý xong
         queueService.dequeue(QueueType.WITHDRAWAL, withdrawal.getId().toString());
     }
 
@@ -231,7 +226,6 @@ public class CounterServiceImpl implements CounterService {
         if (phone != null) {
             found = memberProfileRepository.findByAccount_Phone(phone);
         } else {
-            // Giả định: qrPayload chứa đúng memberCode
             String code = memberCode != null ? memberCode : qrPayload;
             found = memberProfileRepository.findByMemberCode(code).map(List::of).orElse(List.of());
         }
@@ -240,7 +234,6 @@ public class CounterServiceImpl implements CounterService {
             throw new AppException(ErrorCode.MEMBER_NOT_FOUND);
         }
 
-        // Nạp theo lô cho cả danh sách tìm thấy: mỗi nguồn dữ liệu đúng 1 truy vấn
         List<UUID> accountIds = found.stream().map(MemberProfile::getAccountId).toList();
         Map<UUID, Instant> lastVisits = loadLastWarehouseVisits(accountIds);
         Map<UUID, ViolationAggregate> violations = loadViolationAggregates(accountIds);
@@ -260,7 +253,6 @@ public class CounterServiceImpl implements CounterService {
         }).toList();
     }
 
-    // Bảng chỉ giữ 1 dòng/account (ghi đè mỗi lần xác nhận) nên confirmedAt chính là lần gần nhất
     private Map<UUID, Instant> loadLastWarehouseVisits(Collection<UUID> accountIds) {
         Map<UUID, Instant> result = new HashMap<>();
         identityConfirmationRepository.findAllById(accountIds)
@@ -286,7 +278,6 @@ public class CounterServiceImpl implements CounterService {
                 .findByMember_IdInAndWarehouse_IdAndStatusInOrderByCreatedAtAsc(
                         accountIds, warehouseId, ACTIVE_CONSIGNMENT_STATUSES)
                 .stream()
-                // getId() trên proxy lazy không kích hoạt query
                 .collect(Collectors.groupingBy(f -> f.getMember().getId(),
                         Collectors.mapping(MemberLookupItemResponse.ActiveConsignmentItem::from,
                                 Collectors.toList())));
@@ -391,8 +382,6 @@ public class CounterServiceImpl implements CounterService {
                 .build();
     }
 
-    // Trả hàng kết luận INVALID còn trong 7 ngày gần nhất - tên món lấy qua OrderItem, gộp 1
-    // query cho cả lô để tránh N+1 (mỗi đơn ở hệ thống này chỉ có 1 kho/1 món - xem Order)
     private List<MemberTasksResponse.PendingInvalidReturnItem> buildPendingInvalidReturns(UUID accountId) {
         List<ReturnRequest> invalidReturns = returnRequestRepository
                 .findRecentInvalidByBuyerId(accountId, Instant.now().minus(7, ChronoUnit.DAYS))

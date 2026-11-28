@@ -24,7 +24,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-/** Versioned keys keep an older in-flight database read from repopulating the active cache. */
 @Component
 @Slf4j
 public class ProductListCache {
@@ -74,12 +73,10 @@ public class ProductListCache {
             String generation = redis.opsForValue().get(GENERATION_KEY);
             key = PREFIX + (generation == null ? "0" : generation) + ":" + digest;
         } catch (Exception ex) {
-            // Do not retry a Redis write after a failed read (especially a connection timeout).
             key = null;
             log.warn("Product cache read failed; loading database ({})", ex.getClass().getSimpleName());
         }
 
-        // Include the generation: requests after invalidation cannot join an older read.
         String flightKey = epoch + ":" + (key == null ? "offline:" + digest : key);
         var pending = new CompletableFuture<PageResponse<ProductSummaryResponse>>();
         var existing = inFlight.putIfAbsent(flightKey, pending);
@@ -116,7 +113,6 @@ public class ProductListCache {
             }
         }
 
-        // Database/application exceptions propagate normally, without a second loader call.
         PageResponse<ProductSummaryResponse> result = loader.get();
         if (key != null) {
             try {
@@ -148,7 +144,6 @@ public class ProductListCache {
     private void invalidate() {
         localGeneration.incrementAndGet();
         try {
-            // No KEYS/SCAN or mass deletion: old pages expire through their existing TTL.
             redis.opsForValue().set(GENERATION_KEY, UUID.randomUUID().toString());
         } catch (Exception ex) {
             log.warn("Product cache invalidation failed; existing pages expire by TTL ({})",

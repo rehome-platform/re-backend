@@ -8,6 +8,5 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class PayItemWithdrawalFeeRequest {
-    // WALLET / VNPAY - thanh toán riêng lẻ bằng đúng 1 phương thức, không chia nhỏ
     private String paymentMethod;
 }

@@ -17,6 +17,5 @@ public interface DeviceTokenRepository extends JpaRepository<DeviceToken, UUID> 
 
     void deleteByAccount_IdAndToken(UUID accountId, String token);
 
-    // FCM báo token không còn hợp lệ (gỡ app, đăng xuất...) -> dọn khỏi DB để không gửi lại
     void deleteByTokenIn(Collection<String> tokens);
 }

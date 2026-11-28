@@ -1,6 +1,5 @@
 package com.rehome.rehome.serviceImpl;
 
-import com.rehome.rehome.client.VnPayApi;
 import com.rehome.rehome.constant.SystemConfigKeys;
 import com.rehome.rehome.dto.request.CreateItemWithdrawalRequest;
 import com.rehome.rehome.dto.request.PayItemWithdrawalFeeRequest;
@@ -72,7 +71,6 @@ import java.util.stream.Collectors;
 @Slf4j
 public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestService {
 
-    // Trạng thái còn sống của một yêu cầu rút hàng - chặn tạo yêu cầu thứ hai cho cùng sản phẩm
     private static final List<ItemWithdrawalStatus> ACTIVE_WITHDRAWAL_STATUSES =
             List.of(ItemWithdrawalStatus.PENDING_APPROVAL, ItemWithdrawalStatus.PENDING_PICKUP);
 
@@ -83,7 +81,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
     private final WalletRepository walletRepository;
     private final WalletTransactionRepository walletTransactionRepository;
     private final PlatformFundRepository platformFundRepository;
-    private final VnPayApi vnPayApi;
     private final QueueService queueService;
     private final com.rehome.rehome.service.NotificationService notificationService;
     private final SystemConfigReader systemConfigReader;
@@ -106,7 +103,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
     @Value("${vnpay.version}")
     private String vnpVersion;
 
-    // counter_pickup_days (system_configs): số ngày Member có để đến kho nhận lại hàng
     private int getCounterPickupDays() {
         return systemConfigReader.getInt(
                 SystemConfigKeys.COUNTER_PICKUP_DAYS, SystemConfigKeys.DEFAULT_COUNTER_PICKUP_DAYS);
@@ -138,9 +134,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
 
         BigDecimal fee = computeFee(product);
 
-        // pickupDeadline/feePaymentDeadline chưa tính ở đây: cả hai chỉ có ý nghĩa cho Member hành
-        // động sau khi Moderator duyệt, đặt ngay bây giờ thì thời gian Moderator xử lý cũng bị trừ
-        // vào hạn của Member, thậm chí có thể hết hạn trả phí (15 phút) trước khi Moderator kịp duyệt
         ItemWithdrawalRequest withdrawal = ItemWithdrawalRequest.builder()
                 .product(product)
                 .member(account)
@@ -150,13 +143,8 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
 
         itemWithdrawalRequestRepository.save(withdrawal);
 
-        // Việc mới cho Moderator của kho đang giữ sản phẩm - duyệt/từ chối, đóng lại ở approve()/reject();
-        // nếu duyệt thì cùng việc này tiếp tục đại diện cho bước bàn giao tại quầy (API 72)
         queueService.enqueue(QueueType.WITHDRAWAL, withdrawal.getId().toString(), product.getWarehouse());
 
-        // F-032: "so that I can stop selling it" - sản phẩm ngừng bán ngay khi gửi yêu cầu, không
-        // chờ tới lúc bàn giao (F-034) mới gỡ. Hàng vẫn nằm đúng vị trí kệ cho tới khi Member thật
-        // sự đến lấy - ở đây chỉ đổi trạng thái niêm yết.
         product.setStatus(ProductStatus.WAREHOUSE);
         productRepository.save(product);
 
@@ -164,8 +152,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         return toResponse(withdrawal);
     }
 
-    // Moderator của kho giữ sản phẩm duyệt yêu cầu: PENDING_APPROVAL -> PENDING_PICKUP. Hạn lấy
-    // hàng và hạn trả phí (nếu có) chỉ tính từ đây, không phải từ lúc Member tạo yêu cầu.
     @Override
     @Transactional
     public ItemWithdrawalResponse approve(Account moderator, UUID id) {
@@ -181,7 +167,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         withdrawal.setModerator(moderator);
         withdrawal.setReviewedAt(Instant.now());
         withdrawal.setPickupDeadline(Instant.now().plus(getCounterPickupDays(), ChronoUnit.DAYS));
-        // Chỉ đặt hạn khi có gì phải trả; miễn phí thì không có gì để hết hạn
         withdrawal.setFeePaymentDeadline(withdrawal.getFeeCharged().compareTo(BigDecimal.ZERO) > 0
                 ? Instant.now().plus(feePaymentDeadlineMinutes, ChronoUnit.MINUTES)
                 : null);
@@ -196,9 +181,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         return toResponse(withdrawal);
     }
 
-    // Moderator từ chối: PENDING_APPROVAL -> REJECTED (trạng thái cuối). Hàng chưa rời kho thật
-    // (WAREHOUSE từ lúc tạo yêu cầu; WITHDRAWN với dữ liệu cũ), nên trả lại ON_SALE ngay,
-    // giống cách ItemWithdrawalAutoExpireServiceImpl trả hàng khi hết hạn.
     @Override
     @Transactional
     public ItemWithdrawalResponse reject(Account moderator, UUID id, RejectItemWithdrawalRequest request) {
@@ -220,7 +202,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         withdrawal.setReviewedAt(Instant.now());
         itemWithdrawalRequestRepository.save(withdrawal);
 
-        // Không còn gì để Moderator bàn giao (API 72) - đóng việc trong hàng đợi, mở ở create()
         queueService.dequeue(QueueType.WITHDRAWAL, withdrawal.getId().toString());
 
         Product product = productRepository.findByIdForUpdate(withdrawal.getProduct().getId())
@@ -249,13 +230,9 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         }
     }
 
-    // F-032: miễn phí trong freeWithdrawalWindowDays đầu mỗi kỳ (tính từ termStartedAt); sau đó
-    // tính phí rút cố định đã snapshot trên biên nhận lúc ký, không đọc cấu hình sống - đổi cấu
-    // hình không ảnh hưởng hợp đồng cũ (xem docs/OVERVIEW.md).
     private BigDecimal computeFee(Product product) {
         ConsignmentReceipt receipt = product.getConsignmentReceipt();
         Instant termStartedAt = product.getTermStartedAt();
-        // Dữ liệu cũ/seed có thể thiếu biên nhận hoặc mốc bắt đầu kỳ: trả lỗi có mã (409) thay vì NPE -> 500
         if (receipt == null || termStartedAt == null || receipt.getFreeWithdrawalWindowDays() == null) {
             throw new AppException(ErrorCode.PRODUCT_RECEIPT_INCOMPLETE);
         }
@@ -265,16 +242,12 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
             return BigDecimal.ZERO;
         }
 
-        // Chỉ cần phí đã snapshot khi rút ngoài cửa sổ miễn phí
         if (receipt.getWithdrawalFee() == null) {
             throw new AppException(ErrorCode.PRODUCT_RECEIPT_INCOMPLETE);
         }
         return receipt.getWithdrawalFee();
     }
 
-    // API 91 (F-033): trả phí rút hàng (nếu có) bằng đúng 1 phương thức - ví hoặc VNPay,
-    // không chia nhỏ. Ví trừ và chốt ngay trong transaction này; VNPay chỉ mở giao dịch,
-    // kết quả thật chờ IPN (applyVnPayFeePaymentResult).
     @Override
     @Transactional
     public PayItemWithdrawalFeeResponse payFee(
@@ -287,13 +260,10 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
             throw new AppException(ErrorCode.ITEM_WITHDRAWAL_FORBIDDEN);
         }
 
-        // Đã bị ItemWithdrawalAutoExpireServiceImpl hủy (quá hạn lấy hàng hoặc quá hạn trả phí) ->
-        // sản phẩm có thể đã ON_SALE/bán lại, không cho trả phí vào yêu cầu đã chết
         if (withdrawal.getStatus() != ItemWithdrawalStatus.PENDING_PICKUP) {
             throw new AppException(ErrorCode.ITEM_WITHDRAWAL_NOT_PENDING);
         }
 
-        // Miễn phí hoặc đã thanh toán xong trước đó -> không cần làm gì thêm
         if (withdrawal.getFeeCharged().compareTo(BigDecimal.ZERO) == 0 || withdrawal.getFeePaidAt() != null) {
             return toPaidResponse(withdrawal);
         }
@@ -320,8 +290,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
 
     private PayItemWithdrawalFeeResponse payByWallet(Account account, ItemWithdrawalRequest withdrawal) {
 
-        // Khóa ví trước khi đọc số dư: hai request trả phí song song của cùng người không được
-        // cùng thấy đủ tiền rồi trừ thành số dư âm
         Wallet wallet = walletRepository.findByMemberIdForUpdate(account.getId())
                 .orElseThrow(() -> new ConflictException(
                         "INSUFFICIENT_BALANCE: ví chưa có số dư.", "INSUFFICIENT_BALANCE"));
@@ -410,8 +378,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 .build();
     }
 
-    // Webhook VNPay gọi khi có kết quả giao dịch trả phí rút hàng (dispatch từ VnPayServiceImpl.handleIpn
-    // khi vnp_TxnRef không khớp Payment nào)
     @Override
     @Transactional
     public boolean applyVnPayFeePaymentResult(String vnpTxnRef, String responseCode, String transactionNo) {
@@ -489,7 +455,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 .orElseGet(() -> PlatformFund.builder().build());
     }
 
-    // F-039: mỗi bút toán ví Member phải có một bút toán đối ứng ở quỹ nền tảng, ngược dấu
     private void recordPlatformCounterpart(WalletTransaction memberTransaction) {
         PlatformFund fund = getOrCreatePlatformFund();
         BigDecimal counterpartAmount = memberTransaction.getAmount().negate();
@@ -511,17 +476,12 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         walletTransactionRepository.save(platformTransaction);
     }
 
-    // Phí rút hàng trả qua VNPay không đi qua ví Member và (giống thanh toán đơn qua cổng) không đổi số dư
-    // quỹ nền tảng - quỹ chỉ phản ánh tiền trong hệ thống ví. Chỉ ghi dòng ghi nhận doanh thu.
     private void recordPlatformIncomeFromGateway(
             ItemWithdrawalRequest withdrawal, String gateway, String gatewayTransId) {
         recordWithdrawalFeeRevenue(withdrawal, "Thu phí rút hàng qua " + gateway + " (mã GD " + gatewayTransId
                 + ") cho sản phẩm " + withdrawal.getProduct().getId());
     }
 
-    // Ghi nhận doanh thu phí rút hàng (WITHDRAWAL_FEE_REVENUE): dòng PLATFORM dương, không có dòng Member đối ứng
-    // và không đổi số dư quỹ, giống COMMISSION_REVENUE ở OrderServiceImpl. Đối soát quỹ bỏ qua loại dòng này
-    // (AdminReportQueryRepository); dashboard cộng đúng một dòng cho mỗi khoản phí đã thu.
     private void recordWithdrawalFeeRevenue(ItemWithdrawalRequest withdrawal, String note) {
         BigDecimal amount = withdrawal.getFeeCharged();
         if (amount != null && amount.signum() > 0) {
@@ -549,8 +509,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         walletTransactionRepository.save(revenueTransaction);
     }
 
-    // Sắp xếp field theo tên, bỏ field rỗng, nối "key=value" (value url-encode) bằng "&" - công thức
-    // vnp_SecureHash của VNPay, giống hệt VnPayServiceImpl
     private String hashAllFields(Map<String, String> fields) {
         List<String> fieldNames = new ArrayList<>(fields.keySet());
         Collections.sort(fieldNames);
@@ -594,8 +552,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
         return hexString.toString();
     }
 
-    // ---------------------------------------------------------------- Member xem yêu cầu của mình
-
     @Override
     public ItemWithdrawalDetailResponse getMine(Account account, UUID id) {
         ItemWithdrawalRequest withdrawal = itemWithdrawalRequestRepository.findDetailById(id)
@@ -621,7 +577,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
             return List.of();
         }
 
-        // Ảnh đại diện của cả trang bằng một query, tránh N+1
         List<String> productIds = withdrawals.stream().map(w -> w.getProduct().getId()).toList();
         Map<String, String> photosByProduct = productPhotoRepository
                 .findByProduct_IdInOrderByDisplayOrderAscIdAsc(productIds).stream()
@@ -652,7 +607,6 @@ public class ItemWithdrawalRequestServiceImpl implements ItemWithdrawalRequestSe
                 .status(w.getStatus().name())
                 .rejectReason(w.getRejectReason())
                 .feeAmount(w.getFeeCharged())
-                // Cùng điều kiện mà payFee dùng để biết "không còn gì phải trả"
                 .feePaid(w.getFeeCharged().compareTo(BigDecimal.ZERO) == 0 || w.getFeePaidAt() != null)
                 .paymentMethod(w.getFeePaymentMethod() == null ? null : w.getFeePaymentMethod().name())
                 .pickupDeadline(w.getPickupDeadline())

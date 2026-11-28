@@ -14,9 +14,7 @@ public class PackScanResponse {
     private Integer scannedCount;
     private Integer totalCount;
 
-    // SKU vừa quét đúng, null khi quét sai (matched = false)
     private String scannedProductId;
 
-    // Chỉ có giá trị khi matched = false
     private WrongItemDetail wrongItem;
 }

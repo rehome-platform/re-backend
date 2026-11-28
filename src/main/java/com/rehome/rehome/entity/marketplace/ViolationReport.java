@@ -19,56 +19,45 @@ import org.hibernate.annotations.ColumnDefault;
 @AllArgsConstructor
 @Builder
 public class ViolationReport {
-    // Khóa chính
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false)
     private UUID id;
 
-    // Member gửi báo cáo
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "reporter_member_id", nullable = false)
     private Account reporterMember;
 
-    // POST / CAMPAIGN / ORGANIZATION_ACCOUNT — quyết định target_id trỏ bảng nào
     @Enumerated(EnumType.STRING)
     @Column(name = "target_type", nullable = false)
     private ViolationTargetType targetType;
 
-    // Khóa đa hình: id của CommunityPost, Campaign hoặc Account bị báo — không đặt FK được vì trỏ ba bảng
     @Column(name = "target_id", nullable = false)
     private UUID targetId;
 
-    // Lý do báo cáo
     @Column(name = "reason", nullable = false, columnDefinition = "text")
     private String reason;
 
-    // PENDING / RESOLVED / DISMISSED
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     @ColumnDefault("'PENDING'")
     @Builder.Default
     private ViolationReportStatus status = ViolationReportStatus.PENDING;
 
-    // Moderator xử lý báo cáo
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "resolved_by", nullable = true)
     private Account resolvedBy;
 
-    // Hành động đã làm; null khi chưa resolve hoặc bị dismiss (dismiss không có action trên nội dung)
     @Enumerated(EnumType.STRING)
     @Column(name = "resolution_action", nullable = true, length = 255)
     private ViolationResolutionAction resolutionAction;
 
-    // Lý do Moderator nhập lúc resolve/dismiss (khác reason - đó là lý do của người báo cáo)
     @Column(name = "resolution_reason", nullable = true, columnDefinition = "text")
     private String resolutionReason;
 
-    // Thời điểm gửi báo cáo
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    // Thời điểm xử lý xong
     @Column(name = "resolved_at", nullable = true)
     private Instant resolvedAt;
 

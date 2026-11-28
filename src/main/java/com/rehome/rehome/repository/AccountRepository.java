@@ -21,14 +21,9 @@ public interface AccountRepository extends JpaRepository<Account, UUID>, JpaSpec
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from Account u where u.email = :email")
     Optional<Account> findByEmailForUpdate(@Param("email") String email);
-    // Khoá dòng Member để các thao tác gửi form của cùng một người chạy lần lượt (kiểm tra giới hạn chờ duyệt)
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from Account u where u.id = :id")
     Optional<Account> findByIdForUpdate(@Param("id") UUID id);
-    // JWT/WebSocket auth giữ Account này trong SecurityContext suốt đời request (REST) hoặc suốt
-    // kết nối (STOMP) - warehouse phải là entity thật nạp sẵn ở đây, không phải proxy lazy, vì
-    // phiên Hibernate đã tạo ra nó đóng lại trước khi ConversationServiceImpl chạm tới warehouse
-    // trong transaction khác (LazyInitializationException, xem requireWarehouseId/isParticipant).
     @EntityGraph(attributePaths = {"warehouse"})
     Optional<Account> findByEmail(String email);
     boolean existsByEmail(String email);
@@ -50,10 +45,6 @@ public interface AccountRepository extends JpaRepository<Account, UUID>, JpaSpec
 
     List<Account> findByRole(Role role);
 
-    // API 135: tìm theo email, số điện thoại hoặc họ tên/tên tổ chức (:pattern đã là dạng %từ khoá% chữ thường,
-    // "%" nếu không tìm; từ khoá giống số điện thoại đã được chuẩn hóa về dạng 0xxxxxxxxx).
-    // role/status null = không lọc. from/to lọc theo ngày tạo tài khoản, luôn khác null (xem AdminDateRange) -
-    // Postgres không suy được kiểu của tham số null trong "(:p is null or ...)" cho timestamp.
     @Query("""
         select a from Account a
         where (:role is null or a.role = :role)
@@ -76,8 +67,6 @@ public interface AccountRepository extends JpaRepository<Account, UUID>, JpaSpec
                                  @Param("to") Instant to,
                                  Pageable pageable);
 
-    // API 139: danh sách Moderator (search/status/warehouse qua AccountSpecifications.moderators),
-    // nạp luôn kho để không N+1
     @Override
     @EntityGraph(attributePaths = "warehouse")
     Page<Account> findAll(Specification<Account> spec, Pageable pageable);
@@ -88,12 +77,8 @@ public interface AccountRepository extends JpaRepository<Account, UUID>, JpaSpec
     @EntityGraph(attributePaths = "warehouse")
     Page<Account> findByRoleAndWarehouse_Id(Role role, UUID warehouseId, Pageable pageable);
 
-    // Push chat (MEMBER_WAREHOUSE): tất cả Moderator đang phụ trách kho đó - hộp thư là chung,
-    // không phải 1 người cụ thể, nên phải báo hết.
     List<Account> findByRoleAndWarehouse_Id(Role role, UUID warehouseId);
 
-    // Audit log search: id các tài khoản có họ tên Member/Moderator hoặc tên tổ chức khớp :pattern
-    // (dạng %từ khoá% chữ thường). Giới hạn bằng Pageable để từ khoá quá ngắn không kéo cả bảng.
     @Query("""
         select a.id from Account a
         where exists (select 1 from MemberProfile m

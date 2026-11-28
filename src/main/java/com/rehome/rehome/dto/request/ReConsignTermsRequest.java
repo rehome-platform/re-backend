@@ -10,8 +10,6 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 
-// Moderator chốt giá và điều khoản cho đợt ký gửi lại. Chỉ agreedPrice bắt buộc,
-// trường nào bỏ trống thì lấy tham số hệ thống trong system_configs (Admin chỉnh được).
 @Getter
 @Setter
 public class ReConsignTermsRequest {
@@ -20,7 +18,6 @@ public class ReConsignTermsRequest {
     @Positive(message = "agreedPrice phải lớn hơn 0.")
     private BigDecimal agreedPrice;
 
-    // Không truyền thì = agreedPrice x floorPriceRate
     @Positive(message = "floorPrice phải lớn hơn 0.")
     private BigDecimal floorPrice;
 
@@ -42,9 +39,7 @@ public class ReConsignTermsRequest {
     @DecimalMax(value = "1", message = "commissionRateTerm3 phải từ 0 đến 1.")
     private BigDecimal commissionRateTerm3;
 
-    // Không truyền thì giữ tình trạng của biên nhận cũ
     private String conditionNote;
 
-    // Ghi chú nội bộ của Moderator
     private String moderatorNote;
 }

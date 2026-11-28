@@ -92,13 +92,8 @@ public class CommunityPostServiceImpl implements CommunityPostService {
     private final ViolationReportRepository violationReportRepository;
     private final NotificationService notificationService;
 
-    // Scope của newsfeed khi không lọc theo 1 tổ chức cụ thể (organizationId == null).
-    // ALL: mọi bài VISIBLE xuyên tổ chức, Guest xem được. FOLLOWING: chỉ bài của tổ chức
-    // viewer đang theo dõi, bắt buộc đăng nhập.
     private enum PostFeedScope { ALL, FOLLOWING }
 
-    // Không truyền scope: giữ hành vi cũ là FOLLOWING khi đã đăng nhập; Guest không có gì để
-    // "theo dõi" nên mặc định cho xem ALL thay vì chặn 401 như trước.
     private static PostFeedScope resolveScope(String rawScope, UUID viewerId) {
         if (!StringUtils.hasText(rawScope)) {
             return viewerId != null ? PostFeedScope.FOLLOWING : PostFeedScope.ALL;
@@ -189,14 +184,11 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy bài viết."));
 
         boolean isOwner = viewerId != null && post.getOrganization().getAccountId().equals(viewerId);
-        // REMOVED (Moderator gỡ do vi phạm): chỉ tổ chức sở hữu xem được, kèm lý do gỡ. Member/Guest
-        // coi như không tồn tại - giống hành vi với Campaign HIDDEN (CampaignServiceImpl.getPublicDetail)
         if (!isOwner && (post.getStatus() != ContentStatus.VISIBLE || isOrganizationBanned(post))) {
             throw new IllegalArgumentException("Không tìm thấy bài viết.");
         }
 
         long likeCount = postLikeRepository.countByPost_Id(postId);
-        // Bình luận REMOVED vẫn chiếm 1 dòng trong danh sách (content null), nên vẫn tính vào tổng
         long commentCount = postCommentRepository.countByPost_Id(postId);
         boolean likedByMe = viewerId != null && postLikeRepository.existsByPost_IdAndMember_Id(postId, viewerId);
 
@@ -229,8 +221,6 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                 .build();
     }
 
-    // Báo cáo RESOLVED gần nhất của target này; null nếu không có (gỡ vì lý do khác chưa có
-    // trong hệ thống, hoặc dữ liệu cũ) - dùng chung logic với CampaignServiceImpl.latestResolutionReason
     private String latestResolutionReason(ViolationTargetType targetType, UUID targetId) {
         return violationReportRepository.findByTargetTypeAndTargetIdOrderByCreatedAtAsc(targetType, targetId)
                 .stream()
@@ -281,7 +271,6 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                 Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
                 Sort.by(Sort.Direction.DESC, "createdAt"));
 
-        // Trả cả REMOVED (content bỏ ở tầng response) - mobile tự xếp nhóm theo parentId (OB-05)
         Page<PostComment> result = postCommentRepository.findByPost_Id(postId, pageable);
         Map<UUID, AuthorInfo> authorInfoByAccountId = loadAuthorInfoMap(result.getContent());
         return PageResponse.from(result.map(c -> toCommentResponse(c, authorInfoByAccountId, viewerId)));
@@ -303,14 +292,11 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         Account author = accountRepository.findById(authorId)
                 .orElseThrow(() -> new AppException(ErrorCode.UNAUTHORIZED));
 
-        // ORGANIZATION chỉ được bình luận/trả lời trên bài của chính mình; Member không giới hạn
         if (author.getRole() == Role.ORGANIZATION
                 && !post.getOrganization().getAccountId().equals(authorId)) {
             throw new ForbiddenException("Bạn không có quyền bình luận trên bài viết này.");
         }
 
-        // replyTarget: bình luận thực sự được bấm trả lời (trước khi quy về gốc) - dùng để báo
-        // COMMENT_REPLIED cho đúng người, dù lưu quan hệ parent vẫn quy về bình luận gốc (chỉ 1 cấp)
         PostComment replyTarget = resolveReplyTargetOrNull(postId, request.getParentId());
         PostComment rootParent = replyTarget == null ? null
                 : (replyTarget.getParent() != null ? replyTarget.getParent() : replyTarget);
@@ -337,8 +323,6 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         return toCommentResponse(comment, Collections.singletonMap(authorId, authorInfo), authorId);
     }
 
-    // Trả về đúng bình luận được bấm trả lời (không quy về gốc) - chỉ dùng để xác định người
-    // nhận thông báo; quan hệ lưu DB vẫn chỉ 1 cấp, xem rootParent ở createComment.
     private PostComment resolveReplyTargetOrNull(UUID postId, String rawParentId) {
         if (!StringUtils.hasText(rawParentId)) {
             return null;
@@ -354,10 +338,6 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                 .orElseThrow(() -> new IllegalArgumentException(COMMENT_NOT_FOUND));
     }
 
-    // COMMENT_REPLIED: có replyTarget và tác giả replyTarget khác người vừa bình luận -> báo cho
-    // tác giả replyTarget (có thể là Member hoặc tổ chức, vì giờ cả hai đều có thể bị trả lời).
-    // POST_COMMENTED: người bình luận là Member và tổ chức (chủ bài) chưa nhận COMMENT_REPLIED ở
-    // bước trên -> báo thêm cho tổ chức. Không bao giờ báo cho chính người vừa bình luận.
     private void notifyAboutComment(CommunityPost post, Account author, PostComment replyTarget) {
         Account organizationAccount = post.getOrganization().getAccount();
         boolean organizationAlreadyNotified = false;
@@ -381,8 +361,6 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         }
     }
 
-    // type/name/avatarUrl nhúng trong CommentAuthorResponse; MEMBER đọc MemberProfile,
-    // ORGANIZATION đọc OrganizationProfile (tên/logo)
     private record AuthorInfo(String type, String name, String avatarUrl) {
     }
 
@@ -437,12 +415,9 @@ public class CommunityPostServiceImpl implements CommunityPostService {
 
         OrganizationProfile organization = organizationProfileRepository.findById(organizationAccountId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORGANIZATION_PROFILE_NOT_FOUND));
-        // Chỉ tổ chức đã xác minh mới được đăng bài (docs/OVERVIEW.md mục 2, Actor Organization)
         if (organization.getVerificationStatus() != VerificationStatus.VERIFIED) {
             throw new ForbiddenException("Hồ sơ tổ chức chưa được xác minh.");
         }
-        // OB-02: campaignId không bắt buộc; nếu có thì chỉ chấp nhận chiến dịch đang OPEN của
-        // chính tổ chức này, ngoài phạm vi đó coi như không tìm thấy (giống DonationServiceImpl)
         Campaign campaign = resolveOwnOpenCampaignOrNull(organizationAccountId, request.getCampaignId(), null);
 
         var moderationAction = moderation.evaluateForReview(request.getContent());
@@ -460,8 +435,6 @@ public class CommunityPostServiceImpl implements CommunityPostService {
             communityPostPhotoRepository.saveAll(photos);
         }
 
-        // UC-44: báo cho người theo dõi tổ chức khi có bài viết mới. Chỉ gửi lúc TẠO, không gửi
-        // khi sửa (updatePost không gọi hàm này).
         if (post.getStatus() == ContentStatus.VISIBLE) {
             notificationService.notifyFollowers(organizationAccountId, NotificationType.FOLLOWED_ORG_POST,
                     organization.getDisplayName() + " có bài viết mới",
@@ -485,9 +458,6 @@ public class CommunityPostServiceImpl implements CommunityPostService {
 
         CommunityPost post = requireOwnPost(organizationAccountId, postId,
                 "Bạn không có quyền sửa bài viết này.");
-        // Bài đã bị Moderator gỡ do vi phạm thì không cho sửa lại nội dung - cùng lý do với
-        // Campaign HIDDEN (CampaignServiceImpl.closeCampaign): tránh "rửa" nội dung vi phạm
-        // rồi trông như bài vẫn còn hợp lệ.
         if (post.getStatus() == ContentStatus.REMOVED) {
             throw new ConflictException(
                     "Bài viết đã bị gỡ do vi phạm, không thể sửa.", "POST_ALREADY_REMOVED");
@@ -501,7 +471,6 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         communityPostRepository.save(post);
         moderation.recordMatch(organizationAccountId, "POST", post.getId(), moderationAction);
 
-        // OB-03: danh sách ảnh mới thay thế hẳn danh sách cũ, không patch từng ảnh
         communityPostPhotoRepository.deleteByPost_Id(postId);
         List<CommunityPostPhoto> photos = toPhotoEntities(post, request.getPhotoUrls());
         if (!photos.isEmpty()) {
@@ -531,8 +500,6 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         }
     }
 
-    // Giới hạn mobile đang áp (content <= 2000 ký tự, tối đa 5 ảnh) — BE trước đây không kiểm,
-    // giờ chặn luôn ở tầng service và trả AppException để FE phân biệt bằng code (xem ErrorCode)
     private void validateContentAndPhotos(String content, List<String> photoUrls) {
         if (content != null && content.length() > MAX_CONTENT_LENGTH) {
             throw new AppException(ErrorCode.POST_CONTENT_TOO_LONG);
@@ -543,7 +510,6 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         }
     }
 
-    // UC-44: body thông báo bài viết mới chỉ lấy 80 ký tự đầu, tránh thông báo quá dài
     private String truncate(String content, int maxLength) {
         if (content == null || content.length() <= maxLength) {
             return content;
@@ -561,10 +527,6 @@ public class CommunityPostServiceImpl implements CommunityPostService {
                 .toList();
     }
 
-    // OB-02/OB-03: campaignId rỗng -> không gắn/gỡ chiến dịch; có giá trị thì chiến dịch phải
-    // đang OPEN và thuộc đúng tổ chức này, ngoài phạm vi đó coi như không tìm thấy.
-    // Ngoại lệ: nếu campaignId gửi lên trùng với chiến dịch bài đang gắn (currentCampaign) thì
-    // giữ nguyên dù chiến dịch đã CLOSED - không thì sửa nội dung/ảnh của bài cũ sẽ luôn fail.
     private Campaign resolveOwnOpenCampaignOrNull(UUID organizationAccountId, String rawCampaignId,
             Campaign currentCampaign) {
         if (!StringUtils.hasText(rawCampaignId)) {
@@ -594,8 +556,6 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         CommunityPost post = requireOwnPost(organizationAccountId, postId,
                 "Bạn không có quyền xóa bài viết này.");
 
-        // Chuyển REMOVED thay vì xóa cứng: like/bình luận đang trỏ tới bài này bằng FK,
-        // và bài REMOVED đã bị loại khỏi mọi endpoint công khai (F-086)
         if (post.getStatus() != ContentStatus.REMOVED) {
             post.setStatus(ContentStatus.REMOVED);
             communityPostRepository.save(post);
@@ -618,7 +578,6 @@ public class CommunityPostServiceImpl implements CommunityPostService {
 
         List<UUID> postIds = result.getContent().stream().map(CommunityPost::getId).toList();
         Map<UUID, Long> likeCounts = toCountMap(postLikeRepository.countByPostIds(postIds));
-        // Bình luận REMOVED vẫn chiếm 1 dòng trong danh sách (content null), nên vẫn tính vào tổng
         Map<UUID, Long> commentCounts = toCountMap(postCommentRepository.countByPostIds(postIds));
         Map<UUID, Long> reportCounts = toCountMap(violationReportRepository.countByTargetTypeAndTargetIdInAndStatus(
                 ViolationTargetType.POST, postIds, ViolationReportStatus.PENDING));
@@ -650,8 +609,6 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         }));
     }
 
-    // Phiên bản gom nhiều target của latestResolutionReason (xem getDetail) - tránh N+1 khi 1 trang
-    // có nhiều bài REMOVED; targetIds rỗng thì bỏ qua query luôn.
     private Map<UUID, String> latestResolutionReasons(ViolationTargetType targetType, List<UUID> targetIds) {
         if (targetIds.isEmpty()) {
             return Map.of();
@@ -693,7 +650,6 @@ public class CommunityPostServiceImpl implements CommunityPostService {
         return CommentResponse.builder()
                 .id(comment.getId().toString())
                 .parentId(comment.getParent() == null ? null : comment.getParent().getId().toString())
-                // Chỉ tác giả thấy nội dung đang chờ duyệt; bình luận đã gỡ luôn ẩn nội dung.
                 .content(hideContent ? null : comment.getContent())
                 .status(comment.getStatus().name())
                 .reviewStatus(comment.getReviewStatus())

@@ -18,7 +18,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 
-// F-035: Member không đến kho nhận lại hàng trong hạn -> hủy yêu cầu, đăng bán lại sản phẩm
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -38,8 +37,6 @@ public class ItemWithdrawalAutoExpireServiceImpl implements ItemWithdrawalAutoEx
                 .findAllByStatusAndPickupDeadlineBefore(ItemWithdrawalStatus.PENDING_PICKUP, now);
         expireAndRelist(pickupExpired, "Het han nhan lai hang rut");
 
-        // Phí rút hàng chưa trả, quá hạn riêng (ngắn hơn pickupDeadline) -> hủy sớm, không chờ
-        // hết pickupDeadline (7 ngày) mới trả hàng lại ON_SALE
         List<ItemWithdrawalRequest> feeOverdue = itemWithdrawalRequestRepository
                 .findAllByStatusAndFeePaymentOverdue(ItemWithdrawalStatus.PENDING_PICKUP, now);
         expireAndRelist(feeOverdue, "Qua han tra phi rut hang");
@@ -50,11 +47,8 @@ public class ItemWithdrawalAutoExpireServiceImpl implements ItemWithdrawalAutoEx
             withdrawal.setStatus(ItemWithdrawalStatus.EXPIRED);
             itemWithdrawalRequestRepository.save(withdrawal);
 
-            // Quá hạn thì Moderator không còn gì để bàn giao (API 72) - đóng việc trong hàng đợi
             queueService.dequeue(QueueType.WITHDRAWAL, withdrawal.getId().toString());
 
-            // Hàng chưa rời kho thật (F-034 mới ghi nhận lúc bàn giao), nên chỉ cần đổi
-            // trạng thái niêm yết về lại ON_SALE
             Product product = productRepository.findByIdForUpdate(withdrawal.getProduct().getId()).orElse(null);
             if (product != null && (product.getStatus() == ProductStatus.WAREHOUSE
                     || product.getStatus() == ProductStatus.WITHDRAWN)) {

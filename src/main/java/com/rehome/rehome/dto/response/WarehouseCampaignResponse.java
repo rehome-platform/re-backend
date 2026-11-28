@@ -7,10 +7,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Chiến dịch đang nhận đồ tại 1 điểm ký gửi - GET /warehouses/{id}/campaigns.
- * Chỉ gồm các field màn quyên góp trực tiếp cần.
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

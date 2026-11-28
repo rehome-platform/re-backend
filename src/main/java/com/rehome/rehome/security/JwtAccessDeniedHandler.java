@@ -13,10 +13,6 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.stereotype.Component;
 
-/**
- * Trả 403 theo format ApiResponse khi đã đăng nhập nhưng không đủ quyền
- * (ví dụ tài khoản tổ chức gọi API chỉ dành cho Member).
- */
 @Component
 @RequiredArgsConstructor
 public class JwtAccessDeniedHandler implements AccessDeniedHandler {

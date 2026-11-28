@@ -82,8 +82,6 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
-    // Đơn đã bán: đơn có chứa hàng do chính người gọi ký gửi.
-    // Phải đứng TRƯỚC @GetMapping("/{id}") để "sold" không bị khớp vào {id}.
     @GetMapping("/sold")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<SoldOrderListResponse>> getSoldOrders(
@@ -98,9 +96,6 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
-    // Đơn đã bán theo kho: moderator xem mọi đơn thuộc kho mình quản lý, không giới hạn
-    // theo người ký gửi (như /orders/sold) hay người mua (như GET /orders).
-    // Phải đứng TRƯỚC @GetMapping("/{id}") để "warehouse" không bị khớp vào {id}.
     @GetMapping("/warehouse/sold")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<WarehouseOrderListResponse>> getWarehouseSoldOrders(
@@ -143,9 +138,6 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(result, message));
     }
 
-    // F-067: tạo yêu cầu trả hàng gắn thẳng theo đơn qua path; giữ POST /return-requests
-    // (orderId trong body) ở ReturnRequestController cho tương thích ngược, cùng chạy qua
-    // ReturnRequestService.create nên queue_items vẫn được gắn đúng kho của đơn (order.getWarehouse()).
     @PostMapping("/{id}/return-requests")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> createReturnRequest(
@@ -215,7 +207,6 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(result, "Đã ghi nhận đánh giá"));
     }
 
-    // API 69 (F-127)
     @PostMapping("/{id}/pack/scan")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<PackScanResponse>> packScan(
@@ -237,7 +228,6 @@ public class OrderController {
         return ApiResponse.success(orderService.updatePackingPhotos(authentication.getName(), id, request));
     }
 
-    // API 70 (F-127)
     @PostMapping("/{id}/shipment")
     @PreAuthorize("hasRole('MODERATOR')")
     public ResponseEntity<ApiResponse<CreateShipmentResponse>> createShipment(
@@ -249,7 +239,6 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(result, "Đã tạo vận đơn"));
     }
 
-    // In phiếu vận đơn GHN để dán lên kiện hàng (F-127)
     @PostMapping("/{id}/handover")
     @PreAuthorize("hasRole('MODERATOR')")
     public ApiResponse<OrderResponse> handoverToCarrier(Authentication authentication, @PathVariable UUID id) {
@@ -267,7 +256,6 @@ public class OrderController {
                 orderService.getShipmentLabel(authentication.getName(), id, size)));
     }
 
-    // API 64 (F-060)
     @GetMapping("/{id}/tracking")
     @PreAuthorize("hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<OrderTrackingResponse>> getTracking(

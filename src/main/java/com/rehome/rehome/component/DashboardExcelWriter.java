@@ -20,8 +20,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 
-/** F-159: dựng file Excel báo cáo dashboard. Khối Doanh thu/Người dùng/Kho xuất theo `sections` Admin đã
- * tick; bảng "Món đã bán" ở sheet riêng luôn có mặt, không phụ thuộc lựa chọn khối. */
 @Component
 public class DashboardExcelWriter {
 
@@ -45,7 +43,6 @@ public class DashboardExcelWriter {
         }
     }
 
-    /** Tập CellStyle dùng chung cho cả 2 sheet, tạo 1 lần để tránh lỗi "quá nhiều style" của Excel. */
     private static final class Styles {
         final CellStyle title;
         final CellStyle section;
@@ -227,7 +224,6 @@ public class DashboardExcelWriter {
         return date.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
     }
 
-    // Tiêu đề lớn, nền xanh, gộp ô từ cột 0 đến lastCol để không bị cắt chữ
     private static void titleRow(Sheet sheet, int rowIdx, int lastCol, String text, CellStyle style) {
         Row row = sheet.createRow(rowIdx);
         row.setHeightInPoints(22);
@@ -237,7 +233,6 @@ public class DashboardExcelWriter {
         sheet.addMergedRegion(new CellRangeAddress(rowIdx, rowIdx, 0, lastCol));
     }
 
-    // Dòng tiêu đề nhóm (DOANH THU, NGƯỜI DÙNG, KHO VẬN HÀNH), gộp 2 cột Chỉ số/Giá trị
     private static int sectionRow(Sheet sheet, int rowIdx, String text, CellStyle style) {
         Row row = sheet.createRow(rowIdx);
         cell(row, 0, text, style);
